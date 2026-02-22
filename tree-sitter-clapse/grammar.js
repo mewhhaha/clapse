@@ -86,14 +86,10 @@ module.exports = grammar({
       seq(
         "|",
         optional($._ws1),
-        field("condition", $.guard_condition_text),
-        optional($._ws1),
-        "=",
-        optional(choice($._ws1, seq($._newline, optional($._ws1)))),
+        field("condition", $.expression),
+        alias($._guard_eq_sep, $.guard_equals),
         field("result", $.expression),
       ),
-
-    guard_condition_text: () => token(/[^\n=]+/),
 
     function_signature: ($) =>
       prec.right(
@@ -632,6 +628,17 @@ module.exports = grammar({
               /[ \t\r\f]+/,
               seq(/\n/, /[ \t\r\f]*/),
             ),
+          ),
+        ),
+      ),
+    _guard_eq_sep: () =>
+      token(
+        seq(
+          /[ \t\r\f]*/,
+          "=",
+          choice(
+            /[ \t\r\f]+/,
+            seq(/\n/, /[ \t\r\f]*/),
           ),
         ),
       ),

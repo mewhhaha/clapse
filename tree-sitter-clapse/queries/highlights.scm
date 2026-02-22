@@ -11,9 +11,6 @@
 (function_declaration
   argument: (identifier) @variable.parameter)
 
-(guarded_clause
-  condition: (guard_condition_text) @variable.parameter)
-
 (function_signature
   name: (identifier) @function
   signature: (signature_text) @type)
@@ -80,14 +77,15 @@
 
 (operator_declaration
   operator: (operator_token
-    (identifier) @operator))
+    (identifier) @keyword.operator))
 
 (operator_declaration
   operator: (operator_token
-    (operator_symbol) @operator))
+    (operator_symbol) @keyword.operator))
 
-(operator_symbol) @operator
-(backtick_operator) @operator
+(operator_symbol) @keyword.operator
+(backtick_operator) @keyword.operator
+(guard_equals) @keyword.operator
 
 (lambda_expression
   parameter: (identifier) @variable.parameter)
@@ -118,13 +116,16 @@
   function: (capitalized_identifier) @constructor)
 
 (infix_expression
-  operator: (infix_operator) @operator)
+  operator: (infix_operator) @keyword.operator)
 
 (list_expression
   "," @punctuation.bracket)
 
 ((identifier) @function.builtin
   (#match? @function.builtin "^(add|sub|mul|div|append|empty|fmap|pure|bind|ap|compose|id|slice_len|slice_get_u8|slice_set_u8|collection_empty|collection_extend)$"))
+
+((identifier) @keyword
+  (#eq? @keyword "otherwise"))
 
 [
   "class"
@@ -150,7 +151,7 @@
   "->"
   "="
   ":"
-] @operator
+] @keyword.operator
 
 [
   "("

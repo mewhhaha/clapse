@@ -3,7 +3,13 @@ module Main (main) where
 import qualified Data.ByteString as BS
 import Data.Char (chr)
 import Data.List (isInfixOf, isPrefixOf)
-import Clapse.Modules (compileEntryModuleToWasm)
+import Clapse.Modules
+  ( CompileArtifact(..)
+  , ExportApi(..)
+  , compileEntryModule
+  , compileEntryModuleToWasm
+  , renderTypeScriptBindings
+  )
 import Control.Exception (finally)
 import Control.Monad (forM_)
 import MyLib
@@ -98,12 +104,14 @@ tests =
   , testParseCustomInfixRightAssociative
   , testParseCustomInfixOverrideBuiltin
   , testParseBacktickOperator
+  , testParseBacktickFunctionOperatorWithoutDeclaration
   , testParseUnknownInfixOperatorFails
   , testParseNonAssociativeInfixRejectsChain
   , testParseRejectsCamelCaseIdentifiers
   , testParseErrorLine
   , testFormatPreservesClassLawInstanceDeclarations
   , testFormatPreservesMultilineCaseLayout
+  , testFormatNormalizesMultilineCaseArmIndentation
   , testFormatExpandsInlineCase
   , testFormatExpandsInlineCaseWithContinuation
   , testFormatCollapsesInnerWhitespace
@@ -147,6 +155,7 @@ tests =
   , testClassDefRequiresLaws
   , testClassDefAcceptsCompleteLawSet
   , testInferSourceTypesForDataAndNoDo
+  , testInferSourceTypesForOldStyleDataNoTypeParams
   , testInferSourceTypesStringLiteral
   , testInferSourceTypesSliceBuiltins
   , testInferSourceTypesLinearMemoryBuiltins
@@ -183,6 +192,8 @@ tests =
   , testCompileEntryModuleDefaultExports
   , testCompileEntryModuleExplicitExports
   , testCompileEntryModuleRejectsUnknownExport
+  , testCompileEntryModuleArtifactExportsIncludeArity
+  , testRenderTypeScriptBindingsUsesExportArityFromIr
   , testCollapsePipelineUsesDerivedRules
   ]
 
@@ -306,6 +317,28 @@ testFormatPreservesMultilineCaseLayout = do
       failTest "format preserves multiline case layout" ("unexpected format error: " <> err)
     Right out ->
       assertEqual "format preserves multiline case layout" expected out
+
+testFormatNormalizesMultilineCaseArmIndentation :: IO Bool
+testFormatNormalizesMultilineCaseArmIndentation = do
+  let src =
+        unlines
+          [ "is_alive_next alive neighbors = case (neighbors == 3) (alive && neighbors == 2) of"
+          , "  1 _ -> 1"
+          , "       _ 1 -> 1"
+          , "  _ _ -> 0"
+          ]
+      expected =
+        unlines
+          [ "is_alive_next alive neighbors = case (neighbors == 3) (alive && neighbors == 2) of"
+          , "  1 _ -> 1"
+          , "  _ 1 -> 1"
+          , "  _ _ -> 0"
+          ]
+  case formatSource src of
+    Left err ->
+      failTest "format normalizes multiline case arm indentation" ("unexpected format error: " <> err)
+    Right out ->
+      assertEqual "format normalizes multiline case arm indentation" expected out
 
 testFormatExpandsInlineCase :: IO Bool
 testFormatExpandsInlineCase = do
@@ -1235,6 +1268,28 @@ testParseBacktickOperator = do
       failTest "parse backtick operator" ("unexpected parse error: " <> err)
     Right parsed ->
       assertEqual "parse backtick operator" expected parsed
+
+testParseBacktickFunctionOperatorWithoutDeclaration :: IO Bool
+testParseBacktickFunctionOperatorWithoutDeclaration = do
+  let src = "main a b c = a `mod` b + c"
+      expected =
+        Module
+          { signatures = [], functions =
+              [ Function
+                  { name = "main"
+                  , args = ["a", "b", "c"]
+                  , body =
+                      App
+                        (App (Var "add") (App (App (Var "mod") (Var "a")) (Var "b")))
+                        (Var "c")
+                  }
+              ]
+          }
+  case parseModule src of
+    Left err ->
+      failTest "parse backtick function operator without declaration" ("unexpected parse error: " <> err)
+    Right parsed ->
+      assertEqual "parse backtick function operator without declaration" expected parsed
 
 testParseUnknownInfixOperatorFails :: IO Bool
 testParseUnknownInfixOperatorFails = do
@@ -2232,6 +2287,30 @@ testInferSourceTypesForDataAndNoDo = do
         _ ->
           failTest "infer source types for data and no-do" "missing inferred type for expected function(s)"
 
+testInferSourceTypesForOldStyleDataNoTypeParams :: IO Bool
+testInferSourceTypesForOldStyleDataNoTypeParams = do
+  let src =
+        unlines
+          [ "data LifeEvent = Tick steps | ToggleCell x y | ClearBoard token | LoadBoard cells"
+          , "main event = case event of"
+          , "  Tick steps -> steps"
+          , "  ToggleCell x y -> add x y"
+          , "  ClearBoard token -> token"
+          , "  LoadBoard _ -> 0"
+          ]
+  case inferSourceTypes src of
+    Left err ->
+      failTest "infer source types for old-style data without type params" ("unexpected inference error: " <> err)
+    Right infos ->
+      case findTypeInfo "main" infos of
+        Just mainInfo ->
+          let inferred = renderType (fnType mainInfo)
+           in assertTrue
+                "infer source types for old-style data without type params"
+                (inferred == "LifeEvent -> i64")
+        Nothing ->
+          failTest "infer source types for old-style data without type params" "missing inferred type for main"
+
 testInferSourceTypesStringLiteral :: IO Bool
 testInferSourceTypesStringLiteral = do
   let src =
@@ -2977,6 +3056,45 @@ testCompileEntryModuleRejectsUnknownExport = do
     Right _ ->
       failTest "compile entry module rejects unknown export" "expected unknown-export failure"
 
+testCompileEntryModuleArtifactExportsIncludeArity :: IO Bool
+testCompileEntryModuleArtifactExportsIncludeArity = do
+  let files =
+        [ ( "entry.clapse"
+          , unlines
+              [ "module entry"
+              , "export main"
+              , "main x y = add x y"
+              ]
+          )
+        ]
+  result <- compileFixtureArtifact files "entry.clapse"
+  case result of
+    Left err ->
+      failTest "compile entry module artifact exports include arity" ("unexpected compile error: " <> err)
+    Right artifact ->
+      assertEqual
+        "compile entry module artifact exports include arity"
+        [ExportApi {exportName = "main", exportArity = 2}]
+        (artifactExports artifact)
+
+testRenderTypeScriptBindingsUsesExportArityFromIr :: IO Bool
+testRenderTypeScriptBindingsUsesExportArityFromIr = do
+  let bindings =
+        renderTypeScriptBindings
+          [ ExportApi {exportName = "main", exportArity = 2}
+          , ExportApi {exportName = "odd'name", exportArity = 1}
+          ]
+      hasMainSig =
+        "readonly \"main\": (arg0: ClapseValue, arg1: ClapseValue) => ClapseValue;" `isInfixOf` bindings
+      hasQuotedSig =
+        "readonly \"odd'name\": (arg0: ClapseValue) => ClapseValue;" `isInfixOf` bindings
+      hasArityMap =
+        "readonly \"main\": 2;" `isInfixOf` bindings
+          && "readonly \"odd'name\": 1;" `isInfixOf` bindings
+  assertTrue
+    "render typescript bindings uses export arity from ir"
+    (hasMainSig && hasQuotedSig && hasArityMap)
+
 testCollapsePipelineUsesDerivedRules :: IO Bool
 testCollapsePipelineUsesDerivedRules = do
   let src =
@@ -3098,6 +3216,11 @@ compileFixtureModule :: [(FilePath, String)] -> FilePath -> IO (Either String BS
 compileFixtureModule files entryFile = do
   root <- createTempModuleRoot files
   compileEntryModuleToWasm (root </> entryFile) `finally` removePathForcibly root
+
+compileFixtureArtifact :: [(FilePath, String)] -> FilePath -> IO (Either String CompileArtifact)
+compileFixtureArtifact files entryFile = do
+  root <- createTempModuleRoot files
+  compileEntryModule (root </> entryFile) `finally` removePathForcibly root
 
 createTempModuleRoot :: [(FilePath, String)] -> IO FilePath
 createTempModuleRoot files = do

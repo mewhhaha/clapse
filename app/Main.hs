@@ -3,7 +3,7 @@ module Main (main) where
 import Clapse.Tools.Bench (runBench)
 import Clapse.Tools.Format (formatFileInPlace, formatFileToStdout, formatStdinToStdout)
 import Clapse.Tools.Lsp (runLsp)
-import Clapse.Modules (compileEntryModuleToWasm)
+import Clapse.Modules (CompileArtifact(..), compileEntryModule, renderTypeScriptBindings)
 import qualified Data.ByteString as BS
 import System.Directory (createDirectoryIfMissing)
 import System.Environment (getArgs)
@@ -53,6 +53,7 @@ usage =
     , "  clapse format --write <file>"
     , "  clapse format --stdin"
     , "  clapse compile <input.clapse> [output.wasm]"
+    , "    writes <outputPath> and <outputPath with .d.ts extension> (bindings from collapsed IR exports)"
     , "  clapse bench [iterations]"
     , "  clapse lsp"
     , "  clapse lsp --stdio"
@@ -60,12 +61,14 @@ usage =
 
 compileFile :: FilePath -> FilePath -> IO ()
 compileFile inputPath outputPath = do
-  result <- compileEntryModuleToWasm inputPath
+  result <- compileEntryModule inputPath
   case result of
     Left err -> do
       hPutStrLn stderr ("compile error in " <> inputPath <> ": " <> err)
       exitFailure
-    Right wasmBytes -> do
+    Right artifact -> do
       let outDir = takeDirectory outputPath
+          tsPath = replaceExtension outputPath "d.ts"
       unless (outDir == "." || null outDir) (createDirectoryIfMissing True outDir)
-      BS.writeFile outputPath wasmBytes
+      BS.writeFile outputPath (artifactWasm artifact)
+      writeFile tsPath (renderTypeScriptBindings (artifactExports artifact))

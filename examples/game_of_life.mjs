@@ -16,8 +16,6 @@ const stats = document.getElementById("stats");
 canvas.width = GRID_W;
 canvas.height = GRID_H;
 
-const board = new Uint8Array(GRID_W * GRID_H);
-const nextBoard = new Uint8Array(GRID_W * GRID_H);
 const image = ctx.createImageData(GRID_W, GRID_H);
 const pixels = image.data;
 const taggedGridW = encodeInt(GRID_W);
@@ -34,51 +32,65 @@ let nextStatsDueMs = lastTimeMs + STATS_UPDATE_MS;
 let aliveCells = 0;
 let boardDirty = true;
 let statsDirty = true;
-let boardView = board;
+let boardView = new Uint8Array(GRID_W * GRID_H);
 let lifeFns = null;
 let lifeState = null;
 let runtimeBridge = null;
 
-function indexOf(x, y) {
-  return y * GRID_W + x;
+function syncFromState() {
+  if (!lifeFns || !runtimeBridge || lifeState === null) {
+    return;
+  }
+  const currentHandle = lifeFns.stateCurrent(lifeState);
+  boardView = runtimeBridge.read_slice_u8(currentHandle);
+  generation = decodeInt(lifeFns.stateGeneration(lifeState));
+  aliveCells = decodeInt(lifeFns.stateAliveCount(taggedGridW, taggedGridH, lifeState));
+  boardDirty = true;
+  statsDirty = true;
+}
+
+function dispatchLifeEvent(eventHandle) {
+  if (!lifeFns || lifeState === null) {
+    return;
+  }
+  lifeState = lifeFns.applyEvent(taggedGridW, taggedGridH, eventHandle, lifeState);
+  syncFromState();
+}
+
+function initializeLifeState() {
+  if (!lifeFns || !runtimeBridge) {
+    return;
+  }
+  const empty = new Uint8Array(GRID_W * GRID_H);
+  const currentHandle = runtimeBridge.alloc_slice_u8(empty);
+  const nextHandle = runtimeBridge.alloc_slice_u8(empty);
+  lifeState = lifeFns.initState(currentHandle, nextHandle);
+  syncFromState();
 }
 
 function clearBoard() {
-  board.fill(0);
-  resetLifeStateFromBoard();
-  generation = 0;
-  aliveCells = 0;
-  boardDirty = true;
-  statsDirty = true;
+  if (!lifeFns || lifeState === null) {
+    return;
+  }
+  dispatchLifeEvent(lifeFns.eventClear(encodeInt(0)));
   render(performance.now());
 }
 
 function randomizeBoard() {
-  for (let i = 0; i < board.length; i += 1) {
-    board[i] = Math.random() < 0.28 ? 1 : 0;
+  if (!lifeFns || !runtimeBridge || lifeState === null) {
+    return;
   }
-  resetLifeStateFromBoard();
-  generation = 0;
-  aliveCells = countAliveCells();
-  boardDirty = true;
-  statsDirty = true;
+  const seeded = new Uint8Array(GRID_W * GRID_H);
+  for (let i = 0; i < seeded.length; i += 1) {
+    seeded[i] = Math.random() < 0.28 ? 1 : 0;
+  }
+  const seededHandle = runtimeBridge.alloc_slice_u8(seeded);
+  dispatchLifeEvent(lifeFns.eventLoad(seededHandle));
   render(performance.now());
 }
 
 function updateStats() {
   stats.textContent = `gen=${generation} alive=${aliveCells}`;
-}
-
-function countAliveCells() {
-  return countAliveCellsFromView(boardView);
-}
-
-function countAliveCellsFromView(view) {
-  let count = 0;
-  for (let i = 0; i < view.length; i += 1) {
-    count += view[i];
-  }
-  return count;
 }
 
 function render(nowMs = performance.now()) {
@@ -109,17 +121,10 @@ function render(nowMs = performance.now()) {
 }
 
 function stepSimulation(stepCount = 1) {
-  if (!lifeFns || !runtimeBridge || lifeState === null) {
+  if (!lifeFns || lifeState === null || stepCount <= 0) {
     return;
   }
-
-  lifeState = lifeFns.stepStateN(taggedGridW, taggedGridH, encodeInt(stepCount), lifeState);
-  const currentHandle = lifeFns.stateCurrent(lifeState);
-  boardView = runtimeBridge.read_slice_u8(currentHandle);
-  generation = decodeInt(lifeFns.stateGeneration(lifeState));
-  aliveCells = countAliveCellsFromView(boardView);
-  boardDirty = true;
-  statsDirty = true;
+  dispatchLifeEvent(lifeFns.eventTick(encodeInt(stepCount)));
 }
 
 function frame(nowMs) {
@@ -154,30 +159,17 @@ function updateSpeed() {
 }
 
 function toggleCellFromEvent(event) {
+  if (!lifeFns || lifeState === null) {
+    return;
+  }
   const rect = canvas.getBoundingClientRect();
   const x = Math.floor(((event.clientX - rect.left) / rect.width) * GRID_W);
   const y = Math.floor(((event.clientY - rect.top) / rect.height) * GRID_H);
   if (x < 0 || x >= GRID_W || y < 0 || y >= GRID_H) {
     return;
   }
-  const idx = indexOf(x, y);
-  board[idx] = board[idx] === 1 ? 0 : 1;
-  resetLifeStateFromBoard();
-  aliveCells = countAliveCells();
-  boardDirty = true;
-  statsDirty = true;
+  dispatchLifeEvent(lifeFns.eventToggle(encodeInt(x), encodeInt(y)));
   render(performance.now());
-}
-
-function resetLifeStateFromBoard() {
-  if (!lifeFns || !runtimeBridge) {
-    return;
-  }
-  const currentHandle = runtimeBridge.alloc_slice_u8(board);
-  nextBoard.fill(0);
-  const nextHandle = runtimeBridge.alloc_slice_u8(nextBoard);
-  lifeState = lifeFns.initState(currentHandle, nextHandle);
-  boardView = board;
 }
 
 toggleBtn.addEventListener("click", () => {
@@ -211,22 +203,43 @@ async function loadWasmLifeRule() {
   const bytes = await response.arrayBuffer();
   const { instance, runtime } = await instantiateWithRuntime(bytes);
   const initState = instance.exports.init_state;
-  const stepState = instance.exports.step_state;
-  const stepStateN = instance.exports.step_state_n;
+  const applyEvent = instance.exports.apply_event;
+  const eventTick = instance.exports.event_tick;
+  const eventToggle = instance.exports.event_toggle;
+  const eventClear = instance.exports.event_clear;
+  const eventLoad = instance.exports.event_load;
   const stateCurrent = instance.exports.state_current;
   const stateGeneration = instance.exports.state_generation;
   const stateAliveCount = instance.exports.state_alive_count;
   if (
     typeof initState !== "function"
-    || typeof stepState !== "function"
-    || typeof stepStateN !== "function"
+    || typeof applyEvent !== "function"
+    || typeof eventTick !== "function"
+    || typeof eventToggle !== "function"
+    || typeof eventClear !== "function"
+    || typeof eventLoad !== "function"
     || typeof stateCurrent !== "function"
     || typeof stateGeneration !== "function"
     || typeof stateAliveCount !== "function"
   ) {
-    throw new Error("expected exported wasm functions: init_state, step_state, step_state_n, state_current, state_generation, state_alive_count");
+    throw new Error(
+      "expected exported wasm functions: init_state, apply_event, event_tick, event_toggle, event_clear, event_load, state_current, state_generation, state_alive_count",
+    );
   }
-  return { runtime, lifeFns: { initState, stepState, stepStateN, stateCurrent, stateGeneration, stateAliveCount } };
+  return {
+    runtime,
+    lifeFns: {
+      initState,
+      applyEvent,
+      eventTick,
+      eventToggle,
+      eventClear,
+      eventLoad,
+      stateCurrent,
+      stateGeneration,
+      stateAliveCount,
+    },
+  };
 }
 
 async function boot() {
@@ -234,6 +247,7 @@ async function boot() {
     const loaded = await loadWasmLifeRule();
     runtimeBridge = loaded.runtime;
     lifeFns = loaded.lifeFns;
+    initializeLifeState();
     randomizeBoard();
     updateSpeed();
     lastTimeMs = performance.now();

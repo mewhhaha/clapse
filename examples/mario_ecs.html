@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clapse WASM Mario ECS Demo</title>
+    <style>
+      :root {
+        --bg: #0f172a;
+        --panel: #0b1220;
+        --border: #1e293b;
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --accent: #38bdf8;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: radial-gradient(circle at 20% 0%, #1e293b 0%, var(--bg) 60%);
+        color: var(--text);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        display: grid;
+        place-items: center;
+        padding: 1rem;
+      }
+
+      .app {
+        width: min(100%, 980px);
+        background: linear-gradient(180deg, #111827, var(--panel));
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem;
+        border-bottom: 1px solid var(--border);
+      }
+
+      button {
+        background: #1f2937;
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.45rem 0.7rem;
+        font: inherit;
+      }
+
+      button:hover {
+        border-color: var(--accent);
+        cursor: pointer;
+      }
+
+      .stat {
+        margin-left: auto;
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+
+      .canvas_wrap {
+        overflow: auto;
+        padding: 0.75rem;
+      }
+
+      canvas {
+        display: block;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        image-rendering: pixelated;
+      }
+
+      .hint {
+        padding: 0 0.75rem 0.75rem 0.75rem;
+        color: var(--muted);
+        font-size: 0.84rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <div class="toolbar">
+        <button id="reset">Reset</button>
+        <span>controls: A/D or arrows to move, W/Space to jump</span>
+        <span id="stats" class="stat">loading wasm...</span>
+      </div>
+      <div class="canvas_wrap">
+        <canvas id="mario_canvas" width="768" height="240" aria-label="Mario ECS canvas"></canvas>
+      </div>
+      <div class="hint">Pure Clapse drives ECS-like state transitions; JS only sends input events and renders sprite regions.</div>
+    </main>
+    <script type="module" src="./mario_ecs.mjs"></script>
+  </body>
+</html>

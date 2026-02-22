@@ -357,62 +357,17 @@
           "name": "condition",
           "content": {
             "type": "SYMBOL",
-            "name": "guard_condition_text"
+            "name": "expression"
           }
         },
         {
-          "type": "CHOICE",
-          "members": [
-            {
-              "type": "SYMBOL",
-              "name": "_ws1"
-            },
-            {
-              "type": "BLANK"
-            }
-          ]
-        },
-        {
-          "type": "STRING",
-          "value": "="
-        },
-        {
-          "type": "CHOICE",
-          "members": [
-            {
-              "type": "CHOICE",
-              "members": [
-                {
-                  "type": "SYMBOL",
-                  "name": "_ws1"
-                },
-                {
-                  "type": "SEQ",
-                  "members": [
-                    {
-                      "type": "SYMBOL",
-                      "name": "_newline"
-                    },
-                    {
-                      "type": "CHOICE",
-                      "members": [
-                        {
-                          "type": "SYMBOL",
-                          "name": "_ws1"
-                        },
-                        {
-                          "type": "BLANK"
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "type": "BLANK"
-            }
-          ]
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_guard_eq_sep"
+          },
+          "named": true,
+          "value": "guard_equals"
         },
         {
           "type": "FIELD",
@@ -423,13 +378,6 @@
           }
         }
       ]
-    },
-    "guard_condition_text": {
-      "type": "TOKEN",
-      "content": {
-        "type": "PATTERN",
-        "value": "[^\\n=]+"
-      }
     },
     "function_signature": {
       "type": "PREC_RIGHT",
@@ -3085,6 +3033,44 @@
             }
           ]
         }
+      }
+    },
+    "_guard_eq_sep": {
+      "type": "TOKEN",
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "PATTERN",
+            "value": "[ \\t\\r\\f]*"
+          },
+          {
+            "type": "STRING",
+            "value": "="
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "PATTERN",
+                "value": "[ \\t\\r\\f]+"
+              },
+              {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "PATTERN",
+                    "value": "\\n"
+                  },
+                  {
+                    "type": "PATTERN",
+                    "value": "[ \\t\\r\\f]*"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
       }
     },
     "_kw_case": {

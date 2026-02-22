@@ -37,6 +37,7 @@ Module directives:
 - `export <name>[, <name> ...]` sets explicit wasm exports for the entry module.
 - When `export` is omitted in the entry module, all entry-module functions are exported.
 - `clapse compile <entry.clapse>` resolves dotted imports relative to the entry file directory (`util.math` -> `util/math.clapse`), merges modules, rewrites imported names to qualified internal symbols, then compiles a single optimized wasm module.
+- Compile also emits a TypeScript sidecar (`<output path with .d.ts extension>`) derived from collapsed IR exports (`name` + `arity`) so JS/TS interop can type exported API calls.
 
 Custom operator declarations:
 
@@ -51,6 +52,8 @@ infixl 6 plus_op = add
 - Precedence range: `0..9` (`9` binds tightest).
 - `<operator_token>` can be symbolic (`+.` `<>`) or an identifier (`plus_op`).
 - Identifier operators are used with backticks in expressions: ``x `plus_op` y``.
+- Any function identifier can be used in backticks without a declaration: ``a `mod` b`` (default fixity: `infixl 9`, target function: same identifier).
+- Add an explicit declaration only when you need custom precedence/associativity or a different target function.
 - Operators are pure source-level sugar that rewrite to normal function calls during parse.
 
 Builtin operators (available without declarations):
@@ -71,6 +74,8 @@ Data type and constructor names are capitalized: `[A-Z][A-Za-z0-9_']*`.
 ```haskell
 data Maybe a = Just : a -> Maybe a | Nothing : Maybe a
 ```
+
+For old-style declarations without explicit type parameters (for example `data Event = Tick n | Reset token`), constructor fields do not introduce implicit type parameters on the data type; the result type stays `Event`.
 
 Supported expressions:
 
@@ -126,7 +131,7 @@ Supported expressions:
                   | otherwise = add x y
   ```
 - application (left-associative): `f x y`
-- infix operator application using builtin/custom operators: `x + y`, `x +. y`, ``x `plus_op` y``
+- infix operator application using builtin/custom operators: `x + y`, `x +. y`, ``x `plus_op` y``, ``a `mod` b``
 - function signatures (with optional named witness constraints): `id : a -> a`, `eq_id : (eq_witness : eq a) => a -> a`
 - parenthesized expression: `(expr)`
 - collection literal: `[]`, `[expr1, expr2]`
@@ -284,6 +289,8 @@ cabal run clapse -- bench [iterations]
 cabal run clapse -- lsp --stdio
 ```
 
+`compile` writes the wasm file at the requested output path and a `.d.ts` sidecar at `replaceExtension(outputPath, "d.ts")`.
+
 Formatter behavior today:
 
 - syntax-validating and mostly source-preserving: collapses redundant internal horizontal whitespace (outside strings/comments), trims trailing horizontal whitespace, normalizes line endings/final newline
@@ -404,7 +411,16 @@ just life-time 160 100 120 1
 ```
 
 Then open `http://localhost:8080/examples/game_of_life.html`.
-The browser demo keeps simulation transitions in Clapse (`LifeState`, `step_state_n`) while JS handles rendering/timing/input and tracks displayed alive-count from the current board snapshot.
+The browser demo keeps simulation transitions in Clapse (`LifeState`, `LifeEvent`, `apply_event`) while JS handles rendering/timing/input and reads generation/alive-count from wasm state.
+
+Mario-like ECS demo:
+
+```bash
+just mario-serve 8080
+```
+
+Then open `http://localhost:8080/examples/mario_ecs.html`.
+This demo keeps tiny ECS-like updates pure in Clapse (`MarioState`, `MarioEvent`, `apply_event`) and uses JS only for keyboard input + sprite rendering.
 
 ## Examples
 
@@ -426,6 +442,10 @@ Key examples:
 - `examples/interop_slice.mjs`
 - `examples/game_of_life.clapse`
 - `examples/game_of_life.html`
+- `examples/mario_ecs.clapse`
+- `examples/mario_ecs.html`
+- `examples/mario_ecs.mjs`
+- `examples/assets/sprite_regions.md`
 - `examples/wasm_main.clapse`
 - `examples/bench_wasm_hand.clapse`
 - `examples/bench_wasm_abstraction.clapse`

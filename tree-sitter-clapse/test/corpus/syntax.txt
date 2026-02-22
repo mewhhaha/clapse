@@ -577,14 +577,69 @@ add_or_zero x y | eq x 0 = 0
       (identifier)
       (identifier)
       (guarded_clause
-        (guard_condition_text)
+        (expression
+          (application_expression
+            (application_expression
+              (identifier)
+              (identifier))
+            (integer)))
+        (guard_equals)
         (expression
           (integer)))
       (guarded_clause
-        (guard_condition_text)
+        (expression
+          (identifier))
+        (guard_equals)
         (expression
           (application_expression
             (application_expression
               (identifier)
               (identifier))
             (identifier)))))))
+
+==================
+guarded function declarations with infix operator conditions
+==================
+
+is_alive_next alive neighbors | neighbors == 3 = 1
+  | alive && neighbors == 2 = 1
+  | otherwise = 0
+
+---
+
+(source_file
+  (declaration
+    (function_declaration
+      (identifier)
+      (identifier)
+      (identifier)
+      (guarded_clause
+        (expression
+          (infix_expression
+            (identifier)
+            (infix_operator
+              (operator_symbol))
+            (integer)))
+        (guard_equals)
+        (expression
+          (integer)))
+      (guarded_clause
+        (expression
+          (infix_expression
+            (infix_expression
+              (identifier)
+              (infix_operator
+                (operator_symbol))
+              (identifier))
+            (infix_operator
+              (operator_symbol))
+            (integer)))
+        (guard_equals)
+        (expression
+          (integer)))
+      (guarded_clause
+        (expression
+          (identifier))
+        (guard_equals)
+        (expression
+          (integer))))))

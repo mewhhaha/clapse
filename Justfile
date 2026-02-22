@@ -138,3 +138,16 @@ life-serve port='8080':
   just life-build
   echo "open http://localhost:{{port}}/examples/game_of_life.html"
   python3 -m http.server {{port}}
+
+mario-build:
+  mkdir -p .cabal-logs
+  CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --build-log=./.cabal-logs/build.log --build-summary=./.cabal-logs/build.summary -- compile examples/mario_ecs.clapse out/mario_ecs.wasm
+
+mario-smoke:
+  just mario-build
+  node scripts/mario-ecs-smoke.mjs out/mario_ecs.wasm
+
+mario-serve port='8080':
+  just mario-build
+  echo "open http://localhost:{{port}}/examples/mario_ecs.html"
+  python3 -m http.server {{port}}

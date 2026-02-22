@@ -43,6 +43,7 @@ data LifeState = LifeState current next generation
 
 init_state current next = LifeState current next 0
 state_current state = let LifeState current next_ignored generation_ignored = state in current
+state_next state = let LifeState current_ignored next generation_ignored = state in next
 state_generation state = let LifeState current_ignored next_ignored generation = state in generation
 step_state w h state =
   let LifeState current next generation = state
@@ -52,6 +53,66 @@ step_state w h state =
 step_state_n w h n state = case (n == 0) of
   1 -> state
   _ -> step_state_n w h (n - 1) (step_state w h state)
+
+fill_slice cells start span value = case (span == 0) (span == 1) of
+  1 _ -> cells
+  _ 1 -> slice_set_u8 cells start value
+  _ _ ->
+    let half = span / 2
+        left = fill_slice cells start half value
+        right_start = start + half
+        right_span = span - half
+    in fill_slice left right_start right_span value
+
+copy_slice in_cells out_cells start span = case (span == 0) (span == 1) of
+  1 _ -> out_cells
+  _ 1 -> slice_set_u8 out_cells start (slice_get_u8 in_cells start)
+  _ _ ->
+    let half = span / 2
+        left = copy_slice in_cells out_cells start half
+        right_start = start + half
+        right_span = span - half
+    in copy_slice in_cells left right_start right_span
+
+toggle_cell cells w h x y =
+  let wrapped_x = mod x w
+      wrapped_y = mod y h
+      i = idx w wrapped_x wrapped_y
+      current = slice_get_u8 cells i
+      next = case (current == 0) of
+        1 -> 1
+        _ -> 0
+  in slice_set_u8 cells i next
+
+toggle_state w h x y state =
+  let LifeState current next generation = state
+      toggled = toggle_cell current w h x y
+  in LifeState toggled next generation
+
+clear_state w h state =
+  let LifeState current next generation_ignored = state
+      cleared_current = fill_slice current 0 (w * h) 0
+      cleared_next = fill_slice next 0 (w * h) 0
+  in LifeState cleared_current cleared_next 0
+
+load_state w h cells state =
+  let LifeState current next generation_ignored = state
+      loaded_current = copy_slice cells current 0 (w * h)
+      cleared_next = fill_slice next 0 (w * h) 0
+  in LifeState loaded_current cleared_next 0
+
+data LifeEvent = Tick steps | ToggleCell x y | ClearBoard token | LoadBoard cells
+
+event_tick steps = Tick steps
+event_toggle x y = ToggleCell x y
+event_clear token = ClearBoard token
+event_load cells = LoadBoard cells
+
+apply_event w h event state = case event of
+  Tick steps -> step_state_n w h steps state
+  ToggleCell x y -> toggle_state w h x y state
+  ClearBoard _ -> clear_state w h state
+  LoadBoard cells -> load_state w h cells state
 
 sum_slice cells start span = case (span == 0) (span == 1) of
   1 _ -> 0

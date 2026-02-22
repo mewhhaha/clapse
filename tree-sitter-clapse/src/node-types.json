@@ -557,7 +557,7 @@
         "required": true,
         "types": [
           {
-            "type": "guard_condition_text",
+            "type": "expression",
             "named": true
           }
         ]
@@ -572,6 +572,16 @@
           }
         ]
       }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "guard_equals",
+          "named": true
+        }
+      ]
     }
   },
   {
@@ -1217,7 +1227,7 @@
     "named": false
   },
   {
-    "type": "guard_condition_text",
+    "type": "guard_equals",
     "named": true
   },
   {

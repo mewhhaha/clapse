@@ -1619,11 +1619,29 @@ parseInfixTokens operators constructors minPrec toks = do
   (lhs0, rest0) <- parseApplicationTokens operators constructors toks
   rewrite lhs0 rest0
   where
+    -- Haskell-style backtick operators can use any identifier function name
+    -- without an explicit infix declaration. We treat them as infixl 9.
+    lookupOperatorInfo :: String -> Maybe OperatorInfo
+    lookupOperatorInfo opToken =
+      case lookup opToken operators of
+        Just info ->
+          Just info
+        Nothing
+          | validIdentifier opToken ->
+              Just
+                OperatorInfo
+                  { opAssoc = AssocLeft
+                  , opPrecedence = 9
+                  , opTarget = opToken
+                  }
+          | otherwise ->
+              Nothing
+
     rewrite :: Expr -> [ExprTok] -> Either String (Expr, [ExprTok])
     rewrite lhs toks0 =
       case toks0 of
         TokOperator opToken:afterOp ->
-          case lookup opToken operators of
+          case lookupOperatorInfo opToken of
             Nothing ->
               Left ("unknown infix operator: " <> opToken)
             Just info
@@ -1644,7 +1662,7 @@ parseInfixTokens operators constructors minPrec toks = do
                     AssocNone ->
                       case restAfterRhs of
                         TokOperator nextOp:_ ->
-                          case lookup nextOp operators of
+                          case lookupOperatorInfo nextOp of
                             Just nextInfo
                               | opPrecedence nextInfo == opPrecedence info ->
                                   Left ("non-associative operator cannot be chained: " <> opToken)
@@ -2369,7 +2387,7 @@ parseDataDecl src =
                   , ctorName = ctorName0
                   , ctorFieldCount = length fields
                   , ctorTypeParamCount = typeParamCount0
-                  , ctorFieldParamMap = map Just fieldParamMap0
+                  , ctorFieldParamMap = fieldParamMap0
                   }
           Right
             DataDecl
@@ -2449,13 +2467,13 @@ parseDataDecl src =
     syntheticFieldNames :: Int -> [Name]
     syntheticFieldNames n = [ "__ctor_field_" <> show idx | idx <- [0 .. n - 1] ]
 
-    buildFieldParamMap :: [Name] -> [Name] -> Either String (Int, [Int])
+    buildFieldParamMap :: [Name] -> [Name] -> Either String (Int, [Maybe Int])
     buildFieldParamMap typeParams fields =
       if null typeParams
-        then Right (length fields, [0 .. length fields - 1])
+        then Right (0, replicate (length fields) Nothing)
         else do
           fieldIndices <- traverse (lookupParamIndex typeParams) fields
-          Right (length typeParams, fieldIndices)
+          Right (length typeParams, map Just fieldIndices)
 
     lookupParamIndex :: [Name] -> Name -> Either String Int
     lookupParamIndex typeParams fieldName =

@@ -2,7 +2,7 @@
 
 Simple sample programs for the current Clapse syntax.
 
-Default source style is operator-first (`+ - * / == &&`). Custom operator declarations extend or override builtin operator tokens.
+Default source style is operator-first (`+ - * / == &&`). Custom operator declarations extend or override builtin operator tokens. Any function can also be used as a backtick operator without a declaration (for example ``a `mod` b``).
 
 ## Files
 
@@ -24,9 +24,13 @@ Default source style is operator-first (`+ - * / == &&`). Custom operator declar
 - `interop_slice.clapse`: byte-slice interop (`slice_len`, `slice_get_u8`)
 - `interop_slice.mjs`: Node ESM runner showing `Uint8Array` -> Clapse slice descriptor (`ptr,len`) interop
 - `wasm_linear_memory_helpers.clapse`: low-level linear-memory helper usage (`slice_new_u8`, `slice_data_ptr`, `slice_len_raw`, `region_*`, `memcpy_u8`, `memset_u8`) with explicit dataflow threading to avoid collapse-time dead-code elimination
-- `game_of_life.clapse`: wasm Life rule + pure `LifeState`/`step_state` transition API over slice descriptors with per-step `region_mark`/`region_reset` cleanup
+- `game_of_life.clapse`: wasm Life rule + pure `LifeState` plus `LifeEvent`/`apply_event` transition API over slice descriptors with per-step `region_mark`/`region_reset` cleanup
 - `game_of_life.html`: browser canvas demo shell
-- `game_of_life.mjs`: browser engine loop + wasm interop glue
+- `game_of_life.mjs`: browser engine loop where JS only dispatches events (`event_tick`, `event_toggle`, `event_clear`, `event_load`) and renders wasm-owned state
+- `mario_ecs.clapse`: tiny ECS-like pure state machine (`kinds/xs/lanes/active` slices) with event-driven stepping
+- `mario_ecs.html`: browser canvas shell for the Mario-like ECS demo
+- `mario_ecs.mjs`: browser render/input glue that dispatches `event_tick` / `event_reset` into wasm
+- `assets/sprite_regions.md`: descriptive sprite-sheet region notes used by the Mario-like demo atlas
 - `wasm_main.clapse`: simple program for wasm compile + node execution
 - `wasm_closure.clapse`: closure + currying wasm smoke input
 - `bench_wasm_hand.clapse`: direct numeric-expression wasm benchmark fixture
@@ -62,6 +66,8 @@ cabal run clapse -- format --write examples/currying.clapse
 cabal run clapse -- compile examples/wasm_main.clapse out/wasm_main.wasm
 node scripts/run-wasm.mjs out/wasm_main.wasm main 7
 ```
+
+Each `compile` also emits `out/<name>.d.ts` based on collapsed IR export arity.
 
 Closure/currying compile + run:
 
@@ -112,6 +118,17 @@ node scripts/run-wasm.mjs out/game_of_life.wasm main 1 2
 node scripts/run-wasm.mjs out/game_of_life.wasm main 1 4
 node scripts/life-slice-smoke.mjs out/game_of_life.wasm
 ```
+
+The browser demo uses `apply_event` + `event_*` exports so Clapse remains the source of truth for simulation state.
+
+Mario-like ECS compile + smoke:
+
+```bash
+cabal run clapse -- compile examples/mario_ecs.clapse out/mario_ecs.wasm
+node scripts/mario-ecs-smoke.mjs out/mario_ecs.wasm
+```
+
+The browser demo keeps game logic pure in Clapse and treats JS as input/render boundary only.
 
 HTTP request parser-style compile + run:
 
@@ -188,3 +205,11 @@ just life-serve 8080
 ```
 
 Then open `http://localhost:8080/examples/game_of_life.html`.
+
+Mario-like ECS browser demo:
+
+```bash
+just mario-serve 8080
+```
+
+Then open `http://localhost:8080/examples/mario_ecs.html`.

@@ -35,12 +35,72 @@ normalizeSource src =
       laidOut =
         layoutLetBlocksHaskell
           ( pushDownInlineLetHeaders
-              (expandInlineLets (indentCaseArmLetContinuations (expandInlineCases cleaned)))
+              ( expandInlineLets
+                  ( indentCaseArmLetContinuations
+                      (normalizeMultilineCaseArmIndentation (expandInlineCases cleaned))
+                  )
+              )
           )
       body = dropWhileEnd null laidOut
    in case body of
         [] -> ""
         _ -> unlines body
+
+normalizeMultilineCaseArmIndentation :: [String] -> [String]
+normalizeMultilineCaseArmIndentation = go []
+  where
+    go :: [Int] -> [String] -> [String]
+    go _ [] = []
+    go caseStack (line:rest) =
+      let trimmed = trimHorizontal line
+          indentLen = length (takeWhile isHorizontalWhitespace line)
+          activeCases = popCases caseStack indentLen trimmed
+          normalizedLine =
+            case activeCases of
+              topIndent : _
+                | isCaseArmLine trimmed ->
+                    replicate (topIndent + 2) ' ' <> trimmed
+              _ ->
+                line
+          normalizedIndentLen = length (takeWhile isHorizontalWhitespace normalizedLine)
+          nextCases =
+            if isCaseHeaderLine normalizedLine
+              then normalizedIndentLen : activeCases
+              else activeCases
+       in normalizedLine : go nextCases rest
+
+    popCases :: [Int] -> Int -> String -> [Int]
+    popCases stack indentLen trimmed =
+      if null trimmed
+        then stack
+        else goPop stack
+      where
+        goPop :: [Int] -> [Int]
+        goPop [] = []
+        goPop (topIndent:rest')
+          | indentLen <= topIndent = goPop rest'
+          | otherwise = topIndent : rest'
+
+    isCaseArmLine :: String -> Bool
+    isCaseArmLine trimmed =
+      case indexOfInfix "->" trimmed of
+        Nothing -> False
+        Just arrowIx ->
+          let lhs = trimHorizontal (take arrowIx trimmed)
+           in not (null lhs)
+                && not ("|" `isPrefixOf` lhs)
+                && '\\' `notElem` lhs
+                && '=' `notElem` lhs
+
+    isCaseHeaderLine :: String -> Bool
+    isCaseHeaderLine raw =
+      case firstCaseToken (keywordTokensOutsideString raw) of
+        Nothing ->
+          False
+        Just (_startIx, _endIx, restTokens) ->
+          case matchingOfToken 1 restTokens of
+            Nothing -> False
+            Just _ -> True
 
 normalizeNewlineChars :: String -> String
 normalizeNewlineChars [] = []
