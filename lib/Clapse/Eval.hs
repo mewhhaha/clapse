@@ -115,7 +115,7 @@ sourceUserEnv S.Module {S.functions = funs} = userEnv
     fullEnv = userEnv <> sourceBuiltins
 
     mkBinding :: S.Function -> (S.Name, SourceValue)
-    mkBinding (S.Function fnName params bodyExpr) =
+    mkBinding (S.Function fnName params bodyExpr _) =
       (fnName, SourceClosure fullEnv params bodyExpr)
 
 sourceBuiltins :: SourceEnv
@@ -675,12 +675,12 @@ buildFunctionEnv allFns = go [] [] (flatten allFns)
 
 validateNoDuplicateFunctions :: [S.Function] -> Either String ()
 validateNoDuplicateFunctions funs =
-  case duplicates (map fnName funs) of
-    [] -> Right ()
-    dup:_ -> Left ("source evaluator: duplicate function name: " <> dup)
+    case duplicates (map fnName funs) of
+      [] -> Right ()
+      dup:_ -> Left ("source evaluator: duplicate function name: " <> dup)
   where
     fnName :: S.Function -> S.Name
-    fnName (S.Function n _ _) = n
+    fnName (S.Function n _ _ _) = n
 
 lookupIndex :: String -> Int -> [a] -> Either String a
 lookupIndex err idx xs

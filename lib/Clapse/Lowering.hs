@@ -42,7 +42,7 @@ lowerModule :: Module -> Either String [FlatFunction]
 lowerModule Module {functions = funs} = traverse lowerFunction funs
 
 lowerFunction :: Function -> Either String FlatFunction
-lowerFunction (Function fn params expr) = do
+lowerFunction (Function fn params expr _) = do
   argMap <- buildArgMap params
   (flatOps, liftedFns, _) <- lowerExpr fn argMap 0 expr
   pure

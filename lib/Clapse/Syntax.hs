@@ -3,6 +3,8 @@ module Clapse.Syntax
   , Module(..)
   , TypeSignature(..)
   , SignatureConstraint(..)
+  , FunctionAttribute(..)
+  , FunctionAttributeValue(..)
   , Function(..)
   , Expr(..)
   , CaseArm(..)
@@ -55,6 +57,20 @@ data Function = Function
   { name :: Name
   , args :: [Name]
   , body :: Expr
+  , attributes :: [FunctionAttribute]
+  }
+  deriving (Eq, Show)
+
+data FunctionAttributeValue
+  = AttributeString String
+  | AttributeInt Int
+  | AttributeName Name
+  | AttributeRaw String
+  deriving (Eq, Show)
+
+data FunctionAttribute = FunctionAttribute
+  { attributeName :: Name
+  , attributeValue :: Maybe FunctionAttributeValue
   }
   deriving (Eq, Show)
 
@@ -93,10 +109,12 @@ data FunctionClause = FunctionClause
   { fnClauseName :: Name
   , fnClausePatterns :: [CasePattern]
   , fnClauseBody :: Expr
+  , fnClauseAttributes :: [FunctionAttribute]
   } deriving (Eq, Show)
 
 data RawLine
   = RawEmpty
+  | RawAttribute Int String
   | RawSignature Int String
   | RawFunction Int String
   | RawFunctionContinuation Int String
@@ -223,7 +241,7 @@ parseModule src = do
   operatorDecls <- collectOperatorDecls rawLines
   constructorTable <- collectConstructorDecls rawLines
   let operatorTable = buildOperatorTable operatorDecls
-  parsed <- traverse (parseRawLine operatorTable constructorTable) logicalLines
+  parsed <- parseLinesWithAttributes operatorTable constructorTable logicalLines
   signatureDecls <- collectSignatureDecls parsed
   validateSignatureTargets signatureDecls parsed
   derivedRules <- deriveRules parsed
@@ -232,6 +250,110 @@ parseModule src = do
   let optimizedFns = optimizeFunctions derivedRules mergedFns
   pure Module {signatures = signatureDecls, functions = optimizedFns}
   where
+    parseLinesWithAttributes :: OperatorTable -> ConstructorTable -> [RawLine] -> Either String [ParsedLine]
+    parseLinesWithAttributes operators constructors linesToParse =
+      go linesToParse [] Nothing []
+      where
+        go
+          :: [RawLine]
+          -> [(Int, FunctionAttribute)]
+          -> Maybe (Name, [FunctionAttribute])
+          -> [ParsedLine]
+          -> Either String [ParsedLine]
+        go [] pending _active parsedOut =
+          case pending of
+            [] -> Right (reverse parsedOut)
+            (pendingLineNo, _) : _ ->
+              Left (withLine pendingLineNo "orphaned attribute; expected a following function declaration")
+        go (currentLine : rest) pending active parsedOut =
+          case currentLine of
+            RawAttribute lineNo cleaned -> do
+              attr <- parseFunctionAttribute lineNo cleaned
+              go rest ((lineNo, attr) : pending) active parsedOut
+            RawFunction _ _ -> do
+              parsedLine <- parseRawLine operators constructors currentLine
+              case parsedLine of
+                ParsedFunctions [] ->
+                  Left "internal parser error: function declaration produced no clauses"
+                ParsedFunctions fnClauses@(firstClause : _) -> do
+                  let fnName = fnClauseName firstClause
+                      attrsFromPending = map snd (reverse pending)
+                      currentAttrs =
+                        if null pending
+                          then
+                            case active of
+                              Just (activeName, activeAttrs)
+                                | activeName == fnName -> activeAttrs
+                                | otherwise -> []
+                              Nothing -> []
+                          else attrsFromPending
+                      parsedWithAttrs = ParsedFunctions (map (attachClauseAttributes currentAttrs) fnClauses)
+                      nextActive =
+                        case (pending, currentAttrs) of
+                          ([], []) ->
+                            case active of
+                              Just (activeName, activeAttrs)
+                                | activeName == fnName -> Just (activeName, activeAttrs)
+                                | otherwise -> Nothing
+                              _ -> Nothing
+                          _ -> Just (fnName, currentAttrs)
+                  go rest [] nextActive (parsedWithAttrs : parsedOut)
+                _ -> Left "internal parser error: expected function clauses"
+            _ ->
+              if null pending
+                then do
+                  parsedLine <- parseRawLine operators constructors currentLine
+                  go rest [] Nothing (parsedLine : parsedOut)
+                else
+                  Left
+                    ( withLine
+                        (fst (last pending))
+                        "attribute must annotate a function declaration"
+                    )
+
+        parseFunctionAttribute :: Int -> String -> Either String FunctionAttribute
+        parseFunctionAttribute lineNo cleaned = do
+          let source = trim cleaned
+          if null source
+            then Left (withLine lineNo "attribute name is missing")
+            else do
+              let (nameText, valueTextRaw) = span isIdentifierChar source
+                  valueText = trim valueTextRaw
+              if null nameText
+                then Left (withLine lineNo "attribute name is missing")
+                else do
+                  validateIdentifier "attribute name" nameText
+                  attrValue <-
+                    if null valueText
+                      then Right Nothing
+                      else Just <$> parseAttributeValue lineNo valueText
+                  Right
+                    FunctionAttribute
+                      { attributeName = nameText
+                      , attributeValue = attrValue
+                      }
+
+        parseAttributeValue :: Int -> String -> Either String FunctionAttributeValue
+        parseAttributeValue lineNo raw =
+          case tokenizeExpr raw of
+            Right [TokString value] ->
+              Right (AttributeString value)
+            Right [TokInteger value] ->
+              Right (AttributeInt value)
+            Right [TokIdentifier value] ->
+              Right (AttributeName value)
+            Right _ ->
+              Left
+                ( withLine
+                    lineNo
+                    "attribute value must be one token (string, integer, or identifier)"
+                )
+            Left _ ->
+              Left (withLine lineNo "invalid attribute value")
+
+        attachClauseAttributes :: [FunctionAttribute] -> FunctionClause -> FunctionClause
+        attachClauseAttributes attrs clause =
+          clause {fnClauseAttributes = attrs}
     coalesceRawLines :: [RawLine] -> Either String [RawLine]
     coalesceRawLines rawLines = do
       merged <- go [] rawLines
@@ -434,9 +556,12 @@ parseModule src = do
        in if null cleaned
             then Right RawEmpty
             else
-              if isIndented
+            if isIndented
                 then Right (RawFunctionContinuation lineNo cleaned)
                 else
+                  if isAttributeLine cleaned
+                    then Right (RawAttribute lineNo (trim (init (drop 2 cleaned))))
+                    else
                   if startsWith "module " cleaned || startsWith "import " cleaned || startsWith "export " cleaned
                     then Right RawEmpty
                     else
@@ -458,6 +583,10 @@ parseModule src = do
                                           if looksLikeTypeSignature cleaned
                                             then Right (RawSignature lineNo cleaned)
                                             else Right (RawFunction lineNo cleaned)
+
+    isAttributeLine :: String -> Bool
+    isAttributeLine lineText =
+      length lineText >= 3 && startsWith "#[" lineText && last lineText == ']'
 
     collectOperatorDecls :: [RawLine] -> Either String [OperatorDecl]
     collectOperatorDecls raws = do
@@ -512,6 +641,8 @@ parseModule src = do
 
     parseRawLine :: OperatorTable -> ConstructorTable -> RawLine -> Either String ParsedLine
     parseRawLine _ _ RawEmpty = Right (ParsedFunctions [])
+    parseRawLine _ _ (RawAttribute _ _) =
+      Left "internal parser error: stray attribute outside function declaration"
     parseRawLine _ _ (RawSignature lineNo cleaned) = ParsedSignature <$> parseTypeSignatureAt lineNo cleaned
     parseRawLine _ _ (RawData lineNo cleaned) = ParsedFunctions <$> parseDataLineAt lineNo cleaned
     parseRawLine _ _ (RawClass lineNo cleaned) = ParsedClass <$> parseClassDecl lineNo cleaned
@@ -564,16 +695,22 @@ mergeFunctionClauseGroup :: [FunctionClause] -> Either String Function
 mergeFunctionClauseGroup clauses =
   case clauses of
     [] -> Left "function group is empty"
-    firstClause : [] ->
-      case firstClause of
-        FunctionClause _ _ body
-          | all isVarPattern (fnClausePatterns firstClause) ->
-            let args = mapMaybe varPatternName (fnClausePatterns firstClause)
-             in Right Function {name = fnClauseName firstClause, args = args, body = body}
-          | otherwise ->
-            buildPatternMatchFn clauses
-    _ : _ -> do
-      buildPatternMatchFn clauses
+    _ -> do
+      let clauseAttrs = fnClauseAttributes (head clauses)
+      if any (\clause -> fnClauseAttributes clause /= clauseAttrs) clauses
+        then Left "function clauses do not agree on attributes"
+        else do
+          case clauses of
+            firstClause : [] ->
+              case firstClause of
+                FunctionClause _ _ body _
+                  | all isVarPattern (fnClausePatterns firstClause) ->
+                    let args = mapMaybe varPatternName (fnClausePatterns firstClause)
+                     in Right Function {name = fnClauseName firstClause, args = args, body = body, attributes = clauseAttrs}
+                  | otherwise ->
+                    buildPatternMatchFn clauses
+            _ : _ -> do
+              buildPatternMatchFn clauses
   where
     buildPatternMatchFn :: [FunctionClause] -> Either String Function
     buildPatternMatchFn clausesToBuild =
@@ -591,7 +728,7 @@ mergeFunctionClauseGroup clauses =
           argNames <- pickArgNames clausesToBuild arity
           let arms = map (mkFunctionClauseArm argNames) clausesToBuild
               body = Case (map Var argNames) arms
-          pure Function {name = fnName, args = argNames, body = body}
+          pure Function {name = fnName, args = argNames, body = body, attributes = fnClauseAttributes firstClause0}
 
     mkFunctionClauseArm :: [Name] -> FunctionClause -> CaseArm
     mkFunctionClauseArm _ clause =
@@ -1040,6 +1177,7 @@ parsePlainFunctionClause operators constructors rhsRaw lhsRaw = do
                   { fnClauseName = fnName
                   , fnClausePatterns = patterns
                   , fnClauseBody = bodyExpr
+                  , fnClauseAttributes = []
                   }
                 ]
         _ ->
@@ -1080,6 +1218,7 @@ parseGuardedFunctionClause operators constructors src = do
         { fnClauseName = fnName
         , fnClausePatterns = patterns
         , fnClauseBody = bodyExpr
+        , fnClauseAttributes = []
         }
     ]
   where
@@ -2676,6 +2815,7 @@ mkConstructorClause decl =
     { fnClauseName = dataCtorName decl
     , fnClausePatterns = map PatVar (dataCtorFields decl)
     , fnClauseBody = mkCallExpr (dataCtorInfo decl) (dataCtorFields decl)
+    , fnClauseAttributes = []
     }
 
 mkCallExpr :: ConstructorInfo -> [Name] -> Expr

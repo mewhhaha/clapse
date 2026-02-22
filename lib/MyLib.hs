@@ -6,6 +6,8 @@ module MyLib
   , TypeSignature(..)
   , SignatureConstraint(..)
   , Function(..)
+  , FunctionAttribute(..)
+  , FunctionAttributeValue(..)
   , Expr(..)
   , CaseArm(..)
   , CasePattern(..)
@@ -116,6 +118,8 @@ import Clapse.Syntax
   ( CaseArm(..)
   , CasePattern(..)
   , Expr(..)
+  , FunctionAttribute(..)
+  , FunctionAttributeValue(..)
   , Function(..)
   , Module(..)
   , Name

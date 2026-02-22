@@ -25,6 +25,8 @@ import MyLib
   , FlatFunction(..)
   , FunctionTypeInfo(..)
   , Function(..)
+  , FunctionAttribute(..)
+  , FunctionAttributeValue(..)
   , Law(..)
   , Module(..)
   , Op(..)
@@ -74,6 +76,9 @@ tests :: [IO Bool]
 tests =
   [ testParseModule
   , testParseModuleWithDirectives
+  , testParseFunctionAttributes
+  , testParseFunctionAttributesPropagateAcrossClauses
+  , testParseOrphanFunctionAttributeFails
   , testParseLambda
   , testParseStringLiteral
   , testParseCaseMultipleScrutinees
@@ -222,11 +227,17 @@ testParseModule = do
       expected =
         Module
           { signatures = [], functions =
-              [ Function {name = "id", args = ["x"], body = Var "x"}
+              [ Function
+                  { name = "id"
+                  , args = ["x"]
+                  , body = Var "x"
+                  , attributes = []
+                  }
               , Function
                   { name = "add2"
                   , args = ["x"]
                   , body = App (App (Var "add") (Var "x")) (IntLit 2)
+                  , attributes = []
                   }
               ]
           }
@@ -254,11 +265,13 @@ testParseModuleWithDirectives = do
                   { name = "helper"
                   , args = ["x"]
                   , body = App (App (Var "add") (Var "x")) (IntLit 1)
+                  , attributes = []
                   }
               , Function
                   { name = "main"
                   , args = ["y"]
                   , body = App (Var "helper") (Var "y")
+                  , attributes = []
                   }
               ]
           }
@@ -267,6 +280,94 @@ testParseModuleWithDirectives = do
       failTest "parse module with directives" ("unexpected parse error: " <> err)
     Right parsed ->
       assertEqual "parse module with directives" expected parsed
+
+testParseFunctionAttributes :: IO Bool
+testParseFunctionAttributes = do
+  let src =
+        unlines
+          [ "#[memo 100]"
+          , "#[test \"fibonacci memoized\"]"
+          , "fib x = add x 1"
+          ]
+      expected =
+        Module
+          { signatures = []
+          , functions =
+              [ Function
+                  { name = "fib"
+                  , args = ["x"]
+                  , body = App (App (Var "add") (Var "x")) (IntLit 1)
+                  , attributes =
+                      [ FunctionAttribute
+                          { attributeName = "memo"
+                          , attributeValue = Just (AttributeInt 100)
+                          }
+                      , FunctionAttribute
+                          { attributeName = "test"
+                          , attributeValue = Just (AttributeString "fibonacci memoized")
+                          }
+                      ]
+                  }
+              ]
+          }
+  case parseModule src of
+    Left err ->
+      failTest "parse function attributes" ("unexpected parse error: " <> err)
+    Right parsed ->
+      assertEqual "parse function attributes" expected parsed
+
+testParseFunctionAttributesPropagateAcrossClauses :: IO Bool
+testParseFunctionAttributesPropagateAcrossClauses = do
+  let src =
+        unlines
+          [ "#[memo 5]"
+          , "count 0 = 1"
+          , "count n = n"
+          ]
+      expected =
+        Module
+          { signatures = []
+          , functions =
+              [ Function
+                  { name = "count"
+                  , args = ["n"]
+                  , body = Case [Var "n"]
+                      [ CaseArm
+                          { armPatterns = [PatInt 0]
+                          , armBody = IntLit 1
+                          }
+                      , CaseArm
+                          { armPatterns = [PatVar "n"]
+                          , armBody = Var "n"
+                          }
+                      ]
+                  , attributes =
+                      [ FunctionAttribute
+                          { attributeName = "memo"
+                          , attributeValue = Just (AttributeInt 5)
+                          }
+                      ]
+                  }
+              ]
+          }
+  case parseModule src of
+    Left err ->
+      failTest "parse function attributes propagate across clauses" ("unexpected parse error: " <> err)
+    Right parsed ->
+      assertEqual "parse function attributes propagate across clauses" expected parsed
+
+testParseOrphanFunctionAttributeFails :: IO Bool
+testParseOrphanFunctionAttributeFails = do
+  let src = "#[memo 4]"
+  case parseModule src of
+    Left err ->
+      assertTrue
+        "parse orphan function attribute fails"
+        ( "orphaned attribute" `isInfixOf` err
+            || "attribute must annotate a function declaration" `isInfixOf` err
+        )
+    Right parsed ->
+      failTest "parse orphan function attribute fails" ("unexpected parse success: " <> show parsed)
 
 testParseErrorLine :: IO Bool
 testParseErrorLine = do
@@ -479,6 +580,7 @@ testParseLambda = do
                       Lam
                         "y"
                         (App (App (Var "add") (Var "x")) (Var "y"))
+                  , attributes = []
                   }
               ]
           }
@@ -498,6 +600,7 @@ testParseStringLiteral = do
                   { name = "main"
                   , args = []
                   , body = StringLit "hello\nworld"
+                  , attributes = []
                   }
               ]
           }
@@ -529,6 +632,7 @@ testParseCaseMultipleScrutinees = do
                             , armBody = App (App (Var "add") (Var "x")) (Var "y")
                             }
                         ]
+                  , attributes = []
                   }
               ]
           }
@@ -648,6 +752,7 @@ testParseLetExpression = do
                             (Var "y")
                         )
                         (App (App (Var "add") (Var "x")) (IntLit 1))
+                  , attributes = []
                   }
               ]
           }
@@ -676,6 +781,7 @@ testParseLetMultipleBindings = do
                             )
                         )
                         (App (App (Var "add") (Var "x")) (IntLit 1))
+                  , attributes = []
                   }
               ]
           }
@@ -698,6 +804,7 @@ testParseLetFunctionBinding = do
                       App
                         (Lam "inc" (App (Var "inc") (Var "x")))
                         (Lam "y" (App (App (Var "add") (Var "y")) (IntLit 1)))
+                  , attributes = []
                   }
               ]
           }
@@ -731,6 +838,7 @@ testParseLetMultilineContinuation = do
                             )
                         )
                         (App (App (Var "add") (Var "x")) (IntLit 1))
+                  , attributes = []
                   }
               ]
           }
@@ -764,6 +872,7 @@ testParseLetMultilineNoSemicolon = do
                             )
                         )
                         (App (App (Var "add") (Var "x")) (IntLit 1))
+                  , attributes = []
                   }
               ]
           }
@@ -798,6 +907,7 @@ testParseFunctionGuards = do
                             , armBody = App (App (Var "add") (Var "x")) (Var "y")
                             }
                         ]
+                  , attributes = []
                   }
               ]
           }
@@ -835,6 +945,7 @@ testParseFunctionGuardsWithBuiltinOperatorConditions = do
                             , armBody = App (App (Var "add") (Var "x")) (Var "y")
                             }
                         ]
+                  , attributes = []
                   }
               ]
           }
@@ -875,6 +986,7 @@ testParseFunctionGuardsWithOperatorConditions = do
                             , armBody = App (App (Var "add") (Var "x")) (Var "y")
                             }
                         ]
+                  , attributes = []
                   }
               ]
           }
@@ -910,6 +1022,7 @@ testParseFunctionPatternClauses = do
                             , armBody = App (App (Var "add") (Var "x")) (Var "y")
                             }
                         ]
+                  , attributes = []
                   }
               ]
           }
@@ -932,6 +1045,7 @@ testParseDataDeclarationGeneratesFunctions = do
                       App
                         (App (Var "__mk_Pair#Pair_2_tpar_2_fmap_0_1") (Var "a"))
                         (Var "b")
+                  , attributes = []
                   }
               ]
           }
@@ -957,6 +1071,7 @@ testParseDataDeclarationSupportsPascalCase = do
                             (Var "p")
                         )
                         (Var "v")
+                  , attributes = []
                   }
               ]
           }
@@ -1056,6 +1171,7 @@ testParseTypeSignatureWithOptionalWitness = do
                   { name = "combine"
                   , args = ["x", "y"]
                   , body = App (App (Var "append") (Var "x")) (Var "y")
+                  , attributes = []
                   }
               ]
           }
@@ -1085,6 +1201,7 @@ testParseCollectionLiteral = do
                   { name = "main"
                   , args = []
                   , body = CollectionLit [IntLit 1, IntLit 2, IntLit 3]
+                  , attributes = []
                   }
               ]
           }
@@ -1131,11 +1248,13 @@ testParseClassInstanceDeclarationsRewriteFunctions = do
                   { name = "plus"
                   , args = ["a", "b"]
                   , body = App (App (Var "add") (Var "a")) (Var "b")
+                  , attributes = []
                   }
               , Function
                   { name = "main"
                   , args = ["x"]
                   , body = Var "x"
+                  , attributes = []
                   }
               ]
           }
@@ -1195,6 +1314,7 @@ testParseBuiltinInfixPrecedence = do
                       App
                         (App (Var "add") (Var "x"))
                         (App (App (Var "mul") (IntLit 1)) (IntLit 2))
+                  , attributes = []
                   }
               ]
           }
@@ -1233,6 +1353,7 @@ testParseCustomInfixPrecedence = do
                       App
                         (App (Var "add") (Var "x"))
                         (App (App (Var "mul") (IntLit 1)) (IntLit 2))
+                  , attributes = []
                   }
               ]
           }
@@ -1259,6 +1380,7 @@ testParseCustomInfixRightAssociative = do
                       App
                         (App (Var "append") (Var "a"))
                         (App (App (Var "append") (Var "b")) (Var "c"))
+                  , attributes = []
                   }
               ]
           }
@@ -1285,6 +1407,7 @@ testParseCustomInfixOverrideBuiltin = do
                       App
                         (App (Var "sub") (Var "a"))
                         (App (App (Var "sub") (Var "b")) (Var "c"))
+                  , attributes = []
                   }
               ]
           }
@@ -1308,6 +1431,7 @@ testParseBacktickOperator = do
                   { name = "main"
                   , args = ["x"]
                   , body = App (App (Var "add") (Var "x")) (IntLit 1)
+                  , attributes = []
                   }
               ]
           }
@@ -1330,6 +1454,7 @@ testParseBacktickFunctionOperatorWithoutDeclaration = do
                       App
                         (App (Var "add") (App (App (Var "mod") (Var "a")) (Var "b")))
                         (Var "c")
+                  , attributes = []
                   }
               ]
           }
@@ -1379,6 +1504,7 @@ testLowerFunction = do
           { name = "add2"
           , args = ["x"]
           , body = App (App (Var "add") (Var "x")) (IntLit 2)
+          , attributes = []
           }
       expected =
         FlatFunction
@@ -1401,6 +1527,7 @@ testLowerStringLiteral = do
           { name = "greeting"
           , args = []
           , body = StringLit "hello"
+          , attributes = []
           }
       expected =
         FlatFunction
@@ -1423,6 +1550,7 @@ testLowerFunctionRejectsDuplicateArgs = do
           { name = "dup"
           , args = ["x", "x"]
           , body = Var "x"
+          , attributes = []
           }
   case lowerFunction fn of
     Left err ->
@@ -1437,6 +1565,7 @@ testLowerClosureFunction = do
           { name = "make_adder"
           , args = ["x"]
           , body = Lam "y" (App (App (Var "add") (Var "x")) (Var "y"))
+          , attributes = []
           }
       expected =
         FlatFunction
@@ -1467,6 +1596,7 @@ testLowerDynamicCall = do
           { name = "apply"
           , args = ["f", "x"]
           , body = App (Var "f") (Var "x")
+          , attributes = []
           }
       expected =
         FlatFunction
@@ -1489,6 +1619,7 @@ testCollapseDirectCall = do
           { name = "add2"
           , args = ["x"]
           , body = App (App (Var "add") (Var "x")) (IntLit 2)
+          , attributes = []
           }
       expected =
         CollapsedFunction
@@ -1517,6 +1648,7 @@ testCollapseClosure = do
           { name = "make_adder"
           , args = ["x"]
           , body = Lam "y" (App (App (Var "add") (Var "x")) (Var "y"))
+          , attributes = []
           }
       expected =
         CollapsedFunction
@@ -1559,6 +1691,7 @@ testCollapseDynamicCall = do
           { name = "apply"
           , args = ["f", "x"]
           , body = App (Var "f") (Var "x")
+          , attributes = []
           }
       expected =
         CollapsedFunction
@@ -1589,11 +1722,13 @@ testAutoCurryPartialKnownCall = do
                   { name = "add"
                   , args = ["a", "b"]
                   , body = Var "a"
+                  , attributes = []
                   }
               , Function
                   { name = "inc"
                   , args = ["x"]
                   , body = App (Var "add") (Var "x")
+                  , attributes = []
                   }
               ]
           }
@@ -1630,6 +1765,7 @@ testAutoCurryOverApplication = do
                   { name = "add"
                   , args = ["a", "b"]
                   , body = Var "a"
+                  , attributes = []
                   }
               , Function
                   { name = "boom"
@@ -1638,6 +1774,7 @@ testAutoCurryOverApplication = do
                       App
                         (App (App (Var "add") (Var "x")) (IntLit 1))
                         (IntLit 2)
+                  , attributes = []
                   }
               ]
           }
@@ -3527,7 +3664,7 @@ findFunctionByName target (fn:rest)
   where
     fnName =
       case fn of
-        Function n _ _ -> n
+        Function n _ _ _ -> n
 
 findTypeInfo :: String -> [FunctionTypeInfo] -> Maybe FunctionTypeInfo
 findTypeInfo _name [] = Nothing

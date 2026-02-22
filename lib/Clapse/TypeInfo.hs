@@ -67,7 +67,7 @@ validateUniqueNames funs =
     d:_ -> Left ("duplicate function name for type inference: " <> d)
   where
     fnName :: Function -> Name
-    fnName (Function n _ _) = n
+    fnName (Function n _ _ _) = n
 
 buildSeeds :: [Function] -> InferState -> Either String ([Seed], InferState)
 buildSeeds funs st = go [] st funs
@@ -709,8 +709,8 @@ joinWith delim (x:xs) = x <> [delim] <> joinWith delim xs
 
 nameFromSeed :: Seed -> Name
 nameFromSeed seed =
-  case seedFn seed of
-    Function n _ _ -> n
+    case seedFn seed of
+      Function n _ _ _ -> n
 
 desugarCollectionExpr :: [Expr] -> Expr
 desugarCollectionExpr elems =
@@ -720,7 +720,7 @@ desugarCollectionExpr elems =
 argCount :: Function -> Int
 argCount fn =
   case fn of
-    Function _ as _ -> length as
+    Function _ as _ _ -> length as
 
 duplicates :: [Name] -> [Name]
 duplicates = reverse . go [] []
