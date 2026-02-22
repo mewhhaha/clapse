@@ -1,0 +1,4 @@
+data Maybe a = Just : a -> Maybe a | Nothing : Maybe a
+main x = case (Just x) of
+  Nothing -> 0
+  Just y -> y + 1

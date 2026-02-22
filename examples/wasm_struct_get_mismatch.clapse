@@ -1,0 +1,1 @@
+main x = __get_other_0 (__mk_pair_2 x (x + 1))

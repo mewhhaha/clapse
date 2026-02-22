@@ -1,0 +1,590 @@
+==================
+module with function, data, class, law, instance
+==================
+
+id x = x
+data Pair a b = Pair a b
+class plus_rules : add
+law plus_rules right_identity = add x 0 => x
+instance plus_i64 : plus_rules add=plus
+plus a b = add a b
+
+---
+
+(source_file
+  (declaration
+    (function_declaration
+      name: (identifier)
+      argument: (identifier)
+      body: (expression
+        (identifier))))
+  (declaration
+    (data_declaration
+      type_name: (capitalized_identifier)
+      type_parameter: (identifier)
+      type_parameter: (identifier)
+      constructor_name: (capitalized_identifier)
+      field_name: (identifier)
+      field_name: (identifier)))
+  (declaration
+    (class_declaration
+      name: (identifier)
+      kind: (class_kind)))
+  (declaration
+    (law_declaration
+      class_name: (identifier)
+      name: (identifier)
+      lhs: (expression
+        (application_expression
+          function: (application_expression
+            function: (identifier)
+            argument: (identifier))
+          argument: (integer)))
+      rhs: (expression
+        (identifier))))
+  (declaration
+    (instance_declaration
+      name: (identifier)
+      class_name: (identifier)
+      binding: (instance_binding
+        method_name: (identifier)
+        target_name: (identifier))))
+  (declaration
+    (function_declaration
+      name: (identifier)
+      argument: (identifier)
+      argument: (identifier)
+      body: (expression
+        (application_expression
+          function: (application_expression
+            function: (identifier)
+            argument: (identifier))
+          argument: (identifier))))))
+
+==================
+parenthesized application argument
+==================
+
+wrap x = f (g x)
+
+---
+
+(source_file
+  (declaration
+    (function_declaration
+      name: (identifier)
+      argument: (identifier)
+      body: (expression
+        (application_expression
+          function: (identifier)
+          argument: (parenthesized_expression
+            (expression
+              (application_expression
+                function: (identifier)
+                argument: (identifier)))))))))
+
+==================
+operator declarations and infix expressions
+==================
+
+infixl 6 +. = add
+infixr 5 <> = append
+infixl 6 plus_op = add
+main x y z = x +. y <> z
+other x y = x `plus_op` y
+
+---
+
+(source_file
+  (declaration
+    (operator_declaration
+      assoc: (operator_assoc)
+      precedence: (integer)
+      operator: (operator_token
+        (operator_symbol))
+      target: (identifier)))
+  (declaration
+    (operator_declaration
+      assoc: (operator_assoc)
+      precedence: (integer)
+      operator: (operator_token
+        (operator_symbol))
+      target: (identifier)))
+  (declaration
+    (operator_declaration
+      assoc: (operator_assoc)
+      precedence: (integer)
+      operator: (operator_token
+        (identifier))
+      target: (identifier)))
+  (declaration
+    (function_declaration
+      name: (identifier)
+      argument: (identifier)
+      argument: (identifier)
+      argument: (identifier)
+      body: (expression
+        (infix_expression
+          left: (infix_expression
+            left: (identifier)
+            operator: (infix_operator
+              (operator_symbol))
+            right: (identifier))
+          operator: (infix_operator
+            (operator_symbol))
+          right: (identifier)))))
+  (declaration
+    (function_declaration
+      name: (identifier)
+      argument: (identifier)
+      argument: (identifier)
+      body: (expression
+        (infix_expression
+          left: (identifier)
+          operator: (infix_operator
+            (backtick_operator))
+          right: (identifier))))))
+
+==================
+module / import / export declarations
+==================
+
+module Core
+import Parser
+export main, Request
+
+---
+
+(source_file
+  (declaration
+    (module_declaration
+      name: (module_name)))
+  (declaration
+    (import_declaration
+      module: (module_name)))
+  (declaration
+    (export_declaration
+      name: (identifier)
+      name: (capitalized_identifier))))
+
+==================
+string literals
+==================
+
+greeting = "hello\nworld"
+main = greeting
+
+---
+
+(source_file
+  (declaration
+    (function_declaration
+      name: (identifier)
+      body: (expression
+        (string))))
+  (declaration
+    (function_declaration
+      name: (identifier)
+      body: (expression
+        (identifier)))))
+
+==================
+data declaration with type parameters
+==================
+
+data Pair a b = Pair a b
+
+---
+
+(source_file
+  (declaration
+    (data_declaration
+      type_name: (capitalized_identifier)
+      type_parameter: (identifier)
+      type_parameter: (identifier)
+      constructor_name: (capitalized_identifier)
+      field_name: (identifier)
+      field_name: (identifier))))
+
+==================
+function signatures and collection literals
+==================
+
+id : a -> a
+eq_id : (eq_witness : eq a) => a -> a
+id x = x
+nums = [a, b]
+empty = []
+
+---
+
+(source_file
+  (declaration
+    (function_signature
+      name: (identifier)
+      signature: (signature_text)))
+  (declaration
+    (function_signature
+      name: (identifier)
+      signature: (signature_text)))
+  (declaration
+    (function_declaration
+      name: (identifier)
+      argument: (identifier)
+      body: (expression
+        (identifier))))
+  (declaration
+    (function_declaration
+      name: (identifier)
+      body: (expression
+        (list_expression
+          element: (expression
+            (identifier))
+          element: (expression
+            (identifier))))))
+  (declaration
+    (function_declaration
+      name: (identifier)
+      body: (expression
+        (list_expression)))))
+
+===================
+case expressions
+===================
+
+case_expr x y =
+  case a b of
+    Pair x y -> add x y
+    0 0 -> 0
+    _ _ -> 0
+
+---
+
+(source_file
+  (declaration
+    (function_declaration
+      name: (identifier)
+      argument: (identifier)
+      argument: (identifier)
+      body: (expression
+        (case_expression
+          scrutinee: (case_scrutinee_atom
+            (identifier))
+          scrutinee: (case_scrutinee_atom
+            (identifier))
+          branch: (case_branch
+            pattern: (case_pattern_atom
+              (capitalized_identifier))
+            pattern: (case_pattern_atom
+              (identifier))
+            pattern: (case_pattern_atom
+              (identifier))
+            result: (expression
+              (application_expression
+                function: (application_expression
+                  function: (identifier)
+                  argument: (identifier))
+                argument: (identifier))))
+          (case_branch_tail_multiline
+            branch: (case_branch
+              pattern: (case_pattern_atom
+                (integer))
+              pattern: (case_pattern_atom
+                (integer))
+              result: (expression
+                (integer)))
+            (case_branch_tail_multiline
+              branch: (case_branch
+                pattern: (case_pattern_atom
+                  (wildcard))
+                pattern: (case_pattern_atom
+                  (wildcard))
+                result: (expression
+                  (integer))))))))))
+
+==================
+case expression with multiline let arm body
+==================
+
+sum_slice cells start span = case (span == 0) (span == 1) of
+  1 _ -> 0
+  _ 1 -> slice_get_u8 cells start
+  _ _ ->
+    let half = span / 2
+        left_sum = sum_slice cells start half
+        right_start = start + half
+        right_span = span - half
+        right_sum = sum_slice cells right_start right_span
+    in left_sum + right_sum
+
+---
+
+(source_file
+  (declaration
+    (function_declaration
+      (identifier)
+      (identifier)
+      (identifier)
+      (identifier)
+      (expression
+        (case_expression
+          (case_scrutinee_atom
+            (parenthesized_expression
+              (expression
+                (infix_expression
+                  (identifier)
+                  (infix_operator
+                    (operator_symbol))
+                  (integer)))))
+          (case_scrutinee_atom
+            (parenthesized_expression
+              (expression
+                (infix_expression
+                  (identifier)
+                  (infix_operator
+                    (operator_symbol))
+                  (integer)))))
+          (case_branch
+            (case_pattern_atom
+              (integer))
+            (case_pattern_atom
+              (wildcard))
+            (expression
+              (integer)))
+          (case_branch_tail_multiline
+            (case_branch
+              (case_pattern_atom
+                (wildcard))
+              (case_pattern_atom
+                (integer))
+              (expression
+                (application_expression
+                  (application_expression
+                    (identifier)
+                    (identifier))
+                  (identifier))))
+            (case_branch_tail_multiline
+              (case_branch
+                (case_pattern_atom
+                  (wildcard))
+                (case_pattern_atom
+                  (wildcard))
+                (expression
+                  (let_expression
+                    (let_binding
+                      (let_value_binding
+                        (identifier)
+                        (expression
+                          (infix_expression
+                            (identifier)
+                            (infix_operator
+                              (operator_symbol))
+                            (integer)))))
+                    (let_binding
+                      (let_value_binding
+                        (identifier)
+                        (expression
+                          (application_expression
+                            (application_expression
+                              (application_expression
+                                (identifier)
+                                (identifier))
+                              (identifier))
+                            (identifier)))))
+                    (let_binding
+                      (let_value_binding
+                        (identifier)
+                        (expression
+                          (infix_expression
+                            (identifier)
+                            (infix_operator
+                              (operator_symbol))
+                            (identifier)))))
+                    (let_binding
+                      (let_value_binding
+                        (identifier)
+                        (expression
+                          (infix_expression
+                            (identifier)
+                            (infix_operator
+                              (operator_symbol))
+                            (identifier)))))
+                    (let_binding
+                      (let_value_binding
+                        (identifier)
+                        (expression
+                          (application_expression
+                            (application_expression
+                              (application_expression
+                                (identifier)
+                                (identifier))
+                              (identifier))
+                            (identifier)))))
+                    (in_keyword)
+                    (expression
+                      (infix_expression
+                        (identifier)
+                        (infix_operator
+                          (operator_symbol))
+                        (identifier)))))))))))))
+
+==================
+data alternatives and GADT constructors
+==================
+
+data Pair a b = Pair a b | Left : a | Right : b
+
+---
+
+(source_file
+  (declaration
+    (data_declaration
+      type_name: (capitalized_identifier)
+      type_parameter: (identifier)
+      type_parameter: (identifier)
+      constructor_name: (capitalized_identifier)
+      field_name: (identifier)
+      field_name: (identifier)
+      constructor_name: (capitalized_identifier)
+      constructor_type: (type_expr_text)
+      constructor_name: (capitalized_identifier)
+      constructor_type: (type_expr_text))))
+
+==================
+class and instance heads with type args
+==================
+
+class applicative_rules f : applicative
+instance map_functor : applicative_rules Maybe map=map
+
+---
+
+(source_file
+  (declaration
+    (class_declaration
+      name: (identifier)
+      type_parameter: (identifier)
+      kind: (class_kind)))
+  (declaration
+    (instance_declaration
+      name: (identifier)
+      class_name: (identifier)
+      class_type_argument: (capitalized_identifier)
+      binding: (instance_binding
+        method_name: (identifier)
+        target_name: (identifier)))))
+
+==================
+let expressions
+==================
+
+let_demo x = let y = add x 1; inc z = add z 1 in inc y
+let_pair p = let Pair left right = p in left
+let_multiline x = let y = add x 1;
+  z = mul y 2
+  in z
+
+---
+
+(source_file
+  (declaration
+    (function_declaration
+      name: (identifier)
+      argument: (identifier)
+      body: (expression
+        (let_expression
+          binding: (let_binding
+            (let_value_binding
+              name: (identifier)
+              value: (expression
+                (application_expression
+                  function: (application_expression
+                    function: (identifier)
+                    argument: (identifier))
+                  argument: (integer)))))
+          binding: (let_binding
+            (let_function_binding
+              name: (identifier)
+              argument: (identifier)
+              value: (expression
+                (application_expression
+                  function: (application_expression
+                    function: (identifier)
+                    argument: (identifier))
+                  argument: (integer)))))
+          (in_keyword)
+          body: (expression
+            (application_expression
+              function: (identifier)
+              argument: (identifier)))))))
+  (declaration
+    (function_declaration
+      name: (identifier)
+      argument: (identifier)
+      body: (expression
+        (let_expression
+          binding: (let_binding
+            (let_pattern_binding
+              constructor: (capitalized_identifier)
+              field: (identifier)
+              field: (identifier)
+              value: (expression
+                (identifier))))
+          (in_keyword)
+          body: (expression
+            (identifier))))))
+  (declaration
+    (function_declaration
+      name: (identifier)
+      argument: (identifier)
+      body: (expression
+        (let_expression
+          binding: (let_binding
+            (let_value_binding
+              name: (identifier)
+              value: (expression
+                (application_expression
+                  function: (application_expression
+                    function: (identifier)
+                    argument: (identifier))
+                  argument: (integer)))))
+          binding: (let_binding
+            (let_value_binding
+              name: (identifier)
+              value: (expression
+                (application_expression
+                  function: (application_expression
+                    function: (identifier)
+                    argument: (identifier))
+                  argument: (integer)))))
+          (in_keyword)
+          body: (expression
+            (identifier)))))))
+
+==================
+guarded function declarations
+==================
+
+add_or_zero x y | eq x 0 = 0
+  | otherwise = add x y
+
+---
+
+(source_file
+  (declaration
+    (function_declaration
+      (identifier)
+      (identifier)
+      (identifier)
+      (guarded_clause
+        (guard_condition_text)
+        (expression
+          (integer)))
+      (guarded_clause
+        (guard_condition_text)
+        (expression
+          (application_expression
+            (application_expression
+              (identifier)
+              (identifier))
+            (identifier)))))))

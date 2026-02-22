@@ -1,0 +1,6 @@
+plus_zero x = x + 0
+times_one x = x * 1
+sub_self x = x - x
+div_one x = x / 1
+map_id xs = fmap id xs
+bind_pure k x = bind (pure x) k

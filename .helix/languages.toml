@@ -1,0 +1,19 @@
+use-grammars = { only = ["clapse"] }
+
+[[language]]
+name = "clapse"
+scope = "source.clapse"
+file-types = ["clapse"]
+comment-token = "--"
+language-servers = ["clapse"]
+grammar = "clapse"
+roots = ["clapse.cabal"]
+formatter = { command = "cabal", args = ["run", "clapse", "--", "format", "--stdin"] }
+
+[[grammar]]
+name = "clapse"
+source = { path = "/home/mewhhaha/src/clapse/tree-sitter-clapse" }
+
+[language-server.clapse]
+command = "cabal"
+args = ["run", "clapse", "--", "lsp", "--stdio"]

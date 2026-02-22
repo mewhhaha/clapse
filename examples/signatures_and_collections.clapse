@@ -1,0 +1,11 @@
+id : a -> a
+id x = x
+
+eq_id : (eq_witness : eq a) => a -> a
+eq_id x = x
+
+pair_to_list : a -> b -> [a, b]
+pair_to_list left right = [left, right]
+
+empty_list : [a] -> [a]
+empty_list xs = []

@@ -1,0 +1,131 @@
+{-# LANGUAGE DuplicateRecordFields #-}
+
+module MyLib
+  ( Name
+  , Module(..)
+  , TypeSignature(..)
+  , SignatureConstraint(..)
+  , Function(..)
+  , Expr(..)
+  , CaseArm(..)
+  , CasePattern(..)
+  , parseModule
+  , parseFunctionLine
+  , parseExpr
+  , desugarCaseExpr
+  , formatSource
+  , TraitCategory(..)
+  , RewriteRule(..)
+  , Pattern(..)
+  , Trait(..)
+  , basicTraits
+  , traitsByCategory
+  , rewriteOnceWithTraits
+  , rewriteOnceWithBasicTraits
+  , normalizeWithTraits
+  , normalizeWithBasicTraits
+  , Op(..)
+  , FlatFunction(..)
+  , lowerFunction
+  , lowerModule
+  , Atom(..)
+  , Value(..)
+  , Bind(..)
+  , CollapsedFunction(..)
+  , collapseFunction
+  , collapseModule
+  , verifyCollapsedFunction
+  , verifyCollapsedModule
+  , collapseAndVerifyFunction
+  , collapseAndVerifyModule
+  , collapseAndVerifyModuleFromRoots
+  , pruneDeadFunctionsFromRoots
+  , compileModuleToWasm
+  , compileSourceToWasm
+  , Type(..)
+  , FunctionTypeInfo(..)
+  , inferModuleTypes
+  , inferSourceTypes
+  , renderType
+  , evalSourceFunction
+  , evalCollapsedFunction
+  , differentialCheckSourceCollapsed
+  , ClassKind(..)
+  , Law(..)
+  , ClassDef(..)
+  , mkClassDef
+  , requiredLawNames
+  ) where
+
+import Clapse.CollapseIR
+  ( Atom(..)
+  , Bind(..)
+  , CollapsedFunction(..)
+  , Value(..)
+  , collapseAndVerifyFunction
+  , collapseAndVerifyModule
+  , collapseAndVerifyModuleFromRoots
+  , collapseFunction
+  , collapseModule
+  , pruneDeadFunctionsFromRoots
+  , verifyCollapsedFunction
+  , verifyCollapsedModule
+  )
+import Clapse.Wasm
+  ( compileModuleToWasm
+  , compileSourceToWasm
+  )
+import Clapse.TypeInfo
+  ( FunctionTypeInfo(..)
+  , Type(..)
+  , inferModuleTypes
+  , inferSourceTypes
+  , renderType
+  )
+import Clapse.Eval
+  ( differentialCheckSourceCollapsed
+  , evalCollapsedFunction
+  , evalSourceFunction
+  )
+import Clapse.Traits
+  ( Pattern(..)
+  , RewriteRule(..)
+  , Trait(..)
+  , TraitCategory(..)
+  , basicTraits
+  , normalizeWithBasicTraits
+  , normalizeWithTraits
+  , rewriteOnceWithBasicTraits
+  , rewriteOnceWithTraits
+  , traitsByCategory
+  )
+import Clapse.Laws
+  ( ClassDef(..)
+  , ClassKind(..)
+  , Law(..)
+  , mkClassDef
+  , requiredLawNames
+  )
+import Clapse.Lowering
+  ( FlatFunction(..)
+  , Op(..)
+  , lowerFunction
+  , lowerModule
+  )
+import Clapse.Syntax
+  ( CaseArm(..)
+  , CasePattern(..)
+  , Expr(..)
+  , Function(..)
+  , Module(..)
+  , Name
+  , SignatureConstraint(..)
+  , TypeSignature(..)
+  , desugarCaseExpr
+  , parseExpr
+  , parseFunctionLine
+  , parseModule
+  )
+import Clapse.Format
+  ( formatSource
+  )

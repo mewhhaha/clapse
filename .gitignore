@@ -1,0 +1,20 @@
+# Haskell/Cabal build artifacts
+dist-newstyle/
+.cabal/
+.cabal-logs/
+
+# Project output and local caches
+out/
+.ts-cache/
+tree-sitter-clapse/.ts-cache/
+
+# Node/tooling caches
+node_modules/
+tree-sitter-clapse/node_modules/
+npm-debug.log*
+
+# Editor/OS noise
+.DS_Store
+*.swp
+*.swo
+*~

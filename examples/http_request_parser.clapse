@@ -1,0 +1,31 @@
+-- Encoded request format (fixed-width decimal fields):
+-- request = method * 10000 + path * 100 + version
+-- Example input 10203 means: method=1, path=2, version=3.
+
+data HttpRequest method path version = HttpRequest method path version
+
+method_code packed = packed / 10000
+without_method packed = packed - method_code packed * 10000
+path_code packed = without_method packed / 100
+version_code packed = without_method packed - path_code packed * 100
+
+parse_http_request packed = let
+  method = method_code packed;
+  path = path_code packed;
+  version = version_code packed
+  in HttpRequest method path version
+
+request_method req = let HttpRequest method path version = req in method
+request_path req = let HttpRequest method path version = req in path
+request_version req = let HttpRequest method path version = req in version
+
+normalized_path path = path - 1
+version_major version = version / 10
+request_score method path version = method * 1000 + path * 10 + version
+
+main packed = let
+  req = parse_http_request packed;
+  method = request_method req;
+  path = normalized_path (request_path req);
+  version = version_major (request_version req)
+  in request_score method path version

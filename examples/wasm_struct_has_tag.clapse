@@ -1,0 +1,1 @@
+main x = __is_pair (__mk_pair_2 x (x + 1))

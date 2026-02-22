@@ -1,0 +1,6 @@
+infixl 6 +. = add
+infixl 7 *. = mul
+infixl 6 plus_op = add
+
+main x = x +. 1 *. 2
+backtick_main x = x `plus_op` 7

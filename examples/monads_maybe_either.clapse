@@ -1,0 +1,36 @@
+class monad_rules m : monad
+law monad_rules left_identity = bind (pure x) f => f x
+law monad_rules right_identity = bind m pure => m
+law monad_rules associativity = bind (bind m f) g => bind m (\x -> bind (f x) g)
+
+data Maybe a = Nothing : Maybe a | Just : a -> Maybe a
+data Either e a = Left : e -> Either e a | Right : a -> Either e a
+
+maybe_just x = Just x
+maybe_pure x = maybe_just x
+maybe_bind m f = case m of
+  Nothing -> m
+  Just x -> f x
+maybe_with_default default_value m = case m of
+  Nothing -> default_value
+  Just x -> x
+instance monad_on_maybe : monad_rules Maybe pure=maybe_pure bind=maybe_bind
+
+either_left err = Left err
+either_right x = Right x
+either_pure x = either_right x
+either_bind m f = case m of
+  Left err -> m
+  Right x -> f x
+either_with_default default_value m = case m of
+  Left _ -> default_value
+  Right x -> x
+instance monad_on_either : monad_rules Either pure=either_pure bind=either_bind
+
+inc x = x + 1
+double x = x * 2
+
+maybe_demo x = maybe_with_default 0 (maybe_bind (maybe_pure x) (\n -> maybe_pure (inc n)))
+either_demo x = either_with_default 0 (either_bind (either_pure x) (\n -> either_pure (double n)))
+
+main x = maybe_demo x + either_demo x
