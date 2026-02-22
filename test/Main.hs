@@ -142,6 +142,9 @@ tests =
   , testEscapeStructFlattenPreservesTagMismatchChecks
   , testSliceSetSharedTargetCopiesBeforeWrite
   , testSliceSetLinearTargetReusesBuffer
+  , testCollapseInsertsFunctionRegionScopeForLocalAllocation
+  , testCollapseSkipsFunctionRegionScopeForExplicitRegionOps
+  , testCollapseSkipsFunctionRegionScopeForEscapingAllocation
   , testHotUncurryWrapperRemovesDirectWrapperCalls
   , testPruneDeadFunctionsFromRootsKeepsReachableOnly
   , testPruneKeepsReachableLiftedDescendant
@@ -2013,6 +2016,68 @@ testSliceSetLinearTargetReusesBuffer = do
         VCallDirect "slice_set_u8" _ -> True
         _ -> False
 
+testCollapseInsertsFunctionRegionScopeForLocalAllocation :: IO Bool
+testCollapseInsertsFunctionRegionScopeForLocalAllocation = do
+  let src =
+        unlines
+          [ "main bytes idx = let s = slice_new_u8 (slice_len bytes)"
+          , "  v = slice_set_u8 s idx 1"
+          , "  in 0"
+          ]
+  case compileSourceToCollapsed src of
+    Left err ->
+      failTest "collapse inserts function region scope for local allocation" ("unexpected pipeline error: " <> err)
+    Right collapsed ->
+      case findCollapsed "main" collapsed of
+        Nothing ->
+          failTest "collapse inserts function region scope for local allocation" "expected function main in collapsed output"
+        Just fn ->
+          let (markCount, resetCount, markUsages) = regionOpCountsAndUsages fn
+           in assertTrue
+                "collapse inserts function region scope for local allocation"
+                (markCount == 1 && resetCount == 1 && markUsages == 1)
+
+testCollapseSkipsFunctionRegionScopeForExplicitRegionOps :: IO Bool
+testCollapseSkipsFunctionRegionScopeForExplicitRegionOps = do
+  let src =
+        unlines
+          [ "main bytes = let mark = region_mark 0"
+          , "  out = slice_new_u8 (slice_len bytes)"
+          , "  reset = region_reset mark"
+          , "  in out"
+          ]
+  case compileSourceToCollapsed src of
+    Left err ->
+      failTest "collapse skips function region scope for explicit region ops" ("unexpected pipeline error: " <> err)
+    Right collapsed ->
+      case findCollapsed "main" collapsed of
+        Nothing ->
+          failTest "collapse skips function region scope for explicit region ops" "expected function main in collapsed output"
+        Just fn ->
+          let (markCount, resetCount, markUsages) = regionOpCountsAndUsages fn
+           in assertTrue
+                "collapse skips function region scope for explicit region ops"
+                (markCount == 1 && resetCount == 1 && markUsages == 1)
+
+testCollapseSkipsFunctionRegionScopeForEscapingAllocation :: IO Bool
+testCollapseSkipsFunctionRegionScopeForEscapingAllocation = do
+  let src =
+        unlines
+          [ "main bytes = slice_new_u8 (slice_len bytes)"
+          ]
+  case compileSourceToCollapsed src of
+    Left err ->
+      failTest "collapse skips function region scope for escaping allocation" ("unexpected pipeline error: " <> err)
+    Right collapsed ->
+      case findCollapsed "main" collapsed of
+        Nothing ->
+          failTest "collapse skips function region scope for escaping allocation" "expected function main in collapsed output"
+        Just fn ->
+          let (markCount, resetCount, _markUsages) = regionOpCountsAndUsages fn
+           in assertTrue
+                "collapse skips function region scope for escaping allocation"
+                (markCount == 0 && resetCount == 0)
+
 testHotUncurryWrapperRemovesDirectWrapperCalls :: IO Bool
 testHotUncurryWrapperRemovesDirectWrapperCalls = do
   let src =
@@ -3369,3 +3434,27 @@ functionHasSelfTail fn =
 
     getLifted :: CollapsedFunction -> [CollapsedFunction]
     getLifted (CollapsedFunction _ _ _ _ _ ls) = ls
+
+regionOpCountsAndUsages :: CollapsedFunction -> (Int, Int, Int)
+regionOpCountsAndUsages fn =
+  let fnBindsList = fnBinds fn
+      markBinds = filter isRegionMark fnBindsList
+      resetBinds = filter isRegionReset fnBindsList
+      markTemps = map (\b -> temp b) markBinds
+      markUsages = length [() | Bind _ (VCallDirect "region_reset" [ATemp t]) <- resetBinds, t `elem` markTemps]
+   in (length markBinds, length resetBinds, markUsages)
+  where
+    fnBinds :: CollapsedFunction -> [Bind]
+    fnBinds (CollapsedFunction _ _ _ bs _ _) = bs
+
+    isRegionMark :: Bind -> Bool
+    isRegionMark b =
+      case value b of
+        VCallDirect "region_mark" _ -> True
+        _ -> False
+
+    isRegionReset :: Bind -> Bool
+    isRegionReset b =
+      case value b of
+        VCallDirect "region_reset" _ -> True
+        _ -> False

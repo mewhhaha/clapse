@@ -553,7 +553,7 @@ optimizeEscapeLifetimeFunction fn = do
   pure (pruneFunctionTemps withRegionScope)
 
 enableFunctionRegionScopeInsertion :: Bool
-enableFunctionRegionScopeInsertion = False
+enableFunctionRegionScopeInsertion = True
 
 flattenStructBind :: EscapeAnalysis -> EscapeFlattenState -> Bind -> Either String EscapeFlattenState
 flattenStructBind analysis st b = do
@@ -748,25 +748,13 @@ shouldInsertFunctionRegionScope fn
   | null allocTemps = Nothing
   | hasExplicitRegionOps fn = Nothing
   | not (functionBodyIsScopeSafe fn) = Nothing
-  | any (`elem` resultReachableTemps) allocTemps = Nothing
-  | any resultTempMayAllocate resultReachableTemps = Nothing
   | not (all (allocationTempHasOnlyLocalUses fn) allocTemps) = Nothing
   | otherwise =
       Just (next, next + 1)
   where
     allBinds = binds fn
-    bindMap = map (\b -> (temp b, value b)) allBinds
     allocTemps = map temp (filter (isScopeCandidateAlloc . value) allBinds)
-    resultReachableTemps = collectLiveTemps allBinds (tempFromAtom (result fn))
     next = nextTempIndex allBinds
-
-    resultTempMayAllocate :: Int -> Bool
-    resultTempMayAllocate t =
-      case lookup t bindMap of
-        Nothing ->
-          True
-        Just val ->
-          valueMayAllocate val
 
 functionBodyIsScopeSafe :: CollapsedFunction -> Bool
 functionBodyIsScopeSafe fn = all bindScopeSafe (binds fn)
@@ -774,9 +762,17 @@ functionBodyIsScopeSafe fn = all bindScopeSafe (binds fn)
     bindScopeSafe :: Bind -> Bool
     bindScopeSafe b =
       case value b of
+        VClosure _ _ ->
+          True
+        VCurryDirect _ _ ->
+          True
+        VCallClosure _ _ ->
+          True
+        VApply _ _ ->
+          True
         VCallDirect callee _ ->
-          isBuiltinName callee
-        _ ->
+          isBuiltinName callee || isLamLikeName callee
+        VSelfTailCall _ ->
           False
 
 allocationTempHasOnlyLocalUses :: CollapsedFunction -> Int -> Bool
@@ -791,6 +787,10 @@ allocationUseIsLocal useTag =
       callee `elem` localConsumers
         || "__get_" `isPrefixOf` callee
         || "__is_" `isPrefixOf` callee
+    TempUseCallClosureCallee ->
+      True
+    TempUseApplyCallee ->
+      True
     _ ->
       False
   where
@@ -825,52 +825,14 @@ hasExplicitRegionOps fn = any bindHasRegionOp (binds fn)
 isScopeCandidateAlloc :: Value -> Bool
 isScopeCandidateAlloc val =
   case val of
-    VCallDirect callee _ ->
-      callee == "slice_new_u8" || callee == "region_alloc"
-    _ ->
-      False
-
-valueMayAllocate :: Value -> Bool
-valueMayAllocate val =
-  case val of
     VClosure _ _ ->
       True
     VCurryDirect _ _ ->
       True
     VCallDirect callee _ ->
-      not (isKnownNoAllocBuiltin callee)
-    VCallClosure _ _ ->
-      True
-    VApply _ _ ->
-      True
-    VSelfTailCall _ ->
-      True
-
-isKnownNoAllocBuiltin :: Name -> Bool
-isKnownNoAllocBuiltin callee =
-  callee `elem` knownNoAlloc
-    || "__get_" `isPrefixOf` callee
-    || "__is_" `isPrefixOf` callee
-  where
-    knownNoAlloc =
-      [ "add"
-      , "sub"
-      , "mul"
-      , "div"
-      , "eq"
-      , "and"
-      , "if"
-      , "slice_len"
-      , "slice_get_u8"
-      , "slice_set_u8"
-      , "slice_data_ptr"
-      , "slice_len_raw"
-      , "memcpy_u8"
-      , "memset_u8"
-      , "region_mark"
-      , "region_reset"
-      , "struct_tag"
-      ]
+      callee == "slice_new_u8" || callee == "region_alloc"
+    _ ->
+      False
 
 nextTempIndex :: [Bind] -> Int
 nextTempIndex allBinds =

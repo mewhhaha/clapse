@@ -203,11 +203,11 @@ evalSourceBuiltin name args =
     ("slice_len_raw", [_slice]) ->
       Left "source evaluator: slice_len_raw requires wasm runtime memory"
     ("region_mark", [_ignored]) ->
-      Left "source evaluator: region_mark requires wasm runtime memory"
+      Right (SourceInt 0)
     ("region_alloc", [_sizeBytes, _alignBytes]) ->
       Left "source evaluator: region_alloc requires wasm runtime memory"
     ("region_reset", [_mark]) ->
-      Left "source evaluator: region_reset requires wasm runtime memory"
+      Right (SourceInt 0)
     ("memcpy_u8", [_destPtr, _srcPtr, _lenBytes]) ->
       Left "source evaluator: memcpy_u8 requires wasm runtime memory"
     ("memset_u8", [_destPtr, _value, _lenBytes]) ->
@@ -428,11 +428,11 @@ evalRuntimeBuiltin env name args =
     ("slice_len_raw", [_slice]) ->
       Left "collapsed evaluator: slice_len_raw requires wasm runtime memory"
     ("region_mark", [_ignored]) ->
-      Left "collapsed evaluator: region_mark requires wasm runtime memory"
+      Right (RuntimeInt 0)
     ("region_alloc", [_sizeBytes, _alignBytes]) ->
       Left "collapsed evaluator: region_alloc requires wasm runtime memory"
     ("region_reset", [_mark]) ->
-      Left "collapsed evaluator: region_reset requires wasm runtime memory"
+      Right (RuntimeInt 0)
     ("memcpy_u8", [_destPtr, _srcPtr, _lenBytes]) ->
       Left "collapsed evaluator: memcpy_u8 requires wasm runtime memory"
     ("memset_u8", [_destPtr, _value, _lenBytes]) ->
