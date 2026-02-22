@@ -48,6 +48,7 @@ import MyLib
   , verifyCollapsedFunction
   , lowerFunction
   , lowerModule
+  , compileModuleToWasm
   , compileSourceToWasm
   , mkClassDef
   , inferSourceTypes
@@ -176,9 +177,11 @@ tests =
   , testCompileWasmSupportsCaseExpressionsMultiline
   , testCompileWasmSupportsCaseExpressionBranchThunkDirectCalls
   , testCompileWasmSupportsClosures
+  , testCompileWasmSupportsClosuresWithManyCaptures
   , testCompileWasmSupportsMaybeEitherMonads
   , testCompileWasmSupportsCurrying
   , testCompileWasmSupportsDataAndNoDo
+  , testCompileWasmSupportsStructWithManyFields
   , testCompileWasmSupportsCollectionLiterals
   , testCompileWasmSupportsStringLiterals
   , testCompileWasmSupportsUtf8StringLiterals
@@ -186,6 +189,8 @@ tests =
   , testCompileWasmSupportsSliceSetImport
   , testCompileWasmSupportsLinearMemoryHelpers
   , testCompileWasmStructHelpersInlined
+  , testCompileWasmSupportsHeapGlobalAtom
+  , testCompileWasmRejectsUnknownGlobalAtom
   , testCompileEntryModuleLoadsDottedImport
   , testCompileEntryModuleMissingImport
   , testCompileEntryModuleImportCycle
@@ -2716,6 +2721,22 @@ testCompileWasmSupportsClosures = do
             && not (wasmContainsName wasmBytes "rt_apply4")
         )
 
+testCompileWasmSupportsClosuresWithManyCaptures :: IO Bool
+testCompileWasmSupportsClosuresWithManyCaptures = do
+  let src =
+        unlines
+          [ "mk a b c d e f g h i = \\x -> add x (add a (add b (add c (add d (add e (add f (add g (add h i))))))))"
+          , "main x = (mk 1 2 3 4 5 6 7 8 9) x"
+          ]
+      wasmMagic = BS.pack [0x00, 0x61, 0x73, 0x6d]
+  case compileSourceToWasm src of
+    Left err ->
+      failTest "compile wasm supports closures with many captures" ("unexpected wasm compile error: " <> err)
+    Right wasmBytes ->
+      assertTrue
+        "compile wasm supports closures with many captures"
+        (BS.take 4 wasmBytes == wasmMagic)
+
 testCompileWasmSupportsMaybeEitherMonads :: IO Bool
 testCompileWasmSupportsMaybeEitherMonads = do
   let wasmMagic = BS.pack [0x00, 0x61, 0x73, 0x6d]
@@ -2762,6 +2783,22 @@ testCompileWasmSupportsDataAndNoDo = do
         ( BS.take 4 wasmBytes == wasmMagic
             && not (wasmContainsName wasmBytes "rt_make_struct")
         )
+
+testCompileWasmSupportsStructWithManyFields :: IO Bool
+testCompileWasmSupportsStructWithManyFields = do
+  let src =
+        unlines
+          [ "data Nine a b c d e f g h i = Nine a b c d e f g h i"
+          , "main x = let Nine a b c d e f g h i = Nine x x x x x x x x x in add a i"
+          ]
+      wasmMagic = BS.pack [0x00, 0x61, 0x73, 0x6d]
+  case compileSourceToWasm src of
+    Left err ->
+      failTest "compile wasm supports struct with many fields" ("unexpected wasm compile error: " <> err)
+    Right wasmBytes ->
+      assertTrue
+        "compile wasm supports struct with many fields"
+        (BS.take 4 wasmBytes == wasmMagic)
 
 testCompileWasmSupportsCollectionLiterals :: IO Bool
 testCompileWasmSupportsCollectionLiterals = do
@@ -2903,6 +2940,47 @@ testCompileWasmStructHelpersInlined = do
         ( BS.take 4 wasmBytes == wasmMagic
             && all (not . wasmContainsName wasmBytes) removedRuntimeFns
         )
+
+testCompileWasmSupportsHeapGlobalAtom :: IO Bool
+testCompileWasmSupportsHeapGlobalAtom = do
+  let fn =
+        CollapsedFunction
+          { name = "main"
+          , arity = 0
+          , captureArity = 0
+          , binds = []
+          , result = AGlobal "__heap_ptr"
+          , lifted = []
+          }
+      wasmMagic = BS.pack [0x00, 0x61, 0x73, 0x6d]
+  case compileModuleToWasm [fn] of
+    Left err ->
+      failTest "compile wasm supports heap global atom" ("unexpected wasm compile error: " <> err)
+    Right wasmBytes ->
+      assertTrue
+        "compile wasm supports heap global atom"
+        (BS.take 4 wasmBytes == wasmMagic)
+
+testCompileWasmRejectsUnknownGlobalAtom :: IO Bool
+testCompileWasmRejectsUnknownGlobalAtom = do
+  let fn =
+        CollapsedFunction
+          { name = "main"
+          , arity = 0
+          , captureArity = 0
+          , binds = []
+          , result = AGlobal "__unknown_global"
+          , lifted = []
+          }
+  case compileModuleToWasm [fn] of
+    Left err ->
+      assertTrue
+        "compile wasm rejects unknown global atom"
+        ("unknown global atom" `isInfixOf` err)
+    Right _ ->
+      failTest
+        "compile wasm rejects unknown global atom"
+        "expected compile failure for unknown global atom"
 
 testCompileEntryModuleLoadsDottedImport :: IO Bool
 testCompileEntryModuleLoadsDottedImport = do

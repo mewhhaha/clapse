@@ -309,10 +309,7 @@ buildClosureCallTypeCases typeMap allFns = traverse withType supportedArities
     supportedArities =
       sort
         ( unique
-            ( filter
-                (\arity -> arity > 0 && arity <= runtimeMaxCaptures + 1)
-                (map localParamCount allFns)
-            )
+            (filter (> 0) (map localParamCount allFns))
         )
 
     withType :: Int -> Either String (Int, Int)
@@ -355,17 +352,8 @@ verifyFunctionShape paramCountEnv fn = do
           traverse_ verifyAtom args
 
     verifyCaptureCount :: String -> [Atom] -> Either String ()
-    verifyCaptureCount label captures
-      | length captures > runtimeMaxCaptures =
-          Left
-            ( "wasm backend: "
-                <> label
-                <> " exceeds supported maximum ("
-                <> show runtimeMaxCaptures
-                <> ")"
-            )
-      | otherwise =
-          traverse_ verifyAtom captures
+    verifyCaptureCount _label captures =
+      traverse_ verifyAtom captures
 
     verifyAtom :: Atom -> Either String ()
     verifyAtom atom =
@@ -380,7 +368,10 @@ verifyFunctionShape paramCountEnv fn = do
           if t < 0
             then Left ("wasm backend: temp index must be >= 0, got " <> show t)
             else Right ()
-        AGlobal g -> Left ("wasm backend: globals not supported yet: " <> g)
+        AGlobal g ->
+          case globalIndexFor g of
+            Nothing -> Left ("wasm backend: unknown global atom: " <> g)
+            Just _ -> Right ()
 
 compileFunction :: StringLayout -> TagIdMap -> [(Int, Int)] -> [(Name, Int)] -> [(Name, Int)] -> Int -> CollapsedFunction -> Either String [Word8]
 compileFunction stringLayout tagIdMap closureCallTypeCases paramCountEnv funcMap selfIndex fn = do
@@ -488,8 +479,18 @@ compileInlineNumericBuiltin stringLayout fn callee args =
       Just (compileTaggedIntBinOp stringLayout fn x y opcodeI32Mul)
     ("div", [x, y]) ->
       Just (compileTaggedIntBinOp stringLayout fn x y opcodeI32DivS)
+    ("mod", [x, y]) ->
+      Just (compileTaggedIntBinOp stringLayout fn x y opcodeI32RemS)
     ("eq", [x, y]) ->
       Just (compileTaggedEq stringLayout fn x y)
+    ("lt", [x, y]) ->
+      Just (compileTaggedCmp stringLayout fn x y opcodeI32LtS)
+    ("gt", [x, y]) ->
+      Just (compileTaggedCmp stringLayout fn x y opcodeI32GtS)
+    ("le", [x, y]) ->
+      Just (compileTaggedCmp stringLayout fn x y opcodeI32LeS)
+    ("ge", [x, y]) ->
+      Just (compileTaggedCmp stringLayout fn x y opcodeI32GeS)
     ("and", [x, y]) ->
       Just (compileTaggedAnd stringLayout fn x y)
     _ ->
@@ -506,6 +507,12 @@ compileTaggedEq stringLayout fn x y = do
   xInstrs <- compileTaggedIntAtom stringLayout fn x
   yInstrs <- compileTaggedIntAtom stringLayout fn y
   pure (xInstrs <> yInstrs <> [opcodeI32Eq] <> retagBoolInstrs)
+
+compileTaggedCmp :: StringLayout -> CollapsedFunction -> Atom -> Atom -> Word8 -> Either String [Word8]
+compileTaggedCmp stringLayout fn x y cmpOp = do
+  xInstrs <- compileTaggedIntAtom stringLayout fn x
+  yInstrs <- compileTaggedIntAtom stringLayout fn y
+  pure (xInstrs <> yInstrs <> [cmpOp] <> retagBoolInstrs)
 
 compileTaggedAnd :: StringLayout -> CollapsedFunction -> Atom -> Atom -> Either String [Word8]
 compileTaggedAnd stringLayout fn x y = do
@@ -1092,20 +1099,15 @@ compileStructMake stringLayout tagIdMap fn tag ctorArity args
             <> ", got "
             <> show (length args)
         )
-  | length args > runtimeMaxStructFields =
-      Left
-        ( "wasm backend: struct field count exceeds supported maximum ("
-            <> show runtimeMaxStructFields
-            <> ")"
-        )
   | otherwise = do
       tagId <- lookupTagId tagIdMap tag
-      fieldStores <- fmap concat (zipWithM compileField [0 .. runtimeMaxStructFields - 1] (map Just args <> replicate (runtimeMaxStructFields - length args) Nothing))
+      fieldStores <- fmap concat (zipWithM compileField [0 .. length args - 1] args)
       let ptrLocal = scratchPtrLocalIx fn
           sizeLocal = scratchAuxLocalIx fn
           alignLocal = scratchTmpLocalIx fn
+          recordSize = runtimeStructHeaderSize + length args * 4
       pure
-        ( rawI32Const runtimeStructRecordSize
+        ( rawI32Const recordSize
             <> [opcodeLocalSet]
             <> encodeU32 sizeLocal
             <> rawI32Const 4
@@ -1122,12 +1124,9 @@ compileStructMake stringLayout tagIdMap fn tag ctorArity args
             <> encodeU32 ptrLocal
         )
   where
-    compileField :: Int -> Maybe Atom -> Either String [Word8]
-    compileField fieldIx maybeAtom = do
-      valueInstrs <-
-        case maybeAtom of
-          Just atom -> compileAtom stringLayout fn atom
-          Nothing -> pure (rawI32Const 0)
+    compileField :: Int -> Atom -> Either String [Word8]
+    compileField fieldIx atom = do
+      valueInstrs <- compileAtom stringLayout fn atom
       pure
         ( [opcodeLocalGet]
             <> encodeU32 (scratchPtrLocalIx fn)
@@ -1142,7 +1141,7 @@ compileStructGet stringLayout tagIdMap fn expectedTag idx args =
     [target] -> do
       expectedTagId <- lookupTagId tagIdMap expectedTag
       targetInstrs <- compileAtom stringLayout fn target
-      if idx < 0 || idx >= runtimeMaxStructFields
+      if idx < 0
         then
           Left
             ( "wasm backend: struct getter index out of range for "
@@ -1258,43 +1257,33 @@ compileClosureCreate :: StringLayout -> [(Name, Int)] -> [(Name, Int)] -> Collap
 compileClosureCreate stringLayout paramCountEnv funcMap fn callee captures = do
   calleeIx <- lookupRequired ("wasm backend: unknown closure callee: " <> callee) callee funcMap
   totalArity <- lookupRequired ("wasm backend: missing callee arity: " <> callee) callee paramCountEnv
-  if length captures > runtimeMaxCaptures
-    then
-      Left
-        ( "wasm backend: closure capture count exceeds supported maximum ("
-            <> show runtimeMaxCaptures
-            <> ")"
-        )
-    else do
-      fieldStores <- fmap concat (zipWithM compileCaptureField [0 .. runtimeMaxCaptures - 1] (map Just captures <> replicate (runtimeMaxCaptures - length captures) Nothing))
-      let ptrLocal = scratchPtrLocalIx fn
-          sizeLocal = scratchAuxLocalIx fn
-          alignLocal = scratchTmpLocalIx fn
-      pure
-        ( rawI32Const runtimeClosureRecordSize
-            <> [opcodeLocalSet]
-            <> encodeU32 sizeLocal
-            <> rawI32Const 4
-            <> [opcodeLocalSet]
-            <> encodeU32 alignLocal
-            <> emitInlineAllocFromLocals sizeLocal alignLocal ptrLocal
-            <> [opcodeLocalSet]
-            <> encodeU32 ptrLocal
-            <> storeI32ConstAt ptrLocal runtimeClosureMagic 0
-            <> storeI32ConstAt ptrLocal calleeIx 4
-            <> storeI32ConstAt ptrLocal totalArity 8
-            <> storeI32ConstAt ptrLocal (length captures) 12
-            <> fieldStores
-            <> [opcodeLocalGet]
-            <> encodeU32 ptrLocal
-        )
+  fieldStores <- fmap concat (zipWithM compileCaptureField [0 .. length captures - 1] captures)
+  let ptrLocal = scratchPtrLocalIx fn
+      sizeLocal = scratchAuxLocalIx fn
+      alignLocal = scratchTmpLocalIx fn
+      recordSize = runtimeClosureHeaderSize + length captures * 4
+  pure
+    ( rawI32Const recordSize
+        <> [opcodeLocalSet]
+        <> encodeU32 sizeLocal
+        <> rawI32Const 4
+        <> [opcodeLocalSet]
+        <> encodeU32 alignLocal
+        <> emitInlineAllocFromLocals sizeLocal alignLocal ptrLocal
+        <> [opcodeLocalSet]
+        <> encodeU32 ptrLocal
+        <> storeI32ConstAt ptrLocal runtimeClosureMagic 0
+        <> storeI32ConstAt ptrLocal calleeIx 4
+        <> storeI32ConstAt ptrLocal totalArity 8
+        <> storeI32ConstAt ptrLocal (length captures) 12
+        <> fieldStores
+        <> [opcodeLocalGet]
+        <> encodeU32 ptrLocal
+    )
   where
-    compileCaptureField :: Int -> Maybe Atom -> Either String [Word8]
-    compileCaptureField fieldIx maybeAtom = do
-      valueInstrs <-
-        case maybeAtom of
-          Just atom -> compileAtom stringLayout fn atom
-          Nothing -> pure (rawI32Const 0)
+    compileCaptureField :: Int -> Atom -> Either String [Word8]
+    compileCaptureField fieldIx atom = do
+      valueInstrs <- compileAtom stringLayout fn atom
       pure
         ( [opcodeLocalGet]
             <> encodeU32 (scratchPtrLocalIx fn)
@@ -1326,12 +1315,12 @@ compileInlineApplyInstrs closureCallTypeCases fn calleeInstrs argInstrs =
       sizeLocal = applySizeLocalIx fn
       alignLocal = applyAlignLocalIx fn
       partialPath =
-        trapIfTrue
-          ( [opcodeLocalGet] <> encodeU32 newCountLocal
-              <> rawI32Const runtimeMaxCaptures
-              <> [opcodeI32GtS]
-          )
-          <> rawI32Const runtimeClosureRecordSize
+        rawI32Const runtimeClosureHeaderSize
+          <> [opcodeLocalGet]
+          <> encodeU32 newCountLocal
+          <> rawI32Const 2
+          <> [opcodeI32Shl]
+          <> [opcodeI32Add]
           <> [opcodeLocalSet]
           <> encodeU32 sizeLocal
           <> rawI32Const 4
@@ -1454,11 +1443,6 @@ compileInlineApplyInstrs closureCallTypeCases fn calleeInstrs argInstrs =
               <> rawI32Const 0
               <> [opcodeI32LtS]
           )
-        <> trapIfTrue
-          ( [opcodeLocalGet] <> encodeU32 captureCountLocal
-              <> rawI32Const runtimeMaxCaptures
-              <> [opcodeI32GtS]
-          )
         <> [opcodeLocalGet]
         <> encodeU32 captureCountLocal
         <> rawI32Const 1
@@ -1495,7 +1479,11 @@ compileAtom stringLayout fn atom =
     ATemp t ->
       Right ([opcodeLocalGet] <> encodeU32 (tempLocalIx fn t))
     AGlobal g ->
-      Left ("wasm backend: globals not supported yet: " <> g)
+      case globalIndexFor g of
+        Nothing ->
+          Left ("wasm backend: unknown global atom: " <> g)
+        Just globalIx ->
+          Right ([opcodeGlobalGet] <> encodeU32 globalIx)
 
 typeIndexFor :: [(Int, Int)] -> Int -> Either String Int
 typeIndexFor typeMap arity =
@@ -1832,6 +1820,9 @@ opcodeI32GtU = 0x4b
 opcodeI32LeS :: Word8
 opcodeI32LeS = 0x4c
 
+opcodeI32GeS :: Word8
+opcodeI32GeS = 0x4e
+
 opcodeI32Ne :: Word8
 opcodeI32Ne = 0x47
 
@@ -1849,6 +1840,9 @@ opcodeI32Mul = 0x6c
 
 opcodeI32DivS :: Word8
 opcodeI32DivS = 0x6d
+
+opcodeI32RemS :: Word8
+opcodeI32RemS = 0x6f
 
 opcodeI32DivU :: Word8
 opcodeI32DivU = 0x6e
@@ -1898,29 +1892,17 @@ opcodeEnd = 0x0b
 opcodeReturnCall :: Word8
 opcodeReturnCall = 0x13
 
-runtimeMaxCaptures :: Int
-runtimeMaxCaptures = 8
-
 runtimeClosureMagic :: Int
 runtimeClosureMagic = 0x434c4f53
 
 runtimeClosureHeaderSize :: Int
 runtimeClosureHeaderSize = 16
 
-runtimeClosureRecordSize :: Int
-runtimeClosureRecordSize = runtimeClosureHeaderSize + runtimeMaxCaptures * 4
-
-runtimeMaxStructFields :: Int
-runtimeMaxStructFields = 8
-
 runtimeStructMagic :: Int
 runtimeStructMagic = 0x53545255
 
 runtimeStructHeaderSize :: Int
 runtimeStructHeaderSize = 12
-
-runtimeStructRecordSize :: Int
-runtimeStructRecordSize = runtimeStructHeaderSize + runtimeMaxStructFields * 4
 
 wasmPageSize :: Int
 wasmPageSize = 65536
@@ -1930,6 +1912,13 @@ runtimeImportCount = 0
 
 runtimeHeapGlobal :: Int
 runtimeHeapGlobal = 0
+
+globalIndexFor :: Name -> Maybe Int
+globalIndexFor globalName =
+  case globalName of
+    "__heap_ptr" -> Just runtimeHeapGlobal
+    "__heap" -> Just runtimeHeapGlobal
+    _ -> Nothing
 
 builtinImportSig :: Name -> Maybe (Int, Int)
 builtinImportSig _ = Nothing

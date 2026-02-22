@@ -220,7 +220,12 @@ inferBuiltin n st =
     "sub" -> Right (binaryI64Type, st)
     "mul" -> Right (binaryI64Type, st)
     "div" -> Right (binaryI64Type, st)
+    "mod" -> Right (binaryI64Type, st)
     "eq" -> Right (binaryI64Type, st)
+    "lt" -> Right (binaryI64Type, st)
+    "gt" -> Right (binaryI64Type, st)
+    "le" -> Right (binaryI64Type, st)
+    "ge" -> Right (binaryI64Type, st)
     "and" -> Right (binaryI64Type, st)
     "if" -> do
       (a, st1) <- freshType st

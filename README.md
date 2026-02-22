@@ -356,11 +356,13 @@ Current backend supports:
 - closures and currying (`VClosure`, `VCurryDirect`, `VApply`)
 - closure allocation/application are lowered inline in generated wasm (no emitted `rt_make_closure`, `rt_apply`, or `rt_apply2/3/4` helpers)
 - struct allocation/field/tag operations are now emitted inline in generated Wasm (no `rt_make_struct`, `rt_get_field`, `rt_has_tag`, `rt_get_tag` helper functions)
+- closure and struct runtime records are variable-sized in linear memory (no fixed 8-capture / 8-field backend ceiling)
 - constructor tags are lowered through a module-local unique tag-id table (no hash-collision ambiguity)
 - self-tail return in tail positions (`return_call`)
 - low-level struct values for `data`
 - JS byte-slice interop via `slice_len`, `slice_get_u8`, and `slice_set_u8` with slice descriptors (`ptr,len`) in wasm linear memory
 - slice + region + bulk memory builtins are lowered inline in generated Wasm (no dedicated `rt_slice_*`, `rt_region_*`, `rt_memcpy`, or `rt_memset` helpers emitted)
+- collapsed IR global atoms now lower to wasm globals for known runtime globals (`__heap_ptr` / `__heap`)
 - no emitted `rt_*` helper functions; runtime operations are lowered inline in generated wasm
 - compiled modules now use wasm-native helpers for closures and do not require `rt_*` function imports
 - JS runtime fallback `rt_*` imports have been removed
@@ -521,4 +523,4 @@ Not implemented yet:
 
 - full numeric-width runtime (`i64/u64/byte`) in backend ABI
 - full proof checker
-- richer WASM memory/globals ABI
+- richer public WASM memory/globals ABI (beyond internal `__heap_ptr` / `__heap` globals)
