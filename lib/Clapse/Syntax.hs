@@ -18,7 +18,7 @@ import Control.Applicative ((<|>))
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, isSpace, toLower)
 import Data.Foldable (traverse_)
 import Data.List (dropWhileEnd, intercalate, isSuffixOf)
-import Data.Maybe (isNothing)
+import Data.Maybe (isNothing, mapMaybe)
 
 import Clapse.Laws
   ( ClassDef(..)
@@ -82,12 +82,18 @@ data CasePattern
   deriving (Eq, Show)
 
 data ParsedLine
-  = ParsedFunctions [Function]
+  = ParsedFunctions [FunctionClause]
   | ParsedSignature TypeSignature
   | ParsedClass ClassDecl
   | ParsedLaw LawDecl
   | ParsedInstance InstanceDecl
   | ParsedOperator OperatorDecl
+
+data FunctionClause = FunctionClause
+  { fnClauseName :: Name
+  , fnClausePatterns :: [CasePattern]
+  , fnClauseBody :: Expr
+  } deriving (Eq, Show)
 
 data RawLine
   = RawEmpty
@@ -222,7 +228,8 @@ parseModule src = do
   validateSignatureTargets signatureDecls parsed
   derivedRules <- deriveRules parsed
   let runtimeFns = concatMap lineFunctions parsed
-      optimizedFns = optimizeFunctions derivedRules runtimeFns
+  mergedFns <- mergeFunctionClauses runtimeFns
+  let optimizedFns = optimizeFunctions derivedRules mergedFns
   pure Module {signatures = signatureDecls, functions = optimizedFns}
   where
     coalesceRawLines :: [RawLine] -> Either String [RawLine]
@@ -497,7 +504,7 @@ parseModule src = do
 
     validateSignatureTargets :: [TypeSignature] -> [ParsedLine] -> Either String ()
     validateSignatureTargets sigs parsedLines =
-      let functionNames = uniqueNames (map name (concatMap lineFunctions parsedLines))
+      let functionNames = uniqueNames (map fnClauseName (concatMap lineFunctions parsedLines))
           missing = [sigName sig | sig <- sigs, sigName sig `notElem` functionNames]
        in case missing of
             [] -> Right ()
@@ -515,15 +522,20 @@ parseModule src = do
     parseRawLine _ _ (RawFunctionContinuation lineNo _) =
       Left (withLine lineNo "unexpected indented declaration line")
     parseRawLine operators constructors (RawFunction lineNo cleaned) =
-      ParsedFunctions . (:[]) <$> parseFunctionLineAt operators constructors lineNo cleaned
+      ParsedFunctions <$> parseFunctionClausesAt operators constructors lineNo cleaned
 
 parseFunctionLine :: String -> Either String Function
-parseFunctionLine = parseFunctionLineWithOperators (buildOperatorTable []) []
+parseFunctionLine src = do
+  clauses <- parseFunctionClausesWithOperators (buildOperatorTable []) [] src
+  case mergeFunctionClauses clauses of
+    Right [fn] -> Right fn
+    Right _ -> Left "could not parse function declaration; expected single function"
+    Left err -> Left err
 
 parseExpr :: String -> Either String Expr
 parseExpr = parseExprWithOperators (buildOperatorTable []) []
 
-lineFunctions :: ParsedLine -> [Function]
+lineFunctions :: ParsedLine -> [FunctionClause]
 lineFunctions parsed =
   case parsed of
     ParsedFunctions fns -> fns
@@ -532,6 +544,93 @@ lineFunctions parsed =
     ParsedLaw _ -> []
     ParsedInstance _ -> []
     ParsedOperator _ -> []
+
+mergeFunctionClauses :: [FunctionClause] -> Either String [Function]
+mergeFunctionClauses clauses = do
+  groups <- groupFunctionClauses clauses
+  traverse mergeFunctionClauseGroup groups
+
+groupFunctionClauses :: [FunctionClause] -> Either String [[FunctionClause]]
+groupFunctionClauses = Right . foldl addClauseToGroups []
+  where
+    addClauseToGroups :: [[FunctionClause]] -> FunctionClause -> [[FunctionClause]]
+    addClauseToGroups [] clause = [[clause]]
+    addClauseToGroups (group@(headClause : _):rest) clause
+      | fnClauseName headClause == fnClauseName clause = (group ++ [clause]) : rest
+      | otherwise = group : addClauseToGroups rest clause
+    addClauseToGroups groups _ = groups
+
+mergeFunctionClauseGroup :: [FunctionClause] -> Either String Function
+mergeFunctionClauseGroup clauses =
+  case clauses of
+    [] -> Left "function group is empty"
+    firstClause : [] ->
+      case firstClause of
+        FunctionClause _ _ body
+          | all isVarPattern (fnClausePatterns firstClause) ->
+            let args = mapMaybe varPatternName (fnClausePatterns firstClause)
+             in Right Function {name = fnClauseName firstClause, args = args, body = body}
+          | otherwise ->
+            buildPatternMatchFn clauses
+    _ : _ -> do
+      buildPatternMatchFn clauses
+  where
+    buildPatternMatchFn :: [FunctionClause] -> Either String Function
+    buildPatternMatchFn clausesToBuild =
+      case clausesToBuild of
+        [] ->
+          Left "function group is empty"
+        firstClause0 : _ -> do
+          let fnName = fnClauseName firstClause0
+              arity = length (fnClausePatterns firstClause0)
+          if any (\fnClause -> length (fnClausePatterns fnClause) /= arity) clausesToBuild
+            then
+              Left
+                ("all function clauses for " <> fnName <> " must have the same number of arguments")
+            else Right ()
+          argNames <- pickArgNames clausesToBuild arity
+          let arms = map (mkFunctionClauseArm argNames) clausesToBuild
+              body = Case (map Var argNames) arms
+          pure Function {name = fnName, args = argNames, body = body}
+
+    mkFunctionClauseArm :: [Name] -> FunctionClause -> CaseArm
+    mkFunctionClauseArm _ clause =
+      CaseArm {armPatterns = fnClausePatterns clause, armBody = fnClauseBody clause}
+
+    pickArgNames :: [FunctionClause] -> Int -> Either String [Name]
+    pickArgNames fnClauses expectedArity = do
+      let names = map (pickArgName fnClauses) [0 .. expectedArity - 1]
+      case duplicates names of
+        d:_ -> Left ("duplicate function argument name: " <> d)
+        [] -> Right names
+
+    pickArgName :: [FunctionClause] -> Int -> Name
+    pickArgName fnClauses argIx =
+      case firstPatternVarName fnClauses argIx of
+        Just out -> out
+        Nothing -> "__arg" <> show argIx
+
+    firstPatternVarName :: [FunctionClause] -> Int -> Maybe Name
+    firstPatternVarName fnClauses argIx =
+      go fnClauses
+      where
+        go [] = Nothing
+        go (clause:rest) =
+          case fnClausePatterns clause !! argIx of
+            PatVar n -> Just n
+            _ -> go rest
+
+    isVarPattern :: CasePattern -> Bool
+    isVarPattern pat =
+      case pat of
+        PatVar _ -> True
+        _ -> False
+
+    varPatternName :: CasePattern -> Maybe Name
+    varPatternName pat =
+      case pat of
+        PatVar n -> Just n
+        _ -> Nothing
 
 deriveRules :: [ParsedLine] -> Either String [DerivedRule]
 deriveRules parsed = do
@@ -903,59 +1002,86 @@ foldFirst (x:xs) =
     Just _ -> x
     Nothing -> foldFirst xs
 
-parseFunctionLineAt :: OperatorTable -> ConstructorTable -> Int -> String -> Either String Function
-parseFunctionLineAt operators constructors lineNo src =
-  case parseFunctionLineWithOperators operators constructors src of
+parseFunctionClausesAt :: OperatorTable -> ConstructorTable -> Int -> String -> Either String [FunctionClause]
+parseFunctionClausesAt operators constructors lineNo src =
+  case parseFunctionClausesWithOperators operators constructors src of
     Left err ->
       Left (withLine lineNo err)
-    Right fn ->
-      Right fn
+    Right clauses ->
+      Right clauses
 
-parseFunctionLineWithOperators :: OperatorTable -> ConstructorTable -> String -> Either String Function
-parseFunctionLineWithOperators operators constructors src =
-  case splitOnFirst '=' src of
-    Nothing ->
-      Left "could not parse function declaration"
-    Just (lhsRaw, _rhsRaw) ->
-      if '|' `elem` lhsRaw
-        then parseGuardedFunctionLine operators constructors src
-        else parsePlainFunctionLine operators constructors src
-
-parsePlainFunctionLine :: OperatorTable -> ConstructorTable -> String -> Either String Function
-parsePlainFunctionLine operators constructors src =
+parseFunctionClausesWithOperators :: OperatorTable -> ConstructorTable -> String -> Either String [FunctionClause]
+parseFunctionClausesWithOperators operators constructors src =
   case splitOnFirst '=' src of
     Nothing ->
       Left "could not parse function declaration"
     Just (lhsRaw, rhsRaw) -> do
-      let lhsWords = words (trim lhsRaw)
-          rhs = trim rhsRaw
-      case lhsWords of
-        [] ->
-          Left "could not parse function declaration"
-        fnName:params -> do
-          validateIdentifier "function name" fnName
-          traverse_ (validateIdentifier "function argument name") params
-          if null rhs
-            then Left "could not parse function declaration"
-            else do
-              bodyExpr <- parseExprWithOperators operators constructors rhs
-              pure Function {name = fnName, args = params, body = bodyExpr}
+      if '|' `elem` lhsRaw
+        then parseGuardedFunctionClause operators constructors src
+        else parsePlainFunctionClause operators constructors rhsRaw lhsRaw
 
-parseGuardedFunctionLine :: OperatorTable -> ConstructorTable -> String -> Either String Function
-parseGuardedFunctionLine operators constructors src = do
+parsePlainFunctionClause :: OperatorTable -> ConstructorTable -> String -> Name -> Either String [FunctionClause]
+parsePlainFunctionClause operators constructors rhsRaw lhsRaw = do
+  toks <- tokenizeExpr (trim lhsRaw)
+  case toks of
+    [] ->
+      Left "could not parse function declaration"
+    TokIdentifier fnName:rest -> do
+      validateIdentifier "function name" fnName
+      (patterns, remaining) <- parseFunctionPatterns constructors rest
+      case remaining of
+        [] ->
+          case trim rhsRaw of
+            "" -> Left "could not parse function declaration"
+            rhs -> do
+              bodyExpr <- parseExprWithOperators operators constructors rhs
+              pure
+                [ FunctionClause
+                  { fnClauseName = fnName
+                  , fnClausePatterns = patterns
+                  , fnClauseBody = bodyExpr
+                  }
+                ]
+        _ ->
+          Left "could not parse function declaration; invalid lhs argument"
+    _ ->
+      Left "could not parse function declaration"
+
+parsePlainFunctionPatterns :: ConstructorTable -> [ExprTok] -> Either String ([CasePattern], [ExprTok])
+parsePlainFunctionPatterns constructors tokens = go [] tokens
+  where
+    go :: [CasePattern] -> [ExprTok] -> Either String ([CasePattern], [ExprTok])
+    go revAcc toks0 =
+      case toks0 of
+        [] -> Right (reverse revAcc, [])
+        _ -> do
+          (pat, rest) <- parseCasePattern constructors "function argument pattern" toks0
+          case rest of
+            [] -> Right (reverse (pat : revAcc), rest)
+            _ -> go (pat : revAcc) rest
+
+parseFunctionPatterns :: ConstructorTable -> [ExprTok] -> Either String ([CasePattern], [ExprTok])
+parseFunctionPatterns constructors = parsePlainFunctionPatterns constructors
+
+parseGuardedFunctionClause :: OperatorTable -> ConstructorTable -> String -> Either String [FunctionClause]
+parseGuardedFunctionClause operators constructors src = do
   let segments = splitGuardSegments src
-  firstSeg <-
-    case segments of
-      [] -> Left "could not parse guarded function declaration"
-      s:_ -> Right s
-  restSegs <-
-    case segments of
-      [] -> Left "could not parse guarded function declaration"
-      _:ss -> Right ss
-  (fnName, params, firstClause) <- parseFirstGuardSegment firstSeg
+  firstSeg <- case segments of
+    [] -> Left "could not parse guarded function declaration"
+    s:_ -> Right s
+  restSegs <- case segments of
+    [] -> Left "could not parse guarded function declaration"
+    _:ss -> Right ss
+  (fnName, patterns, firstClause) <- parseFirstGuardSegment firstSeg
   moreClauses <- traverse parseContinuationGuardSegment restSegs
   bodyExpr <- buildGuardedBody (firstClause : moreClauses)
-  pure Function {name = fnName, args = params, body = bodyExpr}
+  pure
+    [ FunctionClause
+        { fnClauseName = fnName
+        , fnClausePatterns = patterns
+        , fnClauseBody = bodyExpr
+        }
+    ]
   where
     splitGuardSegments :: String -> [String]
     splitGuardSegments = reverse . go False False [] []
@@ -984,20 +1110,27 @@ parseGuardedFunctionLine operators constructors src = do
           | otherwise =
               go False False (c : curRev) acc cs
 
-    parseFirstGuardSegment :: String -> Either String (Name, [Name], (Maybe Expr, Expr))
+    parseFirstGuardSegment :: String -> Either String (Name, [CasePattern], (Maybe Expr, Expr))
     parseFirstGuardSegment seg = do
       (lhsRaw, guardEqRaw) <-
         case splitOnFirst '|' seg of
           Nothing -> Left "could not parse guarded function declaration"
           Just out -> Right out
-      let lhsWords = words (trim lhsRaw)
-      case lhsWords of
-        [] -> Left "could not parse guarded function declaration"
-        fn:params -> do
-          validateIdentifier "function name" fn
-          traverse_ (validateIdentifier "function argument name") params
-          clause <- parseGuardClause guardEqRaw
-          pure (fn, params, clause)
+      toks <- tokenizeExpr (trim lhsRaw)
+      (fnName, params) <- parseGuardLhsHead toks
+      clause <- parseGuardClause guardEqRaw
+      pure (fnName, params, clause)
+
+    parseGuardLhsHead :: [ExprTok] -> Either String (Name, [CasePattern])
+    parseGuardLhsHead toks =
+      case toks of
+        TokIdentifier fnName:rest -> do
+          validateIdentifier "function name" fnName
+          (patterns, remaining) <- parseFunctionPatterns constructors rest
+          case remaining of
+            [] -> Right (fnName, patterns)
+            _ -> Left "could not parse guarded function declaration"
+        _ -> Left "could not parse guarded function declaration"
 
     parseContinuationGuardSegment :: String -> Either String (Maybe Expr, Expr)
     parseContinuationGuardSegment seg =
@@ -1072,13 +1205,69 @@ parseGuardedFunctionLine operators constructors src = do
           Left "otherwise guard must be the final guard clause"
         (Just guardExpr, bodyExpr):rest -> do
           fallbackExpr <- buildGuardedBody rest
-          Right
+          pure
             ( Case
                 [guardExpr]
                 [ CaseArm {armPatterns = [PatInt 1], armBody = bodyExpr}
                 , CaseArm {armPatterns = [PatWildcard], armBody = fallbackExpr}
                 ]
             )
+
+parseCasePattern :: ConstructorTable -> String -> [ExprTok] -> Either String (CasePattern, [ExprTok])
+parseCasePattern constructors label toks0 =
+  case toks0 of
+    TokInteger n:rest ->
+      Right (PatInt n, rest)
+    TokIdentifier "_":rest ->
+      Right (PatWildcard, rest)
+    TokIdentifier headName:rest ->
+      case lookup headName constructors of
+        Just ctorInfo -> do
+          (fieldNames, restOut) <- parsePatternConstructorFields (label <> " field name") headName ctorInfo rest
+          pure (PatConstructor headName ctorInfo fieldNames, restOut)
+        Nothing -> do
+          let variableLabel = label <> " variable name"
+          validateIdentifier variableLabel headName
+          pure (PatVar headName, rest)
+    TokArrow:_ ->
+      Left "could not parse expression; invalid pattern: expected pattern before ->"
+    TokSemicolon:_ ->
+      Left "could not parse expression; invalid pattern before ;"
+    TokOf:_ ->
+      Left "could not parse expression; invalid pattern before of"
+    tok:_ ->
+      Left ("could not parse expression; invalid pattern token: " <> renderExprTok tok)
+    [] ->
+      Left "could not parse expression; unexpected end of pattern"
+
+parsePatternConstructorFields ::
+  String -> Name -> ConstructorInfo -> [ExprTok] -> Either String ([Name], [ExprTok])
+parsePatternConstructorFields fieldLabel ctorName ctorInfo toks0 =
+  go [] (ctorFieldCount ctorInfo) toks0
+  where
+    go :: [Name] -> Int -> [ExprTok] -> Either String ([Name], [ExprTok])
+    go revFields remaining toks1
+      | remaining <= 0 = do
+          let outFields = reverse revFields
+          case duplicates (filter (/= "_") outFields) of
+            [] -> Right (outFields, toks1)
+            d:_ -> Left ("duplicate " <> fieldLabel <> ": " <> d)
+      | otherwise =
+          case toks1 of
+            TokIdentifier n:rest -> do
+              if n == "_"
+                then go (n : revFields) (remaining - 1) rest
+                else do
+                  validateIdentifier fieldLabel n
+                  go (n : revFields) (remaining - 1) rest
+            _ ->
+              Left
+                ( "could not parse expression; constructor pattern "
+                    <> ctorName
+                    <> " expects "
+                    <> show (ctorFieldCount ctorInfo)
+                    <> " field name(s)"
+                )
 
 parseExprWithOperators :: OperatorTable -> ConstructorTable -> String -> Either String Expr
 parseExprWithOperators operators constructors src = do
@@ -1163,61 +1352,8 @@ parseCaseTokens operators constructors toks =
         go revAcc remaining toks1
           | remaining <= 0 = Right (reverse revAcc, toks1)
           | otherwise = do
-              (pat, rest1) <- parseOnePattern toks1
+              (pat, rest1) <- parseCasePattern constructors "case pattern" toks1
               go (pat : revAcc) (remaining - 1) rest1
-
-    parseOnePattern :: [ExprTok] -> Either String (CasePattern, [ExprTok])
-    parseOnePattern toks0 =
-      case toks0 of
-        TokInteger n:rest ->
-          Right (PatInt n, rest)
-        TokIdentifier "_":rest ->
-          Right (PatWildcard, rest)
-        TokIdentifier headName:rest ->
-          case lookup headName constructors of
-            Just ctorInfo -> do
-              (fieldNames, restOut) <- consumeCtorFields headName ctorInfo rest
-              pure (PatConstructor headName ctorInfo fieldNames, restOut)
-            Nothing -> do
-              validateIdentifier "case pattern variable" headName
-              pure (PatVar headName, rest)
-        TokArrow:_ ->
-          Left "could not parse expression; case arm is missing pattern"
-        TokSemicolon:_ ->
-          Left "could not parse expression; case arm is missing pattern"
-        TokOf:_ ->
-          Left "could not parse expression; case arm is missing pattern"
-        tok:_ ->
-          Left ("could not parse expression; invalid case pattern token: " <> renderExprTok tok)
-        [] ->
-          Left "could not parse expression; unexpected end of case arm"
-
-    consumeCtorFields :: Name -> ConstructorInfo -> [ExprTok] -> Either String ([Name], [ExprTok])
-    consumeCtorFields ctorName ctorInfo toks0 = go [] (ctorFieldCount ctorInfo) toks0
-      where
-        go :: [Name] -> Int -> [ExprTok] -> Either String ([Name], [ExprTok])
-        go revFields remaining toks1
-          | remaining <= 0 = do
-              let outFields = reverse revFields
-              case duplicates (filter (/= "_") outFields) of
-                [] -> Right (outFields, toks1)
-                d:_ -> Left ("duplicate case constructor field name: " <> d)
-          | otherwise =
-              case toks1 of
-                TokIdentifier n:rest -> do
-                  if n == "_"
-                    then go (n : revFields) (remaining - 1) rest
-                    else do
-                      validateIdentifier "case constructor field name" n
-                      go (n : revFields) (remaining - 1) rest
-                _ ->
-                  Left
-                    ( "could not parse expression; constructor pattern "
-                        <> ctorName
-                        <> " expects "
-                        <> show (ctorFieldCount ctorInfo)
-                        <> " field name(s)"
-                    )
 
     validateCaseArms :: [Expr] -> [CaseArm] -> Either String ()
     validateCaseArms scrutinees arms =
@@ -2326,13 +2462,13 @@ stripComment (c:cs) = c : stripComment cs
 trim :: String -> String
 trim = dropWhileEnd isSpace . dropWhile isSpace
 
-parseDataLineAt :: Int -> String -> Either String [Function]
+parseDataLineAt :: Int -> String -> Either String [FunctionClause]
 parseDataLineAt lineNo src =
   case parseDataDeclAt lineNo src of
     Left err ->
       Left err
     Right decls ->
-      Right (map mkConstructorFn decls)
+      Right (map mkConstructorClause decls)
 
 parseDataDeclAt :: Int -> String -> Either String [DataDecl]
 parseDataDeclAt lineNo src =
@@ -2534,12 +2670,12 @@ parseDataDecl src =
                     split' depth (cur <> [c]) rest
        in split' 0 "" input
 
-mkConstructorFn :: DataDecl -> Function
-mkConstructorFn decl =
-  Function
-    { name = dataCtorName decl
-    , args = dataCtorFields decl
-    , body = mkCallExpr (dataCtorInfo decl) (dataCtorFields decl)
+mkConstructorClause :: DataDecl -> FunctionClause
+mkConstructorClause decl =
+  FunctionClause
+    { fnClauseName = dataCtorName decl
+    , fnClausePatterns = map PatVar (dataCtorFields decl)
+    , fnClauseBody = mkCallExpr (dataCtorInfo decl) (dataCtorFields decl)
     }
 
 mkCallExpr :: ConstructorInfo -> [Name] -> Expr

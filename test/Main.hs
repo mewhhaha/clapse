@@ -89,6 +89,7 @@ tests =
   , testParseFunctionGuards
   , testParseFunctionGuardsWithBuiltinOperatorConditions
   , testParseFunctionGuardsWithOperatorConditions
+  , testParseFunctionPatternClauses
   , testParseDataDeclarationGeneratesFunctions
   , testParseDataDeclarationSupportsPascalCase
   , testParseDataDeclarationSupportsMultiConstructors
@@ -882,6 +883,41 @@ testParseFunctionGuardsWithOperatorConditions = do
       failTest "parse guarded function declarations with operators" ("unexpected parse error: " <> err)
     Right parsed ->
       assertEqual "parse guarded function declarations with operators" expected parsed
+
+testParseFunctionPatternClauses :: IO Bool
+testParseFunctionPatternClauses = do
+  let src =
+        unlines
+          [ "sum2 0 y = y"
+          , "sum2 x y = add x y"
+          ]
+      expected =
+        Module
+          { signatures = []
+          , functions =
+              [ Function
+                  { name = "sum2"
+                  , args = ["x", "y"]
+                  , body =
+                      Case
+                        [ Var "x", Var "y" ]
+                        [ CaseArm
+                            { armPatterns = [PatInt 0, PatVar "y"]
+                            , armBody = Var "y"
+                            }
+                        , CaseArm
+                            { armPatterns = [PatVar "x", PatVar "y"]
+                            , armBody = App (App (Var "add") (Var "x")) (Var "y")
+                            }
+                        ]
+                  }
+              ]
+          }
+  case parseModule src of
+    Left err ->
+      failTest "parse function pattern clauses" ("unexpected parse error: " <> err)
+    Right parsed ->
+      assertEqual "parse function pattern clauses" expected parsed
 
 testParseDataDeclarationGeneratesFunctions :: IO Bool
 testParseDataDeclarationGeneratesFunctions = do

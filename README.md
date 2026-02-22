@@ -117,6 +117,14 @@ Supported expressions:
     _ -> 0
   ```
 - constructor-specific matching works with multi-constructor `data` declarations
+- multi-equation functions with pattern arguments (same as Haskell-style equations):
+
+  ```haskell
+  sum2 0 y = y
+  sum2 x y = add x y
+  ```
+
+  (single-function bodies with only plain variable arguments are desugared back to direct form; mixed variable/pattern clauses stay in a `case` representation).
 - guarded function equations (desugar to `case`):
 
   ```haskell
