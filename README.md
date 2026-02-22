@@ -67,6 +67,26 @@ Builtin operators (available without declarations):
 
 User declarations override builtin fixity/target for the same operator token.
 
+Function attributes:
+
+You can attach compile-time metadata to a function by placing one or more attributes above its declaration:
+
+```haskell
+#[memo 100]
+#[test "fibonacci memoized"]
+#[bench "fib benchmark"]
+fib n = add n 1
+```
+
+Attribute form:
+
+- `#[name]` no value
+- `#[name value]` where `value` is a single token:
+  - string: `#[bench "my bench"]`
+  - integer: `#[memo 100]`
+  - identifier: `#[label fast_path]`
+  - function attributes are attached to the entire function group (including multi-clause functions)
+
 Value identifiers are snake_case: `[a-z_][a-z0-9_']*`.
 Data type and constructor names are capitalized: `[A-Z][A-Za-z0-9_']*`.
 `data` declarations support multi-constructor forms and one-line GADT alternatives:
@@ -496,6 +516,7 @@ Implemented now:
 - parser support for constructor deconstruction in `let` bindings
 - parser support for `case ... of` expressions with multi-scrutinee matching and constructor patterns
 - parser support for top-level function type signatures, including optional named witness constraints
+- parser support for top-level function attributes (`#[memo ...]`, `#[test ...]`, `#[bench ...]`) and clause-group propagation
 - parser support for HKT-style class/instance declarations (`class <name> <type_ctor> : kind`, `instance <name> : <class> <type_ctor> ...`)
 - parser support for collection literals (`[]`, `[a, b, ...]`)
 - parser tolerance for `module/import/export` directives in syntax validation/format/lsp paths

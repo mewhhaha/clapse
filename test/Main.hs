@@ -77,6 +77,7 @@ tests =
   [ testParseModule
   , testParseModuleWithDirectives
   , testParseFunctionAttributes
+  , testParseFunctionBenchAttribute
   , testParseFunctionAttributesPropagateAcrossClauses
   , testParseOrphanFunctionAttributeFails
   , testParseLambda
@@ -315,6 +316,36 @@ testParseFunctionAttributes = do
       failTest "parse function attributes" ("unexpected parse error: " <> err)
     Right parsed ->
       assertEqual "parse function attributes" expected parsed
+
+testParseFunctionBenchAttribute :: IO Bool
+testParseFunctionBenchAttribute = do
+  let src =
+        unlines
+          [ "#[bench \"fib benchmark\"]"
+          , "bench_fib n = fib n"
+          ]
+      expected =
+        Module
+          { signatures = []
+          , functions =
+              [ Function
+                  { name = "bench_fib"
+                  , args = ["n"]
+                  , body = App (Var "fib") (Var "n")
+                  , attributes =
+                      [ FunctionAttribute
+                          { attributeName = "bench"
+                          , attributeValue = Just (AttributeString "fib benchmark")
+                          }
+                      ]
+                  }
+              ]
+          }
+  case parseModule src of
+    Left err ->
+      failTest "parse function bench attribute" ("unexpected parse error: " <> err)
+    Right parsed ->
+      assertEqual "parse function bench attribute" expected parsed
 
 testParseFunctionAttributesPropagateAcrossClauses :: IO Bool
 testParseFunctionAttributesPropagateAcrossClauses = do
