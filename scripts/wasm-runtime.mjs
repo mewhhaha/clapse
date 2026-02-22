@@ -77,6 +77,7 @@ export function makeRuntime() {
   const state = {
     memory: null,
     nextAlloc: null,
+    heapGlobal: null,
   };
 
   function asUint8Array(input) {
@@ -111,6 +112,12 @@ export function makeRuntime() {
     const memory = ensureMemory();
     if (state.nextAlloc === null) {
       state.nextAlloc = memory.buffer.byteLength;
+    }
+    if (state.heapGlobal instanceof WebAssembly.Global) {
+      const floor = state.heapGlobal.value >>> 0;
+      if (floor > state.nextAlloc) {
+        state.nextAlloc = floor;
+      }
     }
   }
 
@@ -275,5 +282,9 @@ export async function instantiateWithRuntime(wasmBytes) {
     throw new Error("wasm module must export __memory or memory");
   }
   runtime.state.memory = memoryExport;
+  const heapGlobal = instance.exports.__heap_ptr;
+  if (heapGlobal instanceof WebAssembly.Global) {
+    runtime.state.heapGlobal = heapGlobal;
+  }
   return { instance, runtime };
 }

@@ -82,6 +82,7 @@ compileModuleToWasmWithExports topLevelFns exports = do
           ( exportEntries
               <> [ encodeName "__memory" <> [exportKindMemory] <> encodeU32 0
                  , encodeName "__table" <> [exportKindTable] <> encodeU32 0
+                 , encodeName "__heap_ptr" <> [exportKindGlobal] <> encodeU32 runtimeHeapGlobal
                  ]
           )
       elementSectionPayload =
@@ -140,7 +141,7 @@ buildStringLayout allFns = go 0 [] [] (collectStringLiterals allFns)
     go nextOffset layout segments literals =
       case literals of
         [] ->
-          let heapStart = alignTo 4 nextOffset
+          let heapStart = alignTo 4 (max nextOffset minLinearHeapStart)
            in Right (reverse layout, reverse segments, heapStart, memoryPagesForBytes heapStart)
         literalText:rest -> do
           literalBytes <- encodeLiteralBytes literalText
@@ -235,6 +236,9 @@ memoryPagesForBytes totalBytes
   | totalBytes <= 0 = 1
   | otherwise = (totalBytes + wasmPageSize - 1) `div` wasmPageSize
 
+minLinearHeapStart :: Int
+minLinearHeapStart = 4096
+
 verifyUniqueNames :: [CollapsedFunction] -> Either String ()
 verifyUniqueNames fns =
   case duplicates (map name fns) of
@@ -245,7 +249,7 @@ verifyUniqueNames fns =
 
 verifyReservedExportNames :: [CollapsedFunction] -> Either String ()
 verifyReservedExportNames fns =
-  let reserved = ["__memory", "__table"]
+  let reserved = ["__memory", "__table", "__heap_ptr"]
       names = map name fns
    in case filter (`elem` reserved) names of
         [] ->
@@ -1759,6 +1763,9 @@ exportKindFunction = 0
 
 exportKindTable :: Word8
 exportKindTable = 1
+
+exportKindGlobal :: Word8
+exportKindGlobal = 3
 
 exportKindMemory :: Word8
 exportKindMemory = 2

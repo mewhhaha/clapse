@@ -27,6 +27,51 @@ data RuntimeValue
   | RuntimeClosure S.Name Int [RuntimeValue]
   | RuntimeStruct S.Name [RuntimeValue]
 
+data EvalState = EvalState
+  { evalRegionPtr :: !Int
+  , evalRegionMarks :: ![Int]
+  }
+
+initialEvalState :: EvalState
+initialEvalState =
+  EvalState
+    { evalRegionPtr = 0
+    , evalRegionMarks = []
+    }
+
+newtype EvalM a = EvalM {runEvalM :: EvalState -> Either String (a, EvalState)}
+
+evalPure :: a -> EvalM a
+evalPure a = EvalM (\state -> Right (a, state))
+
+evalFail :: String -> EvalM a
+evalFail err = EvalM (\_ -> Left err)
+
+evalGetState :: EvalM EvalState
+evalGetState = EvalM (\state -> Right (state, state))
+
+evalSetState :: EvalState -> EvalM ()
+evalSetState state = EvalM (\_ -> Right ((), state))
+
+instance Functor EvalM where
+  fmap f ma = EvalM (\state -> do (a, state') <- runEvalM ma state; pure (f a, state'))
+
+instance Applicative EvalM where
+  pure = evalPure
+  mf <*> mx =
+    EvalM
+      ( \state0 -> do
+          (f, state1) <- runEvalM mf state0
+          (x, state2) <- runEvalM mx state1
+          pure (f x, state2)
+      )
+
+instance Monad EvalM where
+  ma >>= f = EvalM (\state0 -> do
+    (a, state1) <- runEvalM ma state0
+    runEvalM (f a) state1
+    )
+
 type FunctionEnv = [(S.Name, C.CollapsedFunction)]
 type TempEnv = [(Int, RuntimeValue)]
 
@@ -35,7 +80,7 @@ evalSourceFunction modu entry args = do
   _ <- validateNoDuplicateFunctions (S.functions modu)
   let fullEnv = sourceUserEnv modu <> sourceBuiltins
   entryVal <- lookupRequired ("source evaluator: unknown function: " <> entry) entry fullEnv
-  applied <- foldM applySourceValue entryVal (map SourceInt args)
+  (applied, _) <- runEvalM (foldM applySourceValue entryVal (map SourceInt args)) initialEvalState
   toSourceInt ("source evaluator: function did not reduce to Int: " <> entry) applied
 
 differentialCheckSourceCollapsed :: S.Module -> S.Name -> [Int] -> Either String ()
@@ -60,7 +105,7 @@ evalCollapsedFunction :: [C.CollapsedFunction] -> S.Name -> [Int] -> Either Stri
 evalCollapsedFunction allFns entry args = do
   env <- buildFunctionEnv allFns
   fn <- lookupRequired ("collapsed evaluator: unknown function: " <> entry) entry env
-  out <- runFunction env fn (map RuntimeInt args)
+  (out, _) <- runEvalM (runFunction env fn (map RuntimeInt args)) initialEvalState
   toRuntimeInt ("collapsed evaluator: function did not reduce to Int: " <> entry) out
 
 sourceUserEnv :: S.Module -> SourceEnv
@@ -102,22 +147,22 @@ sourceBuiltins =
   , ("collection_extend", SourceBuiltin "collection_extend" 2 [])
   ]
 
-applySourceValue :: SourceValue -> SourceValue -> Either String SourceValue
+applySourceValue :: SourceValue -> SourceValue -> EvalM SourceValue
 applySourceValue fnVal argVal =
   case fnVal of
     SourceInt _ ->
-      Left "source evaluator: attempted to call Int value"
+      evalFail "source evaluator: attempted to call Int value"
     SourceString _ ->
-      Left "source evaluator: attempted to call string value"
+      evalFail "source evaluator: attempted to call string value"
     SourceStruct _ _ ->
-      Left "source evaluator: attempted to call struct value"
+      evalFail "source evaluator: attempted to call struct value"
     SourceBuiltin builtinName builtinArity gotArgs -> do
       let nextArgs = gotArgs <> [argVal]
       if length nextArgs < builtinArity
-        then Right (SourceBuiltin builtinName builtinArity nextArgs)
+        then evalPure (SourceBuiltin builtinName builtinArity nextArgs)
         else if length nextArgs == builtinArity
           then evalSourceBuiltin builtinName nextArgs
-          else Left "source evaluator: builtin over-applied"
+          else evalFail "source evaluator: builtin over-applied"
     SourceClosure env params bodyExpr ->
       case params of
         [] -> do
@@ -127,15 +172,15 @@ applySourceValue fnVal argVal =
           let env' = (p, argVal) : env
           if null ps
             then evalSourceExpr env' bodyExpr
-            else Right (SourceClosure env' ps bodyExpr)
+            else evalPure (SourceClosure env' ps bodyExpr)
 
-evalSourceExpr :: SourceEnv -> S.Expr -> Either String SourceValue
+evalSourceExpr :: SourceEnv -> S.Expr -> EvalM SourceValue
 evalSourceExpr env expr =
   case expr of
     S.IntLit n ->
-      Right (SourceInt n)
+      evalPure (SourceInt n)
     S.StringLit s ->
-      Right (SourceString s)
+      evalPure (SourceString s)
     S.CollectionLit elems ->
       evalSourceExpr env (desugarCollectionExpr elems)
     S.Case _ _ ->
@@ -143,47 +188,56 @@ evalSourceExpr env expr =
     S.Var n ->
       case lookup n env of
         Just v ->
-          Right v
+          evalPure v
         Nothing ->
           case sourceBuiltinArity n of
-            Just arityN -> Right (SourceBuiltin n arityN [])
-            Nothing -> Left ("source evaluator: unknown variable: " <> n)
+            Just arityN -> evalPure (SourceBuiltin n arityN [])
+            Nothing -> evalFail ("source evaluator: unknown variable: " <> n)
     S.Lam n bodyExpr ->
-      Right (SourceClosure env [n] bodyExpr)
+      evalPure (SourceClosure env [n] bodyExpr)
     S.App f x -> do
       fnVal <- evalSourceExpr env f
       argVal <- evalSourceExpr env x
       applySourceValue fnVal argVal
 
-evalSourceBuiltin :: S.Name -> [SourceValue] -> Either String SourceValue
+evalSourceBuiltin :: S.Name -> [SourceValue] -> EvalM SourceValue
 evalSourceBuiltin name args =
   case (name, args) of
     ("add", [a, b]) ->
-      SourceInt <$> ((+) <$> toSourceInt "source evaluator: add lhs" a <*> toSourceInt "source evaluator: add rhs" b)
+      do
+        lhs <- toSourceIntM "source evaluator: add lhs" a
+        rhs <- toSourceIntM "source evaluator: add rhs" b
+        evalPure (SourceInt (lhs + rhs))
     ("sub", [a, b]) ->
-      SourceInt <$> ((-) <$> toSourceInt "source evaluator: sub lhs" a <*> toSourceInt "source evaluator: sub rhs" b)
+      do
+        lhs <- toSourceIntM "source evaluator: sub lhs" a
+        rhs <- toSourceIntM "source evaluator: sub rhs" b
+        evalPure (SourceInt (lhs - rhs))
     ("mul", [a, b]) ->
-      SourceInt <$> ((*) <$> toSourceInt "source evaluator: mul lhs" a <*> toSourceInt "source evaluator: mul rhs" b)
+      do
+        lhs <- toSourceIntM "source evaluator: mul lhs" a
+        rhs <- toSourceIntM "source evaluator: mul rhs" b
+        evalPure (SourceInt (lhs * rhs))
     ("div", [a, b]) -> do
-      lhs <- toSourceInt "source evaluator: div lhs" a
-      rhs <- toSourceInt "source evaluator: div rhs" b
+      lhs <- toSourceIntM "source evaluator: div lhs" a
+      rhs <- toSourceIntM "source evaluator: div rhs" b
       if rhs == 0
-        then Left "source evaluator: division by zero"
-        else Right (SourceInt (lhs `div` rhs))
+        then evalFail "source evaluator: division by zero"
+        else evalPure (SourceInt (lhs `div` rhs))
     ("eq", [a, b]) -> do
-      lhs <- toSourceInt "source evaluator: eq lhs" a
-      rhs <- toSourceInt "source evaluator: eq rhs" b
-      Right (SourceInt (if lhs == rhs then 1 else 0))
+      lhs <- toSourceIntM "source evaluator: eq lhs" a
+      rhs <- toSourceIntM "source evaluator: eq rhs" b
+      evalPure (SourceInt (if lhs == rhs then 1 else 0))
     ("and", [a, b]) -> do
-      lhs <- toSourceInt "source evaluator: and lhs" a
-      rhs <- toSourceInt "source evaluator: and rhs" b
-      Right (SourceInt (if lhs /= 0 && rhs /= 0 then 1 else 0))
+      lhs <- toSourceIntM "source evaluator: and lhs" a
+      rhs <- toSourceIntM "source evaluator: and rhs" b
+      evalPure (SourceInt (if lhs /= 0 && rhs /= 0 then 1 else 0))
     ("if", [cond, whenTrue, whenFalse]) -> do
-      condI <- toSourceInt "source evaluator: if condition" cond
+      condI <- toSourceIntM "source evaluator: if condition" cond
       let chosen = if condI /= 0 then whenTrue else whenFalse
       applySourceValue chosen (SourceInt 0)
     ("pure", [x]) ->
-      Right x
+      evalPure x
     ("bind", [m, f]) ->
       applySourceValue f m
     ("fmap", [f, x]) ->
@@ -191,41 +245,78 @@ evalSourceBuiltin name args =
     ("ap", [f, x]) ->
       applySourceValue f x
     ("slice_len", [_slice]) ->
-      Left "source evaluator: slice_len requires host-provided slice value"
+      evalFail "source evaluator: slice_len requires host-provided slice value"
     ("slice_get_u8", [_slice, _index]) ->
-      Left "source evaluator: slice_get_u8 requires host-provided slice value"
+      evalFail "source evaluator: slice_get_u8 requires host-provided slice value"
     ("slice_set_u8", [_slice, _index, _value]) ->
-      Left "source evaluator: slice_set_u8 requires host-provided slice value"
+      evalFail "source evaluator: slice_set_u8 requires host-provided slice value"
     ("slice_new_u8", [_len]) ->
-      Left "source evaluator: slice_new_u8 requires wasm runtime memory"
+      evalFail "source evaluator: slice_new_u8 requires wasm runtime memory"
     ("slice_data_ptr", [_slice]) ->
-      Left "source evaluator: slice_data_ptr requires wasm runtime memory"
+      evalFail "source evaluator: slice_data_ptr requires wasm runtime memory"
     ("slice_len_raw", [_slice]) ->
-      Left "source evaluator: slice_len_raw requires wasm runtime memory"
+      evalFail "source evaluator: slice_len_raw requires wasm runtime memory"
     ("region_mark", [_ignored]) ->
-      Right (SourceInt 0)
+      do
+        let ignored = _ignored
+        _ <- toSourceIntM "source evaluator: region_mark expects region token" ignored
+        st <- evalGetState
+        let mark = evalRegionPtr st
+        evalSetState st {evalRegionMarks = mark : evalRegionMarks st}
+        evalPure (SourceInt mark)
     ("region_alloc", [_sizeBytes, _alignBytes]) ->
-      Left "source evaluator: region_alloc requires wasm runtime memory"
+      do
+        sizeBytes <- toSourceIntM "source evaluator: region_alloc size" _sizeBytes
+        alignBytes <- toSourceIntM "source evaluator: region_alloc align" _alignBytes
+        if sizeBytes < 0
+          then evalFail "source evaluator: region_alloc size must be non-negative"
+          else if alignBytes <= 0
+            then evalFail "source evaluator: region_alloc align must be positive"
+            else do
+              st <- evalGetState
+              let alignedSize =
+                    let adjust = alignBytes - 1
+                     in (sizeBytes + adjust) `div` alignBytes * alignBytes
+                  ptr = evalRegionPtr st
+                  nextPtr = ptr + alignedSize
+              evalSetState st {evalRegionPtr = nextPtr}
+              evalPure (SourceInt ptr)
     ("region_reset", [_mark]) ->
-      Right (SourceInt 0)
+      do
+        mark <- toSourceIntM "source evaluator: region_reset mark" _mark
+        st <- evalGetState
+        case evalRegionMarks st of
+          [] ->
+            evalFail "source evaluator: region_reset with no active region mark"
+          markOnTop : rest
+            | markOnTop /= mark ->
+                evalFail
+                  ( "source evaluator: region_reset expected top mark "
+                      <> show markOnTop
+                      <> ", got "
+                      <> show mark
+                  )
+            | otherwise ->
+                evalSetState st {evalRegionPtr = mark, evalRegionMarks = rest}
+                  >> evalPure (SourceInt mark)
     ("memcpy_u8", [_destPtr, _srcPtr, _lenBytes]) ->
-      Left "source evaluator: memcpy_u8 requires wasm runtime memory"
+      evalFail "source evaluator: memcpy_u8 requires wasm runtime memory"
     ("memset_u8", [_destPtr, _value, _lenBytes]) ->
-      Left "source evaluator: memset_u8 requires wasm runtime memory"
+      evalFail "source evaluator: memset_u8 requires wasm runtime memory"
     ("struct_tag", [SourceStruct _tag _fields]) ->
-      Left "source evaluator: struct_tag is only available after collapse/lowering"
+      evalFail "source evaluator: struct_tag is only available after collapse/lowering"
     ("struct_tag", [_]) ->
-      Left "source evaluator: struct_tag expects struct value"
+      evalFail "source evaluator: struct_tag expects struct value"
     ("collection_empty", [_ignored]) ->
-      Right (SourceStruct "collection_empty" [])
+      evalPure (SourceStruct "collection_empty" [])
     ("collection_extend", [collectionVal, x]) ->
-      Right (SourceStruct "collection_node" [collectionVal, x])
+      evalPure (SourceStruct "collection_node" [collectionVal, x])
     _ ->
       case parseMkBuiltin name of
         Just (tag, arityN)
-          | arityN == length args -> Right (SourceStruct tag args)
+          | arityN == length args -> evalPure (SourceStruct tag args)
           | otherwise ->
-              Left
+              evalFail
                 ( "source evaluator: constructor arity mismatch for "
                     <> name
                     <> ", expected "
@@ -234,48 +325,48 @@ evalSourceBuiltin name args =
                     <> show (length args)
                 )
         Nothing ->
-          case parseGetBuiltin name of
-            Just (tag, idx) ->
-              evalSourceGetter tag idx args
-            Nothing ->
-              case parseIsBuiltin name of
-                Just expectedTag ->
-                  evalSourceIsTag expectedTag args
+              case parseGetBuiltin name of
+                Just (tag, idx) ->
+                  evalSourceGetter tag idx args
                 Nothing ->
-                  Left ("source evaluator: unsupported builtin or arity: " <> name)
+                  case parseIsBuiltin name of
+                    Just expectedTag ->
+                      evalSourceIsTag expectedTag args
+                    Nothing ->
+                      evalFail ("source evaluator: unsupported builtin or arity: " <> name)
 
-evalSourceGetter :: S.Name -> Int -> [SourceValue] -> Either String SourceValue
+evalSourceGetter :: S.Name -> Int -> [SourceValue] -> EvalM SourceValue
 evalSourceGetter expectedTag idx args =
   case args of
     [SourceStruct tag fields]
       | tag /= expectedTag ->
-          Left
+          evalFail
             ( "source evaluator: struct tag mismatch, expected "
                 <> expectedTag
                 <> ", got "
                 <> tag
             )
       | idx < 0 || idx >= length fields ->
-          Left
+          evalFail
             ( "source evaluator: struct field index out of range: "
                 <> show idx
             )
       | otherwise ->
-          Right (fields !! idx)
+          evalPure (fields !! idx)
     [_] ->
-      Left "source evaluator: getter expected struct value"
+      evalFail "source evaluator: getter expected struct value"
     _ ->
-      Left "source evaluator: getter expected exactly one argument"
+      evalFail "source evaluator: getter expected exactly one argument"
 
-evalSourceIsTag :: S.Name -> [SourceValue] -> Either String SourceValue
+evalSourceIsTag :: S.Name -> [SourceValue] -> EvalM SourceValue
 evalSourceIsTag expectedTag args =
   case args of
     [SourceStruct tag _fields] ->
-      Right (SourceInt (if tag == expectedTag then 1 else 0))
+      evalPure (SourceInt (if tag == expectedTag then 1 else 0))
     [_] ->
-      Right (SourceInt 0)
+      evalPure (SourceInt 0)
     _ ->
-      Left "source evaluator: tag predicate expected exactly one argument"
+      evalFail "source evaluator: tag predicate expected exactly one argument"
 
 toSourceInt :: String -> SourceValue -> Either String Int
 toSourceInt err val =
@@ -283,13 +374,21 @@ toSourceInt err val =
     SourceInt n -> Right n
     _ -> Left err
 
-runFunction :: FunctionEnv -> C.CollapsedFunction -> [RuntimeValue] -> Either String RuntimeValue
+toSourceIntM :: String -> SourceValue -> EvalM Int
+toSourceIntM err val = liftEither (toSourceInt err val)
+
+liftEither :: Either String a -> EvalM a
+liftEither ev = EvalM (\state -> case ev of
+  Right x -> Right (x, state)
+  Left err -> Left err)
+
+runFunction :: FunctionEnv -> C.CollapsedFunction -> [RuntimeValue] -> EvalM RuntimeValue
 runFunction env fn args = do
   let expected = localParamCount fn
   if length args == expected
     then evalBinds env fn args [] (C.binds fn)
     else
-      Left
+      evalFail
         ( "collapsed evaluator: function "
             <> C.name fn
             <> " expected "
@@ -298,7 +397,7 @@ runFunction env fn args = do
             <> show (length args)
         )
 
-evalBinds :: FunctionEnv -> C.CollapsedFunction -> [RuntimeValue] -> TempEnv -> [C.Bind] -> Either String RuntimeValue
+evalBinds :: FunctionEnv -> C.CollapsedFunction -> [RuntimeValue] -> TempEnv -> [C.Bind] -> EvalM RuntimeValue
 evalBinds env fn locals temps allBinds =
   case allBinds of
     [] ->
@@ -307,26 +406,26 @@ evalBinds env fn locals temps allBinds =
       v <- evalValue env fn locals temps (C.value b)
       evalBinds env fn locals ((C.temp b, v) : temps) bs
 
-evalValue :: FunctionEnv -> C.CollapsedFunction -> [RuntimeValue] -> TempEnv -> C.Value -> Either String RuntimeValue
+evalValue :: FunctionEnv -> C.CollapsedFunction -> [RuntimeValue] -> TempEnv -> C.Value -> EvalM RuntimeValue
 evalValue env fn locals temps val =
   case val of
     C.VClosure callee captures -> do
-      calleeFn <- lookupRequired ("collapsed evaluator: unknown closure callee: " <> callee) callee env
+      calleeFn <- liftEither (lookupRequired ("collapsed evaluator: unknown closure callee: " <> callee) callee env)
       captureVals <- traverse (evalAtom locals temps) captures
       let totalArity = localParamCount calleeFn
-      Right (RuntimeClosure callee totalArity captureVals)
+      evalPure (RuntimeClosure callee totalArity captureVals)
     C.VCallDirect callee args -> do
       argVals <- traverse (evalAtom locals temps) args
       callNamed env callee argVals
     C.VCurryDirect callee args -> do
-      calleeFn <- lookupRequired ("collapsed evaluator: unknown curry callee: " <> callee) callee env
+      calleeFn <- liftEither (lookupRequired ("collapsed evaluator: unknown curry callee: " <> callee) callee env)
       argVals <- traverse (evalAtom locals temps) args
       let totalArity = localParamCount calleeFn
       if length argVals < totalArity
-        then Right (RuntimeClosure callee totalArity argVals)
+        then evalPure (RuntimeClosure callee totalArity argVals)
         else if length argVals == totalArity
           then runFunction env calleeFn argVals
-          else Left "collapsed evaluator: curry over-application"
+          else evalFail "collapsed evaluator: curry over-application"
     C.VCallClosure callee args -> do
       calleeVal <- evalAtom locals temps callee
       argVals <- traverse (evalAtom locals temps) args
@@ -340,39 +439,39 @@ evalValue env fn locals temps val =
       let captures = take (C.captureArity fn) locals
       runFunction env fn (captures <> argVals)
 
-evalAtom :: [RuntimeValue] -> TempEnv -> C.Atom -> Either String RuntimeValue
+evalAtom :: [RuntimeValue] -> TempEnv -> C.Atom -> EvalM RuntimeValue
 evalAtom locals temps atom =
   case atom of
     C.AConstI32 n ->
-      Right (RuntimeInt n)
+      evalPure (RuntimeInt n)
     C.AConstString s ->
-      Right (RuntimeString s)
+      evalPure (RuntimeString s)
     C.ALocal i ->
-      lookupIndex ("collapsed evaluator: local index out of range: " <> show i) i locals
+      liftEither (lookupIndex ("collapsed evaluator: local index out of range: " <> show i) i locals)
     C.ATemp t ->
-      lookupRequired ("collapsed evaluator: unknown temp: t" <> show t) t temps
+      liftEither (lookupRequired ("collapsed evaluator: unknown temp: t" <> show t) t temps)
     C.AGlobal g ->
-      Left ("collapsed evaluator: globals are not supported: " <> g)
+      evalFail ("collapsed evaluator: globals are not supported: " <> g)
 
-applyRuntimeValue :: FunctionEnv -> RuntimeValue -> RuntimeValue -> Either String RuntimeValue
+applyRuntimeValue :: FunctionEnv -> RuntimeValue -> RuntimeValue -> EvalM RuntimeValue
 applyRuntimeValue env fnVal argVal =
   case fnVal of
     RuntimeInt _ ->
-      Left "collapsed evaluator: attempted to call Int value"
+      evalFail "collapsed evaluator: attempted to call Int value"
     RuntimeString _ ->
-      Left "collapsed evaluator: attempted to call string value"
+      evalFail "collapsed evaluator: attempted to call string value"
     RuntimeStruct _ _ ->
-      Left "collapsed evaluator: attempted to call struct value"
+      evalFail "collapsed evaluator: attempted to call struct value"
     RuntimeClosure callee totalArity boundArgs -> do
-      calleeFn <- lookupRequired ("collapsed evaluator: closure target missing: " <> callee) callee env
+      calleeFn <- liftEither (lookupRequired ("collapsed evaluator: closure target missing: " <> callee) callee env)
       let nextArgs = boundArgs <> [argVal]
       if length nextArgs < totalArity
-        then Right (RuntimeClosure callee totalArity nextArgs)
+        then evalPure (RuntimeClosure callee totalArity nextArgs)
         else if length nextArgs == totalArity
           then runFunction env calleeFn nextArgs
-          else Left "collapsed evaluator: closure over-application"
+          else evalFail "collapsed evaluator: closure over-application"
 
-callNamed :: FunctionEnv -> S.Name -> [RuntimeValue] -> Either String RuntimeValue
+callNamed :: FunctionEnv -> S.Name -> [RuntimeValue] -> EvalM RuntimeValue
 callNamed env callee args =
   case lookup callee env of
     Just fn ->
@@ -380,35 +479,44 @@ callNamed env callee args =
     Nothing ->
       evalRuntimeBuiltin env callee args
 
-evalRuntimeBuiltin :: FunctionEnv -> S.Name -> [RuntimeValue] -> Either String RuntimeValue
+evalRuntimeBuiltin :: FunctionEnv -> S.Name -> [RuntimeValue] -> EvalM RuntimeValue
 evalRuntimeBuiltin env name args =
   case (name, args) of
     ("add", [a, b]) ->
-      RuntimeInt <$> ((+) <$> toRuntimeInt "collapsed evaluator: add lhs" a <*> toRuntimeInt "collapsed evaluator: add rhs" b)
+      do
+        lhs <- toRuntimeIntM "collapsed evaluator: add lhs" a
+        rhs <- toRuntimeIntM "collapsed evaluator: add rhs" b
+        evalPure (RuntimeInt (lhs + rhs))
     ("sub", [a, b]) ->
-      RuntimeInt <$> ((-) <$> toRuntimeInt "collapsed evaluator: sub lhs" a <*> toRuntimeInt "collapsed evaluator: sub rhs" b)
+      do
+        lhs <- toRuntimeIntM "collapsed evaluator: sub lhs" a
+        rhs <- toRuntimeIntM "collapsed evaluator: sub rhs" b
+        evalPure (RuntimeInt (lhs - rhs))
     ("mul", [a, b]) ->
-      RuntimeInt <$> ((*) <$> toRuntimeInt "collapsed evaluator: mul lhs" a <*> toRuntimeInt "collapsed evaluator: mul rhs" b)
+      do
+        lhs <- toRuntimeIntM "collapsed evaluator: mul lhs" a
+        rhs <- toRuntimeIntM "collapsed evaluator: mul rhs" b
+        evalPure (RuntimeInt (lhs * rhs))
     ("div", [a, b]) -> do
-      lhs <- toRuntimeInt "collapsed evaluator: div lhs" a
-      rhs <- toRuntimeInt "collapsed evaluator: div rhs" b
+      lhs <- toRuntimeIntM "collapsed evaluator: div lhs" a
+      rhs <- toRuntimeIntM "collapsed evaluator: div rhs" b
       if rhs == 0
-        then Left "collapsed evaluator: division by zero"
-        else Right (RuntimeInt (lhs `div` rhs))
+        then evalFail "collapsed evaluator: division by zero"
+        else evalPure (RuntimeInt (lhs `div` rhs))
     ("eq", [a, b]) -> do
-      lhs <- toRuntimeInt "collapsed evaluator: eq lhs" a
-      rhs <- toRuntimeInt "collapsed evaluator: eq rhs" b
-      Right (RuntimeInt (if lhs == rhs then 1 else 0))
+      lhs <- toRuntimeIntM "collapsed evaluator: eq lhs" a
+      rhs <- toRuntimeIntM "collapsed evaluator: eq rhs" b
+      evalPure (RuntimeInt (if lhs == rhs then 1 else 0))
     ("and", [a, b]) -> do
-      lhs <- toRuntimeInt "collapsed evaluator: and lhs" a
-      rhs <- toRuntimeInt "collapsed evaluator: and rhs" b
-      Right (RuntimeInt (if lhs /= 0 && rhs /= 0 then 1 else 0))
+      lhs <- toRuntimeIntM "collapsed evaluator: and lhs" a
+      rhs <- toRuntimeIntM "collapsed evaluator: and rhs" b
+      evalPure (RuntimeInt (if lhs /= 0 && rhs /= 0 then 1 else 0))
     ("if", [cond, whenTrue, whenFalse]) -> do
-      condI <- toRuntimeInt "collapsed evaluator: if condition" cond
+      condI <- toRuntimeIntM "collapsed evaluator: if condition" cond
       let chosen = if condI /= 0 then whenTrue else whenFalse
       applyRuntimeValue env chosen (RuntimeInt 0)
     ("pure", [x]) ->
-      Right x
+      evalPure x
     ("bind", [m, f]) ->
       applyRuntimeValue env f m
     ("fmap", [f, x]) ->
@@ -416,39 +524,75 @@ evalRuntimeBuiltin env name args =
     ("ap", [f, x]) ->
       applyRuntimeValue env f x
     ("slice_len", [_slice]) ->
-      Left "collapsed evaluator: slice_len requires host-provided slice value"
+      evalFail "collapsed evaluator: slice_len requires host-provided slice value"
     ("slice_get_u8", [_slice, _index]) ->
-      Left "collapsed evaluator: slice_get_u8 requires host-provided slice value"
+      evalFail "collapsed evaluator: slice_get_u8 requires host-provided slice value"
     ("slice_set_u8", [_slice, _index, _value]) ->
-      Left "collapsed evaluator: slice_set_u8 requires host-provided slice value"
+      evalFail "collapsed evaluator: slice_set_u8 requires host-provided slice value"
     ("slice_new_u8", [_len]) ->
-      Left "collapsed evaluator: slice_new_u8 requires wasm runtime memory"
+      evalFail "collapsed evaluator: slice_new_u8 requires wasm runtime memory"
     ("slice_data_ptr", [_slice]) ->
-      Left "collapsed evaluator: slice_data_ptr requires wasm runtime memory"
+      evalFail "collapsed evaluator: slice_data_ptr requires wasm runtime memory"
     ("slice_len_raw", [_slice]) ->
-      Left "collapsed evaluator: slice_len_raw requires wasm runtime memory"
+      evalFail "collapsed evaluator: slice_len_raw requires wasm runtime memory"
     ("region_mark", [_ignored]) ->
-      Right (RuntimeInt 0)
+      do
+        _ <- toRuntimeIntM "collapsed evaluator: region_mark expects region token" _ignored
+        st <- evalGetState
+        let mark = evalRegionPtr st
+        evalSetState st {evalRegionMarks = mark : evalRegionMarks st}
+        evalPure (RuntimeInt mark)
     ("region_alloc", [_sizeBytes, _alignBytes]) ->
-      Left "collapsed evaluator: region_alloc requires wasm runtime memory"
+      do
+        sizeBytes <- toRuntimeIntM "collapsed evaluator: region_alloc size" _sizeBytes
+        alignBytes <- toRuntimeIntM "collapsed evaluator: region_alloc align" _alignBytes
+        if sizeBytes < 0
+          then evalFail "collapsed evaluator: region_alloc size must be non-negative"
+          else if alignBytes <= 0
+            then evalFail "collapsed evaluator: region_alloc align must be positive"
+            else do
+              st <- evalGetState
+              let alignedSize =
+                    let adjust = alignBytes - 1
+                     in (sizeBytes + adjust) `div` alignBytes * alignBytes
+                  ptr = evalRegionPtr st
+                  nextPtr = ptr + alignedSize
+              evalSetState st {evalRegionPtr = nextPtr}
+              evalPure (RuntimeInt ptr)
     ("region_reset", [_mark]) ->
-      Right (RuntimeInt 0)
+      do
+        mark <- toRuntimeIntM "collapsed evaluator: region_reset mark" _mark
+        st <- evalGetState
+        case evalRegionMarks st of
+          [] ->
+            evalFail "collapsed evaluator: region_reset with no active region mark"
+          markOnTop : rest
+            | markOnTop /= mark ->
+                evalFail
+                  ( "collapsed evaluator: region_reset expected top mark "
+                      <> show markOnTop
+                      <> ", got "
+                      <> show mark
+                  )
+            | otherwise ->
+                evalSetState st {evalRegionPtr = mark, evalRegionMarks = rest}
+                  >> evalPure (RuntimeInt mark)
     ("memcpy_u8", [_destPtr, _srcPtr, _lenBytes]) ->
-      Left "collapsed evaluator: memcpy_u8 requires wasm runtime memory"
+      evalFail "collapsed evaluator: memcpy_u8 requires wasm runtime memory"
     ("memset_u8", [_destPtr, _value, _lenBytes]) ->
-      Left "collapsed evaluator: memset_u8 requires wasm runtime memory"
+      evalFail "collapsed evaluator: memset_u8 requires wasm runtime memory"
     ("struct_tag", [_]) ->
-      Left "collapsed evaluator: struct_tag requires wasm runtime tag table"
+      evalFail "collapsed evaluator: struct_tag requires wasm runtime tag table"
     ("collection_empty", [_ignored]) ->
-      Right (RuntimeStruct "collection_empty" [])
+      evalPure (RuntimeStruct "collection_empty" [])
     ("collection_extend", [collectionVal, x]) ->
-      Right (RuntimeStruct "collection_node" [collectionVal, x])
+      evalPure (RuntimeStruct "collection_node" [collectionVal, x])
     _ ->
       case parseMkBuiltin name of
         Just (tag, arityN)
-          | arityN == length args -> Right (RuntimeStruct tag args)
+          | arityN == length args -> evalPure (RuntimeStruct tag args)
           | otherwise ->
-              Left
+              evalFail
                 ( "collapsed evaluator: constructor arity mismatch for "
                     <> name
                     <> ", expected "
@@ -465,46 +609,49 @@ evalRuntimeBuiltin env name args =
                 Just expectedTag ->
                   evalRuntimeIsTag expectedTag args
                 Nothing ->
-                  Left ("collapsed evaluator: unknown callee or arity: " <> name)
+                  evalFail ("collapsed evaluator: unknown callee or arity: " <> name)
 
-evalRuntimeGetter :: S.Name -> Int -> [RuntimeValue] -> Either String RuntimeValue
+evalRuntimeGetter :: S.Name -> Int -> [RuntimeValue] -> EvalM RuntimeValue
 evalRuntimeGetter expectedTag idx args =
   case args of
     [RuntimeStruct tag fields]
       | tag /= expectedTag ->
-          Left
+          evalFail
             ( "collapsed evaluator: struct tag mismatch, expected "
                 <> expectedTag
                 <> ", got "
                 <> tag
             )
       | idx < 0 || idx >= length fields ->
-          Left
+          evalFail
             ( "collapsed evaluator: struct field index out of range: "
                 <> show idx
             )
       | otherwise ->
-          Right (fields !! idx)
+          evalPure (fields !! idx)
     [_] ->
-      Left "collapsed evaluator: getter expected struct value"
+      evalFail "collapsed evaluator: getter expected struct value"
     _ ->
-      Left "collapsed evaluator: getter expected exactly one argument"
+      evalFail "collapsed evaluator: getter expected exactly one argument"
 
-evalRuntimeIsTag :: S.Name -> [RuntimeValue] -> Either String RuntimeValue
+evalRuntimeIsTag :: S.Name -> [RuntimeValue] -> EvalM RuntimeValue
 evalRuntimeIsTag expectedTag args =
   case args of
     [RuntimeStruct tag _fields] ->
-      Right (RuntimeInt (if tag == expectedTag then 1 else 0))
+      evalPure (RuntimeInt (if tag == expectedTag then 1 else 0))
     [_] ->
-      Right (RuntimeInt 0)
+      evalPure (RuntimeInt 0)
     _ ->
-      Left "collapsed evaluator: tag predicate expected exactly one argument"
+      evalFail "collapsed evaluator: tag predicate expected exactly one argument"
 
 toRuntimeInt :: String -> RuntimeValue -> Either String Int
 toRuntimeInt err val =
   case val of
     RuntimeInt n -> Right n
     _ -> Left err
+
+toRuntimeIntM :: String -> RuntimeValue -> EvalM Int
+toRuntimeIntM err val = liftEither (toRuntimeInt err val)
 
 localParamCount :: C.CollapsedFunction -> Int
 localParamCount fn = C.arity fn + C.captureArity fn

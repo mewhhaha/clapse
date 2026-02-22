@@ -1,8 +1,10 @@
 module Main (main) where
 
 import qualified Data.ByteString as BS
+import Data.Bits ((.&.), (.|.), shiftL)
 import Data.Char (chr)
 import Data.List (isInfixOf, isPrefixOf)
+import Data.Word (Word32, Word8)
 import Clapse.Modules
   ( CompileArtifact(..)
   , ExportApi(..)
@@ -11,7 +13,7 @@ import Clapse.Modules
   , renderTypeScriptBindings
   )
 import Control.Exception (finally)
-import Control.Monad (forM_)
+import Control.Monad (forM_, foldM, when)
 import MyLib
   ( ClassKind(..)
   , Atom(..)
@@ -192,7 +194,9 @@ tests =
   , testCompileWasmSupportsSliceSetImport
   , testCompileWasmSupportsLinearMemoryHelpers
   , testCompileWasmStructHelpersInlined
+  , testCompileWasmExportsHeapPtr
   , testCompileWasmSupportsHeapGlobalAtom
+  , testCompileWasmRejectsHeapPtrAsUserFunction
   , testCompileWasmRejectsUnknownGlobalAtom
   , testCompileEntryModuleLoadsDottedImport
   , testCompileEntryModuleMissingImport
@@ -3006,6 +3010,30 @@ testCompileWasmStructHelpersInlined = do
             && all (not . wasmContainsName wasmBytes) removedRuntimeFns
         )
 
+testCompileWasmExportsHeapPtr :: IO Bool
+testCompileWasmExportsHeapPtr = do
+  let src =
+        unlines
+          [ "main x = x"
+          ]
+      wasmMagic = BS.pack [0x00, 0x61, 0x73, 0x6d]
+      expectedExports =
+        [ ("__memory", 2)
+        , ("__table", 1)
+        , ("__heap_ptr", 3)
+        ]
+  case compileSourceToWasm src of
+    Left err ->
+      failTest "compile wasm runtime exports have expected kinds" ("unexpected wasm compile error: " <> err)
+    Right wasmBytes ->
+      case checkExportKinds wasmBytes expectedExports of
+        Left err ->
+          failTest "compile wasm runtime exports have expected kinds" err
+        Right () ->
+          assertTrue
+            "compile wasm runtime exports have expected kinds"
+            (BS.take 4 wasmBytes == wasmMagic)
+
 testCompileWasmSupportsHeapGlobalAtom :: IO Bool
 testCompileWasmSupportsHeapGlobalAtom = do
   let fn =
@@ -3025,6 +3053,23 @@ testCompileWasmSupportsHeapGlobalAtom = do
       assertTrue
         "compile wasm supports heap global atom"
         (BS.take 4 wasmBytes == wasmMagic)
+
+testCompileWasmRejectsHeapPtrAsUserFunction :: IO Bool
+testCompileWasmRejectsHeapPtrAsUserFunction = do
+  let src =
+        unlines
+          [ "__heap_ptr x = x"
+          , "main x = __heap_ptr x"
+          ]
+  case compileSourceToWasm src of
+    Left err ->
+      assertTrue
+        "compile wasm rejects __heap_ptr as user function name"
+        ("reserved for runtime export" `isInfixOf` err)
+    Right _ ->
+      failTest
+        "compile wasm rejects __heap_ptr as user function name"
+        "expected compile failure for reserved export name, but compilation succeeded"
 
 testCompileWasmRejectsUnknownGlobalAtom :: IO Bool
 testCompileWasmRejectsUnknownGlobalAtom = do
@@ -3295,9 +3340,114 @@ monadsMaybeEitherSource =
     , "main x = add (maybe_demo x) (either_demo x)"
     ]
 
+checkExportKinds :: BS.ByteString -> [(String, Word8)] -> Either String ()
+checkExportKinds wasmBytes expected = do
+  exports <- parseWasmExports wasmBytes
+  let findKind name = lookup name exports
+  let checkOne (name, expectedKind) =
+        case findKind name of
+          Nothing -> Left ("missing export: " <> name)
+          Just actualKind
+            | actualKind == expectedKind -> Right ()
+            | otherwise ->
+                Left
+                  ( "runtime export kind mismatch for "
+                      <> name
+                      <> ": expected "
+                      <> show expectedKind
+                      <> ", got "
+                      <> show actualKind
+                  )
+  forM_ expected checkOne
+
 wasmContainsName :: BS.ByteString -> String -> Bool
 wasmContainsName wasmBytes nameText =
   BS.pack (map (fromIntegral . fromEnum) nameText) `BS.isInfixOf` wasmBytes
+
+parseWasmExports :: BS.ByteString -> Either String [(String, Word8)]
+parseWasmExports wasmBytes = do
+  let wasmOffset = 8
+  exportSection <- findSection wasmBytes wasmOffset sectionExport
+  parseExportSection exportSection
+    `orElse` []
+  where
+    -- Prefer a specific section if present; ignore missing section as empty.
+    orElse :: Either String a -> a -> Either String a
+    orElse action fallback =
+      case action of
+        Left _ -> Right fallback
+        Right value -> Right value
+
+sectionExport :: Word8
+sectionExport = 7
+
+findSection :: BS.ByteString -> Int -> Word8 -> Either String BS.ByteString
+findSection bytes initialOffset targetSectionId = do
+  if BS.length bytes < 8
+    then Left "malformed wasm: missing magic/version"
+    else go initialOffset
+  where
+    go :: Int -> Either String BS.ByteString
+    go offset
+      | offset >= BS.length bytes = Left ("missing section " <> show targetSectionId)
+      | otherwise = do
+          sid <- readByte bytes offset
+          let payloadStart = offset + 1
+          (payloadLen, nextOffset) <- readU32 bytes payloadStart
+          let payloadOffset = nextOffset
+              sectionEnd = payloadOffset + fromIntegral payloadLen
+          if sectionEnd > BS.length bytes
+            then Left ("section payload exceeds wasm size for section " <> show sid)
+            else if sid == targetSectionId
+              then
+                Right (BS.take (fromIntegral payloadLen) (BS.drop payloadOffset bytes))
+              else go sectionEnd
+
+parseExportSection :: BS.ByteString -> Either String [(String, Word8)]
+parseExportSection payload = do
+  (count, offsetAfterCount) <- readU32 payload 0
+  let exportCount = fromIntegral count
+  foldM parseExport ([], fromIntegral offsetAfterCount) [1 .. exportCount]
+    >>= (pure . reverse . fst)
+  where
+    parseExport ::
+      ([(String, Word8)], Int) ->
+      Word32 ->
+      Either String ([(String, Word8)], Int)
+    parseExport (acc, offset) _ = do
+      (nameLen, off1) <- readU32 payload offset
+      let nameBytes = BS.take (fromIntegral nameLen) (BS.drop off1 payload)
+          off2 = off1 + fromIntegral nameLen
+      when (off2 >= BS.length payload)
+        (Left "malformed export name")
+      kind <- readByte payload off2
+      (_, nextOffset) <- readU32 payload (off2 + 1)
+      let name = map (chr . fromIntegral) (BS.unpack nameBytes)
+      pure ((name, kind) : acc, nextOffset)
+
+readByte :: BS.ByteString -> Int -> Either String Word8
+readByte bytes offset =
+  if offset < 0 || offset >= BS.length bytes
+    then Left ("offset out of bounds: " <> show offset)
+    else Right (BS.index bytes offset)
+
+readU32 :: BS.ByteString -> Int -> Either String (Word32, Int)
+readU32 bytes offset =
+  if offset < 0 || offset >= BS.length bytes
+    then Left ("uleb offset out of bounds: " <> show offset)
+    else decode 0 0 offset
+  where
+    decode :: Word32 -> Int -> Int -> Either String (Word32, Int)
+    decode !acc !shift !idx = do
+      byte <- readByte bytes idx
+      let value = acc .|. (fromIntegral (byte .&. 0x7f) `shiftL` shift)
+          nextShift = shift + 7
+      if byte .&. 0x80 == 0
+        then Right (value, idx + 1)
+        else if nextShift >= 32
+          then Left "uleb integer too large"
+          else decode value nextShift (idx + 1)
+
 
 assertEqual :: (Eq a, Show a) => String -> a -> a -> IO Bool
 assertEqual label expected actual
