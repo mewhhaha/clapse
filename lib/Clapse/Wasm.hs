@@ -1,6 +1,8 @@
 module Clapse.Wasm
   ( compileModuleToWasm
   , compileModuleToWasmWithExports
+  , compileModuleToWasmWithExportsAndMemoHints
+  , compileModuleToWasmWithExportsAndMemoHintsAndHostBuiltins
   , compileSourceToWasm
   ) where
 
@@ -11,7 +13,7 @@ import Data.Foldable (traverse_)
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IM
 import Data.Int (Int32)
-import Data.List (sort)
+import Data.List (isPrefixOf, sort)
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -24,30 +26,67 @@ import Clapse.CollapseIR
   , Value(..)
   , collapseAndVerifyModule
   )
+import Clapse.HostCapabilities (buildHostBuiltinImportSigs)
 import Clapse.Lowering (lowerModule)
 import Clapse.Syntax (Name, parseModule)
+import qualified Clapse.Syntax as Syn
 
 type StringLayout = [(String, (Int, Int))]
 type DataSegment = (Int, [Word8])
 type TagIdMap = [(Name, Int)]
+type MemoHints = [(Name, Int)]
+type HostBuiltinImportSigs = [(Name, (Int, Int))]
+
+data MemoPlan = MemoPlan
+  { memoFnName :: Name
+  , memoBodyName :: Name
+  , memoSize :: Int
+  , memoBaseOffset :: Int
+  }
+  deriving (Eq, Show)
+
+maxTaggedIntPayload :: Int
+maxTaggedIntPayload = 1073741823
+
+minTaggedIntPayload :: Int
+minTaggedIntPayload = -1073741824
 
 compileSourceToWasm :: String -> Either String BS.ByteString
 compileSourceToWasm src = do
   parsed <- parseModule src
+  memoHints <- collectMemoHints (Syn.functions parsed)
   lowered <- lowerModule parsed
   collapsed <- collapseAndVerifyModule lowered
-  compileModuleToWasm collapsed
+  compileModuleToWasmWithExportsAndMemoHintsAndHostBuiltins collapsed (map name collapsed) memoHints []
 
 compileModuleToWasm :: [CollapsedFunction] -> Either String BS.ByteString
 compileModuleToWasm topLevelFns =
   compileModuleToWasmWithExports topLevelFns (map name topLevelFns)
 
 compileModuleToWasmWithExports :: [CollapsedFunction] -> [Name] -> Either String BS.ByteString
-compileModuleToWasmWithExports topLevelFns exports = do
-  let allFns = flattenFunctions topLevelFns
+compileModuleToWasmWithExports topLevelFns exports =
+  compileModuleToWasmWithExportsAndMemoHints topLevelFns exports []
+
+compileModuleToWasmWithExportsAndMemoHints :: [CollapsedFunction] -> [Name] -> MemoHints -> Either String BS.ByteString
+compileModuleToWasmWithExportsAndMemoHints topLevelFns exports memoHints =
+  compileModuleToWasmWithExportsAndMemoHintsAndHostBuiltins topLevelFns exports memoHints []
+
+compileModuleToWasmWithExportsAndMemoHintsAndHostBuiltins :: [CollapsedFunction] -> [Name] -> MemoHints -> [Name] -> Either String BS.ByteString
+compileModuleToWasmWithExportsAndMemoHintsAndHostBuiltins topLevelFns exports memoHints hostBuiltins = do
+  let allFns0 = flattenFunctions topLevelFns
+  hostImportSigs <- buildHostBuiltinImportSigs hostBuiltins
+  let runtimeImportCount = length hostImportSigs
+      builtinImportMap = hostImportSigs
+  memoPlans0 <- buildInitialMemoPlans allFns0 memoHints
+  let memoBodyFns = map (buildMemoBodyClone allFns0) memoPlans0
+      allFns = flattenFunctions (topLevelFns <> memoBodyFns)
   verifyUniqueNames allFns
   verifyReservedExportNames allFns
-  (stringLayout, dataSegments, heapStart, memoryPageCount) <- buildStringLayout allFns
+  (stringLayout, dataSegments0, stringHeapStart, _stringMemoryPageCount) <- buildStringLayout allFns
+  (memoPlans, memoDataSegments, heapStart) <- buildMemoLayout memoPlans0 stringHeapStart
+  let memoryPageCount = memoryPagesForBytes heapStart
+      dataSegments = dataSegments0 <> memoDataSegments
+      memoPlanMap = map (\plan -> (memoFnName plan, plan)) memoPlans
   let runtimeHelperArities = runtimeHelperSpecs
       runtimeWasmHelperCount = length runtimeHelperArities
       runtimeFunctionBase = runtimeImportCount + runtimeWasmHelperCount
@@ -56,6 +95,7 @@ compileModuleToWasmWithExports topLevelFns exports = do
       signatureArities =
         unique
           ( [1, 2, 3]
+              <> map (snd . snd) hostImportSigs
               <> runtimeHelperArities
               <> map localParamCount allFns
           )
@@ -64,8 +104,20 @@ compileModuleToWasmWithExports topLevelFns exports = do
   closureCallTypeCases <- buildClosureCallTypeCases typeMap allFns
   let runtimeWasmHelperBodies = buildRuntimeHelperBodies
   traverse_ (verifyFunctionShape paramCountEnv) allFns
-  userCodeBodies <- zipWithM (compileFunction stringLayout tagIdMap closureCallTypeCases paramCountEnv definedFuncMap) [runtimeFunctionBase ..] allFns
-  importEntries <- runtimeImports typeMap
+  userCodeBodies <-
+    zipWithM
+      ( compileFunction
+          stringLayout
+          tagIdMap
+          memoPlanMap
+          builtinImportMap
+          closureCallTypeCases
+          paramCountEnv
+          definedFuncMap
+      )
+      [runtimeFunctionBase ..]
+      allFns
+  importEntries <- runtimeImports typeMap hostImportSigs
   typeIndices <- traverse (typeIndexFor typeMap . localParamCount) allFns
   helperTypeIndices <- traverse (typeIndexFor typeMap) runtimeHelperArities
   exportFns <- filterByExportName exports topLevelFns
@@ -133,6 +185,178 @@ flattenFunctions = concatMap go
   where
     go :: CollapsedFunction -> [CollapsedFunction]
     go fn = fn : flattenFunctions (lifted fn)
+
+collectMemoHints :: [Syn.Function] -> Either String MemoHints
+collectMemoHints = foldM step []
+  where
+    step :: MemoHints -> Syn.Function -> Either String MemoHints
+    step acc fn =
+      case memoSizesForFunction fn of
+        [] ->
+          Right acc
+        [sizeN] ->
+          Right ((Syn.name fn, sizeN) : acc)
+        _ ->
+          Left ("memo attribute repeated on function: " <> Syn.name fn)
+
+memoSizesForFunction :: Syn.Function -> [Int]
+memoSizesForFunction fn =
+  [ sizeN
+  | attr <- Syn.attributes fn
+  , Syn.attributeName attr == "memo"
+  , Just (Syn.AttributeInt sizeN) <- [Syn.attributeValue attr]
+  ]
+
+buildInitialMemoPlans :: [CollapsedFunction] -> MemoHints -> Either String [MemoPlan]
+buildInitialMemoPlans allFns hints = do
+  planGroups <- traverse toPlans hints
+  pure (uniqueMemoPlans (concat planGroups))
+  where
+    fnMap = map (\fn -> (name fn, fn)) allFns
+    allNames = map name allFns
+
+    toPlans :: (Name, Int) -> Either String [MemoPlan]
+    toPlans (fnName0, sizeN) = do
+      targetFn <-
+        case lookup fnName0 fnMap of
+          Nothing ->
+            Left ("wasm backend: memo target function not found: " <> fnName0)
+          Just fn ->
+            Right fn
+      if sizeN <= 0
+        then Left ("wasm backend: memo size must be > 0 for " <> fnName0)
+        else pure ()
+      if arity targetFn /= 1 || captureArity targetFn /= 0
+        then
+          Left
+            ( "wasm backend: memo currently supports unary top-level functions only: "
+                <> fnName0
+            )
+        else pure ()
+      if functionHasSelfTailCall targetFn
+        then
+          Left
+            ( "wasm backend: memo currently does not support self tail-call optimized functions: "
+                <> fnName0
+            )
+        else pure ()
+      let familyFns = filter (isMemoFamilyName fnName0 . name) allFns
+          memoCandidates = filter memoFamilyCandidate familyFns
+          selectedFns = targetFn : memoCandidates
+      traverse (mkPlanFor sizeN allNames) selectedFns
+
+    mkPlanFor :: Int -> [Name] -> CollapsedFunction -> Either String MemoPlan
+    mkPlanFor sizeN allNames0 fn = do
+      if functionHasSelfTailCall fn
+        then
+          Left
+            ( "wasm backend: memo currently does not support self tail-call optimized functions: "
+                <> name fn
+            )
+        else pure ()
+      let bodyName0 = name fn <> "__memo_body"
+      if bodyName0 `elem` allNames0
+        then Left ("wasm backend: memo body name collision: " <> bodyName0)
+        else
+          Right
+            MemoPlan
+              { memoFnName = name fn
+              , memoBodyName = bodyName0
+              , memoSize = sizeN
+              , memoBaseOffset = 0
+              }
+
+    memoFamilyCandidate :: CollapsedFunction -> Bool
+    memoFamilyCandidate fn =
+      localParamCount fn >= 1
+        && functionDependsOnlyOnLocal0 fn
+
+buildMemoBodyClone :: [CollapsedFunction] -> MemoPlan -> CollapsedFunction
+buildMemoBodyClone allFns plan =
+  case lookup (memoFnName plan) (map (\fn -> (name fn, fn)) allFns) of
+    Nothing ->
+      CollapsedFunction
+        { name = memoBodyName plan
+        , arity = 1
+        , captureArity = 0
+        , binds = []
+        , result = AConstI32 0
+        , lifted = []
+        }
+    Just fn ->
+      fn
+        { name = memoBodyName plan
+        , lifted = []
+        }
+
+isMemoFamilyName :: Name -> Name -> Bool
+isMemoFamilyName rootName fnName =
+  fnName == rootName || (rootName <> "$") `isPrefixOf` fnName
+
+uniqueMemoPlans :: [MemoPlan] -> [MemoPlan]
+uniqueMemoPlans = reverse . go [] []
+  where
+    go :: [Name] -> [MemoPlan] -> [MemoPlan] -> [MemoPlan]
+    go _seen acc [] = acc
+    go seen acc (p:ps)
+      | memoFnName p `elem` seen = go seen acc ps
+      | otherwise = go (memoFnName p : seen) (p : acc) ps
+
+functionDependsOnlyOnLocal0 :: CollapsedFunction -> Bool
+functionDependsOnlyOnLocal0 fn =
+  localParamCount fn >= 1
+    && all (== 0) (localsUsedByFunction fn)
+
+localsUsedByFunction :: CollapsedFunction -> [Int]
+localsUsedByFunction fn =
+  unique
+    ( sort
+        ( foldMap localsFromValueWasm (map value (binds fn))
+            <> localsFromAtomWasm (result fn)
+        )
+    )
+
+localsFromValueWasm :: Value -> [Int]
+localsFromValueWasm val = foldMap localsFromAtomWasm (atomsInValueWasm val)
+
+atomsInValueWasm :: Value -> [Atom]
+atomsInValueWasm val =
+  case val of
+    VClosure _ captures -> captures
+    VCallDirect _ args -> args
+    VCurryDirect _ args -> args
+    VCallClosure callee args -> callee : args
+    VApply callee arg -> [callee, arg]
+    VSelfTailCall args -> args
+
+localsFromAtomWasm :: Atom -> [Int]
+localsFromAtomWasm atom =
+  case atom of
+    ALocal ix -> [ix]
+    _ -> []
+
+buildMemoLayout :: [MemoPlan] -> Int -> Either String ([MemoPlan], [DataSegment], Int)
+buildMemoLayout plans startOffset = go plans [] [] (alignTo 4 startOffset)
+  where
+    go :: [MemoPlan] -> [MemoPlan] -> [DataSegment] -> Int -> Either String ([MemoPlan], [DataSegment], Int)
+    go [] accPlans accSegments nextOffset =
+      Right (reverse accPlans, reverse accSegments, alignTo 4 nextOffset)
+    go (plan:rest) accPlans accSegments nextOffset = do
+      entryCount <- toU32 ("memo size for " <> memoFnName plan) (memoSize plan)
+      let bytesN = entryCount * runtimeMemoEntrySize
+          base = alignTo 4 nextOffset
+          segment = (base, replicate bytesN 0)
+          nextPlan = plan {memoBaseOffset = base}
+      go rest (nextPlan : accPlans) (segment : accSegments) (base + bytesN)
+
+functionHasSelfTailCall :: CollapsedFunction -> Bool
+functionHasSelfTailCall fn = any isSelfTail (map value (binds fn))
+  where
+    isSelfTail :: Value -> Bool
+    isSelfTail val =
+      case val of
+        VSelfTailCall _ -> True
+        _ -> False
 
 buildStringLayout :: [CollapsedFunction] -> Either String (StringLayout, [DataSegment], Int, Int)
 buildStringLayout allFns = go 0 [] [] (collectStringLiterals allFns)
@@ -377,35 +601,112 @@ verifyFunctionShape paramCountEnv fn = do
             Nothing -> Left ("wasm backend: unknown global atom: " <> g)
             Just _ -> Right ()
 
-compileFunction :: StringLayout -> TagIdMap -> [(Int, Int)] -> [(Name, Int)] -> [(Name, Int)] -> Int -> CollapsedFunction -> Either String [Word8]
-compileFunction stringLayout tagIdMap closureCallTypeCases paramCountEnv funcMap selfIndex fn = do
-  let ifThunkMap = detectDirectIfBranchThunks paramCountEnv fn
-  bindInstrs <-
-    fmap concat
-      ( traverse
-          (compileBind stringLayout tagIdMap closureCallTypeCases paramCountEnv funcMap selfIndex fn ifThunkMap)
-          (binds fn)
-      )
-  resultInstrs <- compileAtom stringLayout fn (result fn)
-  let localCount = runtimeScratchLocalCount + length (binds fn)
-      localsDecl =
-        if localCount == 0
-          then encodeU32 0
-          else encodeU32 1 <> encodeU32 localCount <> [valTypeI32]
-      body = localsDecl <> bindInstrs <> resultInstrs <> [opcodeEnd]
-  pure (encodeU32 (length body) <> body)
+compileFunction ::
+  StringLayout ->
+  TagIdMap ->
+  [(Name, MemoPlan)] ->
+  HostBuiltinImportSigs ->
+  [(Int, Int)] ->
+  [(Name, Int)] ->
+  [(Name, Int)] ->
+  Int ->
+  CollapsedFunction ->
+  Either String [Word8]
+compileFunction stringLayout tagIdMap memoPlans builtinImportMap closureCallTypeCases paramCountEnv funcMap selfIndex fn =
+  case lookup (name fn) memoPlans of
+    Just plan ->
+      compileMemoWrapperFunction funcMap fn plan
+    Nothing -> do
+      let ifThunkMap = detectDirectIfBranchThunks paramCountEnv fn
+      bindInstrs <-
+        fmap concat
+          ( traverse
+              (compileBind stringLayout tagIdMap builtinImportMap closureCallTypeCases paramCountEnv funcMap selfIndex fn ifThunkMap)
+              (binds fn)
+          )
+      resultInstrs <- compileAtom stringLayout fn (result fn)
+      let localCount = runtimeScratchLocalCount + length (binds fn)
+          localsDecl =
+            if localCount == 0
+              then encodeU32 0
+              else encodeU32 1 <> encodeU32 localCount <> [valTypeI32]
+          body = localsDecl <> bindInstrs <> resultInstrs <> [opcodeEnd]
+      pure (encodeU32 (length body) <> body)
 
-compileBind :: StringLayout -> TagIdMap -> [(Int, Int)] -> [(Name, Int)] -> [(Name, Int)] -> Int -> CollapsedFunction -> IntMap IfBranchThunk -> Bind -> Either String [Word8]
-compileBind stringLayout tagIdMap closureCallTypeCases paramCountEnv funcMap selfIndex fn ifThunkMap b
+compileMemoWrapperFunction :: [(Name, Int)] -> CollapsedFunction -> MemoPlan -> Either String [Word8]
+compileMemoWrapperFunction funcMap fn plan = do
+  bodyIndex <- lookupRequired ("wasm backend: missing memo body function: " <> memoBodyName plan) (memoBodyName plan) funcMap
+  let argForwardInstrs =
+        concat
+          [ [opcodeLocalGet] <> encodeU32 ix
+          | ix <- [0 .. localParamCount fn - 1]
+          ]
+  let localCount = runtimeScratchLocalCount
+      localsDecl = encodeU32 1 <> encodeU32 localCount <> [valTypeI32]
+      keyLocal = scratchPtrLocalIx fn
+      slotLocal = scratchAuxLocalIx fn
+      indexLocal = scratchTmpLocalIx fn
+      valueLocal = applyResultLocalIx fn
+      baseOffset = memoBaseOffset plan
+      tableSize = memoSize plan
+      body =
+        [opcodeLocalGet] <> encodeU32 0
+          <> untagI32Instrs
+          <> [opcodeLocalSet] <> encodeU32 keyLocal
+          <> [opcodeLocalGet] <> encodeU32 keyLocal
+          <> rawI32Const 0x7fffffff
+          <> [opcodeI32And]
+          <> rawI32Const tableSize
+          <> [opcodeI32RemU]
+          <> [opcodeLocalSet] <> encodeU32 indexLocal
+          <> rawI32Const baseOffset
+          <> [opcodeLocalGet] <> encodeU32 indexLocal
+          <> rawI32Const runtimeMemoEntrySize
+          <> [opcodeI32Mul]
+          <> [opcodeI32Add]
+          <> [opcodeLocalSet] <> encodeU32 slotLocal
+          <> [opcodeLocalGet] <> encodeU32 slotLocal
+          <> [opcodeI32Load] <> encodeMemArg 2 runtimeMemoFlagOffset
+          <> rawI32Const 0
+          <> [opcodeI32Ne]
+          <> [opcodeIf, blockTypeEmpty]
+          <> [opcodeLocalGet] <> encodeU32 slotLocal
+          <> [opcodeI32Load] <> encodeMemArg 2 runtimeMemoKeyOffset
+          <> [opcodeLocalGet] <> encodeU32 keyLocal
+          <> [opcodeI32Eq]
+          <> [opcodeIf, blockTypeEmpty]
+          <> [opcodeLocalGet] <> encodeU32 slotLocal
+          <> [opcodeI32Load] <> encodeMemArg 2 runtimeMemoValueOffset
+          <> [opcodeReturn]
+          <> [opcodeEnd]
+          <> [opcodeEnd]
+          <> argForwardInstrs
+          <> [opcodeCall] <> encodeU32 bodyIndex
+          <> [opcodeLocalSet] <> encodeU32 valueLocal
+          <> [opcodeLocalGet] <> encodeU32 slotLocal
+          <> [opcodeLocalGet] <> encodeU32 keyLocal
+          <> [opcodeI32Store] <> encodeMemArg 2 runtimeMemoKeyOffset
+          <> [opcodeLocalGet] <> encodeU32 slotLocal
+          <> [opcodeLocalGet] <> encodeU32 valueLocal
+          <> [opcodeI32Store] <> encodeMemArg 2 runtimeMemoValueOffset
+          <> [opcodeLocalGet] <> encodeU32 slotLocal
+          <> rawI32Const 1
+          <> [opcodeI32Store] <> encodeMemArg 2 runtimeMemoFlagOffset
+          <> [opcodeLocalGet] <> encodeU32 valueLocal
+          <> [opcodeEnd]
+  pure (encodeU32 (length (localsDecl <> body)) <> localsDecl <> body)
+
+compileBind :: StringLayout -> TagIdMap -> HostBuiltinImportSigs -> [(Int, Int)] -> [(Name, Int)] -> [(Name, Int)] -> Int -> CollapsedFunction -> IntMap IfBranchThunk -> Bind -> Either String [Word8]
+compileBind stringLayout tagIdMap builtinImportMap closureCallTypeCases paramCountEnv funcMap selfIndex fn ifThunkMap b
   | IM.member (temp b) ifThunkMap =
       Right []
   | otherwise = do
-      valInstrs <- compileValue stringLayout tagIdMap closureCallTypeCases paramCountEnv funcMap selfIndex fn ifThunkMap (value b)
+      valInstrs <- compileValue stringLayout tagIdMap builtinImportMap closureCallTypeCases paramCountEnv funcMap selfIndex fn ifThunkMap (value b)
       let localIx = tempLocalIx fn (temp b)
       pure (valInstrs <> [opcodeLocalSet] <> encodeU32 localIx)
 
-compileValue :: StringLayout -> TagIdMap -> [(Int, Int)] -> [(Name, Int)] -> [(Name, Int)] -> Int -> CollapsedFunction -> IntMap IfBranchThunk -> Value -> Either String [Word8]
-compileValue stringLayout tagIdMap closureCallTypeCases paramCountEnv funcMap selfIndex fn ifThunkMap val =
+compileValue :: StringLayout -> TagIdMap -> HostBuiltinImportSigs -> [(Int, Int)] -> [(Name, Int)] -> [(Name, Int)] -> Int -> CollapsedFunction -> IntMap IfBranchThunk -> Value -> Either String [Word8]
+compileValue stringLayout tagIdMap builtinImportMap closureCallTypeCases paramCountEnv funcMap selfIndex fn ifThunkMap val =
   case val of
     VCallDirect callee args ->
       case lookup callee funcMap of
@@ -413,7 +714,7 @@ compileValue stringLayout tagIdMap closureCallTypeCases paramCountEnv funcMap se
           argInstrs <- fmap concat (traverse (compileAtom stringLayout fn) args)
           pure (argInstrs <> [opcodeCall] <> encodeU32 callIx)
         Nothing ->
-          compileRuntimeBuiltin stringLayout tagIdMap closureCallTypeCases funcMap ifThunkMap fn callee args
+          compileRuntimeBuiltin stringLayout tagIdMap builtinImportMap closureCallTypeCases funcMap ifThunkMap fn callee args
     VClosure callee captures ->
       compileClosureCreate stringLayout paramCountEnv funcMap fn callee captures
     VCurryDirect callee args ->
@@ -428,8 +729,8 @@ compileValue stringLayout tagIdMap closureCallTypeCases paramCountEnv funcMap se
       argInstrs <- fmap concat (traverse (compileAtom stringLayout fn) args)
       pure (argInstrs <> [opcodeReturnCall] <> encodeU32 selfIndex)
 
-compileRuntimeBuiltin :: StringLayout -> TagIdMap -> [(Int, Int)] -> [(Name, Int)] -> IntMap IfBranchThunk -> CollapsedFunction -> Name -> [Atom] -> Either String [Word8]
-compileRuntimeBuiltin stringLayout tagIdMap closureCallTypeCases funcMap ifThunkMap fn callee args =
+compileRuntimeBuiltin :: StringLayout -> TagIdMap -> HostBuiltinImportSigs -> [(Int, Int)] -> [(Name, Int)] -> IntMap IfBranchThunk -> CollapsedFunction -> Name -> [Atom] -> Either String [Word8]
+compileRuntimeBuiltin stringLayout tagIdMap builtinImportMap closureCallTypeCases funcMap ifThunkMap fn callee args =
   case compileInlineNumericBuiltin stringLayout fn callee args of
     Just out ->
       out
@@ -442,7 +743,7 @@ compileRuntimeBuiltin stringLayout tagIdMap closureCallTypeCases funcMap ifThunk
             Just out ->
               out
             Nothing ->
-              case builtinImportSig callee of
+              case lookup callee builtinImportMap of
                 Just (builtinIx, builtinArity) -> do
                   if length args == builtinArity
                     then do
@@ -487,6 +788,8 @@ compileInlineNumericBuiltin stringLayout fn callee args =
       Just (compileTaggedIntBinOp stringLayout fn x y opcodeI32RemS)
     ("eq", [x, y]) ->
       Just (compileTaggedEq stringLayout fn x y)
+    ("str_eq", [x, y]) ->
+      Just (compileStringHandleEq stringLayout fn x y)
     ("lt", [x, y]) ->
       Just (compileTaggedCmp stringLayout fn x y opcodeI32LtS)
     ("gt", [x, y]) ->
@@ -510,6 +813,12 @@ compileTaggedEq :: StringLayout -> CollapsedFunction -> Atom -> Atom -> Either S
 compileTaggedEq stringLayout fn x y = do
   xInstrs <- compileTaggedIntAtom stringLayout fn x
   yInstrs <- compileTaggedIntAtom stringLayout fn y
+  pure (xInstrs <> yInstrs <> [opcodeI32Eq] <> retagBoolInstrs)
+
+compileStringHandleEq :: StringLayout -> CollapsedFunction -> Atom -> Atom -> Either String [Word8]
+compileStringHandleEq stringLayout fn x y = do
+  xInstrs <- compileAtom stringLayout fn x
+  yInstrs <- compileAtom stringLayout fn y
   pure (xInstrs <> yInstrs <> [opcodeI32Eq] <> retagBoolInstrs)
 
 compileTaggedCmp :: StringLayout -> CollapsedFunction -> Atom -> Atom -> Word8 -> Either String [Word8]
@@ -1470,7 +1779,8 @@ compileInlineApplyInstrs closureCallTypeCases fn calleeInstrs argInstrs =
 compileAtom :: StringLayout -> CollapsedFunction -> Atom -> Either String [Word8]
 compileAtom stringLayout fn atom =
   case atom of
-    AConstI32 n ->
+    AConstI32 n -> do
+      ensureTaggedIntPayloadRange n
       Right (rawI32Const (tagI32Immediate n))
     AConstString s ->
       case lookup s stringLayout of
@@ -1489,12 +1799,43 @@ compileAtom stringLayout fn atom =
         Just globalIx ->
           Right ([opcodeGlobalGet] <> encodeU32 globalIx)
 
+ensureTaggedIntPayloadRange :: Int -> Either String ()
+ensureTaggedIntPayloadRange n
+  | n < minTaggedIntPayload || n > maxTaggedIntPayload =
+      Left ("wasm backend: tagged i32 payload out of range: " <> show n)
+  | otherwise =
+      Right ()
+
 typeIndexFor :: [(Int, Int)] -> Int -> Either String Int
 typeIndexFor typeMap arity =
   lookupRequiredInt ("wasm backend: missing type for arity " <> show arity) arity typeMap
 
-runtimeImports :: [(Int, Int)] -> Either String [[Word8]]
-runtimeImports _typeMap = Right []
+runtimeImports :: [(Int, Int)] -> HostBuiltinImportSigs -> Either String [[Word8]]
+runtimeImports typeMap hostImportSigs =
+  zipWithM encodeHostImport [0 :: Int ..] hostImportSigs
+  where
+    encodeHostImport :: Int -> (Name, (Int, Int)) -> Either String [Word8]
+    encodeHostImport actualIx (builtinName, (importIx, builtinArity)) = do
+      if actualIx /= importIx
+        then
+          Left
+            ( "wasm backend: host import index mismatch for "
+                <> builtinName
+                <> ": expected "
+                <> show importIx
+                <> ", got "
+                <> show actualIx
+            )
+        else pure ()
+      typeIx <- typeIndexFor typeMap builtinArity
+      pure (encodeImportFunction "host" builtinName typeIx)
+
+encodeImportFunction :: Name -> Name -> Int -> [Word8]
+encodeImportFunction moduleName fieldName typeIx =
+  encodeName moduleName
+    <> encodeName fieldName
+    <> [importKindFunction]
+    <> encodeU32 typeIx
 
 encodeFunctionExport :: [(Name, Int)] -> CollapsedFunction -> Either String [Word8]
 encodeFunctionExport funcMap fn = do
@@ -1761,6 +2102,9 @@ sectionData = 11
 exportKindFunction :: Word8
 exportKindFunction = 0
 
+importKindFunction :: Word8
+importKindFunction = 0
+
 exportKindTable :: Word8
 exportKindTable = 1
 
@@ -1851,6 +2195,9 @@ opcodeI32DivS = 0x6d
 opcodeI32RemS :: Word8
 opcodeI32RemS = 0x6f
 
+opcodeI32RemU :: Word8
+opcodeI32RemU = 0x70
+
 opcodeI32DivU :: Word8
 opcodeI32DivU = 0x6e
 
@@ -1893,6 +2240,9 @@ opcodeIf = 0x04
 opcodeElse :: Word8
 opcodeElse = 0x05
 
+opcodeReturn :: Word8
+opcodeReturn = 0x0f
+
 opcodeEnd :: Word8
 opcodeEnd = 0x0b
 
@@ -1911,11 +2261,20 @@ runtimeStructMagic = 0x53545255
 runtimeStructHeaderSize :: Int
 runtimeStructHeaderSize = 12
 
+runtimeMemoEntrySize :: Int
+runtimeMemoEntrySize = 12
+
+runtimeMemoKeyOffset :: Int
+runtimeMemoKeyOffset = 0
+
+runtimeMemoValueOffset :: Int
+runtimeMemoValueOffset = 4
+
+runtimeMemoFlagOffset :: Int
+runtimeMemoFlagOffset = 8
+
 wasmPageSize :: Int
 wasmPageSize = 65536
-
-runtimeImportCount :: Int
-runtimeImportCount = 0
 
 runtimeHeapGlobal :: Int
 runtimeHeapGlobal = 0
@@ -1926,9 +2285,6 @@ globalIndexFor globalName =
     "__heap_ptr" -> Just runtimeHeapGlobal
     "__heap" -> Just runtimeHeapGlobal
     _ -> Nothing
-
-builtinImportSig :: Name -> Maybe (Int, Int)
-builtinImportSig _ = Nothing
 
 encodeSection :: Word8 -> [Word8] -> [Word8]
 encodeSection sid payload = [sid] <> encodeU32 (length payload) <> payload

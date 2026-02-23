@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import fs from "node:fs";
+import { cliArgs, failWithError, nowNs, readBinaryFile } from "./runtime-env.mjs";
 import { decodeInt, encodeInt, instantiateWithRuntime } from "./wasm-runtime.mjs";
 
 function parsePositiveInt(raw, label) {
@@ -20,17 +20,16 @@ function parseNonNegativeInt(raw, label) {
 }
 
 async function main() {
-  const [, , wasmPath, exportNameArg, iterationsArg, warmupArg] = process.argv;
+  const [wasmPath, exportNameArg, iterationsArg, warmupArg] = cliArgs();
   if (!wasmPath) {
-    console.error("Usage: node scripts/bench-wasm.mjs <module.wasm> [export_name] [iterations] [warmup]");
-    process.exit(1);
+    throw new Error("Usage: deno run -A scripts/bench-wasm.mjs <module.wasm> [export_name] [iterations] [warmup]");
   }
 
   const exportName = exportNameArg ?? "main";
   const iterations = iterationsArg === undefined ? 2_000_000 : parsePositiveInt(iterationsArg, "iterations");
   const warmup = warmupArg === undefined ? 20_000 : parseNonNegativeInt(warmupArg, "warmup");
 
-  const wasmBytes = fs.readFileSync(wasmPath);
+  const wasmBytes = await readBinaryFile(wasmPath);
   const { instance } = await instantiateWithRuntime(wasmBytes);
   const fn = instance.exports[exportName];
   if (typeof fn !== "function") {
@@ -46,12 +45,12 @@ async function main() {
   }
 
   let checksum = 0;
-  const start = process.hrtime.bigint();
+  const start = nowNs();
   for (let i = 0; i < iterations; i += 1) {
     const out = fn(...argsForIteration(taggedArgPools, i));
     checksum = (checksum + (decodeInt(out | 0) | 0)) | 0;
   }
-  const end = process.hrtime.bigint();
+  const end = nowNs();
 
   const elapsedNs = Number(end - start);
   const elapsedMs = elapsedNs / 1_000_000;
@@ -95,7 +94,4 @@ function argsForIteration(pools, i) {
   return args;
 }
 
-main().catch((err) => {
-  console.error(err.message);
-  process.exit(1);
-});
+main().catch(failWithError);

@@ -6,6 +6,8 @@ module Clapse.Eval
 
 import Control.Monad (foldM)
 import Data.Char (isDigit)
+import Data.Bits ((.|.), shiftL, shiftR)
+import Data.Int (Int32)
 
 import qualified Clapse.CollapseIR as C
 import Clapse.Lowering (lowerModule)
@@ -124,7 +126,9 @@ sourceBuiltins =
   , ("sub", SourceBuiltin "sub" 2 [])
   , ("mul", SourceBuiltin "mul" 2 [])
   , ("div", SourceBuiltin "div" 2 [])
+  , ("mod", SourceBuiltin "mod" 2 [])
   , ("eq", SourceBuiltin "eq" 2 [])
+  , ("str_eq", SourceBuiltin "str_eq" 2 [])
   , ("and", SourceBuiltin "and" 2 [])
   , ("if", SourceBuiltin "if" 3 [])
   , ("pure", SourceBuiltin "pure" 1 [])
@@ -207,31 +211,47 @@ evalSourceBuiltin name args =
       do
         lhs <- toSourceIntM "source evaluator: add lhs" a
         rhs <- toSourceIntM "source evaluator: add rhs" b
-        evalPure (SourceInt (lhs + rhs))
+        evalPure (SourceInt (taggedArith2 (+) lhs rhs))
     ("sub", [a, b]) ->
       do
         lhs <- toSourceIntM "source evaluator: sub lhs" a
         rhs <- toSourceIntM "source evaluator: sub rhs" b
-        evalPure (SourceInt (lhs - rhs))
+        evalPure (SourceInt (taggedArith2 (-) lhs rhs))
     ("mul", [a, b]) ->
       do
         lhs <- toSourceIntM "source evaluator: mul lhs" a
         rhs <- toSourceIntM "source evaluator: mul rhs" b
-        evalPure (SourceInt (lhs * rhs))
+        evalPure (SourceInt (taggedArith2 (*) lhs rhs))
     ("div", [a, b]) -> do
       lhs <- toSourceIntM "source evaluator: div lhs" a
       rhs <- toSourceIntM "source evaluator: div rhs" b
       if rhs == 0
         then evalFail "source evaluator: division by zero"
-        else evalPure (SourceInt (lhs `div` rhs))
+        else evalPure (SourceInt (taggedArith2 quot lhs rhs))
+    ("mod", [a, b]) -> do
+      lhs <- toSourceIntM "source evaluator: mod lhs" a
+      rhs <- toSourceIntM "source evaluator: mod rhs" b
+      if rhs == 0
+        then evalFail "source evaluator: modulo by zero"
+        else evalPure (SourceInt (taggedArith2 rem lhs rhs))
     ("eq", [a, b]) -> do
       lhs <- toSourceIntM "source evaluator: eq lhs" a
       rhs <- toSourceIntM "source evaluator: eq rhs" b
+      evalPure (SourceInt (if normalizeTaggedIntPayload lhs == normalizeTaggedIntPayload rhs then 1 else 0))
+    ("str_eq", [a, b]) -> do
+      lhs <- toSourceStringM "source evaluator: str_eq lhs" a
+      rhs <- toSourceStringM "source evaluator: str_eq rhs" b
       evalPure (SourceInt (if lhs == rhs then 1 else 0))
     ("and", [a, b]) -> do
       lhs <- toSourceIntM "source evaluator: and lhs" a
       rhs <- toSourceIntM "source evaluator: and rhs" b
-      evalPure (SourceInt (if lhs /= 0 && rhs /= 0 then 1 else 0))
+      evalPure
+        ( SourceInt
+            ( if normalizeTaggedIntPayload lhs /= 0 && normalizeTaggedIntPayload rhs /= 0
+                then 1
+                else 0
+            )
+        )
     ("if", [cond, whenTrue, whenFalse]) -> do
       condI <- toSourceIntM "source evaluator: if condition" cond
       let chosen = if condI /= 0 then whenTrue else whenFalse
@@ -377,6 +397,15 @@ toSourceInt err val =
 toSourceIntM :: String -> SourceValue -> EvalM Int
 toSourceIntM err val = liftEither (toSourceInt err val)
 
+toSourceString :: String -> SourceValue -> Either String String
+toSourceString err val =
+  case val of
+    SourceString s -> Right s
+    _ -> Left err
+
+toSourceStringM :: String -> SourceValue -> EvalM String
+toSourceStringM err val = liftEither (toSourceString err val)
+
 liftEither :: Either String a -> EvalM a
 liftEither ev = EvalM (\state -> case ev of
   Right x -> Right (x, state)
@@ -486,31 +515,47 @@ evalRuntimeBuiltin env name args =
       do
         lhs <- toRuntimeIntM "collapsed evaluator: add lhs" a
         rhs <- toRuntimeIntM "collapsed evaluator: add rhs" b
-        evalPure (RuntimeInt (lhs + rhs))
+        evalPure (RuntimeInt (taggedArith2 (+) lhs rhs))
     ("sub", [a, b]) ->
       do
         lhs <- toRuntimeIntM "collapsed evaluator: sub lhs" a
         rhs <- toRuntimeIntM "collapsed evaluator: sub rhs" b
-        evalPure (RuntimeInt (lhs - rhs))
+        evalPure (RuntimeInt (taggedArith2 (-) lhs rhs))
     ("mul", [a, b]) ->
       do
         lhs <- toRuntimeIntM "collapsed evaluator: mul lhs" a
         rhs <- toRuntimeIntM "collapsed evaluator: mul rhs" b
-        evalPure (RuntimeInt (lhs * rhs))
+        evalPure (RuntimeInt (taggedArith2 (*) lhs rhs))
     ("div", [a, b]) -> do
       lhs <- toRuntimeIntM "collapsed evaluator: div lhs" a
       rhs <- toRuntimeIntM "collapsed evaluator: div rhs" b
       if rhs == 0
         then evalFail "collapsed evaluator: division by zero"
-        else evalPure (RuntimeInt (lhs `div` rhs))
+        else evalPure (RuntimeInt (taggedArith2 quot lhs rhs))
+    ("mod", [a, b]) -> do
+      lhs <- toRuntimeIntM "collapsed evaluator: mod lhs" a
+      rhs <- toRuntimeIntM "collapsed evaluator: mod rhs" b
+      if rhs == 0
+        then evalFail "collapsed evaluator: modulo by zero"
+        else evalPure (RuntimeInt (taggedArith2 rem lhs rhs))
     ("eq", [a, b]) -> do
       lhs <- toRuntimeIntM "collapsed evaluator: eq lhs" a
       rhs <- toRuntimeIntM "collapsed evaluator: eq rhs" b
-      evalPure (RuntimeInt (if lhs == rhs then 1 else 0))
+      evalPure (RuntimeInt (if normalizeTaggedIntPayload lhs == normalizeTaggedIntPayload rhs then 1 else 0))
+    ("str_eq", [RuntimeString a, RuntimeString b]) ->
+      evalPure (RuntimeInt (if a == b then 1 else 0))
+    ("str_eq", [_, _]) ->
+      evalPure (RuntimeInt 0)
     ("and", [a, b]) -> do
       lhs <- toRuntimeIntM "collapsed evaluator: and lhs" a
       rhs <- toRuntimeIntM "collapsed evaluator: and rhs" b
-      evalPure (RuntimeInt (if lhs /= 0 && rhs /= 0 then 1 else 0))
+      evalPure
+        ( RuntimeInt
+            ( if normalizeTaggedIntPayload lhs /= 0 && normalizeTaggedIntPayload rhs /= 0
+                then 1
+                else 0
+            )
+        )
     ("if", [cond, whenTrue, whenFalse]) -> do
       condI <- toRuntimeIntM "collapsed evaluator: if condition" cond
       let chosen = if condI /= 0 then whenTrue else whenFalse
@@ -652,6 +697,25 @@ toRuntimeInt err val =
 
 toRuntimeIntM :: String -> RuntimeValue -> EvalM Int
 toRuntimeIntM err val = liftEither (toRuntimeInt err val)
+
+taggedArith2 :: (Int32 -> Int32 -> Int32) -> Int -> Int -> Int
+taggedArith2 op lhs rhs =
+  normalizeTaggedIntPayload
+    ( fromIntegral
+        ( op
+            (fromIntegral lhs)
+            (fromIntegral rhs)
+        )
+    )
+
+normalizeTaggedIntPayload :: Int -> Int
+normalizeTaggedIntPayload n =
+  fromIntegral
+    ( ( ((fromIntegral n :: Int32) `shiftL` 1)
+          .|. 1
+      )
+        `shiftR` 1
+    )
 
 localParamCount :: C.CollapsedFunction -> Int
 localParamCount fn = C.arity fn + C.captureArity fn
@@ -852,7 +916,9 @@ sourceBuiltinArity n =
     "sub" -> Just 2
     "mul" -> Just 2
     "div" -> Just 2
+    "mod" -> Just 2
     "eq" -> Just 2
+    "str_eq" -> Just 2
     "and" -> Just 2
     "if" -> Just 3
     "pure" -> Just 1

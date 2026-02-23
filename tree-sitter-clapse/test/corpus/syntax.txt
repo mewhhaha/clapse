@@ -643,3 +643,63 @@ is_alive_next alive neighbors | neighbors == 3 = 1
         (guard_equals)
         (expression
           (integer))))))
+
+==================
+function attributes
+==================
+
+#[memo 100]
+#[test "fib case"]
+fib n = add n 1
+
+---
+
+(source_file
+  (declaration
+    (attributed_function_declaration
+      attribute: (function_attribute
+        name: (identifier)
+        value: (integer))
+      attribute: (function_attribute
+        name: (identifier)
+        value: (string))
+      (function_declaration
+        name: (identifier)
+        argument: (identifier)
+        body: (expression
+          (application_expression
+            function: (application_expression
+              function: (identifier)
+              argument: (identifier))
+            argument: (integer)))))))
+
+==================
+case expression with string patterns
+==================
+
+route method = case method of
+  "GET" -> 1
+  _ -> 0
+
+---
+
+(source_file
+  (declaration
+    (function_declaration
+      (identifier)
+      (identifier)
+      (expression
+        (case_expression
+          (case_scrutinee_atom
+            (identifier))
+          (case_branch
+            (case_pattern_atom
+              (string))
+            (expression
+              (integer)))
+          (case_branch_tail_multiline
+            (case_branch
+              (case_pattern_atom
+                (wildcard))
+              (expression
+                (integer)))))))))

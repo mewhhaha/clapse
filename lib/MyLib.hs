@@ -8,6 +8,16 @@ module MyLib
   , Function(..)
   , FunctionAttribute(..)
   , FunctionAttributeValue(..)
+  , FunctionAttributePlugin(..)
+  , AttributeKind(..)
+  , AttributeArgKind(..)
+  , AttributeManifestEntry(..)
+  , AttributeManifest
+  , defaultAttributeManifest
+  , lookupAttributeManifest
+  , mergeAttributeManifest
+  , parseModuleWithPlugins
+  , defaultFunctionAttributePlugins
   , Expr(..)
   , CaseArm(..)
   , CasePattern(..)
@@ -77,6 +87,15 @@ import Clapse.Wasm
   ( compileModuleToWasm
   , compileSourceToWasm
   )
+import Clapse.AttributeManifest
+  ( AttributeArgKind(..)
+  , AttributeKind(..)
+  , AttributeManifest
+  , AttributeManifestEntry(..)
+  , defaultAttributeManifest
+  , lookupAttributeManifest
+  , mergeAttributeManifest
+  )
 import Clapse.TypeInfo
   ( FunctionTypeInfo(..)
   , Type(..)
@@ -118,6 +137,7 @@ import Clapse.Syntax
   ( CaseArm(..)
   , CasePattern(..)
   , Expr(..)
+  , FunctionAttributePlugin(..)
   , FunctionAttribute(..)
   , FunctionAttributeValue(..)
   , Function(..)
@@ -129,6 +149,8 @@ import Clapse.Syntax
   , parseExpr
   , parseFunctionLine
   , parseModule
+  , parseModuleWithPlugins
+  , defaultFunctionAttributePlugins
   )
 import Clapse.Format
   ( formatSource

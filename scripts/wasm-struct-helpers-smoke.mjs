@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import fs from "node:fs";
+import { cliArgs, failWithError, readBinaryFile } from "./runtime-env.mjs";
 import { decodeInt, encodeInt, instantiateWithRuntime } from "./wasm-runtime.mjs";
 
 function assert(condition, message) {
@@ -10,7 +10,7 @@ function assert(condition, message) {
 }
 
 async function callMainTaggedInt(path, n) {
-  const wasmBytes = fs.readFileSync(path);
+  const wasmBytes = await readBinaryFile(path);
   const { instance } = await instantiateWithRuntime(wasmBytes);
   const fn = instance.exports.main;
   if (typeof fn !== "function") {
@@ -21,7 +21,7 @@ async function callMainTaggedInt(path, n) {
 }
 
 async function callMainExpectTrap(path, n) {
-  const wasmBytes = fs.readFileSync(path);
+  const wasmBytes = await readBinaryFile(path);
   const { instance } = await instantiateWithRuntime(wasmBytes);
   const fn = instance.exports.main;
   if (typeof fn !== "function") {
@@ -37,10 +37,10 @@ async function callMainExpectTrap(path, n) {
 }
 
 async function main() {
-  const [, , hasTagTruePath, hasTagFalsePath, getOkPath, mismatchPath] = process.argv;
+  const [hasTagTruePath, hasTagFalsePath, getOkPath, mismatchPath] = cliArgs();
   if (!hasTagTruePath || !hasTagFalsePath || !getOkPath || !mismatchPath) {
     throw new Error(
-      "usage: node scripts/wasm-struct-helpers-smoke.mjs <has_tag_true.wasm> <has_tag_false.wasm> <get_ok.wasm> <get_mismatch.wasm>"
+      "usage: deno run -A scripts/wasm-struct-helpers-smoke.mjs <has_tag_true.wasm> <has_tag_false.wasm> <get_ok.wasm> <get_mismatch.wasm>"
     );
   }
 
@@ -57,7 +57,4 @@ async function main() {
   console.log("wasm struct helpers smoke: PASS");
 }
 
-main().catch((err) => {
-  console.error(err.message);
-  process.exit(1);
-});
+main().catch(failWithError);

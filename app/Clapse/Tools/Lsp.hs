@@ -2,16 +2,27 @@ module Clapse.Tools.Lsp
   ( runLsp
   ) where
 
+import Control.Applicative ((<|>))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, isSpace)
 
+import Clapse.AttributeManifest
+  ( AttributeArgKind(..)
+  , AttributeKind(..)
+  , AttributeManifest
+  , AttributeManifestEntry(..)
+  , defaultAttributeManifest
+  , lookupAttributeManifest
+  )
 import Clapse.Tools.Format (formatSource)
 import MyLib
   ( FunctionTypeInfo(..)
-  , inferSourceTypes
+  , FunctionAttributePlugin
+  , defaultFunctionAttributePlugins
+  , inferModuleTypes
   , parseFunctionLine
-  , parseModule
+  , parseModuleWithPlugins
   , renderType
   )
 import System.IO (BufferMode(NoBuffering), hIsEOF, hSetBuffering, stdin, stdout)
@@ -31,6 +42,12 @@ data FunctionSite = FunctionSite
   { siteLine :: Int
   , siteFnToken :: Token
   , siteArgTokens :: [Token]
+  }
+
+data AttributeSite = AttributeSite
+  { attrLineStart :: Int
+  , attrLineEnd :: Int
+  , attrNameToken :: Token
   }
 
 data Diagnostic = Diagnostic
@@ -86,6 +103,12 @@ handleMessage st raw =
 initializeResult :: String
 initializeResult =
   "{\"capabilities\":{\"textDocumentSync\":1,\"documentFormattingProvider\":true,\"hoverProvider\":true}}"
+
+lspAttributePlugins :: [FunctionAttributePlugin]
+lspAttributePlugins = defaultFunctionAttributePlugins
+
+lspAttributeManifest :: AttributeManifest
+lspAttributeManifest = defaultAttributeManifest
 
 handleDocumentUpdate :: LspState -> String -> IO LspState
 handleDocumentUpdate st raw =
@@ -151,7 +174,7 @@ publishDiagnostics uri src =
 
 diagnosticsForSource :: String -> [Diagnostic]
 diagnosticsForSource src =
-  case parseModule src of
+  case parseModuleWithPlugins lspAttributePlugins src of
     Left parseErr ->
       [ Diagnostic
           { diagLine = max 0 (parseErrorLine parseErr - 1)
@@ -160,8 +183,8 @@ diagnosticsForSource src =
           , diagMessage = parseErr
           }
       ]
-    Right _ ->
-      case inferSourceTypes src of
+    Right parsedModule ->
+      case inferModuleTypes parsedModule of
         Left typeErr ->
           [ Diagnostic
               { diagLine = 0
@@ -200,15 +223,48 @@ diagnosticJson d =
 
 hoverPayload :: String -> Int -> Int -> Maybe String
 hoverPayload src lineNo charNo = do
-  word <- identifierAt src lineNo charNo
-  typeInfos <- either (const Nothing) Just (inferSourceTypes src)
-  let sites = functionSites src
-  msg <- hoverMessage typeInfos sites lineNo word
+  msg <- hoverAttributeMessage src lineNo charNo <|> hoverTypeMessage src lineNo charNo
   Just
     ("{\"contents\":{\"kind\":\"plaintext\",\"value\":\""
       <> escapeJson msg
       <> "\"}}"
     )
+
+hoverTypeMessage :: String -> Int -> Int -> Maybe String
+hoverTypeMessage src lineNo charNo = do
+  word <- identifierAt src lineNo charNo
+  parsedModule <- either (const Nothing) Just (parseModuleWithPlugins lspAttributePlugins src)
+  typeInfos <- either (const Nothing) Just (inferModuleTypes parsedModule)
+  let sites = functionSites src
+  hoverMessage typeInfos sites lineNo word
+
+hoverAttributeMessage :: String -> Int -> Int -> Maybe String
+hoverAttributeMessage src lineNo charNo = do
+  site <- attributeAt src lineNo charNo
+  let attrName = tokText (attrNameToken site)
+      valueHint = attributeValueSnippet src lineNo site
+  case lookupAttributeManifest attrName lspAttributeManifest of
+    Nothing ->
+      Just
+        ( "#[" <> attrName <> "]"
+            <> " : custom/unknown attribute\n"
+            <> "Register metadata in the LSP attribute manifest for richer hover information."
+            <> valueHint
+        )
+    Just entry ->
+      Just
+        ( "#[" <> attrName <> "]"
+            <> " : "
+            <> renderAttributeKind (kind entry)
+            <> "\n"
+            <> "arg: "
+            <> renderAttributeArgKind (argKind entry)
+            <> "\n"
+            <> summary entry
+            <> "\n"
+            <> details entry
+            <> valueHint
+        )
 
 hoverMessage :: [FunctionTypeInfo] -> [FunctionSite] -> Int -> String -> Maybe String
 hoverMessage infos sites lineNo ident =
@@ -226,6 +282,66 @@ hoverParamType infos sites lineNo ident = do
   idx <- findArgIndex (siteArgTokens site) ident
   ty <- lookupIndex idx (fnArgTypes info)
   Just (renderType ty)
+
+attributeAt :: String -> Int -> Int -> Maybe AttributeSite
+attributeAt src lineNo charNo = do
+  rawLine <- lookupIndex lineNo (splitLines src)
+  let attrLine = stripComment rawLine
+  site <- parseAttributeSite attrLine
+  if attrLineStart site <= charNo && charNo < attrLineEnd site
+    then Just site
+    else Nothing
+
+parseAttributeSite :: String -> Maybe AttributeSite
+parseAttributeSite line = do
+  hashIx <- findAfterIndex "#[" line
+  closeIx <- findClosingBracket (hashIx + 2) line
+  let rawInside = take (closeIx - (hashIx + 2)) (drop (hashIx + 2) line)
+      insideOffset = hashIx + 2
+      trimmedLeading = dropWhile isSpace rawInside
+      leftSpaceN = length rawInside - length trimmedLeading
+      nameStartInside = leftSpaceN
+      nameText = takeWhile isIdentifierChar trimmedLeading
+  if null nameText
+    then Nothing
+    else
+      let nameStart = insideOffset + nameStartInside
+          nameEnd = nameStart + length nameText
+          attrEnd = closeIx + 1
+       in Just
+            AttributeSite
+              { attrLineStart = hashIx
+              , attrLineEnd = attrEnd
+              , attrNameToken = Token {tokText = nameText, tokStart = nameStart, tokEnd = nameEnd}
+              }
+
+attributeValueSnippet :: String -> Int -> AttributeSite -> String
+attributeValueSnippet src lineNo site =
+  case lookupIndex lineNo (splitLines src) of
+    Nothing -> ""
+    Just rawLine ->
+      let line = stripComment rawLine
+          insideStart = attrLineStart site + 2
+          insideEnd = attrLineEnd site - 1
+          inside = take (insideEnd - insideStart) (drop insideStart line)
+          afterName = dropWhile isSpace (drop (length (tokText (attrNameToken site))) (dropWhile isSpace inside))
+          valueText = trim afterName
+       in if null valueText then "" else "\nvalue: " <> valueText
+
+renderAttributeKind :: AttributeKind -> String
+renderAttributeKind k =
+  case k of
+    AttributeBuiltin -> "builtin"
+    AttributeCustom -> "custom"
+
+renderAttributeArgKind :: AttributeArgKind -> String
+renderAttributeArgKind k =
+  case k of
+    AttributeArgNone -> "none"
+    AttributeArgInt -> "int"
+    AttributeArgString -> "string"
+    AttributeArgIdentifier -> "identifier"
+    AttributeArgSingleToken -> "single-token"
 
 functionSites :: String -> [FunctionSite]
 functionSites src =
@@ -462,6 +578,24 @@ findAfter needle haystack = go haystack
     go s@(_:rest)
       | needle `isPrefixOf` s = Just (drop (length needle) s)
       | otherwise = go rest
+
+findAfterIndex :: String -> String -> Maybe Int
+findAfterIndex needle haystack = go 0 haystack
+  where
+    go :: Int -> String -> Maybe Int
+    go _ [] = Nothing
+    go ix s@(_:rest)
+      | needle `isPrefixOf` s = Just ix
+      | otherwise = go (ix + 1) rest
+
+findClosingBracket :: Int -> String -> Maybe Int
+findClosingBracket startIx src = go startIx (drop startIx src)
+  where
+    go :: Int -> String -> Maybe Int
+    go _ [] = Nothing
+    go ix (c:cs)
+      | c == ']' = Just ix
+      | otherwise = go (ix + 1) cs
 
 isPrefixOf :: String -> String -> Bool
 isPrefixOf [] _ = True

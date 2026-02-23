@@ -656,7 +656,7 @@ shouldReuseSliceTarget ::
 shouldReuseSliceTarget useKinds st origTarget remappedTarget =
   case (origTarget, remappedTarget) of
     (ATemp oldTemp, ATemp newTemp) ->
-      isTempOnlySetTargetUse useKinds oldTemp && newTemp `elem` sliceUniqueTemps st
+      isTempSafeForInPlaceSetUse useKinds oldTemp && newTemp `elem` sliceUniqueTemps st
     _ ->
       False
 
@@ -727,11 +727,19 @@ recordSliceUse acc (t, useKind) =
     Just kinds ->
       (t, kinds <> [useKind]) : filter (\(k, _) -> k /= t) acc
 
-isTempOnlySetTargetUse :: [(Int, [SliceUseKind])] -> Int -> Bool
-isTempOnlySetTargetUse useKinds t =
+isTempSafeForInPlaceSetUse :: [(Int, [SliceUseKind])] -> Int -> Bool
+isTempSafeForInPlaceSetUse useKinds t =
   case lookup t useKinds of
-    Just [SliceUseAsSetTarget] -> True
+    Just kinds -> hasSingleTerminalSetUse kinds
     _ -> False
+
+hasSingleTerminalSetUse :: [SliceUseKind] -> Bool
+hasSingleTerminalSetUse kinds =
+  case reverse kinds of
+    (SliceUseAsSetTarget : prefixRev) ->
+      all (== SliceUseOther) prefixRev
+    _ ->
+      False
 
 insertFunctionRegionScope :: CollapsedFunction -> CollapsedFunction
 insertFunctionRegionScope fn =
@@ -747,6 +755,7 @@ shouldInsertFunctionRegionScope :: CollapsedFunction -> Maybe (Int, Int)
 shouldInsertFunctionRegionScope fn
   | null allocTemps = Nothing
   | hasExplicitRegionOps fn = Nothing
+  | hasDirectIfCall fn = Nothing
   | not (functionBodyIsScopeSafe fn) = Nothing
   | not (all (allocationTempHasOnlyLocalUses fn) allocTemps) = Nothing
   | otherwise =
@@ -800,6 +809,7 @@ allocationUseIsLocal useTag =
       , "mul"
       , "div"
       , "eq"
+      , "str_eq"
       , "and"
       , "if"
       , "slice_len"
@@ -822,6 +832,15 @@ hasExplicitRegionOps fn = any bindHasRegionOp (binds fn)
         VCallDirect "region_reset" _ -> True
         _ -> False
 
+hasDirectIfCall :: CollapsedFunction -> Bool
+hasDirectIfCall fn = any bindHasDirectIf (binds fn)
+  where
+    bindHasDirectIf :: Bind -> Bool
+    bindHasDirectIf b =
+      case value b of
+        VCallDirect "if" _ -> True
+        _ -> False
+
 isScopeCandidateAlloc :: Value -> Bool
 isScopeCandidateAlloc val =
   case val of
@@ -830,9 +849,15 @@ isScopeCandidateAlloc val =
     VCurryDirect _ _ ->
       True
     VCallDirect callee _ ->
-      callee == "slice_new_u8" || callee == "region_alloc"
+      callee == "slice_new_u8" || callee == "region_alloc" || isStructCtorBuiltin callee
     _ ->
       False
+
+isStructCtorBuiltin :: Name -> Bool
+isStructCtorBuiltin callee =
+  case parseMkBuiltin callee of
+    Just _ -> True
+    Nothing -> False
 
 nextTempIndex :: [Bind] -> Int
 nextTempIndex allBinds =
@@ -1667,6 +1692,7 @@ isBuiltinName n =
       , "mul"
       , "div"
       , "eq"
+      , "str_eq"
       , "and"
       , "if"
       , "pure"

@@ -3,6 +3,7 @@ module Clapse.Syntax
   , Module(..)
   , TypeSignature(..)
   , SignatureConstraint(..)
+  , FunctionAttributePlugin(..)
   , FunctionAttribute(..)
   , FunctionAttributeValue(..)
   , Function(..)
@@ -11,12 +12,15 @@ module Clapse.Syntax
   , CasePattern(..)
   , ConstructorInfo(..)
   , parseModule
+  , parseModuleWithPlugins
   , parseFunctionLine
   , parseExpr
   , desugarCaseExpr
+  , defaultFunctionAttributePlugins
   ) where
 
 import Control.Applicative ((<|>))
+import Control.Monad (foldM)
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, isSpace, toLower)
 import Data.Foldable (traverse_)
 import Data.List (dropWhileEnd, intercalate, isSuffixOf)
@@ -74,6 +78,11 @@ data FunctionAttribute = FunctionAttribute
   }
   deriving (Eq, Show)
 
+data FunctionAttributePlugin = FunctionAttributePlugin
+  { pluginName :: Name
+  , pluginApply :: Function -> FunctionAttribute -> Either String Function
+  }
+
 data Expr
   = Var Name
   | IntLit Int
@@ -94,6 +103,7 @@ data CasePattern
   = PatWildcard
   | PatVar Name
   | PatInt Int
+  | PatString String
   | PatConstructor Name ConstructorInfo [Name]
   deriving (Eq, Show)
 
@@ -235,7 +245,10 @@ type OperatorTable = [(String, OperatorInfo)]
 type ConstructorTable = [(Name, ConstructorInfo)]
 
 parseModule :: String -> Either String Module
-parseModule src = do
+parseModule src = parseModuleWithPlugins defaultFunctionAttributePlugins src
+
+parseModuleWithPlugins :: [FunctionAttributePlugin] -> String -> Either String Module
+parseModuleWithPlugins plugins src = do
   rawLines <- traverse classifyLine (zip [1 :: Int ..] (lines src))
   logicalLines <- coalesceRawLines rawLines
   operatorDecls <- collectOperatorDecls rawLines
@@ -248,7 +261,8 @@ parseModule src = do
   let runtimeFns = concatMap lineFunctions parsed
   mergedFns <- mergeFunctionClauses runtimeFns
   let optimizedFns = optimizeFunctions derivedRules mergedFns
-  pure Module {signatures = signatureDecls, functions = optimizedFns}
+  processedFns <- applyFunctionAttributePlugins plugins optimizedFns
+  pure Module {signatures = signatureDecls, functions = processedFns}
   where
     parseLinesWithAttributes :: OperatorTable -> ConstructorTable -> [RawLine] -> Either String [ParsedLine]
     parseLinesWithAttributes operators constructors linesToParse =
@@ -654,6 +668,86 @@ parseModule src = do
       Left (withLine lineNo "unexpected indented declaration line")
     parseRawLine operators constructors (RawFunction lineNo cleaned) =
       ParsedFunctions <$> parseFunctionClausesAt operators constructors lineNo cleaned
+
+defaultFunctionAttributePlugins :: [FunctionAttributePlugin]
+defaultFunctionAttributePlugins =
+  [ memoAttributePlugin
+  , testAttributePlugin
+  , benchAttributePlugin
+  ]
+
+applyFunctionAttributePlugins :: [FunctionAttributePlugin] -> [Function] -> Either String [Function]
+applyFunctionAttributePlugins plugins = traverse (applyFunctionPlugins plugins)
+
+applyFunctionPlugins ::
+  [FunctionAttributePlugin]
+  -> Function
+  -> Either String Function
+applyFunctionPlugins plugins fn =
+  foldM applySingle fn (attributes fn)
+  where
+    applySingle :: Function -> FunctionAttribute -> Either String Function
+    applySingle currentFn attr =
+      let matching = filter ((== attributeName attr) . pluginName) plugins
+       in foldM (\acc plugin -> pluginApply plugin acc attr) currentFn matching
+
+memoAttributePlugin :: FunctionAttributePlugin
+memoAttributePlugin =
+  FunctionAttributePlugin
+    { pluginName = "memo"
+    , pluginApply = validateMemoAttribute
+    }
+
+testAttributePlugin :: FunctionAttributePlugin
+testAttributePlugin =
+  FunctionAttributePlugin
+    { pluginName = "test"
+    , pluginApply = validateTestAttribute
+    }
+
+benchAttributePlugin :: FunctionAttributePlugin
+benchAttributePlugin =
+  FunctionAttributePlugin
+    { pluginName = "bench"
+    , pluginApply = validateBenchAttribute
+    }
+
+validateMemoAttribute :: Function -> FunctionAttribute -> Either String Function
+validateMemoAttribute _fn attr =
+  case attributeValue attr of
+    Just (AttributeInt size) | size >= 0 -> Right _fn
+    Just _ ->
+      Left
+        ( "memo attribute requires a non-negative integer size, e.g. #[memo 100],"
+            <> " got "
+            <> show (attributeValue attr)
+        )
+    Nothing ->
+      Left "memo attribute requires a size argument, e.g. #[memo 100]"
+
+validateTestAttribute :: Function -> FunctionAttribute -> Either String Function
+validateTestAttribute _fn attr =
+  case attributeValue attr of
+    Just (AttributeString _) -> Right _fn
+    Just _ ->
+      Left
+        ( "test attribute requires a string label, e.g. #[test \"name\"],"
+            <> " got "
+            <> show (attributeValue attr)
+        )
+    Nothing -> Left "test attribute requires a string label, e.g. #[test \"name\"]"
+
+validateBenchAttribute :: Function -> FunctionAttribute -> Either String Function
+validateBenchAttribute _fn attr =
+  case attributeValue attr of
+    Just (AttributeString _) -> Right _fn
+    Just _ ->
+      Left
+        ( "bench attribute requires a string label, e.g. #[bench \"name\"],"
+            <> " got "
+            <> show (attributeValue attr)
+        )
+    Nothing -> Left "bench attribute requires a string label, e.g. #[bench \"name\"]"
 
 parseFunctionLine :: String -> Either String Function
 parseFunctionLine src = do
@@ -1357,6 +1451,8 @@ parseCasePattern constructors label toks0 =
   case toks0 of
     TokInteger n:rest ->
       Right (PatInt n, rest)
+    TokString s:rest ->
+      Right (PatString s, rest)
     TokIdentifier "_":rest ->
       Right (PatWildcard, rest)
     TokIdentifier headName:rest ->
@@ -1568,6 +1664,7 @@ patternBoundNames = foldr (\pat acc -> boundInPattern pat <> acc) []
         PatWildcard -> []
         PatVar n -> [n]
         PatInt _ -> []
+        PatString _ -> []
         PatConstructor _ _ fieldNames ->
           [n | n <- fieldNames, n /= "_"]
 
@@ -1577,6 +1674,7 @@ isIrrefutablePattern pat =
     PatWildcard -> True
     PatVar _ -> True
     PatInt _ -> False
+    PatString _ -> False
     PatConstructor _ _ _ -> False
 
 desugarCaseExpr :: Expr -> Expr
@@ -1641,6 +1739,8 @@ desugarCaseExpr expr =
         PatVar _ -> IntLit 1
         PatInt n ->
           App (App (Var "eq") (Var scrutineeName)) (IntLit n)
+        PatString s ->
+          App (App (Var "str_eq") (Var scrutineeName)) (StringLit s)
         PatConstructor _ ctorInfo _ ->
           App (Var (mkIsBuiltinName ctorInfo)) (Var scrutineeName)
 
@@ -1653,6 +1753,7 @@ desugarCaseExpr expr =
           case pat of
             PatWildcard -> bodyExpr
             PatInt _ -> bodyExpr
+            PatString _ -> bodyExpr
             PatVar n ->
               App (Lam n bodyExpr) (Var scrutineeName)
             PatConstructor _ ctorInfo fieldNames ->
@@ -1976,6 +2077,8 @@ startsTerm toks =
 parseTermTokens :: OperatorTable -> ConstructorTable -> [ExprTok] -> Either String (Expr, [ExprTok])
 parseTermTokens operators constructors toks =
   case toks of
+    TokOperator "-":TokInteger n:rest ->
+      Right (IntLit (negate n), rest)
     TokIdentifier n:rest ->
       Right (Var n, rest)
     TokInteger n:rest ->
@@ -2647,20 +2750,18 @@ parseDataDecl src =
 
     parseOldStyleCtor :: Name -> [Name] -> String -> Either String DataDecl
     parseOldStyleCtor _typeName _typeParams0 rawCtor =
-      case words rawCtor of
+      case splitTopLevelWords rawCtor of
         [] -> Left "could not parse data declaration; expected constructor name"
-        ctorName0 : fields -> do
+        ctorName0 : fieldTypeExprs -> do
           validateUpperIdentifier "data constructor name" ctorName0
-          traverse_ (validateIdentifier "data field name") fields
-          case duplicates fields of
-            [] -> Right ()
-            d : _ -> Left ("duplicate data field name: " <> d)
-          (typeParamCount0, fieldParamMap0) <- buildFieldParamMap _typeParams0 fields
-          let ctorInfo0 =
+          traverse_ validateFieldTypeExpr fieldTypeExprs
+          (typeParamCount0, fieldParamMap0) <- buildFieldParamMap _typeParams0 fieldTypeExprs
+          let fieldNames0 = inferFieldArgNames fieldTypeExprs
+              ctorInfo0 =
                 ConstructorInfo
                   { ctorTypeName = _typeName
                   , ctorName = ctorName0
-                  , ctorFieldCount = length fields
+                  , ctorFieldCount = length fieldTypeExprs
                   , ctorTypeParamCount = typeParamCount0
                   , ctorFieldParamMap = fieldParamMap0
                   }
@@ -2669,7 +2770,7 @@ parseDataDecl src =
               { dataTypeName = _typeName
               , dataTypeParams = _typeParams0
               , dataCtorName = ctorName0
-              , dataCtorFields = fields
+              , dataCtorFields = fieldNames0
               , dataCtorInfo = ctorInfo0
               }
 
@@ -2733,7 +2834,7 @@ parseDataDecl src =
 
     parseTypeParamField :: [Name] -> String -> Maybe Int
     parseTypeParamField allParams fieldExpr =
-      case words (trim fieldExpr) of
+      case words (stripOuterParens (trim fieldExpr)) of
         [typeArg]
           | typeArg `elem` allParams -> indexOf 0 typeArg allParams
         _ ->
@@ -2742,21 +2843,107 @@ parseDataDecl src =
     syntheticFieldNames :: Int -> [Name]
     syntheticFieldNames n = [ "__ctor_field_" <> show idx | idx <- [0 .. n - 1] ]
 
-    buildFieldParamMap :: [Name] -> [Name] -> Either String (Int, [Maybe Int])
-    buildFieldParamMap typeParams fields =
+    buildFieldParamMap :: [Name] -> [String] -> Either String (Int, [Maybe Int])
+    buildFieldParamMap typeParams fieldTypeExprs =
       if null typeParams
-        then Right (0, replicate (length fields) Nothing)
+        then Right (0, replicate (length fieldTypeExprs) Nothing)
         else do
-          fieldIndices <- traverse (lookupParamIndex typeParams) fields
-          Right (length typeParams, map Just fieldIndices)
+          Right (length typeParams, map (parseTypeParamField typeParams) fieldTypeExprs)
 
-    lookupParamIndex :: [Name] -> Name -> Either String Int
-    lookupParamIndex typeParams fieldName =
-      case indexOf 0 fieldName typeParams of
-        Nothing ->
-          Left ("data field name must reference a declared type parameter: " <> fieldName)
-        Just idx ->
-          Right idx
+    inferFieldArgNames :: [String] -> [Name]
+    inferFieldArgNames fieldTypeExprs = go 0 [] fieldTypeExprs
+      where
+        go :: Int -> [Name] -> [String] -> [Name]
+        go _ _ [] = []
+        go idx used (expr : rest) =
+          let candidate = inferOne expr
+              picked =
+                case candidate of
+                  Just n | n `notElem` used -> n
+                  _ -> "__ctor_field_" <> show idx
+           in picked : go (idx + 1) (picked : used) rest
+
+        inferOne :: String -> Maybe Name
+        inferOne rawExpr =
+          case words (stripOuterParens (trim rawExpr)) of
+            [tok]
+              | validIdentifier tok -> Just tok
+            _ -> Nothing
+
+    validateFieldTypeExpr :: String -> Either String ()
+    validateFieldTypeExpr rawExpr =
+      let expr = stripOuterParens (trim rawExpr)
+       in case words expr of
+            [] ->
+              Left "data field type expression is empty"
+            toks ->
+              traverse_ (validateTypeArg "data field type token") toks
+
+    stripOuterParens :: String -> String
+    stripOuterParens raw =
+      let trimmed = trim raw
+       in if hasSingleOuterParens trimmed
+            then
+              case trimmed of
+                '(' : innerWithParen ->
+                  case reverse innerWithParen of
+                    ')' : innerRev ->
+                      stripOuterParens (trim (reverse innerRev))
+                    _ ->
+                      trimmed
+                _ ->
+                  trimmed
+            else trimmed
+
+    hasSingleOuterParens :: String -> Bool
+    hasSingleOuterParens text =
+      case text of
+        '(' : rest ->
+          not (null rest)
+            && last rest == ')'
+            && enclosesWholeExpr 1 (init rest)
+        _ ->
+          False
+      where
+        enclosesWholeExpr :: Int -> String -> Bool
+        enclosesWholeExpr depth0 chars =
+          go depth0 chars
+
+        go :: Int -> String -> Bool
+        go depth chars =
+          case chars of
+            [] -> depth == 1
+            c : cs
+              | c == '(' ->
+                  go (depth + 1) cs
+              | c == ')' ->
+                  if depth <= 1
+                    then False
+                    else go (depth - 1) cs
+              | otherwise ->
+                  go depth cs
+
+    splitTopLevelWords :: String -> [String]
+    splitTopLevelWords input =
+      let goWords :: Int -> String -> String -> [String] -> [String]
+          goWords depth cur xs revOut =
+            case xs of
+              [] ->
+                let token = trim cur
+                 in reverse (if null token then revOut else token : revOut)
+              c : rest
+                | c == '(' ->
+                    goWords (depth + 1) (cur <> [c]) rest revOut
+                | c == ')' ->
+                    goWords (max 0 (depth - 1)) (cur <> [c]) rest revOut
+                | isSpace c && depth == 0 ->
+                    let token = trim cur
+                     in if null token
+                          then goWords depth "" rest revOut
+                          else goWords depth "" rest (token : revOut)
+                | otherwise ->
+                    goWords depth (cur <> [c]) rest revOut
+       in goWords 0 "" input []
 
     indexOf :: Int -> Name -> [Name] -> Maybe Int
     indexOf _ _ [] = Nothing

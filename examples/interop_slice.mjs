@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 
-import fs from "node:fs";
+import { cliArgs, failWithError, readBinaryFile } from "../scripts/runtime-env.mjs";
 import { instantiateWithRuntime, renderResult } from "../scripts/wasm-runtime.mjs";
 
 const text_encoder = new TextEncoder();
 
 async function main() {
-  const wasm_path = process.argv[2] ?? "out/interop_slice.wasm";
-  const wasm_bytes = fs.readFileSync(wasm_path);
+  const [wasmPathArg] = cliArgs();
+  const wasm_path = wasmPathArg ?? "out/interop_slice.wasm";
+  const wasm_bytes = await readBinaryFile(wasm_path);
   const { instance, runtime } = await instantiateWithRuntime(wasm_bytes);
   const fn = instance.exports.main;
   if (typeof fn !== "function") {
@@ -21,7 +22,4 @@ async function main() {
   console.log(`POST ${renderResult(fn(post_req), runtime.state)}`);
 }
 
-main().catch((err) => {
-  console.error(err.message);
-  process.exit(1);
-});
+main().catch(failWithError);

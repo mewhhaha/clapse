@@ -22,7 +22,7 @@ Default source style is operator-first (`+ - * / == &&`). Custom operator declar
 - `data.clapse`: parametric `data` declaration with constructor + let-pattern deconstruction
 - `strings.clapse`: static string literal compile + runtime rendering
 - `interop_slice.clapse`: byte-slice interop (`slice_len`, `slice_get_u8`)
-- `interop_slice.mjs`: Node ESM runner showing `Uint8Array` -> Clapse slice descriptor (`ptr,len`) interop
+- `interop_slice.mjs`: Deno/Node-compatible runner showing `Uint8Array` -> Clapse slice descriptor (`ptr,len`) interop
 - `wasm_linear_memory_helpers.clapse`: low-level linear-memory helper usage (`slice_new_u8`, `slice_data_ptr`, `slice_len_raw`, `region_*`, `memcpy_u8`, `memset_u8`) with explicit dataflow threading to avoid collapse-time dead-code elimination
 - `game_of_life.clapse`: wasm Life rule + pure `LifeState` plus `LifeEvent`/`apply_event` transition API over slice descriptors with per-step `region_mark`/`region_reset` cleanup
 - `game_of_life.html`: browser canvas demo shell
@@ -41,10 +41,26 @@ Default source style is operator-first (`+ - * / == &&`). Custom operator declar
 - `bench_wasm_struct_field_abstraction.clapse`: struct-field abstraction wasm benchmark fixture
 - `bench_wasm_wrapper_uncurry_hand.clapse`: direct wrapper/uncurry-free wasm benchmark fixture
 - `bench_wasm_wrapper_uncurry_abstraction.clapse`: wrapper/uncurry abstraction wasm benchmark fixture
+- `bench_wasm_slice_set_reuse.clapse`: non-aliased `slice_set_u8` reuse benchmark fixture
+- `bench_wasm_slice_set_copy.clapse`: aliased `slice_set_u8` copy-path benchmark fixture
 - `wasm_struct_has_tag.clapse`: low-level struct helper fixture for tagged `__is_*`
 - `wasm_struct_has_tag_false.clapse`: low-level struct helper fixture for false-path tagged `__is_*`
 - `wasm_struct_get_ok.clapse`: low-level struct helper fixture for matching `__get_*`
 - `wasm_struct_get_mismatch.clapse`: low-level struct helper fixture for mismatched-tag `__get_*` trap checks
+- `bootstrap_phase1_frontend_primitives.clapse`: phase 1 self-host bootstrap fixture (ADT + pattern/case frontend primitives)
+- `bootstrap_phase2_core_data_structures.clapse`: phase 2 self-host bootstrap fixture (recursive `List` with `Nil`/`Cons`)
+- `bootstrap_phase3_entry.clapse`: phase 3 self-host bootstrap entry fixture (module graph import/export)
+- `bootstrap_phase4_parser_pilot.clapse`: phase 4 parser pilot for assignment-like byte-slice recognition
+- `bootstrap_phase5_dispatch_pilot.clapse`: phase 5 dispatch pilot for enum-code decode + ADT route dispatch
+- `bootstrap_phase6_entry.clapse` + `bootstrap6/router.clapse`: phase 6 moduleized decode/dispatch bootstrap fixture
+- `bootstrap_phase7_host_capability_pilot.clapse`: phase 7 host capability import compile pilot (`import host.time`)
+- `bootstrap_phase8_pattern_and_operators.clapse`: phase 8 syntax/behavior pilot (guards + operators + constructor-pattern case)
+- `util/math.clapse` + `util/base.clapse`: phase 3 transitive module graph fixtures
+- `selfhost_corpus.txt`: manifest used by self-host differential artifact/parity gates
+- `selfhost_behavior_corpus.json`: manifest used by self-host behavior differential wasm execution gates
+- `../scripts/check-selfhost-manifests.mjs`: manifest consistency guard for parity coverage drift
+  - intentionally excludes `examples/traits.clapse` (non-compiling trait-catalog fixture)
+- `../scripts/selfhost-bench.mjs`: corpus-level parity benchmark (compile+run timing per engine)
 
 ## Formatting
 
@@ -64,7 +80,7 @@ cabal run clapse -- format --write examples/currying.clapse
 
 ```bash
 cabal run clapse -- compile examples/wasm_main.clapse out/wasm_main.wasm
-node scripts/run-wasm.mjs out/wasm_main.wasm main 7
+deno run -A scripts/run-wasm.mjs out/wasm_main.wasm main 7
 ```
 
 Each `compile` also emits `out/<name>.d.ts` based on collapsed IR export arity.
@@ -73,21 +89,21 @@ Closure/currying compile + run:
 
 ```bash
 cabal run clapse -- compile examples/wasm_closure.clapse out/wasm_closure.wasm
-node scripts/run-wasm.mjs out/wasm_closure.wasm main 7
+deno run -A scripts/run-wasm.mjs out/wasm_closure.wasm main 7
 ```
 
 Data constructor/deconstruction compile + run:
 
 ```bash
 cabal run clapse -- compile examples/data.clapse out/wasm_data.wasm
-node scripts/run-wasm.mjs out/wasm_data.wasm main 7
+deno run -A scripts/run-wasm.mjs out/wasm_data.wasm main 7
 ```
 
 String literal compile + run:
 
 ```bash
 cabal run clapse -- compile examples/strings.clapse out/wasm_strings.wasm
-node scripts/run-wasm.mjs out/wasm_strings.wasm main
+deno run -A scripts/run-wasm.mjs out/wasm_strings.wasm main
 ```
 
 Low-level struct helper smoke (tagged `__is_*` + tag-safe `__get_*`):
@@ -106,17 +122,17 @@ Slice interop compile + run:
 
 ```bash
 cabal run clapse -- compile examples/interop_slice.clapse out/interop_slice.wasm
-node examples/interop_slice.mjs out/interop_slice.wasm
+deno run -A examples/interop_slice.mjs out/interop_slice.wasm
 ```
 
 Game of Life rule compile + smoke:
 
 ```bash
 cabal run clapse -- compile examples/game_of_life.clapse out/game_of_life.wasm
-node scripts/run-wasm.mjs out/game_of_life.wasm main 0 3
-node scripts/run-wasm.mjs out/game_of_life.wasm main 1 2
-node scripts/run-wasm.mjs out/game_of_life.wasm main 1 4
-node scripts/life-slice-smoke.mjs out/game_of_life.wasm
+deno run -A scripts/run-wasm.mjs out/game_of_life.wasm main 0 3
+deno run -A scripts/run-wasm.mjs out/game_of_life.wasm main 1 2
+deno run -A scripts/run-wasm.mjs out/game_of_life.wasm main 1 4
+deno run -A scripts/life-slice-smoke.mjs out/game_of_life.wasm
 ```
 
 The browser demo uses `apply_event` + `event_*` exports so Clapse remains the source of truth for simulation state.
@@ -125,7 +141,7 @@ Mario-like ECS compile + smoke:
 
 ```bash
 cabal run clapse -- compile examples/mario_ecs.clapse out/mario_ecs.wasm
-node scripts/mario-ecs-smoke.mjs out/mario_ecs.wasm
+deno run -A scripts/mario-ecs-smoke.mjs out/mario_ecs.wasm
 ```
 
 The browser demo keeps game logic pure in Clapse and treats JS as input/render boundary only.
@@ -134,14 +150,14 @@ HTTP request parser-style compile + run:
 
 ```bash
 cabal run clapse -- compile examples/http_request_parser.clapse out/wasm_http_request_parser.wasm
-node scripts/run-wasm.mjs out/wasm_http_request_parser.wasm main 10203
+deno run -A scripts/run-wasm.mjs out/wasm_http_request_parser.wasm main 10203
 ```
 
 Case expression compile + run:
 
 ```bash
 cabal run clapse -- compile examples/case_of.clapse out/wasm_case_of.wasm
-node scripts/run-wasm.mjs out/wasm_case_of.wasm main 7
+deno run -A scripts/run-wasm.mjs out/wasm_case_of.wasm main 7
 ```
 This example also demonstrates multiline case-arm formatting.
 For single-scrutinee constructor matches, the final catch-all arm is optional when constructor coverage is exhaustive.
@@ -150,7 +166,7 @@ Maybe/Either monad compile + run:
 
 ```bash
 cabal run clapse -- compile examples/monads_maybe_either.clapse out/wasm_monads_maybe_either.wasm
-node scripts/run-wasm.mjs out/wasm_monads_maybe_either.wasm main 7
+deno run -A scripts/run-wasm.mjs out/wasm_monads_maybe_either.wasm main 7
 ```
 
 ## Benchmark (WASM runtime)
@@ -159,7 +175,7 @@ Single module benchmark:
 
 ```bash
 cabal run clapse -- compile examples/wasm_main.clapse out/wasm_main.wasm
-node scripts/bench-wasm.mjs out/wasm_main.wasm main 2000000 20000
+deno run -A scripts/bench-wasm.mjs out/wasm_main.wasm main 2000000 20000
 ```
 
 Hand vs abstraction benchmark fixtures:
@@ -167,8 +183,8 @@ Hand vs abstraction benchmark fixtures:
 ```bash
 cabal run clapse -- compile examples/bench_wasm_hand.clapse out/bench_wasm_hand.wasm
 cabal run clapse -- compile examples/bench_wasm_abstraction.clapse out/bench_wasm_abstraction.wasm
-node scripts/bench-wasm.mjs out/bench_wasm_hand.wasm main 2000000 20000
-node scripts/bench-wasm.mjs out/bench_wasm_abstraction.wasm main 2000000 20000
+deno run -A scripts/bench-wasm.mjs out/bench_wasm_hand.wasm main 2000000 20000
+deno run -A scripts/bench-wasm.mjs out/bench_wasm_abstraction.wasm main 2000000 20000
 ```
 
 Closure/environment-flattening fixture pair:
@@ -176,8 +192,8 @@ Closure/environment-flattening fixture pair:
 ```bash
 cabal run clapse -- compile examples/bench_wasm_closure_env_hand.clapse out/bench_wasm_closure_env_hand.wasm
 cabal run clapse -- compile examples/bench_wasm_closure_env_abstraction.clapse out/bench_wasm_closure_env_abstraction.wasm
-node scripts/bench-wasm.mjs out/bench_wasm_closure_env_hand.wasm main 2000000 20000
-node scripts/bench-wasm.mjs out/bench_wasm_closure_env_abstraction.wasm main 2000000 20000
+deno run -A scripts/bench-wasm.mjs out/bench_wasm_closure_env_hand.wasm main 2000000 20000
+deno run -A scripts/bench-wasm.mjs out/bench_wasm_closure_env_abstraction.wasm main 2000000 20000
 ```
 
 Struct-field-flattening fixture pair:
@@ -185,8 +201,8 @@ Struct-field-flattening fixture pair:
 ```bash
 cabal run clapse -- compile examples/bench_wasm_struct_field_hand.clapse out/bench_wasm_struct_field_hand.wasm
 cabal run clapse -- compile examples/bench_wasm_struct_field_abstraction.clapse out/bench_wasm_struct_field_abstraction.wasm
-node scripts/bench-wasm.mjs out/bench_wasm_struct_field_hand.wasm main 2000000 20000
-node scripts/bench-wasm.mjs out/bench_wasm_struct_field_abstraction.wasm main 2000000 20000
+deno run -A scripts/bench-wasm.mjs out/bench_wasm_struct_field_hand.wasm main 2000000 20000
+deno run -A scripts/bench-wasm.mjs out/bench_wasm_struct_field_abstraction.wasm main 2000000 20000
 ```
 
 Wrapper/uncurrying fixture pair:
@@ -194,8 +210,34 @@ Wrapper/uncurrying fixture pair:
 ```bash
 cabal run clapse -- compile examples/bench_wasm_wrapper_uncurry_hand.clapse out/bench_wasm_wrapper_uncurry_hand.wasm
 cabal run clapse -- compile examples/bench_wasm_wrapper_uncurry_abstraction.clapse out/bench_wasm_wrapper_uncurry_abstraction.wasm
-node scripts/bench-wasm.mjs out/bench_wasm_wrapper_uncurry_hand.wasm main 2000000 20000
-node scripts/bench-wasm.mjs out/bench_wasm_wrapper_uncurry_abstraction.wasm main 2000000 20000
+deno run -A scripts/bench-wasm.mjs out/bench_wasm_wrapper_uncurry_hand.wasm main 2000000 20000
+deno run -A scripts/bench-wasm.mjs out/bench_wasm_wrapper_uncurry_abstraction.wasm main 2000000 20000
+```
+
+Slice ownership fixture pair (reuse vs copy):
+
+```bash
+cabal run clapse -- compile examples/bench_wasm_slice_set_reuse.clapse out/bench_wasm_slice_set_reuse.wasm
+cabal run clapse -- compile examples/bench_wasm_slice_set_copy.clapse out/bench_wasm_slice_set_copy.wasm
+deno run -A scripts/bench-wasm.mjs out/bench_wasm_slice_set_reuse.wasm main 2000000 20000
+deno run -A scripts/bench-wasm.mjs out/bench_wasm_slice_set_copy.wasm main 2000000 20000
+```
+
+Self-host bootstrap phase fixtures:
+
+```bash
+cabal run clapse -- compile examples/bootstrap_phase1_frontend_primitives.clapse out/bootstrap_phase1.wasm
+cabal run clapse -- compile examples/bootstrap_phase2_core_data_structures.clapse out/bootstrap_phase2.wasm
+cabal run clapse -- compile examples/bootstrap_phase3_entry.clapse out/bootstrap_phase3.wasm
+cabal run clapse -- compile examples/bootstrap_phase4_parser_pilot.clapse out/bootstrap_phase4_parser_pilot.wasm
+deno run -A scripts/bootstrap-parser-pilot-smoke.mjs out/bootstrap_phase4_parser_pilot.wasm
+cabal run clapse -- compile examples/bootstrap_phase5_dispatch_pilot.clapse out/bootstrap_phase5_dispatch_pilot.wasm
+deno run -A scripts/bootstrap-phase5-dispatch-smoke.mjs out/bootstrap_phase5_dispatch_pilot.wasm
+cabal run clapse -- compile examples/bootstrap_phase6_entry.clapse out/bootstrap_phase6_entry.wasm
+deno run -A scripts/bootstrap-phase6-module-smoke.mjs out/bootstrap_phase6_entry.wasm
+cabal run clapse -- compile examples/bootstrap_phase7_host_capability_pilot.clapse out/bootstrap_phase7_host_capability_pilot.wasm
+cabal run clapse -- compile examples/bootstrap_phase8_pattern_and_operators.clapse out/bootstrap_phase8_pattern_and_operators.wasm
+deno run -A scripts/run-wasm.mjs out/bootstrap_phase8_pattern_and_operators.wasm main 7
 ```
 
 ## Browser canvas demo

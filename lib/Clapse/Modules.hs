@@ -1,7 +1,9 @@
 module Clapse.Modules
   ( ExportApi(..)
   , CompileArtifact(..)
+  , CompileDebugArtifact(..)
   , compileEntryModule
+  , compileEntryModuleDebug
   , compileEntryModuleToWasm
   , renderTypeScriptBindings
   ) where
@@ -9,6 +11,7 @@ module Clapse.Modules
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
+import Control.Applicative ((<|>))
 import Control.Monad (foldM)
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, isSpace)
 import Data.List (intercalate)
@@ -17,17 +20,28 @@ import System.Directory (doesFileExist)
 import System.FilePath (takeDirectory, (<.>), (</>))
 
 import qualified Clapse.CollapseIR as CIR
-import Clapse.Lowering (lowerModule)
+import Clapse.HostCapabilities
+  ( hostBuiltinsFromImports
+  , isHostImportModule
+  )
+import Clapse.Lowering (FlatFunction, lowerModule)
 import Clapse.Syntax
   ( CasePattern(..)
+  , ConstructorInfo(..)
   , Expr(..)
+  , FunctionAttribute(..)
+  , FunctionAttributeValue(..)
   , Function(..)
   , Module(..)
   , CaseArm(..)
   , Name
   , parseModule
   )
-import Clapse.Wasm (compileModuleToWasmWithExports)
+import Clapse.Wasm (compileModuleToWasmWithExportsAndMemoHintsAndHostBuiltins)
+import Clapse.TypeInfo
+  ( FunctionTypeInfo
+  , inferModuleTypes
+  )
 
 data ParsedSource = ParsedSource
   { parsedBody :: String
@@ -59,8 +73,33 @@ data CompileArtifact = CompileArtifact
   }
   deriving (Eq, Show)
 
+data CompileDebugArtifact = CompileDebugArtifact
+  { debugMergedModule :: Module
+  , debugTypeInfo :: Maybe [FunctionTypeInfo]
+  , debugTypeInfoError :: Maybe String
+  , debugLowered :: [FlatFunction]
+  , debugCollapsed :: [CIR.CollapsedFunction]
+  , debugExports :: [ExportApi]
+  , debugWasm :: BS.ByteString
+  }
+  deriving (Eq, Show)
+
 compileEntryModule :: FilePath -> IO (Either String CompileArtifact)
 compileEntryModule entryPath = do
+  result <- compileEntryModuleDebug entryPath
+  pure
+    ( fmap
+        ( \dbg ->
+            CompileArtifact
+              { artifactWasm = debugWasm dbg
+              , artifactExports = debugExports dbg
+              }
+        )
+        result
+    )
+
+compileEntryModuleDebug :: FilePath -> IO (Either String CompileDebugArtifact)
+compileEntryModuleDebug entryPath = do
   source <- readFile entryPath
   let entryDir = takeDirectory entryPath
   case parseSourceHeader source of
@@ -71,16 +110,18 @@ compileEntryModule entryPath = do
         Left err ->
           pure (Left err)
         Right entryModule -> do
-          rawModules <- loadRawModules entryDir (parsedImports entryHeader)
+          let sourceImports = sourceModuleImports (parsedImports entryHeader)
+              hostBuiltins = hostBuiltinsFromImports (parsedImports entryHeader)
+          rawModules <- loadRawModules entryDir sourceImports
           case rawModules of
             Left err ->
               pure (Left err)
             Right loadedRaw ->
-              case qualifyImportedModules loadedRaw (parsedImports entryHeader) of
+              case qualifyImportedModules loadedRaw sourceImports of
                 Left err ->
                   pure (Left err)
                 Right qualifiedImports ->
-                  case importEnvFromModules qualifiedImports (parsedImports entryHeader) of
+                  case importEnvFromModules qualifiedImports sourceImports of
                     Left err ->
                       pure (Left err)
                     Right entryImportEnv -> do
@@ -90,36 +131,52 @@ compileEntryModule entryPath = do
                         Right exportNames -> do
                           let entryLocalNames =
                                 M.fromList [(name fn, name fn) | fn <- functions entryModule]
+                              entryModuleName = fromMaybe "__entry" (parsedModule entryHeader)
                               entryQualified =
                                 map
-                                  (qualifyEntryFunction entryImportEnv entryLocalNames)
+                                  (qualifyEntryFunction entryModuleName entryImportEnv entryLocalNames)
                                   (functions entryModule)
                               importOrder =
-                                collectImportOrder loadedRaw (parsedImports entryHeader)
+                                collectImportOrder loadedRaw sourceImports
                               importedFunctions =
                                 concatMap
                                   (\name -> qualifiedFunctions (qualifiedImports M.! name))
                                   importOrder
                               mergedFunctions = importedFunctions ++ entryQualified
-                          case lowerModule (Module {signatures = [], functions = mergedFunctions}) >>= CIR.collapseAndVerifyModule of
+                              mergedModule = Module {signatures = [], functions = mergedFunctions}
+                              memoHints = collectMemoHints mergedFunctions
+                              (typeInfo, typeInfoErr) =
+                                case inferModuleTypes mergedModule of
+                                  Left err -> (Nothing, Just err)
+                                  Right infos -> (Just infos, Nothing)
+                          case lowerModule mergedModule of
                             Left err ->
                               pure (Left err)
-                            Right collapsed ->
-                              case collectExportApi collapsed exportNames of
+                            Right lowered ->
+                              case CIR.collapseAndVerifyModule lowered of
                                 Left err ->
                                   pure (Left err)
-                                Right api ->
-                                  case compileModuleToWasmWithExports collapsed exportNames of
+                                Right collapsed ->
+                                  case collectExportApi collapsed exportNames of
                                     Left err ->
                                       pure (Left err)
-                                    Right wasmBytes ->
-                                      pure
-                                        ( Right
-                                            CompileArtifact
-                                              { artifactWasm = wasmBytes
-                                              , artifactExports = api
-                                              }
-                                        )
+                                    Right api ->
+                                      case compileModuleToWasmWithExportsAndMemoHintsAndHostBuiltins collapsed exportNames memoHints hostBuiltins of
+                                        Left err ->
+                                          pure (Left err)
+                                        Right wasmBytes ->
+                                          pure
+                                            ( Right
+                                                CompileDebugArtifact
+                                                  { debugMergedModule = mergedModule
+                                                  , debugTypeInfo = typeInfo
+                                                  , debugTypeInfoError = typeInfoErr
+                                                  , debugLowered = lowered
+                                                  , debugCollapsed = collapsed
+                                                  , debugExports = api
+                                                  , debugWasm = wasmBytes
+                                                  }
+                                            )
 
 compileEntryModuleToWasm :: FilePath -> IO (Either String BS.ByteString)
 compileEntryModuleToWasm entryPath = do
@@ -187,7 +244,7 @@ loadRawModules
   -> [Name]
   -> IO (Either String (M.Map Name RawModule))
 loadRawModules root imports =
-  loadRawModulesWithCache root M.empty S.empty imports
+  loadRawModulesWithCache root M.empty S.empty (sourceModuleImports imports)
 
 loadRawModulesWithCache
   :: FilePath
@@ -238,7 +295,7 @@ loadRawModule root loaded visiting name = do
                           , rawExports = parsedExports parsed
                           }
                   let loadedWithCurrent = M.insert name raw loaded
-                  loadRawModulesWithCache root loadedWithCurrent (S.insert name visiting) (parsedImports parsed)
+                  loadRawModulesWithCache root loadedWithCurrent (S.insert name visiting) (sourceModuleImports (parsedImports parsed))
 
 validateParsedModuleName :: Name -> ParsedSource -> Either String ()
 validateParsedModuleName expectedName parsed =
@@ -300,7 +357,7 @@ qualifyImportedModules loaded initialImports =
               Nothing ->
                 Right localNames
           let qualifiedFunctions =
-                map (renameFunction localNames importEnv) (functions (rawModule raw))
+                map (renameFunction moduleName localNames importEnv) (functions (rawModule raw))
           Right (M.insert moduleName (QualifiedModule qualifiedFunctions exportMap) cacheWithImports)
 
 importEnvFromModules
@@ -329,33 +386,36 @@ importEnvFromModules qualifiedModules imports =
           Right (M.insert unqualifiedName qualifiedName acc)
 
 qualifyEntryFunction
-  :: M.Map Name Name
+  :: Name
+  -> M.Map Name Name
   -> M.Map Name Name
   -> Function
   -> Function
-qualifyEntryFunction importEnv localNames fn =
+qualifyEntryFunction moduleName importEnv localNames fn =
   fn
-    { body = renameExpr (args fn) localNames importEnv (body fn)
+    { body = renameExpr moduleName (args fn) localNames importEnv (body fn)
     }
 
 renameFunction
-  :: M.Map Name Name
+  :: Name
+  -> M.Map Name Name
   -> M.Map Name Name
   -> Function
   -> Function
-renameFunction localNames importEnv fn =
+renameFunction moduleName localNames importEnv fn =
   fn
     { name = fromMaybeName (name fn) localNames
-    , body = renameExpr (args fn) localNames importEnv (body fn)
+    , body = renameExpr moduleName (args fn) localNames importEnv (body fn)
     }
 
 renameExpr
-  :: [Name]
+  :: Name
+  -> [Name]
   -> M.Map Name Name
   -> M.Map Name Name
   -> Expr
   -> Expr
-renameExpr bound localNames importEnv expr =
+renameExpr moduleName bound localNames importEnv expr =
   case expr of
     Var name ->
       if name `elem` bound
@@ -366,35 +426,136 @@ renameExpr bound localNames importEnv expr =
             Nothing ->
               case M.lookup name importEnv of
                 Just renamed -> Var renamed
-                Nothing -> Var name
+                Nothing -> Var (fromMaybe name (qualifyCtorBuiltinName moduleName name))
     IntLit n -> IntLit n
     StringLit s -> StringLit s
     CollectionLit values ->
-      CollectionLit (map (renameExpr bound localNames importEnv) values)
+      CollectionLit (map (renameExpr moduleName bound localNames importEnv) values)
     App lhs rhs ->
-      App (renameExpr bound localNames importEnv lhs) (renameExpr bound localNames importEnv rhs)
+      App (renameExpr moduleName bound localNames importEnv lhs) (renameExpr moduleName bound localNames importEnv rhs)
     Lam name bodyExpr ->
-      Lam name (renameExpr (name : bound) localNames importEnv bodyExpr)
+      Lam name (renameExpr moduleName (name : bound) localNames importEnv bodyExpr)
     Case scruts arms ->
       Case
-        (map (renameExpr bound localNames importEnv) scruts)
-        (map (renameCaseArm bound localNames importEnv) arms)
+        (map (renameExpr moduleName bound localNames importEnv) scruts)
+        (map (renameCaseArm moduleName bound localNames importEnv) arms)
 
 renameCaseArm
-  :: [Name]
+  :: Name
+  -> [Name]
   -> M.Map Name Name
   -> M.Map Name Name
   -> CaseArm
   -> CaseArm
-renameCaseArm bound localNames importEnv arm =
-  arm
-    { armBody =
-        renameExpr
-          (bound ++ patternBoundNames (armPatterns arm))
-          localNames
-          importEnv
-          (armBody arm)
-    }
+renameCaseArm moduleName bound localNames importEnv arm =
+  let renamedPatterns = map (renameCasePattern moduleName) (armPatterns arm)
+   in arm
+        { armPatterns = renamedPatterns
+        , armBody =
+            renameExpr
+              moduleName
+              (bound ++ patternBoundNames renamedPatterns)
+              localNames
+              importEnv
+              (armBody arm)
+        }
+
+renameCasePattern :: Name -> CasePattern -> CasePattern
+renameCasePattern moduleName pat =
+  case pat of
+    PatConstructor ctorName ctorInfo fieldNames ->
+      PatConstructor ctorName (qualifyCtorInfo moduleName ctorInfo) fieldNames
+    _ ->
+      pat
+
+qualifyCtorInfo :: Name -> ConstructorInfo -> ConstructorInfo
+qualifyCtorInfo moduleName ctorInfo =
+  ctorInfo {ctorTypeName = qualifyCtorTypeName moduleName (ctorTypeName ctorInfo)}
+
+qualifyCtorTypeName :: Name -> Name -> Name
+qualifyCtorTypeName moduleName typeName0
+  | '$' `elem` typeName0 = typeName0
+  | otherwise = moduleName <> "$" <> typeName0
+
+qualifyCtorBuiltinName :: Name -> Name -> Maybe Name
+qualifyCtorBuiltinName moduleName builtinName =
+  qualifyMk <|> qualifyGet <|> qualifyIs
+  where
+    qualifyMk :: Maybe Name
+    qualifyMk = do
+      rest <- stripPrefixExact "__mk_" builtinName
+      case splitOnToken "_tpar_" rest of
+        Just (prefix0, suffix0) -> do
+          (tag0, fieldCount0) <- splitLastUnderscore prefix0
+          if all isDigit fieldCount0
+            then Just ("__mk_" <> qualifyCtorTag moduleName tag0 <> "_" <> fieldCount0 <> "_tpar_" <> suffix0)
+            else Nothing
+        Nothing -> do
+          (tag0, fieldCount0) <- splitLastUnderscore rest
+          if all isDigit fieldCount0
+            then Just ("__mk_" <> qualifyCtorTag moduleName tag0 <> "_" <> fieldCount0)
+            else Nothing
+
+    qualifyGet :: Maybe Name
+    qualifyGet = do
+      rest <- stripPrefixExact "__get_" builtinName
+      case splitOnToken "_tpar_" rest of
+        Just (prefix0, suffix0) -> do
+          (tag0, idx0) <- splitLastUnderscore prefix0
+          if all isDigit idx0
+            then Just ("__get_" <> qualifyCtorTag moduleName tag0 <> "_" <> idx0 <> "_tpar_" <> suffix0)
+            else Nothing
+        Nothing -> do
+          (tag0, idx0) <- splitLastUnderscore rest
+          if all isDigit idx0
+            then Just ("__get_" <> qualifyCtorTag moduleName tag0 <> "_" <> idx0)
+            else Nothing
+
+    qualifyIs :: Maybe Name
+    qualifyIs = do
+      rest <- stripPrefixExact "__is_" builtinName
+      case splitOnToken "_tpar_" rest of
+        Just (tag0, suffix0) ->
+          Just ("__is_" <> qualifyCtorTag moduleName tag0 <> "_tpar_" <> suffix0)
+        Nothing ->
+          if null rest
+            then Nothing
+            else Just ("__is_" <> qualifyCtorTag moduleName rest)
+
+qualifyCtorTag :: Name -> Name -> Name
+qualifyCtorTag moduleName tag0
+  | '$' `elem` tag0 = tag0
+  | otherwise = moduleName <> "$" <> tag0
+
+stripPrefixExact :: String -> String -> Maybe String
+stripPrefixExact prefix0 src =
+  if take (length prefix0) src == prefix0
+    then Just (drop (length prefix0) src)
+    else Nothing
+
+splitOnToken :: String -> String -> Maybe (String, String)
+splitOnToken token src =
+  go [] src
+  where
+    go :: String -> String -> Maybe (String, String)
+    go acc remaining
+      | take (length token) remaining == token =
+          Just (reverse acc, drop (length token) remaining)
+    go _ [] =
+      Nothing
+    go acc (c:cs) =
+      go (c : acc) cs
+
+splitLastUnderscore :: String -> Maybe (String, String)
+splitLastUnderscore src =
+  case break (== '_') (reverse src) of
+    (_, []) -> Nothing
+    (revSuffix, _:revPrefix) ->
+      let prefix0 = reverse revPrefix
+          suffix0 = reverse revSuffix
+       in if null prefix0 || null suffix0
+            then Nothing
+            else Just (prefix0, suffix0)
 
 patternBoundNames :: [CasePattern] -> [Name]
 patternBoundNames = concatMap
@@ -402,6 +563,7 @@ patternBoundNames = concatMap
       PatWildcard -> []
       PatVar name -> [name]
       PatInt _ -> []
+      PatString _ -> []
       PatConstructor _ _ names -> filter (/= "_") names
   )
 
@@ -573,6 +735,9 @@ moduleFilePath :: FilePath -> Name -> FilePath
 moduleFilePath root moduleName =
   root </> intercalate "/" (splitModulePath moduleName) <.> "clapse"
 
+sourceModuleImports :: [Name] -> [Name]
+sourceModuleImports = filter (not . isHostImportModule)
+
 splitModulePath :: String -> [String]
 splitModulePath src = go [] src
   where
@@ -610,3 +775,20 @@ stripComment (c : cs) = c : stripComment cs
 
 trim :: String -> String
 trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
+
+collectMemoHints :: [Function] -> [(Name, Int)]
+collectMemoHints = foldr collectOne []
+  where
+    collectOne :: Function -> [(Name, Int)] -> [(Name, Int)]
+    collectOne fn acc =
+      case memoSizes fn of
+        [] -> acc
+        sizeN:_ -> (name fn, sizeN) : acc
+
+    memoSizes :: Function -> [Int]
+    memoSizes fn =
+      [ sizeN
+      | attr <- attributes fn
+      , attributeName attr == "memo"
+      , Just (AttributeInt sizeN) <- [attributeValue attr]
+      ]

@@ -2,16 +2,19 @@
 
 ## CLI Commands
 
-Use the single executable:
+Use the deno frontend CLI:
 
 ```bash
-cabal run clapse -- format <file>
-cabal run clapse -- format --write <file>
-cabal run clapse -- format --stdin
-cabal run clapse -- compile <input.clapse> [output.wasm]
-cabal run clapse -- bench [iterations]
-cabal run clapse -- lsp --stdio
+deno run -A scripts/clapse.mjs compile <input.clapse> [output.wasm]
+deno run -A scripts/clapse.mjs format <file>
+deno run -A scripts/clapse.mjs format --write <file>
+deno run -A scripts/clapse.mjs format --stdin
+deno run -A scripts/clapse.mjs lsp --stdio
+deno run -A scripts/clapse.mjs bench [iterations]
 ```
+
+- `compile`/`selfhost-artifacts` use compiler-wasm mode by default (`CLAPSE_COMPILER_WASM_PATH` required); pass `--host` to force host compile.
+- `format`, `lsp`, and `bench` are host-backed today, but invoked via the same deno command surface.
 
 ## Just Targets
 
@@ -28,12 +31,31 @@ WASM runtime perf:
 
 - `just bench-wasm-main`
 - `just bench-wasm-compare`
+- `just bench-wasm-compare-slice-set`
 
 Browser Game of Life demo:
 
 - `just life-build`
 - `just life-smoke`
 - `just life-serve 8080`
+
+Self-host parity:
+
+- `just selfhost-artifacts`
+- `just selfhost-diff`
+- `just selfhost-behavior-diff`
+- `just selfhost-bootstrap-abc`
+- `just selfhost-check`
+- `just selfhost-check-strict`
+- `just selfhost-check-wasm` (requires `CLAPSE_COMPILER_WASM_PATH`)
+- `just selfhost-build-wasm-bridge`
+- `just selfhost-check-wasm-bridge`
+- `just selfhost-bench`
+- `just selfhost-bench-wasm`
+- `just selfhost-bench-wasm-fresh`
+- `scripts/selfhost-bench.mjs --reuse-compiles-across-repeats 0|1` (default `1` for steady-state compile reuse)
+- `scripts/run-clapse-compiler-wasm.mjs` (strict right-engine entrypoint; executes compiler wasm through `clapse_run` ABI)
+  - validates ABI exports (`memory`/`__memory`, `clapse_run`) and response JSON shape before writing outputs
 
 ## LSP and Formatter
 
@@ -66,4 +88,6 @@ CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal test
 just bench
 just wasm-smoke
 just life-smoke
+just selfhost-diff
+just selfhost-behavior-diff
 ```

@@ -8,6 +8,24 @@
 (function_declaration
   name: (identifier) @function)
 
+(attributed_function_declaration
+  (function_attribute
+    name: (identifier) @attribute))
+
+(function_attribute
+  "#" @punctuation.bracket
+  "[" @punctuation.bracket
+  "]" @punctuation.bracket)
+
+(function_attribute
+  value: (integer) @constant.numeric.integer)
+
+(function_attribute
+  value: (string) @string)
+
+(function_attribute
+  value: (identifier) @variable)
+
 (function_declaration
   argument: (identifier) @variable.parameter)
 
@@ -160,6 +178,9 @@
 
 (case_pattern_atom
   (integer) @constant.numeric.integer)
+
+(case_pattern_atom
+  (string) @string)
 
 (case_pattern_atom
   (capitalized_identifier) @constructor)

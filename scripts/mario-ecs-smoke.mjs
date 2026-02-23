@@ -1,9 +1,10 @@
 import { decodeInt, encodeInt, instantiateWithRuntime } from "./wasm-runtime.mjs";
-import { readFile } from "node:fs/promises";
+import { cliArgs, fail, readBinaryFile } from "./runtime-env.mjs";
 
 async function run() {
-  const wasm_path = process.argv[2] ?? "out/mario_ecs.wasm";
-  const bytes = await readFile(wasm_path);
+  const [wasmPathArg] = cliArgs();
+  const wasm_path = wasmPathArg ?? "out/mario_ecs.wasm";
+  const bytes = await readBinaryFile(wasm_path);
 
   const loaded = await instantiateWithRuntime(bytes);
   const e = loaded.instance.exports;
@@ -77,6 +78,5 @@ async function run() {
 
 run().catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
-  console.error(`mario smoke: FAIL ${message}`);
-  process.exit(1);
+  fail(`mario smoke: FAIL ${message}`);
 });

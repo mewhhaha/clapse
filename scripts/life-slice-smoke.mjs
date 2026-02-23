@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import fs from "node:fs";
+import { cliArgs, failWithError, readBinaryFile } from "./runtime-env.mjs";
 import { decodeInt, encodeInt, instantiateWithRuntime } from "./wasm-runtime.mjs";
 
 function indexOf(w, x, y) {
@@ -14,8 +14,9 @@ function expectEq(label, expected, actual) {
 }
 
 async function main() {
-  const wasmPath = process.argv[2] ?? "out/game_of_life.wasm";
-  const wasmBytes = fs.readFileSync(wasmPath);
+  const [wasmPathArg] = cliArgs();
+  const wasmPath = wasmPathArg ?? "out/game_of_life.wasm";
+  const wasmBytes = await readBinaryFile(wasmPath);
   const { instance, runtime } = await instantiateWithRuntime(wasmBytes);
   const initState = instance.exports.init_state;
   const applyEvent = instance.exports.apply_event;
@@ -95,7 +96,4 @@ async function main() {
   console.log("life slice smoke: PASS");
 }
 
-main().catch((err) => {
-  console.error(err.message);
-  process.exit(1);
-});
+main().catch(failWithError);

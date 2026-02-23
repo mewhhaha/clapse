@@ -1,0 +1,17 @@
+data List a = Nil | Cons a (List a)
+
+sum_three xs = case xs of
+  Nil -> 0
+  Cons a rest -> add_tail a rest
+
+add_tail a ys = case ys of
+  Nil -> a
+  Cons b tail -> add_tail2 a b tail
+
+add_tail2 a b zs = case zs of
+  Nil -> a + b
+  Cons c _ -> a + b + c
+
+mk_three a b c = Cons a (Cons b (Cons c Nil))
+
+main x = sum_three (mk_three x 2 3)

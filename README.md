@@ -34,10 +34,26 @@ Module directives:
 
 - `module <dotted_name>` declares a source module name (e.g. `module util.math`).
 - `import <dotted_name>` imports another source module from the compile root.
+- `import host.<capability>` enables host builtin imports without requiring a source module file.
+  - currently supported:
+    - `import host.io` (enables `read_file` host import in generated wasm import section)
+    - `import host.time` (enables `unix_time_ms` host import in generated wasm import section)
 - `export <name>[, <name> ...]` sets explicit wasm exports for the entry module.
 - When `export` is omitted in the entry module, all entry-module functions are exported.
-- `clapse compile <entry.clapse>` resolves dotted imports relative to the entry file directory (`util.math` -> `util/math.clapse`), merges modules, rewrites imported names to qualified internal symbols, then compiles a single optimized wasm module.
+- `deno run -A scripts/clapse.mjs compile <entry.clapse> [output.wasm]` resolves dotted imports relative to the entry file directory (`util.math` -> `util/math.clapse`), merges modules, rewrites imported names to qualified internal symbols, then compiles a single optimized wasm module.
 - Compile also emits a TypeScript sidecar (`<output path with .d.ts extension>`) derived from collapsed IR exports (`name` + `arity`) so JS/TS interop can type exported API calls.
+
+Unified deno CLI frontend:
+
+```bash
+deno run -A scripts/clapse.mjs compile examples/wasm_main.clapse out/wasm_main.wasm
+deno run -A scripts/clapse.mjs format --write examples/wasm_main.clapse
+deno run -A scripts/clapse.mjs format --stdin
+deno run -A scripts/clapse.mjs lsp --stdio
+```
+
+- `compile`/`selfhost-artifacts` route through compiler-wasm path (requires `CLAPSE_COMPILER_WASM_PATH`) unless `--host` is passed.
+- `format`, `lsp`, and `bench` currently route through the host executable behind the same deno frontend.
 
 Custom operator declarations:
 
@@ -87,6 +103,38 @@ Attribute form:
   - identifier: `#[label fast_path]`
   - function attributes are attached to the entire function group (including multi-clause functions)
 
+Built-in attributes (`memo`, `test`, `bench`) are wired through a default attribute plugin pipeline and validated during parsing.
+
+- `test` and `bench` are metadata-only in the default pipeline. They are attached to the function and can be consumed by external tooling (LSP/test runners/bench harnesses) without changing language semantics.
+- `memo` is a compiler-consumed performance attribute in the WASM backend:
+  - current backend support is for unary top-level functions (`arity == 1`, no captures)
+  - memo tables are fixed-size hash slots in linear memory (entry stores `key`, `value`, `occupied`)
+  - misses compute via a generated internal `__memo_body` function, then populate the slot
+  - memoization is also propagated to eligible generated helper functions in the same function family, so recursive worker calls are memoized too
+  - self-tail-call optimized functions are rejected for `memo` right now
+
+External tools can also use `parseModuleWithPlugins` with custom `FunctionAttributePlugin`s to install additional attribute behaviour in the same parsing pipeline.
+
+LSP attribute metadata:
+
+- The LSP now parses sources with `parseModuleWithPlugins defaultFunctionAttributePlugins` for diagnostics and type hover resolution.
+- Attribute hover is manifest-backed:
+  - built-ins (`memo`, `test`, `bench`) show arg kind + summary/details
+  - unknown/custom attributes show a fallback hover message until metadata is registered
+- Manifest API (Haskell-side, future Clapse-plugin bridge): `Clapse.AttributeManifest`
+  - `AttributeManifestEntry`, `AttributeKind`, `AttributeArgKind`
+  - `defaultAttributeManifest`, `lookupAttributeManifest`, `mergeAttributeManifest`
+
+Tree-sitter attribute syntax:
+
+- Grammar now includes top-level attributed declarations:
+  - `attributed_function_declaration`
+  - `function_attribute`
+- Highlight queries now scope:
+  - attribute names as `@attribute`
+  - attribute delimiters as bracket punctuation
+  - attribute values (`integer`, `string`, `identifier`)
+
 Value identifiers are snake_case: `[a-z_][a-z0-9_']*`.
 Data type and constructor names are capitalized: `[A-Z][A-Za-z0-9_']*`.
 `data` declarations support multi-constructor forms and one-line GADT alternatives:
@@ -96,11 +144,12 @@ data Maybe a = Just : a -> Maybe a | Nothing : Maybe a
 ```
 
 For old-style declarations without explicit type parameters (for example `data Event = Tick n | Reset token`), constructor fields do not introduce implicit type parameters on the data type; the result type stays `Event`.
+Old-style constructor fields are treated as type expressions and support parenthesized recursive forms (for example `data List a = Nil | Cons a (List a)`).
 
 Supported expressions:
 
 - variable: `x`
-- integer literal: `42`
+- integer literal: `42`, unary negative literal: `-42`
 - string literal: `"hello"` (escapes: `\"`, `\\`, `\n`, `\t`, `\r`)
 - lambda: `\x -> expr`, `\x y -> expr`
 - let-expression (desugars to lambda/application): `let x = expr in body`
@@ -170,7 +219,7 @@ Case-expression notes:
 - A semicolon-separated single-line form is also supported.
 - Final arm is required only when the listed patterns are not exhaustive.
 - For single-scrutinee pattern matching, a trailing catch-all is optional when constructor coverage is complete.
-- Pattern forms: integer literal, variable, `_`, constructor pattern (`ctor field1 field2 ...`).
+- Pattern forms: integer literal, string literal, variable, `_`, constructor pattern (`ctor field1 field2 ...`).
 - Scrutinees are space-separated terms; parenthesize complex scrutinees: `case (Pair x y) of ...`.
 
 Collection literal lowering model:
@@ -377,6 +426,7 @@ Current backend supports:
 - numeric literals and local refs
 - native wasm scalar lowering for `add/sub/mul/div/eq/and` (tagged-`i32` runtime representation)
 - tagged numeric runtime payload range is `[-1073741824, 1073741823]`
+- compile rejects integer literals outside that tagged payload range (no silent wraparound)
 - scalar numeric lowering assumes numeric operands at compile/runtime boundaries (no dynamic tag checks in those inlined ops)
 - string literals as static contiguous bytes in module memory
 - direct calls and direct `if/else` branches
@@ -395,18 +445,26 @@ Current backend supports:
 - compiled modules now use wasm-native helpers for closures and do not require `rt_*` function imports
 - JS runtime fallback `rt_*` imports have been removed
 
-Node ESM runtime smoke:
+Deno runtime smoke:
 
 ```bash
 cabal run clapse -- compile examples/wasm_main.clapse out/wasm_main.wasm
-node scripts/run-wasm.mjs out/wasm_main.wasm main 7
+deno run -A scripts/run-wasm.mjs out/wasm_main.wasm main 7
 ```
 
-Node ESM slice interop smoke:
+Deno slice interop smoke:
 
 ```bash
 just wasm-interop-slice-smoke
 ```
+
+Optional: compile standalone Deno CLI helpers for local/runtime use:
+
+```bash
+just deno-tools
+```
+
+`deno compile` downloads `denort` on first use.
 
 Runtime contract smoke (tagged-int bounds + no JS `rt_*` fallback + slice copy isolation):
 
@@ -458,6 +516,17 @@ See `examples/README.md`.
 
 Key examples:
 
+- `examples/bootstrap_phase1_frontend_primitives.clapse`
+- `examples/bootstrap_phase2_core_data_structures.clapse`
+- `examples/bootstrap_phase3_entry.clapse`
+- `examples/bootstrap_phase4_parser_pilot.clapse`
+- `examples/bootstrap_phase5_dispatch_pilot.clapse`
+- `examples/bootstrap_phase6_entry.clapse`
+- `examples/bootstrap_phase7_host_capability_pilot.clapse`
+- `examples/bootstrap_phase8_pattern_and_operators.clapse`
+- `examples/bootstrap6/router.clapse`
+- `examples/util/math.clapse`
+- `examples/util/base.clapse`
 - `examples/class_arithmetic_rewrites.clapse`
 - `examples/class_algebra_rewrites.clapse`
 - `examples/monads_maybe_either.clapse`
@@ -485,10 +554,211 @@ Key examples:
 - `examples/bench_wasm_struct_field_abstraction.clapse`
 - `examples/bench_wasm_wrapper_uncurry_hand.clapse`
 - `examples/bench_wasm_wrapper_uncurry_abstraction.clapse`
+- `examples/bench_wasm_slice_set_reuse.clapse`
+- `examples/bench_wasm_slice_set_copy.clapse`
 - `examples/wasm_struct_has_tag.clapse`
 - `examples/wasm_struct_has_tag_false.clapse`
 - `examples/wasm_struct_get_ok.clapse`
 - `examples/wasm_struct_get_mismatch.clapse`
+
+Self-host bootstrap checkpoint (`1/2/3/4/5/6/7/8`) now has concrete fixtures:
+
+1. Frontend primitives: `data` constructors + `case` matching (`examples/bootstrap_phase1_frontend_primitives.clapse`)
+2. Core data structures: recursive `List` with `Nil`/`Cons` (`examples/bootstrap_phase2_core_data_structures.clapse`)
+3. Module graph: dotted imports/exports across transitive modules (`examples/bootstrap_phase3_entry.clapse`, `examples/util/*.clapse`)
+4. Parser pilot: assignment-like byte-slice parser in Clapse (`examples/bootstrap_phase4_parser_pilot.clapse`)
+5. Dispatch pilot: enum-code decode + ADT route dispatch (`examples/bootstrap_phase5_dispatch_pilot.clapse`)
+6. Module dispatch pilot: routed decode/dispatch split across entry and imported module (`examples/bootstrap_phase6_entry.clapse`, `examples/bootstrap6/router.clapse`)
+7. Host capability pilot: host import compilation path for time capability (`examples/bootstrap_phase7_host_capability_pilot.clapse`)
+8. Syntax/behavior pilot: guards + operators + constructor-pattern case (`examples/bootstrap_phase8_pattern_and_operators.clapse`)
+
+Fast bootstrap gate:
+
+```bash
+just bootstrap-check
+```
+
+Compiler parity gate:
+
+```bash
+just parity-check
+```
+
+Self-host differential artifacts/parity gates:
+
+```bash
+# emit parse/type/lower/collapse/export/wasm stats artifacts for one entry module
+cabal run clapse -- selfhost-artifacts examples/bootstrap_phase6_entry.clapse out/selfhost-artifacts
+
+# compare left/right compiler engines over corpus manifest
+deno run -A scripts/selfhost-diff.mjs --manifest examples/selfhost_corpus.txt --out out/selfhost-diff
+
+# compare left/right compiler engines on wasm execution scenarios
+deno run -A scripts/selfhost-behavior-diff.mjs --manifest examples/selfhost_behavior_corpus.json --out out/selfhost-behavior-diff
+
+# stage A/B/C bootstrap orchestration + report
+deno run -A scripts/selfhost-bootstrap-abc.mjs --manifest examples/selfhost_corpus.txt --behavior-manifest examples/selfhost_behavior_corpus.json --out out/selfhost-bootstrap
+
+# one-shot local gate
+just selfhost-check
+
+# strict gate: requires distinct left/right engine commands (host-vs-host is rejected)
+just selfhost-check-strict
+
+# strict gate with explicit engine commands
+SELFHOST_LEFT_CMD='CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --' \
+SELFHOST_RIGHT_CMD='CLAPSE_COMPILER_WASM_PATH=out/clapse_compiler.wasm deno run -A scripts/run-clapse-compiler-wasm.mjs --' \
+just selfhost-check-strict
+```
+
+Manifest consistency guard:
+
+```bash
+deno run -A scripts/check-selfhost-manifests.mjs
+```
+
+Parity performance benchmark:
+
+```bash
+just selfhost-bench
+just selfhost-bench-wasm
+just selfhost-bench-wasm-fresh
+just selfhost-bench 3
+just selfhost-bench-wasm 3
+# optional: force fresh compile on every repeat for both sides
+deno run -A scripts/selfhost-bench.mjs --manifest examples/selfhost_behavior_corpus.json --repeats 3 --reuse-compiles-across-repeats 0 --out out/selfhost-bench-fresh
+```
+
+Wasm compiler runner:
+
+- `scripts/run-clapse-compiler-wasm.mjs` is the strict right-engine entrypoint.
+- Strict parity gates require `engine-mode` to report `wasm`.
+- Required environment:
+
+```bash
+CLAPSE_COMPILER_WASM_PATH=out/clapse_compiler.wasm
+```
+
+Runner ABI contract:
+
+- compiler wasm must export `memory` or `__memory`
+- compiler wasm must export `clapse_run(request_slice_handle: i32) -> response_slice_handle: i32`
+- request/response payloads are UTF-8 JSON stored in slice descriptors
+- supported commands: `compile`, `selfhost-artifacts`, `engine-mode`
+
+Expected JSON payloads:
+
+```json
+{ "command": "compile", "input_path": "path.clapse", "input_source": "..." }
+```
+
+Compile success response:
+
+```json
+{
+  "ok": true,
+  "wasm_base64": "<base64 wasm bytes>",
+  "exports": [{ "name": "main", "arity": 1 }],
+  "dts": "optional pre-rendered .d.ts text"
+}
+```
+
+Compile failure response:
+
+```json
+{ "ok": false, "error": "compile error message" }
+```
+
+Selfhost-artifacts response:
+
+```json
+{
+  "ok": true,
+  "artifacts": {
+    "merged_module.txt": "...",
+    "type_info.txt": "...",
+    "type_info_error.txt": "...",
+    "lowered_ir.txt": "...",
+    "collapsed_ir.txt": "...",
+    "exports.txt": "...",
+    "wasm_stats.txt": "..."
+  }
+}
+```
+
+```bash
+CLAPSE_COMPILER_WASM_PATH=out/clapse_compiler.wasm just selfhost-check-wasm
+```
+
+Bridge artifact for immediate strict-path validation:
+
+```bash
+just selfhost-build-wasm-bridge
+just selfhost-check-wasm-bridge
+```
+
+`selfhost-check-wasm-bridge` runs strict wasm-right parity using a minimal wasm module that exports `clapse_run`/`memory` and forwards requests through host capability imports. This validates the real `CLAPSE_COMPILER_WASM_PATH` runner path end-to-end while the full compiler-in-clapse wasm artifact is still in progress.
+
+Strict gates can be wired explicitly:
+
+```bash
+SELFHOST_LEFT_CMD='CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --' \
+SELFHOST_RIGHT_CMD='CLAPSE_COMPILER_WASM_PATH=out/clapse_compiler.wasm deno run -A scripts/run-clapse-compiler-wasm.mjs --' \
+just selfhost-check-strict
+```
+
+## Self-hosting roadmap (remaining)
+
+Goal: compile Clapse with Clapse (Haskell becomes bootstrap host only, then optional fallback).
+
+1. Define stable compiler IR/ABI contract
+- Freeze typed AST and collapsed IR schemas used by parser/type/lowering/collapse/wasm stages.
+- Freeze runtime value ABI (tagged ints, struct/slice layouts, closure layout, region semantics).
+- Add golden serialization/parity tests for IR and exported wasm API metadata.
+
+2. Build compiler frontend in Clapse
+- Implement tokenizer + parser in Clapse for current syntax subset (modules, data, case, let, operators, signatures, attributes).
+- Keep Haskell parser as oracle; add differential tests (same source => equivalent AST/normalized form).
+- Acceptance: Clapse parser can parse and format phase fixtures + example corpus.
+
+3. Build type + rewrite pipeline in Clapse
+- Implement inference/checking for current core types and class/law/instance rewrite derivation.
+- Port trait/law normalization pipeline and keep rewrite parity with Haskell implementation.
+- Acceptance: type/rewrite outputs match Haskell for corpus fixtures.
+
+4. Build lowering + collapse pipeline in Clapse
+- Port lowering (closures, currying, case desugaring) and collapse passes (normalize, inline, specialize, prune, tail-opt, region/slice/escape passes).
+- Lock pass order and invariants with parity tests.
+- Acceptance: collapsed IR for fixtures is equivalent (modulo temp renaming/order where valid).
+
+5. Build wasm emitter in Clapse
+- Port wasm codegen (numeric builtins, closures, struct helpers, slice/region ops, exports).
+- Keep wasm behavior parity via runtime smoke tests and differential execution.
+- Acceptance: generated wasm passes existing smoke/tests and benchmark harness.
+
+6. Add self-host bootstrap stages (compiler-in-clapse)
+- Stage A: compile Clapse compiler sources with Haskell compiler into wasm artifact.
+- Stage B: run compiled clapse-compiler wasm to compile examples and phase fixtures.
+- Stage C: compare Stage B outputs vs Haskell compiler outputs (exports, behavior, perf envelope).
+- Acceptance: stage B passes `just parity-check` equivalent gates.
+
+7. Introduce CLI host wrapper for production use
+- Keep thin host runner (Rust or Deno) for file IO, process args, and host capability bridging.
+- Clapse compiler logic remains pure and wasm-executed.
+- Acceptance: `clapse` CLI uses wasm compiler path by default behind a flag, then becomes default.
+
+8. Cutover and deprecate Haskell backend path
+- Default to self-hosted compiler path once parity and perf bars are met.
+- Keep Haskell path as fallback for a transition window; remove when stable.
+- Acceptance: release criteria met on correctness, performance, and DX.
+
+Recommended immediate next execution order:
+1. Add AST parity test fixtures (Haskell parser vs clapse parser prototype).
+2. Implement minimal Clapse parser module that covers bootstrap phases 1-8.
+3. Add Stage A/B driver script to compile and run compiler-wasm against example corpus.
+
+Detailed execution checklist:
+- `docs/clapse-language/references/self-hosting-roadmap.md`
 
 ## AI-first docs
 
@@ -510,6 +780,7 @@ Implemented now:
 
 - parser for functions, `data`, `class`, `law`, `instance`
 - parser support for multi-constructor `data` declarations and one-line GADT constructor alternatives
+- parser support for parenthesized recursive old-style constructor field type expressions (`data List a = Nil | Cons a (List a)`)
 - parser support for `let ... in ...` expressions (including `;`-separated bindings)
 - parser support for indented multiline `let` continuation lines in function bodies
 - parser support for guarded function declarations using `|` clauses with `otherwise`
@@ -520,9 +791,13 @@ Implemented now:
 - parser support for HKT-style class/instance declarations (`class <name> <type_ctor> : kind`, `instance <name> : <class> <type_ctor> ...`)
 - parser support for collection literals (`[]`, `[a, b, ...]`)
 - parser tolerance for `module/import/export` directives in syntax validation/format/lsp paths
+- module compilation now module-qualifies constructor helper tags (`__mk_*`/`__get_*`/`__is_*`) to avoid cross-module constructor tag collisions
 - builtin infix operators (`+ - * / == &&`) plus custom operator declarations with fixity/precedence and backtick operators
+- string literal case-pattern matching via `str_eq`-based desugaring
 - compile-time rewrite derivation from class/law/instance declarations
 - closure-aware lowering and normalized collapsed IR with verifier
+- lowering support for top-level function values via zero-capture closures (for example `twice inc x`)
+- lowering support for nullary constructor values in expression position (module-aware zero-arity constructor calls)
 - automatic currying normalization and immediate-apply collapse
 - constant-argument direct-call specialization for small wrapper-style functions
 - small non-recursive interprocedural inlining for wrapper-style functions
@@ -545,7 +820,7 @@ Implemented now:
 - formatter + LSP in same executable
 - module-aware compile path for entry files (`module/import/export`, cycle/missing-module checks, explicit export lists)
 - tree-sitter grammar + highlight/textobject/indent/tags/rainbow query set
-- Node ESM wasm runtime benchmark harness (`scripts/bench-wasm.mjs`) and `just` benchmark targets
+- Deno wasm runtime benchmark harness (`scripts/bench-wasm.mjs`) and `just` benchmark targets
 - browser canvas Game of Life demo driven by Clapse-compiled wasm rule function
 
 Not implemented yet:
@@ -553,3 +828,4 @@ Not implemented yet:
 - full numeric-width runtime (`i64/u64/byte`) in backend ABI
 - full proof checker
 - richer public WASM memory/globals ABI (beyond internal `__heap_ptr` / `__heap` globals)
+- full host capability surface (currently `import host.io`/`read_file` and `import host.time`/`unix_time_ms`)

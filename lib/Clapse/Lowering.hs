@@ -37,14 +37,20 @@ data FlatFunction = FlatFunction
   deriving (Eq, Show)
 
 type ArgMap = [(Name, Int)]
+type GlobalArity = [(Name, Int)]
 
 lowerModule :: Module -> Either String [FlatFunction]
-lowerModule Module {functions = funs} = traverse lowerFunction funs
+lowerModule Module {functions = funs} =
+  let globals = map (\fn -> case fn of Function fnName fnArgs _ _ -> (fnName, length fnArgs)) funs
+   in traverse (lowerFunctionWithGlobals globals) funs
 
 lowerFunction :: Function -> Either String FlatFunction
-lowerFunction (Function fn params expr _) = do
+lowerFunction = lowerFunctionWithGlobals []
+
+lowerFunctionWithGlobals :: GlobalArity -> Function -> Either String FlatFunction
+lowerFunctionWithGlobals globals (Function fn params expr _) = do
   argMap <- buildArgMap params
-  (flatOps, liftedFns, _) <- lowerExpr fn argMap 0 expr
+  (flatOps, liftedFns, _) <- lowerExpr fn argMap globals 0 expr
   pure
     FlatFunction
       { name = fn
@@ -72,31 +78,35 @@ duplicates = reverse . go [] []
       | x `elem` seen = go seen dups xs
       | otherwise = go (x : seen) dups xs
 
-lowerExpr :: Name -> ArgMap -> Int -> Expr -> Either String ([Op], [FlatFunction], Int)
-lowerExpr owner args nextId expr =
+lowerExpr :: Name -> ArgMap -> GlobalArity -> Int -> Expr -> Either String ([Op], [FlatFunction], Int)
+lowerExpr owner args globals nextId expr =
   case expr of
     IntLit n ->
       Right ([PushI32 n], [], nextId)
     StringLit s ->
       Right ([PushString s], [], nextId)
     CollectionLit elems ->
-      lowerExpr owner args nextId (desugarCollectionExpr elems)
+      lowerExpr owner args globals nextId (desugarCollectionExpr elems)
     Case _ _ ->
-      lowerExpr owner args nextId (desugarCaseExpr expr)
+      lowerExpr owner args globals nextId (desugarCaseExpr expr)
     Var v ->
       case lookup v args of
         Just localIx -> Right ([LocalGet localIx], [], nextId)
         Nothing ->
-          if isZeroArityCtorBuiltin v
-            then Right ([Call v 0], [], nextId)
-            else Left ("unknown variable in value position: " <> v)
+          case lookup v globals of
+            Just 0 -> Right ([Call v 0], [], nextId)
+            Just _ -> Right ([MakeClosure v []], [], nextId)
+            _ ->
+              if isZeroArityCtorBuiltin v
+                then Right ([Call v 0], [], nextId)
+                else Left ("unknown variable in value position: " <> v)
     Lam param bodyExpr ->
-      lowerLambda owner args nextId param bodyExpr
+      lowerLambda owner args globals nextId param bodyExpr
     App _ _ ->
-      lowerCall owner args nextId expr
+      lowerCall owner args globals nextId expr
 
-lowerLambda :: Name -> ArgMap -> Int -> Name -> Expr -> Either String ([Op], [FlatFunction], Int)
-lowerLambda owner args nextId param bodyExpr = do
+lowerLambda :: Name -> ArgMap -> GlobalArity -> Int -> Name -> Expr -> Either String ([Op], [FlatFunction], Int)
+lowerLambda owner args globals nextId param bodyExpr = do
   let lamName = owner <> "$lam" <> show nextId
       nextIdAfterName = nextId + 1
       captures = captureNames args (Lam param bodyExpr)
@@ -104,7 +114,7 @@ lowerLambda owner args nextId param bodyExpr = do
   let shiftedCaptureArgMap = captureArgMap
       lambdaParamArgMap = [(param, length captures)]
       lambdaArgMap = shiftedCaptureArgMap <> lambdaParamArgMap
-  (bodyOps, nestedLifted, nextIdFinal) <- lowerExpr lamName lambdaArgMap nextIdAfterName bodyExpr
+  (bodyOps, nestedLifted, nextIdFinal) <- lowerExpr lamName lambdaArgMap globals nextIdAfterName bodyExpr
   captureIndices <- traverse (lookupArg args) captures
   let closureOp = MakeClosure lamName captureIndices
       lambdaFn =
@@ -117,33 +127,33 @@ lowerLambda owner args nextId param bodyExpr = do
           }
   Right ([closureOp], [lambdaFn], nextIdFinal)
 
-lowerCall :: Name -> ArgMap -> Int -> Expr -> Either String ([Op], [FlatFunction], Int)
-lowerCall owner args nextId expr =
+lowerCall :: Name -> ArgMap -> GlobalArity -> Int -> Expr -> Either String ([Op], [FlatFunction], Int)
+lowerCall owner args globals nextId expr =
   case unwindApp expr of
     (Var callee, callArgs)
       | callee `elem` map fst args ->
-          lowerDynamicCall owner args nextId (Var callee) callArgs
+          lowerDynamicCall owner args globals nextId (Var callee) callArgs
       | otherwise ->
-          lowerDirectCall owner args nextId callee callArgs
+          lowerDirectCall owner args globals nextId callee callArgs
     (calleeExpr, callArgs) ->
-      lowerDynamicCall owner args nextId calleeExpr callArgs
+      lowerDynamicCall owner args globals nextId calleeExpr callArgs
 
-lowerDirectCall :: Name -> ArgMap -> Int -> Name -> [Expr] -> Either String ([Op], [FlatFunction], Int)
-lowerDirectCall owner args nextId callee callArgs = do
-  (argOps, liftedFns, nextIdFinal) <- lowerExprList owner args nextId callArgs
+lowerDirectCall :: Name -> ArgMap -> GlobalArity -> Int -> Name -> [Expr] -> Either String ([Op], [FlatFunction], Int)
+lowerDirectCall owner args globals nextId callee callArgs = do
+  (argOps, liftedFns, nextIdFinal) <- lowerExprList owner args globals nextId callArgs
   Right (argOps <> [Call callee (length callArgs)], liftedFns, nextIdFinal)
 
-lowerDynamicCall :: Name -> ArgMap -> Int -> Expr -> [Expr] -> Either String ([Op], [FlatFunction], Int)
-lowerDynamicCall owner args nextId calleeExpr callArgs = do
-  (calleeOps, calleeLifted, nextAfterCallee) <- lowerExpr owner args nextId calleeExpr
-  (argOps, argLifted, nextIdFinal) <- lowerExprList owner args nextAfterCallee callArgs
+lowerDynamicCall :: Name -> ArgMap -> GlobalArity -> Int -> Expr -> [Expr] -> Either String ([Op], [FlatFunction], Int)
+lowerDynamicCall owner args globals nextId calleeExpr callArgs = do
+  (calleeOps, calleeLifted, nextAfterCallee) <- lowerExpr owner args globals nextId calleeExpr
+  (argOps, argLifted, nextIdFinal) <- lowerExprList owner args globals nextAfterCallee callArgs
   Right (calleeOps <> argOps <> [CallClosure (length callArgs)], calleeLifted <> argLifted, nextIdFinal)
 
-lowerExprList :: Name -> ArgMap -> Int -> [Expr] -> Either String ([Op], [FlatFunction], Int)
-lowerExprList _owner _args nextId [] = Right ([], [], nextId)
-lowerExprList owner args nextId (e:es) = do
-  (ops0, lifted0, next0) <- lowerExpr owner args nextId e
-  (ops1, lifted1, next1) <- lowerExprList owner args next0 es
+lowerExprList :: Name -> ArgMap -> GlobalArity -> Int -> [Expr] -> Either String ([Op], [FlatFunction], Int)
+lowerExprList _owner _args _globals nextId [] = Right ([], [], nextId)
+lowerExprList owner args globals nextId (e:es) = do
+  (ops0, lifted0, next0) <- lowerExpr owner args globals nextId e
+  (ops1, lifted1, next1) <- lowerExprList owner args globals next0 es
   Right (ops0 <> ops1, lifted0 <> lifted1, next1)
 
 lookupArg :: ArgMap -> Name -> Either String Int
@@ -193,6 +203,7 @@ freeVars = unique . go []
         PatWildcard -> []
         PatVar n -> [n]
         PatInt _ -> []
+        PatString _ -> []
         PatConstructor _ _ fieldNames -> [n | n <- fieldNames, n /= "_"]
 
     unique :: [Name] -> [Name]

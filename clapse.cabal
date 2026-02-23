@@ -61,11 +61,13 @@ library
     -- Modules exported by the library.
     exposed-modules:
         Clapse.Modules
+        , Clapse.AttributeManifest
         , MyLib
 
     -- Modules included in this library but not exported.
     other-modules:
         Clapse.Format,
+        Clapse.HostCapabilities,
         Clapse.CollapseIR,
         Clapse.Eval,
         Clapse.Laws,
@@ -104,7 +106,8 @@ executable clapse
     other-modules:
         Clapse.Tools.Bench,
         Clapse.Tools.Format,
-        Clapse.Tools.Lsp
+        Clapse.Tools.Lsp,
+        Clapse.Tools.Selfhost
 
     -- The entrypoint to the executable.
     main-is:          Main.hs

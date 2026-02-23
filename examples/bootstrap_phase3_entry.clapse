@@ -1,0 +1,5 @@
+module entry
+import util.math
+export main
+
+main x = double x

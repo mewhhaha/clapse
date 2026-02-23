@@ -1,5 +1,5 @@
 import { decodeInt, encodeInt, instantiateWithRuntime, isTaggedInt } from "./scripts/wasm-runtime.mjs";
-import fs from "node:fs";
+import { cliArgs, fail, nowNs, readBinaryFile } from "./scripts/runtime-env.mjs";
 
 function randomBoard(width, height) {
   const board = new Uint8Array(width * height);
@@ -11,7 +11,7 @@ function randomBoard(width, height) {
 
 async function main() {
   const wasmPath = "out/game_of_life.wasm";
-  const wasmBytes = fs.readFileSync(wasmPath);
+  const wasmBytes = await readBinaryFile(wasmPath);
   const { instance, runtime } = await instantiateWithRuntime(wasmBytes);
 
   const initState = instance.exports.init_state;
@@ -21,13 +21,14 @@ async function main() {
     throw new Error("missing expected exports");
   }
 
-  const width = Number(process.argv[2] ?? "160");
-  const height = Number(process.argv[3] ?? "100");
+  const args = cliArgs();
+  const width = Number(args[0] ?? "160");
+  const height = Number(args[1] ?? "100");
   const taggedW = encodeInt(width);
   const taggedH = encodeInt(height);
 
-  const iterations = Number(process.argv[4] ?? "500");
-  const jump = Number(process.argv[5] ?? "1");
+  const iterations = Number(args[2] ?? "500");
+  const jump = Number(args[3] ?? "1");
 
   const board = randomBoard(width, height);
   let state = initState(runtime.alloc_slice_u8(board), runtime.alloc_slice_u8(new Uint8Array(board.length)));
@@ -40,11 +41,11 @@ async function main() {
   const memoryBefore = runtime.state.memory?.buffer.byteLength ?? 0;
 
   const stepArg = encodeInt(jump);
-  const start = process.hrtime.bigint();
+  const start = nowNs();
   for (let i = 0; i < iterations; i += 1) {
     state = stepStateN(taggedW, taggedH, stepArg, state);
   }
-  const end = process.hrtime.bigint();
+  const end = nowNs();
   const ns = Number(end - start);
   const allocAfter = runtime.state.nextAlloc ?? 0;
   const memoryAfter = runtime.state.memory?.buffer.byteLength ?? 0;
@@ -82,7 +83,5 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("timing failed");
-  console.error(err.stack ?? String(err));
-  process.exit(1);
+  fail(`timing failed\n${err.stack ?? String(err)}`);
 });

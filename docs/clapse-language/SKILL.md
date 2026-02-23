@@ -37,6 +37,9 @@ Use for runtime value encoding, imports, closures/struct/string layout, JS inter
 - `references/tooling-and-workflows.md`
 Use for CLI/Just workflows, LSP/formatter behavior, tree-sitter/Helix integration, and validation command sequences.
 
+- `references/self-hosting-roadmap.md`
+Use for the execution checklist to move from Haskell-hosted compilation to Clapse self-hosting with explicit parity/perf gates.
+
 ## Fast Validation Commands
 
 ```bash

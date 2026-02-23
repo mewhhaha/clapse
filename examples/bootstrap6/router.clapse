@@ -1,0 +1,30 @@
+module bootstrap6.router
+export parse_method, parse_route, dispatch
+
+data Method = Get i64 | Put i64 | UnknownMethod i64
+data Route = Home i64 | Status i64 | UnknownRoute i64
+
+parse_method code = case code of
+  1 -> Get 0
+  2 -> Put 0
+  _ -> UnknownMethod 0
+
+parse_route code = case code of
+  1 -> Home 0
+  2 -> Status 0
+  _ -> UnknownRoute 0
+
+dispatch method route = case method of
+  Get _ -> dispatch_get route
+  Put _ -> dispatch_put route
+  _ -> 0
+
+dispatch_get route = case route of
+  Home _ -> 1
+  Status _ -> 2
+  _ -> 0
+
+dispatch_put route = case route of
+  Home _ -> 3
+  Status _ -> 4
+  _ -> 0

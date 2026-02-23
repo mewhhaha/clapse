@@ -1,0 +1,14 @@
+module bootstrap_phase8_pattern_and_operators
+export main
+
+data Maybe a = Just a | Nothing
+
+add_or_zero x y | x == 0 && y == 0 = 0
+                | otherwise = x + y
+
+maybe_to_int m = case m of
+  Just value -> value
+  Nothing -> 0
+
+main seed =
+  maybe_to_int (Just (add_or_zero seed 0))

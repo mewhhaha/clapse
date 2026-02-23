@@ -7,8 +7,10 @@ import Data.List (isInfixOf, isPrefixOf)
 import Data.Word (Word32, Word8)
 import Clapse.Modules
   ( CompileArtifact(..)
+  , CompileDebugArtifact(..)
   , ExportApi(..)
   , compileEntryModule
+  , compileEntryModuleDebug
   , compileEntryModuleToWasm
   , renderTypeScriptBindings
   )
@@ -27,6 +29,7 @@ import MyLib
   , Function(..)
   , FunctionAttribute(..)
   , FunctionAttributeValue(..)
+  , FunctionAttributePlugin(..)
   , Law(..)
   , Module(..)
   , Op(..)
@@ -56,6 +59,7 @@ import MyLib
   , compileSourceToWasm
   , mkClassDef
   , inferSourceTypes
+  , parseModuleWithPlugins
   , parseModule
   , formatSource
   , renderType
@@ -78,10 +82,16 @@ tests =
   , testParseModuleWithDirectives
   , testParseFunctionAttributes
   , testParseFunctionBenchAttribute
+  , testParseFunctionMemoAttributePluginValidation
+  , testParseFunctionTestAttributePluginValidation
+  , testParseFunctionBenchAttributePluginValidation
+  , testParseModuleWithCustomAttributePlugin
   , testParseFunctionAttributesPropagateAcrossClauses
   , testParseOrphanFunctionAttributeFails
   , testParseLambda
   , testParseStringLiteral
+  , testParseUnaryNegativeLiteral
+  , testParseBinaryMinusUnaffectedByUnaryLiteralSupport
   , testParseCaseMultipleScrutinees
   , testParseCaseConstructorPattern
   , testParseCaseConstructorPatternMultiline
@@ -151,9 +161,12 @@ tests =
   , testEscapeStructFlattenPreservesTagMismatchChecks
   , testSliceSetSharedTargetCopiesBeforeWrite
   , testSliceSetLinearTargetReusesBuffer
+  , testSliceSetReadThenSetReusesBuffer
+  , testSliceSetMultipleSetTargetsForceCopy
   , testCollapseInsertsFunctionRegionScopeForLocalAllocation
   , testCollapseSkipsFunctionRegionScopeForExplicitRegionOps
   , testCollapseSkipsFunctionRegionScopeForEscapingAllocation
+  , testCollapseSkipsFunctionRegionScopeForEscapingConstructorAllocation
   , testHotUncurryWrapperRemovesDirectWrapperCalls
   , testPruneDeadFunctionsFromRootsKeepsReachableOnly
   , testPruneKeepsReachableLiftedDescendant
@@ -179,11 +192,20 @@ tests =
   , testEvalSourceFunctionWithMaybeEitherMonads
   , testDifferentialDataAndNoDoSemantics
   , testDifferentialCaseExpressionSemantics
+  , testDifferentialTaggedArithmeticWraparoundSemantics
+  , testDifferentialDivModNegativeSemantics
   , testEvalCollapsedFunctionWithCurrying
   , testDifferentialMaybeEitherMonadsSemantics
   , testDifferentialSourceCollapsedSemantics
   , testCompileWasmInlinesNumericBuiltins
   , testCompileWasmModule
+  , testCompileWasmRejectsTaggedIntLiteralOutOfRange
+  , testCompileWasmAcceptsTaggedIntLiteralMaxBoundary
+  , testCompileWasmAcceptsTaggedIntLiteralMinBoundary
+  , testCompileWasmRejectsTaggedIntLiteralBelowMin
+  , testCompileWasmRejectsTaggedIntLiteralOutOfRangeInBuiltinArgs
+  , testCompileWasmSupportsMemoAttribute
+  , testCompileWasmRejectsMemoOnNonUnaryFunction
   , testCompileWasmRejectsReservedRuntimeExportNames
   , testCompileWasmSupportsCaseExpressions
   , testCompileWasmSupportsCaseExpressionsMultiline
@@ -205,6 +227,21 @@ tests =
   , testCompileWasmSupportsHeapGlobalAtom
   , testCompileWasmRejectsHeapPtrAsUserFunction
   , testCompileWasmRejectsUnknownGlobalAtom
+  , testBootstrapPhase1FrontendPrimitivesCompiles
+  , testBootstrapPhase2CoreDataStructuresCompiles
+  , testBootstrapPhase3ModuleGraphCompiles
+  , testBootstrapPhase3ModuleGraphRejectsAmbiguousImports
+  , testBootstrapPhase5DispatchPilotCompiles
+  , testBootstrapPhase6ModuleDispatchCompiles
+  , testBootstrapPhase7HostCapabilityCompiles
+  , testBootstrapPhase8PatternAndOperatorsCompiles
+  , testParitySupportsTopLevelFunctionAsValue
+  , testParityExampleCorpusCompiles
+  , testParitySupportsStringCasePatterns
+  , testSelfHostBlockerRejectsHostIoBuiltins
+  , testCompileEntryModuleHostIoBuiltinImport
+  , testCompileEntryModuleDedupesHostIoImport
+  , testCompileEntryModuleHostTimeBuiltinImport
   , testCompileEntryModuleLoadsDottedImport
   , testCompileEntryModuleMissingImport
   , testCompileEntryModuleImportCycle
@@ -212,6 +249,7 @@ tests =
   , testCompileEntryModuleExplicitExports
   , testCompileEntryModuleRejectsUnknownExport
   , testCompileEntryModuleArtifactExportsIncludeArity
+  , testCompileEntryModuleDebugArtifactIncludesStages
   , testRenderTypeScriptBindingsUsesExportArityFromIr
   , testCollapsePipelineUsesDerivedRules
   ]
@@ -346,6 +384,105 @@ testParseFunctionBenchAttribute = do
       failTest "parse function bench attribute" ("unexpected parse error: " <> err)
     Right parsed ->
       assertEqual "parse function bench attribute" expected parsed
+
+testParseFunctionMemoAttributePluginValidation :: IO Bool
+testParseFunctionMemoAttributePluginValidation = do
+  let src =
+        unlines
+          [ "#[memo \"bad\"]"
+          , "fib x = add x 1"
+          ]
+  case parseModule src of
+    Left err ->
+      assertTrue
+        "parse function memo attribute validation"
+        ("memo attribute requires a non-negative integer size" `isInfixOf` err)
+    Right parsed ->
+      failTest
+        "parse function memo attribute validation"
+        ("unexpected parse success: " <> show parsed)
+
+testParseFunctionTestAttributePluginValidation :: IO Bool
+testParseFunctionTestAttributePluginValidation = do
+  let src =
+        unlines
+          [ "#[test 100]"
+          , "fib x = add x 1"
+          ]
+  case parseModule src of
+    Left err ->
+      assertTrue
+        "parse function test attribute validation"
+        ("test attribute requires a string label" `isInfixOf` err)
+    Right parsed ->
+      failTest
+        "parse function test attribute validation"
+        ("unexpected parse success: " <> show parsed)
+
+testParseFunctionBenchAttributePluginValidation :: IO Bool
+testParseFunctionBenchAttributePluginValidation = do
+  let src =
+        unlines
+          [ "#[bench 100]"
+          , "fib x = add x 1"
+          ]
+  case parseModule src of
+    Left err ->
+      assertTrue
+        "parse function bench attribute validation"
+        ("bench attribute requires a string label" `isInfixOf` err)
+    Right parsed ->
+      failTest
+        "parse function bench attribute validation"
+        ("unexpected parse success: " <> show parsed)
+
+testParseModuleWithCustomAttributePlugin :: IO Bool
+testParseModuleWithCustomAttributePlugin = do
+  let labelPlugin =
+        FunctionAttributePlugin
+          { pluginName = "label"
+          , pluginApply = \fn attr ->
+              case attributeValue attr of
+                Just (AttributeString label) ->
+                  case fn of
+                    Function _fnName args0 body0 attrs ->
+                      Right
+                        (Function
+                          { name = _fnName ++ "_" ++ label
+                          , args = args0
+                          , body = body0
+                          , attributes = attrs
+                          })
+                _ ->
+                  Left "label requires string value"
+          }
+      src =
+        unlines
+          [ "#[label \"trace\"]"
+          , "step n = mul n 2"
+          ]
+      expected =
+        Module
+          { signatures = []
+          , functions =
+              [ Function
+                  { name = "step_trace"
+                  , args = ["n"]
+                  , body = App (App (Var "mul") (Var "n")) (IntLit 2)
+                  , attributes =
+                      [ FunctionAttribute
+                          { attributeName = "label"
+                          , attributeValue = Just (AttributeString "trace")
+                          }
+                      ]
+                  }
+              ]
+          }
+  case parseModuleWithPlugins [labelPlugin] src of
+    Left err ->
+      failTest "parse with custom attribute plugin" ("unexpected parse error: " <> err)
+    Right parsed ->
+      assertEqual "parse with custom attribute plugin" expected parsed
 
 testParseFunctionAttributesPropagateAcrossClauses :: IO Bool
 testParseFunctionAttributesPropagateAcrossClauses = do
@@ -640,6 +777,48 @@ testParseStringLiteral = do
       failTest "parse string literals" ("unexpected parse error: " <> err)
     Right parsed ->
       assertEqual "parse string literals" expected parsed
+
+testParseUnaryNegativeLiteral :: IO Bool
+testParseUnaryNegativeLiteral = do
+  let src = "main x = x + -1"
+      expected =
+        Module
+          { signatures = []
+          , functions =
+              [ Function
+                  { name = "main"
+                  , args = ["x"]
+                  , body = App (App (Var "add") (Var "x")) (IntLit (-1))
+                  , attributes = []
+                  }
+              ]
+          }
+  case parseModule src of
+    Left err ->
+      failTest "parse unary negative literal" ("unexpected parse error: " <> err)
+    Right parsed ->
+      assertEqual "parse unary negative literal" expected parsed
+
+testParseBinaryMinusUnaffectedByUnaryLiteralSupport :: IO Bool
+testParseBinaryMinusUnaffectedByUnaryLiteralSupport = do
+  let src = "main x = x - 1"
+      expected =
+        Module
+          { signatures = []
+          , functions =
+              [ Function
+                  { name = "main"
+                  , args = ["x"]
+                  , body = App (App (Var "sub") (Var "x")) (IntLit 1)
+                  , attributes = []
+                  }
+              ]
+          }
+  case parseModule src of
+    Left err ->
+      failTest "parse binary minus unaffected by unary literal support" ("unexpected parse error: " <> err)
+    Right parsed ->
+      assertEqual "parse binary minus unaffected by unary literal support" expected parsed
 
 testParseCaseMultipleScrutinees :: IO Bool
 testParseCaseMultipleScrutinees = do
@@ -2224,6 +2403,79 @@ testSliceSetLinearTargetReusesBuffer = do
         VCallDirect "slice_set_u8" _ -> True
         _ -> False
 
+testSliceSetReadThenSetReusesBuffer :: IO Bool
+testSliceSetReadThenSetReusesBuffer = do
+  let src =
+        unlines
+          [ "main idx a b = let s0 = slice_new_u8 16"
+          , "  s1 = slice_set_u8 s0 idx a"
+          , "  seen = slice_get_u8 s1 idx"
+          , "  s2 = slice_set_u8 s1 idx b"
+          , "  in add seen (slice_get_u8 s2 idx)"
+          ]
+  case compileSourceToCollapsed src of
+    Left err ->
+      failTest "slice_set read then set reuses buffer" ("unexpected pipeline error: " <> err)
+    Right collapsed ->
+      case findCollapsed "main" collapsed of
+        Nothing ->
+          failTest "slice_set read then set reuses buffer" "expected function main in collapsed output"
+        Just fn ->
+          let vals = map value (getBinds fn)
+              memcpyCount = length (filter isMemcpy vals)
+              sliceSetCount = length (filter isSliceSet vals)
+           in assertTrue
+                "slice_set read then set reuses buffer"
+                (memcpyCount == 0 && sliceSetCount == 2)
+  where
+    getBinds :: CollapsedFunction -> [Bind]
+    getBinds (CollapsedFunction _ _ _ bs _ _) = bs
+
+    isMemcpy :: Value -> Bool
+    isMemcpy val =
+      case val of
+        VCallDirect "memcpy_u8" _ -> True
+        _ -> False
+
+    isSliceSet :: Value -> Bool
+    isSliceSet val =
+      case val of
+        VCallDirect "slice_set_u8" _ -> True
+        _ -> False
+
+testSliceSetMultipleSetTargetsForceCopy :: IO Bool
+testSliceSetMultipleSetTargetsForceCopy = do
+  let src =
+        unlines
+          [ "main idx a b c = let s0 = slice_new_u8 16"
+          , "  s1 = slice_set_u8 s0 idx a"
+          , "  s2 = slice_set_u8 s1 idx b"
+          , "  s3 = slice_set_u8 s1 idx c"
+          , "  in add (slice_get_u8 s2 idx) (slice_get_u8 s3 idx)"
+          ]
+  case compileSourceToCollapsed src of
+    Left err ->
+      failTest "slice_set multiple set targets force copy" ("unexpected pipeline error: " <> err)
+    Right collapsed ->
+      case findCollapsed "main" collapsed of
+        Nothing ->
+          failTest "slice_set multiple set targets force copy" "expected function main in collapsed output"
+        Just fn ->
+          let vals = map value (getBinds fn)
+              memcpyCount = length (filter isMemcpy vals)
+           in assertTrue
+                "slice_set multiple set targets force copy"
+                (memcpyCount >= 1)
+  where
+    getBinds :: CollapsedFunction -> [Bind]
+    getBinds (CollapsedFunction _ _ _ bs _ _) = bs
+
+    isMemcpy :: Value -> Bool
+    isMemcpy val =
+      case val of
+        VCallDirect "memcpy_u8" _ -> True
+        _ -> False
+
 testCollapseInsertsFunctionRegionScopeForLocalAllocation :: IO Bool
 testCollapseInsertsFunctionRegionScopeForLocalAllocation = do
   let src =
@@ -2284,6 +2536,34 @@ testCollapseSkipsFunctionRegionScopeForEscapingAllocation = do
           let (markCount, resetCount, _markUsages) = regionOpCountsAndUsages fn
            in assertTrue
                 "collapse skips function region scope for escaping allocation"
+                (markCount == 0 && resetCount == 0)
+
+testCollapseSkipsFunctionRegionScopeForEscapingConstructorAllocation :: IO Bool
+testCollapseSkipsFunctionRegionScopeForEscapingConstructorAllocation = do
+  let src =
+        unlines
+          [ "data Method = Get i64 | Put i64 | UnknownMethod i64"
+          , "parse_method code = case code of"
+          , "  1 -> Get 0"
+          , "  2 -> Put 0"
+          , "  _ -> UnknownMethod 0"
+          , "main code = parse_method code"
+          ]
+  case compileSourceToCollapsed src of
+    Left err ->
+      failTest
+        "collapse skips function region scope for escaping constructor allocation"
+        ("unexpected pipeline error: " <> err)
+    Right collapsed ->
+      case findCollapsed "parse_method" collapsed of
+        Nothing ->
+          failTest
+            "collapse skips function region scope for escaping constructor allocation"
+            "expected function parse_method in collapsed output"
+        Just fn ->
+          let (markCount, resetCount, _markUsages) = regionOpCountsAndUsages fn
+           in assertTrue
+                "collapse skips function region scope for escaping constructor allocation"
                 (markCount == 0 && resetCount == 0)
 
 testHotUncurryWrapperRemovesDirectWrapperCalls :: IO Bool
@@ -2846,6 +3126,64 @@ testDifferentialCaseExpressionSemantics = do
       differentialCheckSourceCollapsed modu "main" [x]
       go modu xs
 
+testDifferentialTaggedArithmeticWraparoundSemantics :: IO Bool
+testDifferentialTaggedArithmeticWraparoundSemantics = do
+  let src = "main x = add x 1"
+      payloadMax = 1073741823
+      payloadMin = -1073741824
+  case parseModule src of
+    Left err ->
+      failTest "differential tagged arithmetic wraparound semantics" ("unexpected parse error: " <> err)
+    Right modu -> do
+      diffOk <- case differentialCheckSourceCollapsed modu "main" [payloadMax] of
+        Left err ->
+          failTest "differential tagged arithmetic wraparound semantics" err
+        Right () ->
+          pure True
+      if not diffOk
+        then pure False
+        else do
+          sourceOk <- case evalSourceFunction modu "main" [payloadMax] of
+            Left err ->
+              failTest "differential tagged arithmetic wraparound semantics" ("unexpected source eval error: " <> err)
+            Right out ->
+              assertEqual "differential tagged arithmetic wraparound semantics (source)" payloadMin out
+          if not sourceOk
+            then pure False
+            else
+              case parseModule src >>= lowerModule >>= collapseAndVerifyModule of
+                Left err ->
+                  failTest "differential tagged arithmetic wraparound semantics" ("unexpected collapse error: " <> err)
+                Right collapsed ->
+                  case evalCollapsedFunction collapsed "main" [payloadMax] of
+                    Left err ->
+                      failTest "differential tagged arithmetic wraparound semantics" ("unexpected collapsed eval error: " <> err)
+                    Right out ->
+                      assertEqual "differential tagged arithmetic wraparound semantics (collapsed)" payloadMin out
+
+testDifferentialDivModNegativeSemantics :: IO Bool
+testDifferentialDivModNegativeSemantics = do
+  let src =
+        unlines
+          [ "main x = add (mul (div (sub 0 x) 10) 100) (mod (sub 0 x) 10)"
+          ]
+      inputs = [0 .. 32]
+  case parseModule src of
+    Left err ->
+      failTest "differential div/mod negative semantics" ("unexpected parse error: " <> err)
+    Right modu ->
+      case go modu inputs of
+        Left err ->
+          failTest "differential div/mod negative semantics" err
+        Right () ->
+          passTest "differential div/mod negative semantics"
+  where
+    go :: Module -> [Int] -> Either String ()
+    go _ [] = Right ()
+    go modu (x:xs) = do
+      differentialCheckSourceCollapsed modu "main" [x]
+      go modu xs
+
 testDifferentialSourceCollapsedSemantics :: IO Bool
 testDifferentialSourceCollapsedSemantics = do
   let src =
@@ -2874,7 +3212,7 @@ testCompileWasmInlinesNumericBuiltins :: IO Bool
 testCompileWasmInlinesNumericBuiltins = do
   let src =
         unlines
-          [ "main x = and (eq (add (mul x 2) (sub x 3)) (div x 1)) 1"
+          [ "main x = and (eq (add (mul x 2) (sub x 3)) (div x 1)) (eq (mod x 5) (mod x 5))"
           ]
       removedRuntimeFns =
         [ "rt_i32_const"
@@ -2882,6 +3220,7 @@ testCompileWasmInlinesNumericBuiltins = do
         , "rt_sub"
         , "rt_mul"
         , "rt_div"
+        , "rt_mod"
         , "rt_eq"
         , "rt_and"
         ]
@@ -2906,6 +3245,124 @@ testCompileWasmModule = do
       failTest "compile wasm module from source" ("unexpected wasm compile error: " <> err)
     Right wasmBytes ->
       assertTrue "compile wasm module from source" (BS.take 4 wasmBytes == wasmMagic)
+
+testCompileWasmRejectsTaggedIntLiteralOutOfRange :: IO Bool
+testCompileWasmRejectsTaggedIntLiteralOutOfRange = do
+  let src =
+        unlines
+          [ "main _ = 1073741824"
+          ]
+  case compileSourceToWasm src of
+    Left err ->
+      assertTrue
+        "compile wasm rejects tagged int literal out of range"
+        ("tagged i32 payload out of range" `isInfixOf` err)
+    Right _ ->
+      failTest
+        "compile wasm rejects tagged int literal out of range"
+        "expected out-of-range tagged literal compile failure"
+
+testCompileWasmAcceptsTaggedIntLiteralMaxBoundary :: IO Bool
+testCompileWasmAcceptsTaggedIntLiteralMaxBoundary = do
+  let src =
+        unlines
+          [ "main _ = 1073741823"
+          ]
+      wasmMagic = BS.pack [0x00, 0x61, 0x73, 0x6d]
+  case compileSourceToWasm src of
+    Left err ->
+      failTest
+        "compile wasm accepts tagged int literal max boundary"
+        ("unexpected wasm compile error: " <> err)
+    Right wasmBytes ->
+      assertTrue
+        "compile wasm accepts tagged int literal max boundary"
+        (BS.take 4 wasmBytes == wasmMagic)
+
+testCompileWasmAcceptsTaggedIntLiteralMinBoundary :: IO Bool
+testCompileWasmAcceptsTaggedIntLiteralMinBoundary = do
+  let src =
+        unlines
+          [ "main _ = -1073741824"
+          ]
+      wasmMagic = BS.pack [0x00, 0x61, 0x73, 0x6d]
+  case compileSourceToWasm src of
+    Left err ->
+      failTest
+        "compile wasm accepts tagged int literal min boundary"
+        ("unexpected wasm compile error: " <> err)
+    Right wasmBytes ->
+      assertTrue
+        "compile wasm accepts tagged int literal min boundary"
+        (BS.take 4 wasmBytes == wasmMagic)
+
+testCompileWasmRejectsTaggedIntLiteralBelowMin :: IO Bool
+testCompileWasmRejectsTaggedIntLiteralBelowMin = do
+  let src =
+        unlines
+          [ "main _ = -1073741825"
+          ]
+  case compileSourceToWasm src of
+    Left err ->
+      assertTrue
+        "compile wasm rejects tagged int literal below min"
+        ("tagged i32 payload out of range" `isInfixOf` err)
+    Right _ ->
+      failTest
+        "compile wasm rejects tagged int literal below min"
+        "expected below-min tagged literal compile failure"
+
+testCompileWasmRejectsTaggedIntLiteralOutOfRangeInBuiltinArgs :: IO Bool
+testCompileWasmRejectsTaggedIntLiteralOutOfRangeInBuiltinArgs = do
+  let src =
+        unlines
+          [ "main bytes = slice_get_u8 bytes 1073741824"
+          ]
+  case compileSourceToWasm src of
+    Left err ->
+      assertTrue
+        "compile wasm rejects tagged int literal out of range in builtin args"
+        ("tagged i32 payload out of range" `isInfixOf` err)
+    Right _ ->
+      failTest
+        "compile wasm rejects tagged int literal out of range in builtin args"
+        "expected out-of-range tagged literal compile failure"
+
+testCompileWasmSupportsMemoAttribute :: IO Bool
+testCompileWasmSupportsMemoAttribute = do
+  let src =
+        unlines
+          [ "#[memo 256]"
+          , "fib n = case n of"
+          , "  0 -> 0"
+          , "  1 -> 1"
+          , "  _ -> add (fib (sub n 1)) (fib (sub n 2))"
+          , "main n = fib n"
+          ]
+      wasmMagic = BS.pack [0x00, 0x61, 0x73, 0x6d]
+  case compileSourceToWasm src of
+    Left err ->
+      failTest "compile wasm supports memo attribute" ("unexpected wasm compile error: " <> err)
+    Right wasmBytes ->
+      assertTrue "compile wasm supports memo attribute" (BS.take 4 wasmBytes == wasmMagic)
+
+testCompileWasmRejectsMemoOnNonUnaryFunction :: IO Bool
+testCompileWasmRejectsMemoOnNonUnaryFunction = do
+  let src =
+        unlines
+          [ "#[memo 32]"
+          , "add2 x y = add x y"
+          , "main x = add2 x 1"
+          ]
+  case compileSourceToWasm src of
+    Left err ->
+      assertTrue
+        "compile wasm rejects memo on non-unary function"
+        ("memo currently supports unary top-level functions only" `isInfixOf` err)
+    Right _ ->
+      failTest
+        "compile wasm rejects memo on non-unary function"
+        "expected compile failure for non-unary memo function, but compilation succeeded"
 
 testCompileWasmRejectsReservedRuntimeExportNames :: IO Bool
 testCompileWasmRejectsReservedRuntimeExportNames = do
@@ -3296,6 +3753,405 @@ testCompileWasmRejectsUnknownGlobalAtom = do
         "compile wasm rejects unknown global atom"
         "expected compile failure for unknown global atom"
 
+testBootstrapPhase1FrontendPrimitivesCompiles :: IO Bool
+testBootstrapPhase1FrontendPrimitivesCompiles = do
+  let src =
+        unlines
+          [ "data Token method path = Tok method path"
+          , "is_method t = case t of Tok method _ -> method"
+          , "path_value t = case t of Tok _ path -> path"
+          , "main x = (is_method (Tok 1 x)) + (path_value (Tok 1 x))"
+          ]
+      wasmMagic = BS.pack [0x00, 0x61, 0x73, 0x6d]
+  case compileSourceToWasm src of
+    Left err ->
+      failTest
+        "bootstrap phase 1 frontend primitives compiles"
+        ("unexpected wasm compile error: " <> err)
+    Right wasmBytes ->
+      assertTrue
+        "bootstrap phase 1 frontend primitives compiles"
+        (BS.take 4 wasmBytes == wasmMagic)
+
+testBootstrapPhase2CoreDataStructuresCompiles :: IO Bool
+testBootstrapPhase2CoreDataStructuresCompiles = do
+  let src =
+        unlines
+          [ "data List a = Nil | Cons a (List a)"
+          , "sum_three xs = case xs of"
+          , "  Nil -> 0"
+          , "  Cons a rest -> add_tail a rest"
+          , "add_tail a ys = case ys of"
+          , "  Nil -> a"
+          , "  Cons b tail -> add_tail2 a b tail"
+          , "add_tail2 a b zs = case zs of"
+          , "  Nil -> a + b"
+          , "  Cons c _ -> a + b + c"
+          , "mk_three a b c = Cons a (Cons b (Cons c Nil))"
+          , "main x = sum_three (mk_three x 2 3)"
+          ]
+      wasmMagic = BS.pack [0x00, 0x61, 0x73, 0x6d]
+  case compileSourceToWasm src of
+    Left err ->
+      failTest
+        "bootstrap phase 2 core data structures compiles"
+        ("unexpected wasm compile error: " <> err)
+    Right wasmBytes ->
+      assertTrue
+        "bootstrap phase 2 core data structures compiles"
+        (BS.take 4 wasmBytes == wasmMagic)
+
+testBootstrapPhase3ModuleGraphCompiles :: IO Bool
+testBootstrapPhase3ModuleGraphCompiles = do
+  let files =
+        [ ( "entry.clapse"
+          , unlines
+              [ "module entry"
+              , "import util.math"
+              , "export main"
+              , "main x = double x"
+              ]
+          )
+        , ( "util/math.clapse"
+          , unlines
+              [ "module util.math"
+              , "import util.base"
+              , "export double"
+              , "double x = (square x) + 1"
+              ]
+          )
+        , ( "util/base.clapse"
+          , unlines
+              [ "module util.base"
+              , "export square"
+              , "square x = x * x"
+              ]
+          )
+        ]
+      wasmMagic = BS.pack [0x00, 0x61, 0x73, 0x6d]
+  result <- compileFixtureModule files "entry.clapse"
+  case result of
+    Left err ->
+      failTest
+        "bootstrap phase 3 module graph compiles"
+        ("unexpected compile error: " <> err)
+    Right wasmBytes ->
+      assertTrue
+        "bootstrap phase 3 module graph compiles"
+        (BS.take 4 wasmBytes == wasmMagic)
+
+testBootstrapPhase3ModuleGraphRejectsAmbiguousImports :: IO Bool
+testBootstrapPhase3ModuleGraphRejectsAmbiguousImports = do
+  let files =
+        [ ( "entry.clapse"
+          , unlines
+              [ "module entry"
+              , "import util.left"
+              , "import util.right"
+              , "main x = project x"
+              ]
+          )
+        , ( "util/left.clapse"
+          , unlines
+              [ "module util.left"
+              , "export project"
+              , "project x = add x 1"
+              ]
+          )
+        , ( "util/right.clapse"
+          , unlines
+              [ "module util.right"
+              , "export project"
+              , "project x = mul x 2"
+              ]
+          )
+        ]
+  result <- compileFixtureModule files "entry.clapse"
+  case result of
+    Left err ->
+      assertTrue
+        "bootstrap phase 3 module graph rejects ambiguous imports"
+        ("ambiguous import for project" `isInfixOf` err)
+    Right _ ->
+      failTest
+        "bootstrap phase 3 module graph rejects ambiguous imports"
+        "expected ambiguous import failure"
+
+testBootstrapPhase5DispatchPilotCompiles :: IO Bool
+testBootstrapPhase5DispatchPilotCompiles = do
+  src <- readFile "examples/bootstrap_phase5_dispatch_pilot.clapse"
+  case compileSourceToWasm src of
+    Left err ->
+      failTest
+        "bootstrap phase 5 dispatch pilot compiles"
+        ("unexpected wasm compile error: " <> err)
+    Right wasmBytes ->
+      assertTrue
+        "bootstrap phase 5 dispatch pilot compiles"
+        (BS.take 4 wasmBytes == BS.pack [0x00, 0x61, 0x73, 0x6d])
+
+testBootstrapPhase6ModuleDispatchCompiles :: IO Bool
+testBootstrapPhase6ModuleDispatchCompiles = do
+  result <- compileEntryModuleToWasm "examples/bootstrap_phase6_entry.clapse"
+  case result of
+    Left err ->
+      failTest
+        "bootstrap phase 6 module dispatch compiles"
+        ("unexpected compile error: " <> err)
+    Right wasmBytes ->
+      assertTrue
+        "bootstrap phase 6 module dispatch compiles"
+        (BS.take 4 wasmBytes == BS.pack [0x00, 0x61, 0x73, 0x6d])
+
+testBootstrapPhase7HostCapabilityCompiles :: IO Bool
+testBootstrapPhase7HostCapabilityCompiles = do
+  result <- compileEntryModuleToWasm "examples/bootstrap_phase7_host_capability_pilot.clapse"
+  case result of
+    Left err ->
+      failTest
+        "bootstrap phase 7 host capability compiles"
+        ("unexpected compile error: " <> err)
+    Right wasmBytes ->
+      assertTrue
+        "bootstrap phase 7 host capability compiles"
+        (BS.take 4 wasmBytes == BS.pack [0x00, 0x61, 0x73, 0x6d])
+
+testBootstrapPhase8PatternAndOperatorsCompiles :: IO Bool
+testBootstrapPhase8PatternAndOperatorsCompiles = do
+  src <- readFile "examples/bootstrap_phase8_pattern_and_operators.clapse"
+  case compileSourceToWasm src of
+    Left err ->
+      failTest
+        "bootstrap phase 8 pattern/operators compiles"
+        ("unexpected wasm compile error: " <> err)
+    Right wasmBytes ->
+      assertTrue
+        "bootstrap phase 8 pattern/operators compiles"
+        (BS.take 4 wasmBytes == BS.pack [0x00, 0x61, 0x73, 0x6d])
+
+testParitySupportsTopLevelFunctionAsValue :: IO Bool
+testParitySupportsTopLevelFunctionAsValue = do
+  let src =
+        unlines
+          [ "twice f x = f (f x)"
+          , "inc x = x + 1"
+          , "main x = twice inc x"
+          ]
+  case compileSourceToWasm src of
+    Left err ->
+      failTest
+        "parity: supports top-level function as value"
+        ("unexpected compile error: " <> err)
+    Right _ -> do
+      case parseModule src of
+        Left err ->
+          failTest
+            "parity: supports top-level function as value"
+            ("unexpected parse error: " <> err)
+        Right modu ->
+          case differentialCheckSourceCollapsed modu "main" [7] of
+            Left err ->
+              failTest
+                "parity: supports top-level function as value"
+                ("unexpected differential failure: " <> err)
+            Right () ->
+              assertTrue
+                "parity: supports top-level function as value"
+                True
+
+testParityExampleCorpusCompiles :: IO Bool
+testParityExampleCorpusCompiles = do
+  let directExamples =
+        [ "examples/identity.clapse"
+        , "examples/currying.clapse"
+        , "examples/closures.clapse"
+        , "examples/case_of.clapse"
+        , "examples/data.clapse"
+        , "examples/monads_maybe_either.clapse"
+        , "examples/bootstrap_phase1_frontend_primitives.clapse"
+        , "examples/bootstrap_phase2_core_data_structures.clapse"
+        , "examples/bootstrap_phase4_parser_pilot.clapse"
+        , "examples/bootstrap_phase5_dispatch_pilot.clapse"
+        , "examples/bootstrap_phase8_pattern_and_operators.clapse"
+        ]
+  directOk <- and <$> traverse compileDirectExample directExamples
+  modulePhase3Ok <- compileModuleEntry "examples/bootstrap_phase3_entry.clapse"
+  modulePhase6Ok <- compileModuleEntry "examples/bootstrap_phase6_entry.clapse"
+  modulePhase7Ok <- compileModuleEntry "examples/bootstrap_phase7_host_capability_pilot.clapse"
+  assertTrue
+    "parity: example corpus compiles"
+    (directOk && modulePhase3Ok && modulePhase6Ok && modulePhase7Ok)
+  where
+    compileDirectExample :: FilePath -> IO Bool
+    compileDirectExample path = do
+      src <- readFile path
+      case compileSourceToWasm src of
+        Left err ->
+          failTest
+            "parity: example corpus compiles"
+            ("compile failed for " <> path <> ": " <> err)
+        Right wasmBytes ->
+          assertTrue
+            "parity: example corpus compiles"
+            (BS.take 4 wasmBytes == BS.pack [0x00, 0x61, 0x73, 0x6d])
+
+    compileModuleEntry :: FilePath -> IO Bool
+    compileModuleEntry path = do
+      result <- compileEntryModuleToWasm path
+      case result of
+        Left err ->
+          failTest
+            "parity: example corpus compiles"
+            ("module compile failed for " <> path <> ": " <> err)
+        Right wasmBytes ->
+          assertTrue
+            "parity: example corpus compiles"
+            (BS.take 4 wasmBytes == BS.pack [0x00, 0x61, 0x73, 0x6d])
+
+testParitySupportsStringCasePatterns :: IO Bool
+testParitySupportsStringCasePatterns = do
+  let src =
+        unlines
+          [ "route s = case s of"
+          , "  \"GET\" -> 1"
+          , "  _ -> 0"
+          , "main _ = route \"GET\""
+          ]
+  case compileSourceToWasm src of
+    Left err ->
+      failTest
+        "parity: supports string case patterns"
+        ("unexpected compile error: " <> err)
+    Right _ ->
+      case parseModule src of
+        Left err ->
+          failTest
+            "parity: supports string case patterns"
+            ("unexpected parse error: " <> err)
+        Right modu ->
+          case differentialCheckSourceCollapsed modu "main" [0] of
+            Left err ->
+              failTest
+                "parity: supports string case patterns"
+                ("unexpected differential failure: " <> err)
+            Right () ->
+              assertTrue
+                "parity: supports string case patterns"
+                True
+
+testSelfHostBlockerRejectsHostIoBuiltins :: IO Bool
+testSelfHostBlockerRejectsHostIoBuiltins = do
+  let src =
+        unlines
+          [ "main x = read_file x"
+          ]
+  case compileSourceToWasm src of
+    Left err ->
+      assertTrue
+        "self-host blocker: rejects host io builtins"
+        ("wasm backend: unknown direct callee: read_file" `isInfixOf` err)
+    Right _ ->
+      failTest
+        "self-host blocker: rejects host io builtins"
+        "expected compile failure for unknown host IO builtin"
+
+testCompileEntryModuleHostIoBuiltinImport :: IO Bool
+testCompileEntryModuleHostIoBuiltinImport = do
+  let files =
+        [ ( "entry.clapse"
+          , unlines
+              [ "module entry"
+              , "import host.io"
+              , "main path = read_file path"
+              ]
+          )
+        ]
+      expectedMagic = BS.pack [0x00, 0x61, 0x73, 0x6d]
+  result <- compileFixtureModule files "entry.clapse"
+  case result of
+    Left err ->
+      failTest "compile entry module host.io builtin import" ("unexpected compile error: " <> err)
+    Right wasmBytes ->
+      case parseWasmImports wasmBytes of
+        Left err ->
+          failTest "compile entry module host.io builtin import" err
+        Right imports ->
+          let hostReadFileImports =
+                [ ()
+                | (modName, fieldName, kind) <- imports
+                , modName == "host"
+                , fieldName == "read_file"
+                , kind == 0
+                ]
+           in assertTrue
+                "compile entry module host.io builtin import"
+                (BS.take 4 wasmBytes == expectedMagic && length hostReadFileImports == 1)
+
+testCompileEntryModuleDedupesHostIoImport :: IO Bool
+testCompileEntryModuleDedupesHostIoImport = do
+  let files =
+        [ ( "entry.clapse"
+          , unlines
+              [ "module entry"
+              , "import host.io"
+              , "import host.io"
+              , "main path = read_file path"
+              ]
+          )
+        ]
+  result <- compileFixtureModule files "entry.clapse"
+  case result of
+    Left err ->
+      failTest "compile entry module dedupes host.io import" ("unexpected compile error: " <> err)
+    Right wasmBytes ->
+      case parseWasmImports wasmBytes of
+        Left err ->
+          failTest "compile entry module dedupes host.io import" err
+        Right imports ->
+          let hostReadFileImports =
+                [ ()
+                | (modName, fieldName, kind) <- imports
+                , modName == "host"
+                , fieldName == "read_file"
+                , kind == 0
+                ]
+           in assertEqual
+                "compile entry module dedupes host.io import"
+                1
+                (length hostReadFileImports)
+
+testCompileEntryModuleHostTimeBuiltinImport :: IO Bool
+testCompileEntryModuleHostTimeBuiltinImport = do
+  let files =
+        [ ( "entry.clapse"
+          , unlines
+              [ "module entry"
+              , "import host.time"
+              , "main x = unix_time_ms x"
+              ]
+          )
+        ]
+      expectedMagic = BS.pack [0x00, 0x61, 0x73, 0x6d]
+  result <- compileFixtureModule files "entry.clapse"
+  case result of
+    Left err ->
+      failTest "compile entry module host.time builtin import" ("unexpected compile error: " <> err)
+    Right wasmBytes ->
+      case parseWasmImports wasmBytes of
+        Left err ->
+          failTest "compile entry module host.time builtin import" err
+        Right imports ->
+          let hostTimeImports =
+                [ ()
+                | (modName, fieldName, kind) <- imports
+                , modName == "host"
+                , fieldName == "unix_time_ms"
+                , kind == 0
+                ]
+           in assertTrue
+                "compile entry module host.time builtin import"
+                (BS.take 4 wasmBytes == expectedMagic && length hostTimeImports == 1)
+
 testCompileEntryModuleLoadsDottedImport :: IO Bool
 testCompileEntryModuleLoadsDottedImport = do
   let files =
@@ -3469,6 +4325,41 @@ testCompileEntryModuleArtifactExportsIncludeArity = do
         [ExportApi {exportName = "main", exportArity = 2}]
         (artifactExports artifact)
 
+testCompileEntryModuleDebugArtifactIncludesStages :: IO Bool
+testCompileEntryModuleDebugArtifactIncludesStages = do
+  let files =
+        [ ( "entry.clapse"
+          , unlines
+              [ "module entry"
+              , "export main"
+              , "main x y = add x y"
+              ]
+          )
+        ]
+  result <- compileFixtureDebugArtifact files "entry.clapse"
+  case result of
+    Left err ->
+      failTest "compile entry module debug artifact includes stages" ("unexpected compile error: " <> err)
+    Right dbg ->
+      let hasFunctions =
+            case debugMergedModule dbg of
+              Module {functions = fs} -> not (null fs)
+          hasTypes =
+            case debugTypeInfo dbg of
+              Just infos -> not (null infos)
+              Nothing -> False
+          hasNoTypeError =
+            case debugTypeInfoError dbg of
+              Nothing -> True
+              Just _ -> False
+          hasLowered = not (null (debugLowered dbg))
+          hasCollapsed = not (null (debugCollapsed dbg))
+          hasExports = debugExports dbg == [ExportApi {exportName = "main", exportArity = 2}]
+          hasWasmHeader = BS.take 4 (debugWasm dbg) == BS.pack [0x00, 0x61, 0x73, 0x6d]
+       in assertTrue
+            "compile entry module debug artifact includes stages"
+            (hasFunctions && hasTypes && hasNoTypeError && hasLowered && hasCollapsed && hasExports && hasWasmHeader)
+
 testRenderTypeScriptBindingsUsesExportArityFromIr :: IO Bool
 testRenderTypeScriptBindingsUsesExportArityFromIr = do
   let bindings =
@@ -3582,8 +4473,68 @@ parseWasmExports wasmBytes = do
         Left _ -> Right fallback
         Right value -> Right value
 
+parseWasmImports :: BS.ByteString -> Either String [(String, String, Word8)]
+parseWasmImports wasmBytes = do
+  let wasmOffset = 8
+  importSection <- findSection wasmBytes wasmOffset sectionImport
+  parseImportSection importSection
+    `orElse` []
+  where
+    orElse :: Either String a -> a -> Either String a
+    orElse action fallback =
+      case action of
+        Left _ -> Right fallback
+        Right value -> Right value
+
+parseImportSection :: BS.ByteString -> Either String [(String, String, Word8)]
+parseImportSection payload = do
+  (count, offsetAfterCount) <- readU32 payload 0
+  let importCount = fromIntegral count
+  foldM parseImport ([], fromIntegral offsetAfterCount) [1 .. importCount]
+    >>= (pure . reverse . fst)
+  where
+    parseImport
+      :: ([(String, String, Word8)], Int)
+      -> Word32
+      -> Either String ([(String, String, Word8)], Int)
+    parseImport (acc, offset) _ = do
+      (moduleLen, off1) <- readU32 payload offset
+      let moduleBytes = BS.take (fromIntegral moduleLen) (BS.drop off1 payload)
+          off2 = off1 + fromIntegral moduleLen
+      (fieldLen, off3) <- readU32 payload off2
+      let fieldBytes = BS.take (fromIntegral fieldLen) (BS.drop off3 payload)
+          off4 = off3 + fromIntegral fieldLen
+      kind <- readByte payload off4
+      nextOffset <-
+        case kind of
+          0x00 -> snd <$> readU32 payload (off4 + 1)
+          0x01 -> skipTableType payload (off4 + 1)
+          0x02 -> skipLimits payload (off4 + 1)
+          0x03 -> pure (off4 + 2)
+          _ -> Left ("unknown import kind: " <> show kind)
+      let moduleName = map (chr . fromIntegral) (BS.unpack moduleBytes)
+          fieldName = map (chr . fromIntegral) (BS.unpack fieldBytes)
+      pure ((moduleName, fieldName, kind) : acc, nextOffset)
+
+skipTableType :: BS.ByteString -> Int -> Either String Int
+skipTableType payload offset = do
+  _ <- readByte payload offset
+  skipLimits payload (offset + 1)
+
+skipLimits :: BS.ByteString -> Int -> Either String Int
+skipLimits payload offset = do
+  flags <- readByte payload offset
+  (_, off1) <- readU32 payload (offset + 1)
+  case flags of
+    0x00 -> Right off1
+    0x01 -> snd <$> readU32 payload off1
+    _ -> Left ("unsupported limits flag: " <> show flags)
+
 sectionExport :: Word8
 sectionExport = 7
+
+sectionImport :: Word8
+sectionImport = 2
 
 findSection :: BS.ByteString -> Int -> Word8 -> Either String BS.ByteString
 findSection bytes initialOffset targetSectionId = do
@@ -3718,6 +4669,11 @@ compileFixtureArtifact :: [(FilePath, String)] -> FilePath -> IO (Either String 
 compileFixtureArtifact files entryFile = do
   root <- createTempModuleRoot files
   compileEntryModule (root </> entryFile) `finally` removePathForcibly root
+
+compileFixtureDebugArtifact :: [(FilePath, String)] -> FilePath -> IO (Either String CompileDebugArtifact)
+compileFixtureDebugArtifact files entryFile = do
+  root <- createTempModuleRoot files
+  compileEntryModuleDebug (root </> entryFile) `finally` removePathForcibly root
 
 createTempModuleRoot :: [(FilePath, String)] -> IO FilePath
 createTempModuleRoot files = do

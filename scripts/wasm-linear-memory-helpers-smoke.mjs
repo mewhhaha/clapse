@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import fs from "node:fs";
+import { cliArgs, failWithError, readBinaryFile } from "./runtime-env.mjs";
 import { decodeInt, encodeInt, instantiateWithRuntime } from "./wasm-runtime.mjs";
 
 function assertEqual(label, expected, actual) {
@@ -10,8 +10,9 @@ function assertEqual(label, expected, actual) {
 }
 
 async function main() {
-  const wasmPath = process.argv[2] ?? "out/wasm_linear_memory_helpers.wasm";
-  const wasmBytes = fs.readFileSync(wasmPath);
+  const [wasmPathArg] = cliArgs();
+  const wasmPath = wasmPathArg ?? "out/wasm_linear_memory_helpers.wasm";
+  const wasmBytes = await readBinaryFile(wasmPath);
   const { instance, runtime } = await instantiateWithRuntime(wasmBytes);
   const fn = instance.exports.main;
   if (typeof fn !== "function") {
@@ -27,7 +28,4 @@ async function main() {
   console.log("wasm linear memory helpers smoke: PASS");
 }
 
-main().catch((err) => {
-  console.error(err.message);
-  process.exit(1);
-});
+main().catch(failWithError);

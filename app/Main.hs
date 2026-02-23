@@ -3,6 +3,7 @@ module Main (main) where
 import Clapse.Tools.Bench (runBench)
 import Clapse.Tools.Format (formatFileInPlace, formatFileToStdout, formatStdinToStdout)
 import Clapse.Tools.Lsp (runLsp)
+import Clapse.Tools.Selfhost (writeSelfhostArtifacts)
 import Clapse.Modules (CompileArtifact(..), compileEntryModule, renderTypeScriptBindings)
 import qualified Data.ByteString as BS
 import System.Directory (createDirectoryIfMissing)
@@ -39,6 +40,8 @@ main = do
       runLsp
     ["lsp", "--stdio"] ->
       runLsp
+    ["selfhost-artifacts", inputPath, outDir] ->
+      writeArtifacts inputPath outDir
     _ -> do
       hPutStrLn stderr usage
       exitFailure
@@ -57,6 +60,7 @@ usage =
     , "  clapse bench [iterations]"
     , "  clapse lsp"
     , "  clapse lsp --stdio"
+    , "  clapse selfhost-artifacts <input.clapse> <out-dir>"
     ]
 
 compileFile :: FilePath -> FilePath -> IO ()
@@ -72,3 +76,13 @@ compileFile inputPath outputPath = do
       unless (outDir == "." || null outDir) (createDirectoryIfMissing True outDir)
       BS.writeFile outputPath (artifactWasm artifact)
       writeFile tsPath (renderTypeScriptBindings (artifactExports artifact))
+
+writeArtifacts :: FilePath -> FilePath -> IO ()
+writeArtifacts inputPath outDir = do
+  result <- writeSelfhostArtifacts inputPath outDir
+  case result of
+    Left err -> do
+      hPutStrLn stderr ("selfhost-artifacts error in " <> inputPath <> ": " <> err)
+      exitFailure
+    Right _ ->
+      pure ()

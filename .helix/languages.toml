@@ -8,12 +8,12 @@ comment-token = "--"
 language-servers = ["clapse"]
 grammar = "clapse"
 roots = ["clapse.cabal"]
-formatter = { command = "cabal", args = ["run", "clapse", "--", "format", "--stdin"] }
+formatter = { command = "deno", args = ["run", "-A", "scripts/clapse.mjs", "format", "--stdin"] }
 
 [[grammar]]
 name = "clapse"
 source = { path = "/home/mewhhaha/src/clapse/tree-sitter-clapse" }
 
 [language-server.clapse]
-command = "cabal"
-args = ["run", "clapse", "--", "lsp", "--stdio"]
+command = "deno"
+args = ["run", "-A", "scripts/clapse.mjs", "lsp", "--stdio"]

@@ -1,14 +1,13 @@
 #!/usr/bin/env node
 
-import fs from "node:fs";
+import { cliArgs, failWithError, readBinaryFile } from "./runtime-env.mjs";
 import { encodeInt, instantiateWithRuntime, renderResult } from "./wasm-runtime.mjs";
 
 async function main() {
-  const [, , wasmPath, exportNameArg, ...argStrings] = process.argv;
+  const [wasmPath, exportNameArg, ...argStrings] = cliArgs();
 
   if (!wasmPath) {
-    console.error("Usage: node scripts/run-wasm.mjs <module.wasm> [export_name] [args...]");
-    process.exit(1);
+    throw new Error("Usage: deno run -A scripts/run-wasm.mjs <module.wasm> [export_name] [args...]");
   }
 
   const exportName = exportNameArg ?? "main";
@@ -20,7 +19,7 @@ async function main() {
     return n;
   });
 
-  const wasmBytes = fs.readFileSync(wasmPath);
+  const wasmBytes = await readBinaryFile(wasmPath);
   const { instance, runtime } = await instantiateWithRuntime(wasmBytes);
   const fn = instance.exports[exportName];
   if (typeof fn !== "function") {
@@ -35,7 +34,4 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(err.message);
-  process.exit(1);
-});
+main().catch(failWithError);

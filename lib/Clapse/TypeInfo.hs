@@ -184,6 +184,9 @@ inferPatternBinding scrutineeTy pat st0 =
     PatInt _ -> do
       st1 <- unify scrutineeTy TI64 st0
       Right ([], st1)
+    PatString _ -> do
+      st1 <- unify scrutineeTy TString st0
+      Right ([], st1)
     PatConstructor _ ctorInfo fieldNames -> do
       (paramTypes, st1) <- freshMany (ctorTypeParamCount ctorInfo) st0
       st2 <- unify scrutineeTy (TData (ctorTypeName ctorInfo) paramTypes) st1
@@ -222,6 +225,7 @@ inferBuiltin n st =
     "div" -> Right (binaryI64Type, st)
     "mod" -> Right (binaryI64Type, st)
     "eq" -> Right (binaryI64Type, st)
+    "str_eq" -> Right (TFun TString (TFun TString TI64), st)
     "lt" -> Right (binaryI64Type, st)
     "gt" -> Right (binaryI64Type, st)
     "le" -> Right (binaryI64Type, st)

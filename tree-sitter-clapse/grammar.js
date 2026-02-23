@@ -31,8 +31,34 @@ module.exports = grammar({
         $.instance_declaration,
         $.operator_declaration,
         $.data_declaration,
+        $.attributed_function_declaration,
         $.function_declaration,
         $.function_signature,
+      ),
+
+    attributed_function_declaration: ($) =>
+      seq(
+        repeat1(
+          seq(
+            field("attribute", $.function_attribute),
+            choice($._newline, seq($._ws1, $._newline)),
+          ),
+        ),
+        $.function_declaration,
+      ),
+
+    function_attribute: ($) =>
+      seq(
+        "#",
+        "[",
+        field("name", $.identifier),
+        optional(
+          seq(
+            $._ws1,
+            field("value", choice($.integer, $.string, $.identifier)),
+          ),
+        ),
+        "]",
       ),
 
     operator_declaration: ($) =>
@@ -374,6 +400,7 @@ module.exports = grammar({
         $.identifier,
         $.wildcard,
         $.integer,
+        $.string,
       ),
 
     infix_expression: ($) =>

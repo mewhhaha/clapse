@@ -1,0 +1,6 @@
+module bootstrap_phase7_host_capability_pilot
+import host.time
+export main
+
+main seed =
+  (unix_time_ms seed) + 1
