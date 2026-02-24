@@ -92,3 +92,65 @@ When we hit a new blocker while self-hosting:
 3. decide whether to do a Haskell-first bootstrap fix or a Clapse-side
    workaround,
 4. add/adjust tests before moving on.
+
+## Native compiler pre-ship pain points (2026-02-24)
+
+1. `runtime`: phase9 JSON payload assembly is fragile for dynamic strings.
+
+- Symptom:
+  - native `selfhost-artifacts`/`format` responses can produce invalid JSON when
+    request source contains quotes/escapes/newlines.
+- Root cause:
+  - manual byte-copy of raw source into quoted JSON fields without escaping.
+- Current mitigation:
+  - wasm runner host fallback for `selfhost-artifacts` when native payload is
+    invalid/incomplete.
+- Ship blocker to close:
+  - native JSON escaping helper (`json_escape_string_to_slice`) and parity tests
+    for quote/backslash/newline-heavy inputs.
+
+2. `runtime`: recursive request scanning/copy in phase9 can overflow stack.
+
+- Symptom:
+  - `Maximum call stack size exceeded` on native path for some corpus entries.
+- Root cause:
+  - deep recursive scanners/copy loops over request payloads.
+- Current mitigation:
+  - fallback on native selfhost artifact path.
+- Ship blocker to close:
+  - bounded iterative scanners/copy loops (or recursion depth guards) in native
+    compiler kernel.
+
+3. `runtime`: unchecked span math can hit memory OOB.
+
+- Symptom:
+  - `memory access out of bounds` in native path and in lexer-like copy loops.
+- Root cause:
+  - index/span assumptions (`start <= end <= len`) not consistently guarded.
+- Current mitigation:
+  - local clamping fixes in phase10 lexer fixture.
+- Ship blocker to close:
+  - standard library/runtime helpers for clamped slicing/copy; avoid ad-hoc span
+    math in compiler-kernel code.
+
+4. `tooling`: strict engine-mode naming is ambiguous.
+
+- Symptom:
+  - strict checks using `wasm` can accept both native and bridge modes.
+- Pain:
+  - easy to think we validated native while still running bridge-backed paths.
+- Ship blocker to close:
+  - use explicit `wasm-native` in strict gates where native-only guarantees are
+    required.
+
+5. `language/tooling`: surprising source ergonomics surfaced during parity work.
+
+- Surprises observed:
+  - `if2` is strict, so recursive branches that look short-circuiting can still
+    blow stack unless rewritten as `case`.
+  - some nested `case`/`let` multiline forms are still formatting-sensitive.
+  - operator syntax like `||` is not universally available unless declared or
+    imported via prelude.
+- Ship blocker to close:
+  - document/normalize canonical formatting and prelude expectations for compiler
+    source files, and add regression corpus entries for these shapes.

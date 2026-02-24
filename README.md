@@ -843,14 +843,30 @@ Wasm compiler runner:
 CLAPSE_COMPILER_WASM_PATH=out/clapse_compiler.wasm
 ```
 
-Optional transitional fallback (compile command only):
+Optional transitional fallback (compile command):
 
 ```bash
+# default is enabled
 CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=1
+# disable to force native-only compile
+CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=0
 ```
 
 When enabled, if native wasm compile returns `"native compile not implemented yet"`,
 the runner falls back to host `cabal run clapse -- compile`.
+
+Optional transitional fallback (`selfhost-artifacts` command):
+
+```bash
+# default is enabled
+CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK=1
+# disable to force native-only selfhost artifact generation
+CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK=0
+```
+
+When enabled, if native wasm `selfhost-artifacts` returns invalid/incomplete
+artifact JSON (or placeholder artifacts), the runner falls back to host
+`cabal run clapse -- selfhost-artifacts`.
 
 Runner ABI contract:
 

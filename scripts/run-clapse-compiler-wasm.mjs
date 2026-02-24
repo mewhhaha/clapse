@@ -61,8 +61,14 @@ function usage() {
     "  Request and response are UTF-8 JSON in slice descriptors.",
     "",
     "Optional transitional compile fallback:",
-    "  Set CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=1 to allow compile-only fallback",
-    "  to host cabal runner when native wasm returns \"not implemented yet\".",
+    "  CLAPSE_ALLOW_HOST_COMPILE_FALLBACK defaults to 1.",
+    "  Set CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=0 to require native compile",
+    "  without host fallback when wasm returns \"not implemented yet\".",
+    "",
+    "Optional transitional selfhost-artifacts fallback:",
+    "  CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK defaults to 1.",
+    "  Set CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK=0 to require native selfhost",
+    "  artifact generation without host fallback.",
   ].join("\n");
 }
 
@@ -72,11 +78,57 @@ function envFlag(name) {
 }
 
 function allowHostCompileFallback() {
-  return envFlag("CLAPSE_ALLOW_HOST_COMPILE_FALLBACK");
+  const raw = Deno.env.get("CLAPSE_ALLOW_HOST_COMPILE_FALLBACK");
+  if (raw === undefined || raw === null || raw.length === 0) {
+    return true;
+  }
+  const lower = raw.toLowerCase();
+  return lower === "1" || lower === "true" || lower === "yes";
 }
 
-function shouldFallbackCompileFromError(err) {
-  return typeof err === "string" && err.includes("native compile not implemented yet");
+const SELFHOST_ARTIFACT_FILES = [
+  "merged_module.txt",
+  "type_info.txt",
+  "type_info_error.txt",
+  "lowered_ir.txt",
+  "collapsed_ir.txt",
+  "exports.txt",
+  "wasm_stats.txt",
+];
+
+function allowHostSelfhostFallback() {
+  const raw = Deno.env.get("CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK");
+  if (raw === undefined || raw === null || raw.length === 0) {
+    return true;
+  }
+  const lower = raw.toLowerCase();
+  return lower === "1" || lower === "true" || lower === "yes";
+}
+
+function shouldFallbackSelfhostArtifactsResponse(response, inputSource) {
+  if (!response || typeof response !== "object" || Array.isArray(response)) {
+    return true;
+  }
+  if (response.ok !== true) {
+    return true;
+  }
+  const artifacts = response.artifacts;
+  if (!artifacts || typeof artifacts !== "object" || Array.isArray(artifacts)) {
+    return true;
+  }
+  for (const file of SELFHOST_ARTIFACT_FILES) {
+    if (typeof artifacts[file] !== "string") {
+      return true;
+    }
+  }
+  const nonMergedAllEmpty = SELFHOST_ARTIFACT_FILES
+    .filter((file) => file !== "merged_module.txt")
+    .every((file) => artifacts[file].length === 0);
+  if (!nonMergedAllEmpty) {
+    return false;
+  }
+  const mergedModule = artifacts["merged_module.txt"];
+  return mergedModule.length === 0 || mergedModule === inputSource;
 }
 
 async function compileViaHostFallback(inputPath, outputPath) {
@@ -97,6 +149,28 @@ async function compileViaHostFallback(inputPath, outputPath) {
     throw new Error(
       stderr || stdout ||
         `host compile fallback failed with exit code ${run.code ?? 1}`,
+    );
+  }
+}
+
+async function selfhostArtifactsViaHostFallback(inputPath, outDir) {
+  await Deno.mkdir(".cabal-logs", { recursive: true });
+  const run = await new Deno.Command("cabal", {
+    args: ["run", "clapse", "--", "selfhost-artifacts", inputPath, outDir],
+    env: {
+      ...Deno.env.toObject(),
+      CABAL_DIR: `${Deno.cwd()}/.cabal`,
+      CABAL_LOGDIR: `${Deno.cwd()}/.cabal-logs`,
+    },
+    stdout: "piped",
+    stderr: "piped",
+  }).output();
+  if (!run.success) {
+    const stderr = new TextDecoder().decode(run.stderr).trim();
+    const stdout = new TextDecoder().decode(run.stdout).trim();
+    throw new Error(
+      stderr || stdout ||
+        `host selfhost-artifacts fallback failed with exit code ${run.code ?? 1}`,
     );
   }
 }
@@ -175,84 +249,103 @@ function decodeCompileResponse(response, inputPath) {
 
 async function compileViaWasm(wasmPath, inputPath, outputPath) {
   const inputSource = await Deno.readTextFile(inputPath);
-  const raw = await callCompilerWasm(wasmPath, {
-    command: "compile",
-    input_path: inputPath,
-    input_source: inputSource,
-  });
-  if (
-    raw &&
-    typeof raw === "object" &&
-    raw.ok === false &&
-    allowHostCompileFallback() &&
-    shouldFallbackCompileFromError(raw.error)
-  ) {
+  try {
+    const raw = await callCompilerWasm(wasmPath, {
+      command: "compile",
+      input_path: inputPath,
+      input_source: inputSource,
+    });
+    if (
+      raw &&
+      typeof raw === "object" &&
+      raw.ok === false &&
+      allowHostCompileFallback()
+    ) {
+      const reason = typeof raw.error === "string" ? raw.error : "compile error";
+      console.error(
+        `[clapse] native wasm compile unavailable (${reason}); falling back to host compile due CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=1`,
+      );
+      await compileViaHostFallback(inputPath, outputPath);
+      return;
+    }
+    const response = decodeCompileResponse(raw, inputPath);
+    const wasmBytes = decodeWasmBase64(response.wasm_base64);
+    const outputDir = outputPath.includes("/")
+      ? outputPath.slice(0, outputPath.lastIndexOf("/"))
+      : ".";
+    if (outputDir.length > 0 && outputDir !== ".") {
+      await Deno.mkdir(outputDir, { recursive: true });
+    }
+    await Deno.writeFile(outputPath, wasmBytes);
+    const dtsPath = outputPath.replace(/\.wasm$/u, ".d.ts");
+    const dts = typeof response.dts === "string"
+      ? response.dts
+      : renderTypeScriptBindings(
+        Array.isArray(response.exports) ? response.exports : [],
+      );
+    await Deno.writeTextFile(dtsPath, dts);
+  } catch (err) {
+    if (!allowHostCompileFallback()) {
+      throw err;
+    }
+    const reason = err instanceof Error ? err.message : String(err);
     console.error(
-      "[clapse] native wasm compile unavailable; falling back to host compile due to CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=1",
+      `[clapse] native wasm compile unavailable (${reason}); falling back to host compile due CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=1`,
     );
     await compileViaHostFallback(inputPath, outputPath);
-    return;
   }
-  const response = decodeCompileResponse(raw, inputPath);
-  const wasmBytes = decodeWasmBase64(response.wasm_base64);
-  const outputDir = outputPath.includes("/")
-    ? outputPath.slice(0, outputPath.lastIndexOf("/"))
-    : ".";
-  if (outputDir.length > 0 && outputDir !== ".") {
-    await Deno.mkdir(outputDir, { recursive: true });
-  }
-  await Deno.writeFile(outputPath, wasmBytes);
-  const dtsPath = outputPath.replace(/\.wasm$/u, ".d.ts");
-  const dts = typeof response.dts === "string"
-    ? response.dts
-    : renderTypeScriptBindings(
-      Array.isArray(response.exports) ? response.exports : [],
-    );
-  await Deno.writeTextFile(dtsPath, dts);
 }
 
 async function writeSelfhostArtifactsViaWasm(wasmPath, inputPath, outDir) {
   const inputSource = await Deno.readTextFile(inputPath);
-  const response = await callCompilerWasm(wasmPath, {
+  const request = {
     command: "selfhost-artifacts",
     input_path: inputPath,
     input_source: inputSource,
-  });
-  assertObject(response, "selfhost-artifacts response");
-  if (typeof response.ok !== "boolean") {
-    throw new Error("selfhost-artifacts response: missing boolean 'ok'");
-  }
-  if (response.ok !== true) {
-    const err = typeof response?.error === "string"
-      ? response.error
-      : `selfhost-artifacts error in ${inputPath}`;
-    throw new Error(err);
-  }
-  const artifacts = response.artifacts;
-  assertObject(artifacts, "selfhost-artifacts response.artifacts");
-  const files = [
-    "merged_module.txt",
-    "type_info.txt",
-    "type_info_error.txt",
-    "lowered_ir.txt",
-    "collapsed_ir.txt",
-    "exports.txt",
-    "wasm_stats.txt",
-  ];
-  await Deno.mkdir(outDir, { recursive: true });
-  for (const file of files) {
-    const value = artifacts[file];
-    if (value === undefined) {
+  };
+  try {
+    const response = await callCompilerWasm(wasmPath, request);
+    if (shouldFallbackSelfhostArtifactsResponse(response, inputSource)) {
       throw new Error(
-        `selfhost-artifacts response: missing required key '${file}'`,
+        "native selfhost-artifacts response is missing parity-critical artifacts",
       );
     }
-    if (typeof value !== "string") {
-      throw new Error(
-        `selfhost-artifacts response: '${file}' must be a string`,
-      );
+    assertObject(response, "selfhost-artifacts response");
+    if (typeof response.ok !== "boolean") {
+      throw new Error("selfhost-artifacts response: missing boolean 'ok'");
     }
-    await Deno.writeTextFile(`${outDir}/${file}`, value);
+    if (response.ok !== true) {
+      const err = typeof response?.error === "string"
+        ? response.error
+        : `selfhost-artifacts error in ${inputPath}`;
+      throw new Error(err);
+    }
+    const artifacts = response.artifacts;
+    assertObject(artifacts, "selfhost-artifacts response.artifacts");
+    await Deno.mkdir(outDir, { recursive: true });
+    for (const file of SELFHOST_ARTIFACT_FILES) {
+      const value = artifacts[file];
+      if (value === undefined) {
+        throw new Error(
+          `selfhost-artifacts response: missing required key '${file}'`,
+        );
+      }
+      if (typeof value !== "string") {
+        throw new Error(
+          `selfhost-artifacts response: '${file}' must be a string`,
+        );
+      }
+      await Deno.writeTextFile(`${outDir}/${file}`, value);
+    }
+  } catch (err) {
+    if (!allowHostSelfhostFallback()) {
+      throw err;
+    }
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[clapse] native wasm selfhost-artifacts unavailable (${reason}); falling back to host selfhost-artifacts due CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK=1`,
+    );
+    await selfhostArtifactsViaHostFallback(inputPath, outDir);
   }
 }
 
