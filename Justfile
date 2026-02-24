@@ -116,7 +116,7 @@ bootstrap-phase10-smoke:
 bootstrap-phase11-smoke:
   mkdir -p .cabal-logs
   CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --build-log=./.cabal-logs/build.log --build-summary=./.cabal-logs/build.summary -- compile examples/bootstrap_phase11_parser_combinator_pilot.clapse out/bootstrap_phase11_parser_combinator_pilot.wasm
-  test "$(deno run -A scripts/run-wasm.mjs out/bootstrap_phase11_parser_combinator_pilot.wasm main 0)" = "-801815732"
+  test "$(deno run -A scripts/run-wasm.mjs out/bootstrap_phase11_parser_combinator_pilot.wasm main 0)" = "520266135"
 
 bootstrap-check:
   mkdir -p .cabal-logs

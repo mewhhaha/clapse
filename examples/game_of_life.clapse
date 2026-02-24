@@ -1,3 +1,9 @@
+infixr 2 || = bool_or
+
+bool_or a b = case a b of
+  0 0 -> 0
+  _ _ -> 1
+
 is_alive_next alive neighbors = (neighbors == 3) || (alive && neighbors == 2)
 
 main alive neighbors = is_alive_next alive neighbors

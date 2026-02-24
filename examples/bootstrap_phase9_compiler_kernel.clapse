@@ -23,7 +23,7 @@ json_error_suffix = str_to_slice "\"}"
 json_format_prefix = str_to_slice "{\"ok\":true,\"formatted\":\""
 json_format_suffix = str_to_slice "\"}"
 json_selfhost_prefix = str_to_slice "{\"ok\":true,\"artifacts\":{\"merged_module.txt\":\""
-json_selfhost_suffix = str_to_slice "\",\"type_info.txt\":\"\",\"type_info_error.txt\":\"\",\"lowered_ir.txt\":\"\",\"collapsed_ir.txt\":\"\",\"exports.txt\":\"\",\"wasm_stats.txt\":\"\"}"
+json_selfhost_suffix = str_to_slice "\",\"type_info.txt\":\"\",\"type_info_error.txt\":\"\",\"lowered_ir.txt\":\"\",\"collapsed_ir.txt\":\"\",\"exports.txt\":\"\",\"wasm_stats.txt\":\"\"}}"
 json_selfhost_ok = str_to_slice "{\"ok\":true,\"artifacts\":{\"merged_module.txt\":\"\",\"type_info.txt\":\"\",\"type_info_error.txt\":\"\",\"lowered_ir.txt\":\"\",\"collapsed_ir.txt\":\"\",\"exports.txt\":\"\",\"wasm_stats.txt\":\"\"}}"
 json_unknown_error = str_to_slice "{\"ok\":false,\"error\":\"unsupported command\"}"
 
