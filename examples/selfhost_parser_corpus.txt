@@ -1,0 +1,20 @@
+# Selfhost parser artifact parity corpus (compiler-source modules).
+# Lines starting with # are ignored.
+
+examples/bootstrap_phase1_frontend_primitives.clapse
+examples/bootstrap_phase2_core_data_structures.clapse
+examples/bootstrap_phase3_entry.clapse
+examples/bootstrap_phase4_parser_pilot.clapse
+examples/bootstrap_phase5_dispatch_pilot.clapse
+examples/bootstrap_phase6_entry.clapse
+examples/bootstrap_phase7_host_capability_pilot.clapse
+examples/bootstrap_phase8_pattern_and_operators.clapse
+examples/bootstrap_phase9_compiler_kernel.clapse
+examples/bootstrap_phase10_frontend_lexer.clapse
+examples/bootstrap_phase11_parser_combinator_pilot.clapse
+examples/parser_layout_pain_points.clapse
+examples/parser_attribute_pain_points.clapse
+examples/util/base.clapse
+examples/util/json.clapse
+examples/util/prelude.clapse
+examples/util/slice_scan.clapse

@@ -16,6 +16,8 @@ data ClassKind
   | SubClass
   | MulClass
   | DivClass
+  | OrdClass
+  | SliceClass
   | MonoidClass
   | FunctorClass
   | ApplicativeClass
@@ -90,6 +92,10 @@ requiredMethodNames classKind =
       ["mul"]
     DivClass ->
       ["div"]
+    OrdClass ->
+      ["lt", "le", "gt", "ge", "eq"]
+    SliceClass ->
+      ["slice_len", "slice_get_u8", "slice_set_u8"]
     MonoidClass ->
       ["empty", "append"]
     FunctorClass ->
@@ -110,6 +116,10 @@ requiredLawNames classKind =
       ["left_identity", "right_identity", "left_annihilation", "right_annihilation", "associativity"]
     DivClass ->
       ["right_identity"]
+    OrdClass ->
+      ["irreflexive_lt", "reflexive_le", "reflexive_ge", "antisymmetry", "duality"]
+    SliceClass ->
+      ["set_preserves_len", "get_after_set_same_index"]
     MonoidClass ->
       ["left_identity", "right_identity", "associativity"]
     FunctorClass ->
@@ -126,6 +136,8 @@ parseClassKind n =
     "sub" -> Just SubClass
     "mul" -> Just MulClass
     "div" -> Just DivClass
+    "ord" -> Just OrdClass
+    "slice" -> Just SliceClass
     "monoid" -> Just MonoidClass
     "functor" -> Just FunctorClass
     "applicative" -> Just ApplicativeClass
@@ -154,6 +166,8 @@ classKindLabel classKind =
     SubClass -> "sub"
     MulClass -> "mul"
     DivClass -> "div"
+    OrdClass -> "ord"
+    SliceClass -> "slice"
     MonoidClass -> "monoid"
     FunctorClass -> "functor"
     ApplicativeClass -> "applicative"

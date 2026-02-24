@@ -35,7 +35,7 @@ import Clapse.Syntax
   , Module(..)
   , CaseArm(..)
   , Name
-  , parseModule
+  , parseModuleWithConstructorImportsInfo
   )
 import Clapse.Wasm (compileModuleToWasmWithExportsAndMemoHintsAndHostBuiltins)
 import Clapse.TypeInfo
@@ -54,11 +54,13 @@ data RawModule = RawModule
   { rawModule :: Module
   , rawImports :: [Name]
   , rawExports :: Maybe [Name]
+  , rawConstructors :: M.Map Name ConstructorInfo
   }
 
 data QualifiedModule = QualifiedModule
   { qualifiedFunctions :: [Function]
   , qualifiedExports :: M.Map Name Name
+  , qualifiedConstructorExports :: M.Map Name ConstructorInfo
   }
 
 data ExportApi = ExportApi
@@ -105,78 +107,82 @@ compileEntryModuleDebug entryPath = do
   case parseSourceHeader source of
     Left err ->
       pure (Left err)
-    Right entryHeader ->
-      case parseModule (parsedBody entryHeader) of
+    Right entryHeader -> do
+      let sourceImports = sourceModuleImports (parsedImports entryHeader)
+          hostBuiltins = hostBuiltinsFromImports (parsedImports entryHeader)
+      rawModules <- loadRawModules entryDir sourceImports
+      case rawModules of
         Left err ->
           pure (Left err)
-        Right entryModule -> do
-          let sourceImports = sourceModuleImports (parsedImports entryHeader)
-              hostBuiltins = hostBuiltinsFromImports (parsedImports entryHeader)
-          rawModules <- loadRawModules entryDir sourceImports
-          case rawModules of
+        Right loadedRaw ->
+          case qualifyImportedModules loadedRaw sourceImports of
             Left err ->
               pure (Left err)
-            Right loadedRaw ->
-              case qualifyImportedModules loadedRaw sourceImports of
+            Right qualifiedImports ->
+              case constructorEnvFromModules qualifiedImports sourceImports of
                 Left err ->
                   pure (Left err)
-                Right qualifiedImports ->
-                  case importEnvFromModules qualifiedImports sourceImports of
+                Right importedConstructors ->
+                  case parseModuleWithConstructorImportsInfo (M.toList importedConstructors) (parsedBody entryHeader) of
                     Left err ->
                       pure (Left err)
-                    Right entryImportEnv -> do
-                      case resolveEntryExports (functions entryModule) (parsedExports entryHeader) of
+                    Right (entryModule, _entryConstructors) ->
+                      case importEnvFromModules qualifiedImports sourceImports of
                         Left err ->
                           pure (Left err)
-                        Right exportNames -> do
-                          let entryLocalNames =
-                                M.fromList [(name fn, name fn) | fn <- functions entryModule]
-                              entryModuleName = fromMaybe "__entry" (parsedModule entryHeader)
-                              entryQualified =
-                                map
-                                  (qualifyEntryFunction entryModuleName entryImportEnv entryLocalNames)
-                                  (functions entryModule)
-                              importOrder =
-                                collectImportOrder loadedRaw sourceImports
-                              importedFunctions =
-                                concatMap
-                                  (\name -> qualifiedFunctions (qualifiedImports M.! name))
-                                  importOrder
-                              mergedFunctions = importedFunctions ++ entryQualified
-                              mergedModule = Module {signatures = [], functions = mergedFunctions}
-                              memoHints = collectMemoHints mergedFunctions
-                              (typeInfo, typeInfoErr) =
-                                case inferModuleTypes mergedModule of
-                                  Left err -> (Nothing, Just err)
-                                  Right infos -> (Just infos, Nothing)
-                          case lowerModule mergedModule of
+                        Right entryImportEnv ->
+                          case resolveEntryExports (functions entryModule) (parsedExports entryHeader) of
                             Left err ->
                               pure (Left err)
-                            Right lowered ->
-                              case CIR.collapseAndVerifyModule lowered of
-                                Left err ->
-                                  pure (Left err)
-                                Right collapsed ->
-                                  case collectExportApi collapsed exportNames of
-                                    Left err ->
-                                      pure (Left err)
-                                    Right api ->
-                                      case compileModuleToWasmWithExportsAndMemoHintsAndHostBuiltins collapsed exportNames memoHints hostBuiltins of
-                                        Left err ->
-                                          pure (Left err)
-                                        Right wasmBytes ->
-                                          pure
-                                            ( Right
-                                                CompileDebugArtifact
-                                                  { debugMergedModule = mergedModule
-                                                  , debugTypeInfo = typeInfo
-                                                  , debugTypeInfoError = typeInfoErr
-                                                  , debugLowered = lowered
-                                                  , debugCollapsed = collapsed
-                                                  , debugExports = api
-                                                  , debugWasm = wasmBytes
-                                                  }
-                                            )
+                            Right exportNames -> do
+                              let entryLocalNames =
+                                    M.fromList [(name fn, name fn) | fn <- functions entryModule]
+                                  entryModuleName = fromMaybe "__entry" (parsedModule entryHeader)
+                                  entryQualified =
+                                    map
+                                      (qualifyEntryFunction entryModuleName entryImportEnv entryLocalNames)
+                                      (functions entryModule)
+                                  importOrder =
+                                    collectImportOrder loadedRaw sourceImports
+                                  importedFunctions =
+                                    concatMap
+                                      (\name -> qualifiedFunctions (qualifiedImports M.! name))
+                                      importOrder
+                                  mergedFunctions = importedFunctions ++ entryQualified
+                                  mergedModule = Module {signatures = [], functions = mergedFunctions}
+                                  memoHints = collectMemoHints mergedFunctions
+                                  (typeInfo, typeInfoErr) =
+                                    case inferModuleTypes mergedModule of
+                                      Left inferErr -> (Nothing, Just inferErr)
+                                      Right infos -> (Just infos, Nothing)
+                              case lowerModule mergedModule of
+                                Left lowerErr ->
+                                  pure (Left lowerErr)
+                                Right lowered ->
+                                  case CIR.collapseAndVerifyModule lowered of
+                                    Left collapseErr ->
+                                      pure (Left collapseErr)
+                                    Right collapsed ->
+                                      case collectExportApi collapsed exportNames of
+                                        Left exportErr ->
+                                          pure (Left exportErr)
+                                        Right api ->
+                                          case compileModuleToWasmWithExportsAndMemoHintsAndHostBuiltins collapsed exportNames memoHints hostBuiltins of
+                                            Left wasmErr ->
+                                              pure (Left wasmErr)
+                                            Right wasmBytes ->
+                                              pure
+                                                ( Right
+                                                    CompileDebugArtifact
+                                                      { debugMergedModule = mergedModule
+                                                      , debugTypeInfo = typeInfo
+                                                      , debugTypeInfoError = typeInfoErr
+                                                      , debugLowered = lowered
+                                                      , debugCollapsed = collapsed
+                                                      , debugExports = api
+                                                      , debugWasm = wasmBytes
+                                                      }
+                                                )
 
 compileEntryModuleToWasm :: FilePath -> IO (Either String BS.ByteString)
 compileEntryModuleToWasm entryPath = do
@@ -280,22 +286,32 @@ loadRawModule root loaded visiting name = do
         Left err ->
           pure (Left err)
         Right parsed ->
-          case parseModule (parsedBody parsed) of
+          case validateParsedModuleName name parsed of
             Left err ->
               pure (Left err)
-            Right parsedModule ->
-              case validateParsedModuleName name parsed of
+            Right _ -> do
+              let imports = sourceModuleImports (parsedImports parsed)
+              loadedDepsEither <- loadRawModulesWithCache root loaded (S.insert name visiting) imports
+              case loadedDepsEither of
                 Left err ->
                   pure (Left err)
-                Right _ -> do
-                  let raw =
-                        RawModule
-                          { rawModule = parsedModule
-                          , rawImports = parsedImports parsed
-                          , rawExports = parsedExports parsed
-                          }
-                  let loadedWithCurrent = M.insert name raw loaded
-                  loadRawModulesWithCache root loadedWithCurrent (S.insert name visiting) (sourceModuleImports (parsedImports parsed))
+                Right loadedWithDeps ->
+                  case rawConstructorEnvFromModules loadedWithDeps imports of
+                    Left err ->
+                      pure (Left err)
+                    Right importedConstructors ->
+                      case parseModuleWithConstructorImportsInfo (M.toList importedConstructors) (parsedBody parsed) of
+                        Left err ->
+                          pure (Left err)
+                        Right (parsedModule, localConstructors) -> do
+                          let raw =
+                                RawModule
+                                  { rawModule = parsedModule
+                                  , rawImports = parsedImports parsed
+                                  , rawExports = parsedExports parsed
+                                  , rawConstructors = M.fromList localConstructors
+                                  }
+                          pure (Right (M.insert name raw loadedWithDeps))
 
 validateParsedModuleName :: Name -> ParsedSource -> Either String ()
 validateParsedModuleName expectedName parsed =
@@ -340,11 +356,13 @@ qualifyImportedModules loaded initialImports =
                   [ (rawName, qualifyModuleName moduleName rawName)
                   | rawName <- map name (functions (rawModule raw))
                   ]
+              localConstructors =
+                M.map (qualifyCtorInfo moduleName) (rawConstructors raw)
           importEnv <- importEnvFromModules cacheWithImports (rawImports raw)
           exportMap <-
             case rawExports raw of
               Just exports ->
-                case firstMissing (M.keys localNames) exports of
+                case firstMissing (M.keys localNames ++ M.keys localConstructors) exports of
                   Just missing ->
                     Left ("unknown export in module " <> moduleName <> ": " <> missing)
                   Nothing ->
@@ -356,9 +374,15 @@ qualifyImportedModules loaded initialImports =
                       )
               Nothing ->
                 Right localNames
+          let exportedConstructors =
+                case rawExports raw of
+                  Nothing ->
+                    localConstructors
+                  Just exports ->
+                    M.filterWithKey (\ctorName _ -> ctorName `elem` exports) localConstructors
           let qualifiedFunctions =
                 map (renameFunction moduleName localNames importEnv) (functions (rawModule raw))
-          Right (M.insert moduleName (QualifiedModule qualifiedFunctions exportMap) cacheWithImports)
+          Right (M.insert moduleName (QualifiedModule qualifiedFunctions exportMap exportedConstructors) cacheWithImports)
 
 importEnvFromModules
   :: M.Map Name QualifiedModule
@@ -384,6 +408,62 @@ importEnvFromModules qualifiedModules imports =
             else Left ("ambiguous import for " <> unqualifiedName)
         Nothing ->
           Right (M.insert unqualifiedName qualifiedName acc)
+
+constructorEnvFromModules
+  :: M.Map Name QualifiedModule
+  -> [Name]
+  -> Either String (M.Map Name ConstructorInfo)
+constructorEnvFromModules qualifiedModules imports =
+  foldM addFromImport M.empty imports
+  where
+    addFromImport :: M.Map Name ConstructorInfo -> Name -> Either String (M.Map Name ConstructorInfo)
+    addFromImport acc importName =
+      case M.lookup importName qualifiedModules of
+        Nothing ->
+          Left ("module import not loaded: " <> importName)
+        Just qModule ->
+          foldM addAlias acc (M.toList (qualifiedConstructorExports qModule))
+
+    addAlias :: M.Map Name ConstructorInfo -> (Name, ConstructorInfo) -> Either String (M.Map Name ConstructorInfo)
+    addAlias acc (ctorName, ctorInfo) =
+      case M.lookup ctorName acc of
+        Just _ ->
+          Left ("ambiguous constructor import for " <> ctorName)
+        Nothing ->
+          Right (M.insert ctorName ctorInfo acc)
+
+rawConstructorEnvFromModules
+  :: M.Map Name RawModule
+  -> [Name]
+  -> Either String (M.Map Name ConstructorInfo)
+rawConstructorEnvFromModules loaded imports =
+  foldM addFromImport M.empty imports
+  where
+    addFromImport :: M.Map Name ConstructorInfo -> Name -> Either String (M.Map Name ConstructorInfo)
+    addFromImport acc importName =
+      case M.lookup importName loaded of
+        Nothing ->
+          Left ("module import not loaded: " <> importName)
+        Just raw ->
+          let exportedConstructors = rawExportedConstructors importName raw
+           in foldM addAlias acc (M.toList exportedConstructors)
+
+    addAlias :: M.Map Name ConstructorInfo -> (Name, ConstructorInfo) -> Either String (M.Map Name ConstructorInfo)
+    addAlias acc (ctorName, ctorInfo) =
+      case M.lookup ctorName acc of
+        Just _ ->
+          Left ("ambiguous constructor import for " <> ctorName)
+        Nothing ->
+          Right (M.insert ctorName ctorInfo acc)
+
+rawExportedConstructors :: Name -> RawModule -> M.Map Name ConstructorInfo
+rawExportedConstructors moduleName raw =
+  let qualifiedConstructors = M.map (qualifyCtorInfo moduleName) (rawConstructors raw)
+   in case rawExports raw of
+        Nothing ->
+          qualifiedConstructors
+        Just exports ->
+          M.filterWithKey (\ctorName _ -> ctorName `elem` exports) qualifiedConstructors
 
 qualifyEntryFunction
   :: Name

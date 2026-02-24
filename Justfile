@@ -7,8 +7,9 @@ default:
 install:
   mkdir -p .cabal-logs
   CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal build --build-log=./.cabal-logs/build.log --build-summary=./.cabal-logs/build.summary exe:clapse
-  printf 'id x = x\n' | deno run -A scripts/clapse.mjs --host format --stdin >/dev/null
-  deno run -A scripts/clapse.mjs --host lsp --stdio </dev/null >/dev/null
+  deno run -A scripts/build-compiler-wasm-bridge.mjs out/clapse_compiler_bridge.wasm
+  printf 'id x = x\n' | CLAPSE_ALLOW_BRIDGE=1 deno run -A scripts/clapse.mjs format --stdin >/dev/null
+  CLAPSE_ALLOW_BRIDGE=1 deno run -A scripts/clapse.mjs lsp --stdio </dev/null >/dev/null
   ./scripts/setup-helix-local.sh
   hx --health clapse
 
@@ -87,6 +88,36 @@ bootstrap-phase8-smoke:
   test "$(deno run -A scripts/run-wasm.mjs out/bootstrap_phase8_pattern_and_operators.wasm main 0)" = "0"
   test "$(deno run -A scripts/run-wasm.mjs out/bootstrap_phase8_pattern_and_operators.wasm main 7)" = "7"
 
+bootstrap-phase9-compile out='out/clapse_compiler.wasm':
+  mkdir -p .cabal-logs
+  CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --build-log=./.cabal-logs/build.log --build-summary=./.cabal-logs/build.summary -- compile examples/bootstrap_phase9_compiler_kernel.clapse {{out}}
+
+bootstrap-phase9-smoke:
+  just bootstrap-phase9-compile out/clapse_compiler.wasm
+  test "$(CLAPSE_COMPILER_WASM_PATH='out/clapse_compiler.wasm' deno run -A scripts/run-clapse-compiler-wasm.mjs engine-mode | tail -n 1)" = "wasm-native"
+  deno run -A scripts/bootstrap-phase9-kernel-smoke.mjs out/clapse_compiler.wasm
+  @set +e; \
+  CLAPSE_COMPILER_WASM_PATH='out/clapse_compiler.wasm' deno run -A scripts/run-clapse-compiler-wasm.mjs compile examples/wasm_main.clapse out/wasm_main_from_phase9.wasm >/tmp/clapse_phase9_stdout.log 2>/tmp/clapse_phase9_stderr.log; \
+  code=$?; \
+  set -e; \
+  test $code -ne 0; \
+  grep -q "native compile not implemented yet" /tmp/clapse_phase9_stderr.log; \
+  CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=1 CLAPSE_COMPILER_WASM_PATH='out/clapse_compiler.wasm' deno run -A scripts/run-clapse-compiler-wasm.mjs compile examples/wasm_main.clapse out/wasm_main_from_phase9_fallback.wasm >/tmp/clapse_phase9_fallback_stdout.log 2>/tmp/clapse_phase9_fallback_stderr.log; \
+  CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse -- compile examples/wasm_main.clapse out/wasm_main_from_host_compare.wasm >/tmp/clapse_phase9_host_compare_stdout.log 2>/tmp/clapse_phase9_host_compare_stderr.log; \
+  test "$(deno run -A scripts/run-wasm.mjs out/wasm_main_from_phase9_fallback.wasm main 7)" = "$(deno run -A scripts/run-wasm.mjs out/wasm_main_from_host_compare.wasm main 7)"; \
+  test "$(printf 'id x = x\n' | CLAPSE_COMPILER_WASM_PATH='out/clapse_compiler.wasm' deno run -A scripts/clapse.mjs format --stdin)" = "id x = x"; \
+  echo "bootstrap phase9 compiler kernel smoke: PASS"
+
+bootstrap-phase10-smoke:
+  mkdir -p .cabal-logs
+  CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --build-log=./.cabal-logs/build.log --build-summary=./.cabal-logs/build.summary -- compile examples/bootstrap_phase10_frontend_lexer.clapse out/bootstrap_phase10_frontend_lexer.wasm
+  test "$(deno run -A scripts/run-wasm.mjs out/bootstrap_phase10_frontend_lexer.wasm main 0)" = "111001"
+
+bootstrap-phase11-smoke:
+  mkdir -p .cabal-logs
+  CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --build-log=./.cabal-logs/build.log --build-summary=./.cabal-logs/build.summary -- compile examples/bootstrap_phase11_parser_combinator_pilot.clapse out/bootstrap_phase11_parser_combinator_pilot.wasm
+  test "$(deno run -A scripts/run-wasm.mjs out/bootstrap_phase11_parser_combinator_pilot.wasm main 0)" = "-801815732"
+
 bootstrap-check:
   mkdir -p .cabal-logs
   CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --build-log=./.cabal-logs/build.log --build-summary=./.cabal-logs/build.summary -- compile examples/bootstrap_phase1_frontend_primitives.clapse out/bootstrap_phase1.wasm
@@ -102,6 +133,11 @@ bootstrap-check:
   CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --build-log=./.cabal-logs/build.log --build-summary=./.cabal-logs/build.summary -- compile examples/bootstrap_phase8_pattern_and_operators.clapse out/bootstrap_phase8_pattern_and_operators.wasm
   test "$(deno run -A scripts/run-wasm.mjs out/bootstrap_phase8_pattern_and_operators.wasm main 0)" = "0"
   test "$(deno run -A scripts/run-wasm.mjs out/bootstrap_phase8_pattern_and_operators.wasm main 7)" = "7"
+  CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --build-log=./.cabal-logs/build.log --build-summary=./.cabal-logs/build.summary -- compile examples/bootstrap_phase9_compiler_kernel.clapse out/clapse_compiler.wasm
+  deno run -A scripts/bootstrap-phase9-kernel-smoke.mjs out/clapse_compiler.wasm
+  just bootstrap-phase10-smoke
+  just bootstrap-phase11-smoke
+  test "$(CLAPSE_COMPILER_WASM_PATH='out/clapse_compiler.wasm' deno run -A scripts/run-clapse-compiler-wasm.mjs engine-mode)" = "wasm-native"
   echo "bootstrap-check: PASS"
 
 parity-check:
@@ -109,9 +145,31 @@ parity-check:
   deno run -A scripts/check-selfhost-manifests.mjs
   CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal test
   just bootstrap-check
+  deno run -A scripts/selfhost-parser-parity.mjs --manifest examples/selfhost_parser_corpus.txt --out out/selfhost-parser-parity
+  deno run -A scripts/formatter-idempotence-corpus.mjs --manifest examples/compiler_source_corpus.txt --out out/formatter-idempotence
+  just selfhost-build-wasm-bridge
+  CLAPSE_ALLOW_BRIDGE=1 CLAPSE_COMPILER_WASM_PATH='out/clapse_compiler_bridge.wasm' deno run -A scripts/lsp-wasm-fixtures.mjs
   deno run -A scripts/selfhost-diff.mjs --manifest examples/selfhost_corpus.txt --out out/selfhost-diff
   deno run -A scripts/selfhost-behavior-diff.mjs --manifest examples/selfhost_behavior_corpus.json --out out/selfhost-behavior-diff
   echo "parity-check: PASS"
+
+selfhost-parser-parity:
+  mkdir -p .cabal-logs
+  deno run -A scripts/selfhost-parser-parity.mjs --manifest examples/selfhost_parser_corpus.txt --out out/selfhost-parser-parity
+
+selfhost-parser-parity-strict:
+  mkdir -p .cabal-logs
+  left="${SELFHOST_LEFT_CMD:-CABAL_DIR=\"$PWD/.cabal\" CABAL_LOGDIR=\"$PWD/.cabal-logs\" cabal run clapse --}"; \
+  right="${SELFHOST_RIGHT_CMD:-CLAPSE_ALLOW_BRIDGE=1 CLAPSE_COMPILER_WASM_PATH=\"${CLAPSE_COMPILER_WASM_PATH:-out/clapse_compiler_bridge.wasm}\" deno run -A scripts/run-clapse-compiler-wasm.mjs --}"; \
+  deno run -A scripts/selfhost-parser-parity.mjs --manifest examples/selfhost_parser_corpus.txt --left-name haskell --right-name wasm --left "$left" --right "$right" --require-distinct-engines 1 --require-right-engine-mode wasm --out out/selfhost-parser-parity
+
+formatter-idempotence-corpus:
+  mkdir -p .cabal-logs
+  deno run -A scripts/formatter-idempotence-corpus.mjs --manifest examples/compiler_source_corpus.txt --out out/formatter-idempotence
+
+lsp-wasm-fixtures:
+  : "${CLAPSE_COMPILER_WASM_PATH:?set CLAPSE_COMPILER_WASM_PATH to compiler wasm artifact}"
+  deno run -A scripts/lsp-wasm-fixtures.mjs
 
 selfhost-artifacts entry='examples/bootstrap_phase6_entry.clapse' out='out/selfhost-artifacts':
   mkdir -p .cabal-logs
@@ -124,7 +182,7 @@ selfhost-diff:
 selfhost-diff-strict:
   mkdir -p .cabal-logs
   left="${SELFHOST_LEFT_CMD:-CABAL_DIR=\"$PWD/.cabal\" CABAL_LOGDIR=\"$PWD/.cabal-logs\" cabal run clapse --}"; \
-  right="${SELFHOST_RIGHT_CMD:-CABAL_DIR=\"$PWD/.cabal\" CABAL_LOGDIR=\"$PWD/.cabal-logs\" cabal run clapse --}"; \
+  right="${SELFHOST_RIGHT_CMD:-CLAPSE_ALLOW_BRIDGE=1 CLAPSE_COMPILER_WASM_PATH=\"${CLAPSE_COMPILER_WASM_PATH:-out/clapse_compiler_bridge.wasm}\" deno run -A scripts/run-clapse-compiler-wasm.mjs --}"; \
   deno run -A scripts/selfhost-diff.mjs --manifest examples/selfhost_corpus.txt --left-name haskell --right-name wasm --left "$left" --right "$right" --require-distinct-engines 1 --require-right-engine-mode wasm --out out/selfhost-diff
 
 selfhost-behavior-diff:
@@ -134,7 +192,7 @@ selfhost-behavior-diff:
 selfhost-behavior-diff-strict:
   mkdir -p .cabal-logs
   left="${SELFHOST_LEFT_CMD:-CABAL_DIR=\"$PWD/.cabal\" CABAL_LOGDIR=\"$PWD/.cabal-logs\" cabal run clapse --}"; \
-  right="${SELFHOST_RIGHT_CMD:-CABAL_DIR=\"$PWD/.cabal\" CABAL_LOGDIR=\"$PWD/.cabal-logs\" cabal run clapse --}"; \
+  right="${SELFHOST_RIGHT_CMD:-CLAPSE_ALLOW_BRIDGE=1 CLAPSE_COMPILER_WASM_PATH=\"${CLAPSE_COMPILER_WASM_PATH:-out/clapse_compiler_bridge.wasm}\" deno run -A scripts/run-clapse-compiler-wasm.mjs --}"; \
   deno run -A scripts/selfhost-behavior-diff.mjs --manifest examples/selfhost_behavior_corpus.json --left-name haskell --right-name wasm --left "$left" --right "$right" --require-distinct-engines 1 --require-right-engine-mode wasm --out out/selfhost-behavior-diff
 
 selfhost-bootstrap-abc:
@@ -144,7 +202,7 @@ selfhost-bootstrap-abc:
 selfhost-bootstrap-abc-strict:
   mkdir -p .cabal-logs
   left="${SELFHOST_LEFT_CMD:-CABAL_DIR=\"$PWD/.cabal\" CABAL_LOGDIR=\"$PWD/.cabal-logs\" cabal run clapse --}"; \
-  right="${SELFHOST_RIGHT_CMD:-CABAL_DIR=\"$PWD/.cabal\" CABAL_LOGDIR=\"$PWD/.cabal-logs\" cabal run clapse --}"; \
+  right="${SELFHOST_RIGHT_CMD:-CLAPSE_ALLOW_BRIDGE=1 CLAPSE_COMPILER_WASM_PATH=\"${CLAPSE_COMPILER_WASM_PATH:-out/clapse_compiler_bridge.wasm}\" deno run -A scripts/run-clapse-compiler-wasm.mjs --}"; \
   deno run -A scripts/selfhost-bootstrap-abc.mjs --manifest examples/selfhost_corpus.txt --behavior-manifest examples/selfhost_behavior_corpus.json --left-name haskell --right-name wasm --left "$left" --right "$right" --require-distinct-engines 1 --require-right-engine-mode wasm --out out/selfhost-bootstrap
 
 selfhost-bench repeats='1':
@@ -170,6 +228,10 @@ selfhost-check:
   deno run -A scripts/check-selfhost-manifests.mjs
   CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal test
   just bootstrap-check
+  just selfhost-parser-parity
+  just formatter-idempotence-corpus
+  just selfhost-build-wasm-bridge
+  CLAPSE_ALLOW_BRIDGE=1 CLAPSE_COMPILER_WASM_PATH='out/clapse_compiler_bridge.wasm' just lsp-wasm-fixtures
   just selfhost-diff
   just selfhost-behavior-diff
   just selfhost-bootstrap-abc
@@ -180,6 +242,10 @@ selfhost-check-strict:
   deno run -A scripts/check-selfhost-manifests.mjs
   CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal test
   just bootstrap-check
+  just selfhost-build-wasm-bridge
+  just selfhost-parser-parity-strict
+  just formatter-idempotence-corpus
+  CLAPSE_ALLOW_BRIDGE=1 CLAPSE_COMPILER_WASM_PATH='out/clapse_compiler_bridge.wasm' just lsp-wasm-fixtures
   just selfhost-diff-strict
   just selfhost-behavior-diff-strict
   just selfhost-bootstrap-abc-strict
@@ -196,7 +262,7 @@ selfhost-build-wasm-bridge out='out/clapse_compiler_bridge.wasm':
 selfhost-check-wasm-bridge:
   mkdir -p .cabal-logs
   just selfhost-build-wasm-bridge
-  CLAPSE_COMPILER_WASM_PATH='out/clapse_compiler_bridge.wasm' just selfhost-check-wasm
+  CLAPSE_ALLOW_BRIDGE=1 CLAPSE_COMPILER_WASM_PATH='out/clapse_compiler_bridge.wasm' just selfhost-check-wasm
 
 wasm-linear-memory-helpers-smoke:
   mkdir -p .cabal-logs

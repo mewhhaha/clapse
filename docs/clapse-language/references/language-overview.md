@@ -20,7 +20,7 @@ Clapse is a pure functional toy language that compiles to WASM and prioritizes a
 - `data` declarations with multiple constructors and one-line GADT style
 - Type signatures with optional named witnesses in constraints
 - Class/law/instance declarations for compile-time rewrites
-- Builtin infix operators (`+ - * / == &&`) plus custom infix operators with fixity and precedence
+- Builtin operators (`+ - * / == < <= > >= && ||`, plus prefix `not`) plus custom infix operators with fixity and precedence
 - Collection literals (`[]`, `[a, b, ...]`) lowered via collection builtins
 - Lowering to stack ops, then collapsed IR normalization and verification
 - WASM emission with closure/data/string runtime interop

@@ -66,6 +66,14 @@ async function runShellTimed(cmd) {
   };
 }
 
+function modeMatches(expected, actual) {
+  if (expected === "wasm") return actual.startsWith("wasm");
+  if (expected.includes("|")) {
+    return expected.split("|").map((x) => x.trim()).includes(actual);
+  }
+  return actual === expected;
+}
+
 function normalizeOut(s) {
   return s.trim();
 }
@@ -93,7 +101,7 @@ async function main() {
   if (cfg.requireRightEngineMode.length > 0) {
     const probe = await runShellTimed(`${cfg.right} engine-mode`);
     const mode = probe.stdout.trim();
-    if (!probe.ok || mode !== cfg.requireRightEngineMode) {
+    if (!probe.ok || !modeMatches(cfg.requireRightEngineMode, mode)) {
       console.error(
         `selfhost-bench: right engine mode mismatch (expected '${cfg.requireRightEngineMode}', got '${
           mode || "<error>"

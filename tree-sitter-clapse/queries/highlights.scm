@@ -142,6 +142,9 @@
 ((identifier) @function.builtin
   (#match? @function.builtin "^(add|sub|mul|div|append|empty|fmap|pure|bind|ap|compose|id|slice_len|slice_get_u8|slice_set_u8|collection_empty|collection_extend)$"))
 
+((identifier) @constant.builtin.boolean
+  (#match? @constant.builtin.boolean "^(true|false)$"))
+
 ((identifier) @keyword
   (#eq? @keyword "otherwise"))
 

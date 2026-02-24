@@ -1,0 +1,1324 @@
+module bootstrap_phase11_parser_combinator_pilot
+export main, main_stats, main_stream, main_bad_type, main_bad_type_union, main_bad_type_union_string
+
+data bool = true<1> | false<0>
+data Maybe a = Just a | Nothing
+data ModuleStart = NoModule | ModulePos i64 | ModuleBad
+data DispatchState = DeclNoMatch | DeclCommitFail | DeclMatch i64
+data DecodedDeclTag = DecodedDeclTag i64 i64
+
+infixl 1 >>= = parser_bind
+infixl 1 >> = parser_then
+infixl 3 <|> = parser_or
+infixl 4 <$> = parser_map
+infixl 4 <*> = parser_ap
+infixl 4 <* = parser_keep_left
+infixl 4 *> = parser_keep_right
+
+is_fail_pos p = (p == -1)
+is_success_pos p = if2 (is_fail_pos p) false true
+
+to_maybe_pos p = if2 (is_fail_pos p) Nothing (Just p)
+
+if2 p t f = case p of
+  true -> t
+  _ -> f
+
+and2 a b = if2 a b false
+not2 a = if2 a false true
+
+bool_and a b = and2 a b
+
+from_maybe_pos m = case m of
+  Nothing -> -1
+  Just p -> p
+
+maybe_pos_or m fallback = case m of
+  Just p -> p
+  Nothing -> fallback
+
+maybe_bind m f = case m of
+  Just x -> f x
+  Nothing -> Nothing
+
+maybe_or a b = case a of
+  Just x -> Just x
+  Nothing -> b
+
+maybe_or3 a b c = maybe_or a (maybe_or b c)
+
+maybe_map f m = case m of
+  Nothing -> Nothing
+  Just x -> Just (f x)
+
+is_space b = case (b == 32) (b == 9) (b == 13) of
+  true _ _ -> true
+  _ true _ -> true
+  _ _ true -> true
+  _ _ _ -> false
+
+is_newline b = (b == 10)
+
+is_indent_space b = case (b == 32) (b == 9) of
+  true _ -> true
+  _ true -> true
+  _ _ -> false
+
+is_digit b = case (b >= 48) (b <= 57) of
+  true true -> true
+  _ _ -> false
+
+is_ident_start b =
+  let lo = case (b >= 97) (b <= 122) of
+        true true -> true
+        _ _ -> false
+      up = case (b >= 65) (b <= 90) of
+        true true -> true
+        _ _ -> false
+  in case lo up (b == 95) of
+    true _ _ -> true
+    _ true _ -> true
+    _ _ true -> true
+    _ _ _ -> false
+
+is_ident_char b =
+  let digit = case (b >= 48) (b <= 57) of
+        true true -> true
+        _ _ -> false
+  in case (is_ident_start b) digit (b == 39) of
+    true _ _ -> true
+    _ true _ -> true
+    _ _ true -> true
+    _ _ _ -> false
+
+is_op_char b = case (b == 43) (b == 45) (b == 42) of
+  true _ _ -> true
+  _ true _ -> true
+  _ _ true -> true
+  _ _ _ -> case (b == 47) (b == 61) (b == 60) of
+    true _ _ -> true
+    _ true _ -> true
+    _ _ true -> true
+    _ _ _ -> case (b == 62) (b == 58) (b == 38) of
+      true _ _ -> true
+      _ true _ -> true
+      _ _ true -> true
+      _ _ _ -> case (b == 124) (b == 33) (b == 37) of
+        true _ _ -> true
+        _ true _ -> true
+        _ _ true -> true
+        _ _ _ -> case (b == 94) (b == 126) (b == 46) of
+          true _ _ -> true
+          _ true _ -> true
+          _ _ true -> true
+          _ _ _ -> false
+
+skip_spaces src i len = case (i < len) of
+  true -> skip_spaces_present src i len
+  _ -> i
+
+skip_spaces_present src i len =
+  let b = slice_get_u8 src i
+  in case (is_space b) of
+    true -> skip_spaces src (i + 1) len
+    _ -> i
+
+skip_spaces_or_nl src i len = case (i < len) of
+  true -> skip_spaces_or_nl_step src i len
+  _ -> i
+
+skip_spaces_or_nl_step src i len =
+  let b = slice_get_u8 src i
+  in case (is_space b) of
+    true -> skip_spaces_or_nl src (i + 1) len
+    _ -> if2 (is_newline b) (skip_spaces_or_nl src (i + 1) len) i
+
+parse_literal_at src i len lit j lit_len = case (j == lit_len) of
+  true -> i + lit_len
+  _ -> parse_literal_continue src i len lit j lit_len
+
+parse_literal_continue src i len lit j lit_len = case (i + j < len) of
+  true ->
+    let a = slice_get_u8 src (i + j)
+        b = slice_get_u8 lit j
+    in parse_literal_byte_match src i len lit j lit_len a b
+  _ -> -1
+
+parse_literal_byte_match src i len lit j lit_len a b = case (a == b) of
+  true -> parse_literal_at src i len lit (j + 1) lit_len
+  _ -> -1
+
+parse_token_literal src i len txt =
+  let lit = str_to_slice txt
+      lit_len = slice_len lit
+      i0 = skip_spaces src i len
+  in parse_literal_at src i0 len lit 0 lit_len
+
+keyword_boundary src i len = case (i < len) of
+  true -> keyword_boundary_present src i
+  _ -> true
+
+keyword_boundary_present src i =
+  let b = slice_get_u8 src i
+  in case (is_ident_char b) of
+    true -> false
+    _ -> true
+
+parse_keyword src i len txt =
+  let mj = to_maybe_pos (parse_token_literal src i len txt)
+  in case mj of
+    Nothing -> -1
+    Just j ->
+      case (keyword_boundary src j len) of
+        true -> j
+        _ -> -1
+
+parse_ident src i len =
+  let i0 = skip_spaces src i len
+  in case (i0 < len) of
+    true -> parse_ident_start src i0 len
+    _ -> -1
+
+parse_ident_start src i0 len =
+  let b = slice_get_u8 src i0
+  in case (is_ident_start b) of
+    true -> parse_ident_tail src (i0 + 1) len
+    _ -> -1
+
+parse_ident_tail src i len = case (i < len) of
+  true -> parse_ident_tail_step src i len
+  _ -> i
+
+parse_ident_tail_step src i len =
+  let b = slice_get_u8 src i
+  in case (is_ident_char b) of
+    true -> parse_ident_tail src (i + 1) len
+    _ -> i
+
+parse_operator_token src i len =
+  let i0 = skip_spaces src i len
+  in case (i0 < len) of
+    true -> parse_operator_token_start src i0 len
+    _ -> -1
+
+parse_operator_token_start src i0 len =
+  let b = slice_get_u8 src i0
+  in case (is_op_char b) of
+    true -> parse_operator_token_tail src (i0 + 1) len
+    _ -> -1
+
+parse_operator_token_tail src i len = case (i < len) of
+  true -> parse_operator_token_tail_step src i len
+  _ -> i
+
+parse_operator_token_tail_step src i len =
+  let b = slice_get_u8 src i
+  in case (is_op_char b) of
+    true -> parse_operator_token_tail src (i + 1) len
+    _ -> i
+
+parse_ident_or_operator src i len =
+  let p = parse_ident <|> parse_operator_token
+  in p src i len
+
+parse_path_tail src i len =
+  let i0 = skip_spaces src i len
+  in case (i0 < len) of
+    true -> parse_path_tail_step src i0 len
+    _ -> i0
+
+parse_path_tail_step src i0 len =
+  let b = slice_get_u8 src i0
+  in case (b == 46) of
+    true -> parse_path_tail_dot src i0 len
+    _ -> i0
+
+parse_path_tail_dot src i0 len =
+  let m1 = to_maybe_pos (parse_ident src (i0 + 1) len)
+  in case m1 of
+    Nothing -> -1
+    Just i1 -> parse_path_tail src i1 len
+
+parse_path src i len =
+  let m1 = to_maybe_pos (parse_ident src i len)
+  in case m1 of
+    Nothing -> -1
+    Just i1 -> parse_path_tail src i1 len
+
+parse_u8_decimal src i len =
+  let i0 = skip_spaces src i len
+  in case (i0 < len) of
+    true -> parse_u8_decimal_start src i0 len
+    _ -> -1
+
+parse_u8_decimal_multiline src i len =
+  let i0 = skip_spaces_or_nl src i len
+  in case (i0 < len) of
+    true -> parse_u8_decimal_start src i0 len
+    _ -> -1
+
+parse_u8_decimal_start src i0 len =
+  let b = slice_get_u8 src i0
+  in case (is_digit b) of
+    true -> parse_u8_decimal_tail src (i0 + 1) len
+    _ -> -1
+
+parse_u8_decimal_tail src i len = case (i < len) of
+  true -> parse_u8_decimal_tail_step src i len
+  _ -> i
+
+parse_u8_decimal_tail_step src i len =
+  let b = slice_get_u8 src i
+  in case (is_digit b) of
+    true -> parse_u8_decimal_tail src (i + 1) len
+    _ -> i
+
+parse_signed_u8_decimal src i len =
+  let i0 = skip_spaces src i len
+  in case (i0 < len) of
+    true -> parse_signed_u8_decimal_from src i0 len
+    _ -> -1
+
+parse_signed_u8_decimal_from src i0 len =
+  let b0 = slice_get_u8 src i0
+      i1 = i0 + 1
+  in if2 (b0 == 45) (if2 (i1 < len) (parse_u8_decimal_start src i1 len) (-1)) (parse_u8_decimal_start src i0 len)
+
+parse_string_literal src i len =
+  let i0 = skip_spaces src i len
+  in case (i0 < len) of
+    true -> parse_string_literal_start src i0 len
+    _ -> -1
+
+parse_string_literal_start src i0 len =
+  case (slice_get_u8 src i0 == 34) of
+    true -> parse_string_literal_body src (i0 + 1) len false
+    _ -> -1
+
+parse_string_literal_body src i len escaped =
+  if2 (i < len)
+    (parse_string_literal_body_step src i len escaped (slice_get_u8 src i))
+    (-1)
+
+parse_string_literal_body_step src i len escaped b =
+  case escaped (b == 92) (b == 34) of
+    true _ _ -> parse_string_literal_body src (i + 1) len false
+    _ true _ -> parse_string_literal_body src (i + 1) len true
+    _ _ true -> i + 1
+    _ _ _ -> parse_string_literal_body src (i + 1) len false
+
+parse_nonempty_tail src i len =
+  let i0 = skip_spaces src i len
+  in case (i0 < len) of
+    true -> parse_nonempty_tail_start src i0 len
+    _ -> -1
+
+parse_nonempty_tail_start src i0 len =
+  let b = slice_get_u8 src i0
+  in case (b == 10) of
+    true -> -1
+    _ -> parse_to_line_end src i0 len
+
+parse_tail_with_char src i len want =
+  let i0 = skip_spaces src i len
+  in case (i0 < len) of
+    true -> parse_tail_with_char_scan src i0 len want false
+    _ -> -1
+
+parse_tail_with_char_scan src i len want seen =
+  case (i < len) of
+    true -> let b = slice_get_u8 src i
+            seen1 = case (b == want) seen of
+              true _ -> true
+              _ x -> x
+            in parse_tail_with_char_step src i len want seen1 b
+    _ -> -1
+
+parse_tail_with_char_step src i len want seen b =
+  case (b == 10) of
+    true -> if2 seen i (-1)
+    _ -> parse_tail_with_char_scan src (i + 1) len want seen
+
+parse_tail_has_arrow src i len = parse_tail_has_arrow_scan src i len false false
+
+parse_tail_has_arrow_scan src i len saw_dash saw_gt =
+  case (i < len) of
+    true -> let b = slice_get_u8 src i
+            in parse_tail_has_arrow_scan_next src i len saw_dash saw_gt b
+    _ -> -1
+
+parse_tail_has_arrow_scan_next src i len saw_dash saw_gt b =
+  case (is_newline b) of
+    true -> if2 saw_gt i (-1)
+    _ ->
+      case saw_dash of
+        true -> parse_tail_has_arrow_scan_dash src i len b
+        _ -> parse_tail_has_arrow_scan_nodash src i len b
+
+parse_tail_has_arrow_scan_dash src i len b =
+  case (b == 62) of
+    true -> parse_tail_has_arrow_scan src (i + 1) len false true
+    _ -> parse_tail_has_arrow_scan_dash_rest src i len b
+
+parse_tail_has_arrow_scan_dash_rest src i len b =
+  case (b == 45) of
+    true -> parse_tail_has_arrow_scan src (i + 1) len true false
+    _ -> parse_tail_has_arrow_scan src (i + 1) len false false
+
+parse_tail_has_arrow_scan_nodash src i len b =
+  case (b == 45) of
+    true -> parse_tail_has_arrow_scan src (i + 1) len true false
+    _ -> parse_tail_has_arrow_scan src (i + 1) len false false
+
+parse_to_line_end src i len = case (i < len) of
+  true -> parse_to_line_end_step src i len
+  _ -> i
+
+parse_to_line_end_step src i len =
+  let b = slice_get_u8 src i
+  in case (b == 10) of
+    true -> i
+    _ -> parse_to_line_end src (i + 1) len
+
+parse_indent_tail src i len = case (i < len) of
+  true -> parse_indent_tail_step src i len
+  _ -> i
+
+parse_indent_tail_step src i len =
+  let b = slice_get_u8 src i
+  in case (is_indent_space b) of
+    true -> parse_indent_tail src (i + 1) len
+    _ -> i
+
+parse_function_head_m src i len =
+  let m0 = to_maybe_pos (parse_ident src i len)
+  in maybe_bind m0 (next_function_head_m src len)
+
+next_function_head_m src len p0 =
+  to_maybe_pos (parser_many parse_ident src p0 len)
+
+parse_function_head_eq_m src i len =
+  let m0 = parse_function_head_m src i len
+  in maybe_bind m0 (next_function_head_eq_m src len)
+
+next_function_head_eq_m src len p1 =
+  to_maybe_pos (parse_eq src p1 len)
+
+parse_header_line_eq_only src i len =
+  let m0 = parse_function_head_eq_m src i len
+  in case m0 of
+    Nothing -> -1
+    Just p2 -> parse_header_line_eq_only_pos src p2 len
+
+parse_header_line_eq_only_pos src p2 len =
+  let p3 = skip_spaces src p2 len
+  in case (p3 < len) of
+    true -> parse_header_line_eq_only_eol src p3
+    _ -> -1
+
+parse_header_line_eq_only_eol src p3 =
+  let b = slice_get_u8 src p3
+  in case (b == 10) of
+    true -> p3 + 1
+    _ -> -1
+
+parse_indented_line src i len =
+  let p0 = parse_indent_tail src i len
+  in case (p0 == i) of
+    true -> -1
+    _ -> parse_indented_line_pos src p0 len
+
+parse_indented_line_pos src p0 len = case (p0 < len) of
+  true -> parse_indented_line_nonempty src p0 len
+  _ -> -1
+
+parse_indented_line_nonempty src p0 len =
+  let b = slice_get_u8 src p0
+  in case (b == 10) of
+    true -> -1
+    _ ->
+      let p1 = parse_to_line_end src p0 len
+      in finish_line src p1 len
+
+parse_indented_lines src i len =
+  let p0 = parse_indented_line src i len
+  in case (is_fail_pos p0) of
+    true -> i
+    _ -> parse_indented_lines src p0 len
+
+parse_indented_block src i len =
+  let p0 = parse_indented_line src i len
+  in case (is_fail_pos p0) of
+    true -> -1
+    _ -> parse_indented_lines src p0 len
+
+parse_function_payload_block src i len =
+  let m0 = to_maybe_pos (parse_header_line_eq_only src i len)
+  in case m0 of
+    Nothing -> -1
+    Just p0 -> parse_function_payload_block_after_header src p0 len
+
+parse_function_payload_block_after_header src p0 len =
+  parse_indented_block src p0 len
+
+parse_guard_continuation_line src i len =
+  let p0 = parse_indent_tail src i len
+      m0 = case (p0 == i) of
+        true -> Nothing
+        _ -> Just p0
+  in case m0 of
+    Nothing -> -1
+    Just p1 ->
+      let m1 = to_maybe_pos (parse_token_literal src p1 len "|")
+      in case m1 of
+        Nothing -> -1
+        Just p2 ->
+          let m2 = to_maybe_pos (parse_tail_has_eq src p2 len)
+          in case m2 of
+            Nothing -> -1
+            Just p3 -> finish_line src p3 len
+
+parse_guard_continuation_lines src i len =
+  let m0 = to_maybe_pos (parse_guard_continuation_line src i len)
+  in case m0 of
+    Nothing -> i
+    Just p0 -> parse_guard_continuation_lines src p0 len
+
+parse_function_line_guarded_multiline src i len =
+  let m0 = parse_function_head_m src i len
+      m1 = maybe_bind m0 (parse_guard_head_tail_m src len)
+      m2 = maybe_bind m1 (parse_guard_head_finish_m src len)
+      m3 = maybe_bind m2 (parse_guard_cont_lines_m src len)
+  in from_maybe_pos m3
+
+parse_guard_head_tail_m src len p1 =
+  to_maybe_pos (parse_tail_has_pipe_and_eq src p1 len)
+
+parse_guard_head_finish_m src len p2 =
+  to_maybe_pos (finish_line src p2 len)
+
+parse_guard_cont_lines_m src len p3 =
+  Just (parse_guard_continuation_lines src p3 len)
+
+parse_function_payload_case_block src i len =
+  let m0 = parse_function_head_eq_m src i len
+      m1 = maybe_bind m0 (parse_case_kw_m src len)
+      m2 = maybe_bind m1 (parse_case_tail_m src len)
+      m3 = maybe_bind m2 (parse_case_finish_m src len)
+      m4 = maybe_bind m3 (parse_case_first_arm_m src len)
+      m5 = maybe_bind m4 (parse_case_rest_arms_m src len)
+  in from_maybe_pos m5
+
+parse_case_kw_m src len p2 =
+  to_maybe_pos (parse_keyword src p2 len "case")
+
+parse_case_tail_m src len p3 =
+  to_maybe_pos (parse_nonempty_tail src p3 len)
+
+parse_case_finish_m src len p4 =
+  to_maybe_pos (finish_line src p4 len)
+
+parse_case_first_arm_m src len p5 =
+  to_maybe_pos (parse_indented_line src p5 len)
+
+parse_case_rest_arms_m src len p6 =
+  Just (parse_indented_lines src p6 len)
+
+finish_line src i len =
+  let i0 = skip_spaces src i len
+  in case (i0 == len) of
+    true -> i0
+    _ -> finish_line_not_end src i0 len
+
+finish_line_not_end src i0 len =
+  case (i0 < len) of
+    true -> finish_line_newline src i0
+    _ -> -1
+
+finish_line_newline src i0 =
+  let b = slice_get_u8 src i0
+  in case (b == 10) of
+    true -> i0 + 1
+    _ -> -1
+
+parse_decl_line kw payload src i len =
+  let m0 = to_maybe_pos (parse_keyword src i len kw)
+      m1 = maybe_bind m0 (parse_decl_payload_m payload src len)
+  in from_maybe_pos m1
+
+parse_decl_payload_m payload src len p0 =
+  let m1 = to_maybe_pos (payload src p0 len)
+  in maybe_bind m1 (parse_finish_line_m src len)
+
+parse_finish_line_m src len p1 =
+  to_maybe_pos (finish_line src p1 len)
+
+parse_line_from_payload payload src i len =
+  let m0 = to_maybe_pos (payload src i len)
+      m1 = maybe_bind m0 (parse_finish_line_m src len)
+  in from_maybe_pos m1
+
+parse_module_line src i len = parse_decl_line "module" parse_path src i len
+parse_import_line src i len = parse_decl_line "import" parse_path src i len
+
+parse_blank_line src i len =
+  let i0 = skip_spaces src i len
+  in case (i0 < len) of
+    true -> parse_blank_line_eol src i0
+    _ -> -1
+
+parse_blank_line_eol src i0 =
+  let b = slice_get_u8 src i0
+  in case (b == 10) of
+    true -> i0 + 1
+    _ -> -1
+
+parse_comment_line src i len =
+  let i0 = skip_spaces src i len
+  in case (i0 < len) of
+    true -> parse_comment_line_dash src i0 len
+    _ -> -1
+
+parse_comment_line_dash src i0 len =
+  let b0 = slice_get_u8 src i0
+  in case (b0 == 45) of
+    true -> parse_comment_line_dash2 src i0 len
+    _ -> -1
+
+parse_comment_line_dash2 src i0 len =
+  let i1 = i0 + 1
+  in case (i1 < len) of
+    true -> parse_comment_line_dash2_check src i1 len
+    _ -> -1
+
+parse_comment_line_dash2_check src i1 len =
+  let b1 = slice_get_u8 src i1
+  in case (b1 == 45) of
+    true ->
+      let i2 = parse_to_line_end src i1 len
+      in finish_line src i2 len
+    _ -> -1
+
+parse_attribute_line src i len =
+  let m0 = to_maybe_pos (parse_token_literal src i len "#[")
+      m1 = maybe_bind m0 (parse_attribute_ident_m src len)
+      m2 = maybe_bind m1 (parse_attribute_tail_m src len)
+      m3 = maybe_bind m2 (parse_finish_line_m src len)
+  in from_maybe_pos m3
+
+parse_attribute_ident_m src len p0 =
+  to_maybe_pos (parse_ident src p0 len)
+
+parse_attribute_tail_m src len p1 =
+  to_maybe_pos (parse_tail_with_char src p1 len 93)
+
+parse_attribute_lines src i len =
+  let m0 = to_maybe_pos (parse_attribute_line src i len)
+  in case m0 of
+    Nothing -> i
+    Just p0 -> parse_attribute_lines src p0 len
+
+parse_blank_or_comment_line src i len =
+  let m0 = to_maybe_pos (parse_blank_line src i len)
+  in case m0 of
+    Nothing -> parse_comment_line src i len
+    Just p0 -> p0
+
+parse_blank_or_comment_lines src i len =
+  let m0 = to_maybe_pos (parse_blank_or_comment_line src i len)
+  in case m0 of
+    Nothing -> i
+    Just p0 -> parse_blank_or_comment_lines src p0 len
+
+parse_import_or_blank_or_comment_line src i len =
+  let m0 = to_maybe_pos (parse_import_line src i len)
+  in case m0 of
+    Nothing -> parse_blank_or_comment_line src i len
+    Just p0 -> p0
+
+parse_comma src i len = parse_token_literal src i len ","
+parse_colon src i len = parse_token_literal src i len ":"
+parse_eq src i len = parse_token_literal src i len "="
+parse_tail_has_eq src i len = parse_tail_with_char src i len 61
+parse_tail_has_colon src i len = parse_tail_with_char src i len 58
+parse_tail_has_pipe src i len = parse_tail_with_char src i len 124
+
+parse_tail_has_pipe_and_eq src i len =
+  let i0 = skip_spaces src i len
+  in case (i0 < len) of
+    true -> parse_tail_has_pipe_and_eq_scan src i0 len false false
+    _ -> -1
+
+parse_tail_has_pipe_and_eq_scan src i len seen_pipe seen_eq = case (i < len) seen_pipe seen_eq of
+  false true true -> i
+  false _ _ -> -1
+  _ _ _ ->
+    let b = slice_get_u8 src i
+        pipe1 = case (b == 124) seen_pipe of
+          true _ -> true
+          _ x -> x
+        eq1 = case (b == 61) seen_eq of
+          true _ -> true
+          _ x -> x
+    in case (b == 10) pipe1 eq1 of
+      true true true -> i
+      true _ _ -> -1
+      _ _ _ -> parse_tail_has_pipe_and_eq_scan src (i + 1) len pipe1 eq1
+
+parser_bind p q src i len =
+  let m0 = to_maybe_pos (p src i len)
+      m1 = maybe_bind m0 (parser_bind_next_m q src len)
+  in from_maybe_pos m1
+
+parser_then p q = parser_bind p q
+
+parser_bind_next_m q src len j =
+  to_maybe_pos (q src j len)
+
+parser_map f p src i len =
+  let m0 = to_maybe_pos (p src i len)
+      m1 = maybe_map f m0
+  in from_maybe_pos m1
+
+parser_ap p q = parser_keep_right p q
+
+parser_keep_left p q src i len =
+  let mj = to_maybe_pos (p src i len)
+  in case mj of
+    Nothing -> -1
+    Just j ->
+      let mk = to_maybe_pos (q src j len)
+      in case mk of
+        Nothing -> -1
+        Just _ -> j
+
+parser_keep_right p q src i len = parser_bind p q src i len
+
+parser_or p q src i len =
+  let m0 = to_maybe_pos (p src i len)
+  in case m0 of
+    Nothing -> q src i len
+    Just j -> j
+
+parser_many p src i len =
+  let mj = to_maybe_pos (p src i len)
+  in case mj of
+    Nothing -> i
+    Just j ->
+      case (j == i) of
+        true -> i
+        _ -> parser_many p src j len
+
+parser_some p src i len =
+  let mj = to_maybe_pos (p src i len)
+  in case mj of
+    Nothing -> -1
+    Just j ->
+      case (j == i) of
+        true -> -1
+        _ -> parser_many p src j len
+
+parser_sep_by1 item sep src i len =
+  let mj = to_maybe_pos (item src i len)
+  in case mj of
+    Nothing -> -1
+    Just j ->
+      case (j == i) of
+        true -> -1
+        _ -> parser_many (sep *> item) src j len
+
+parser_sep_by item sep = parser_sep_by1 item sep <|> parser_pure_pos
+
+parser_pure_pos src i _ = i
+parser_eof _ i len = case (i == len) of
+  true -> i
+  _ -> -1
+
+id_pos x = x
+
+parse_export_line src i len =
+  parse_decl_line "export" (parser_sep_by1 parse_ident parse_comma) src i len
+
+parse_infix_payload src i len =
+  let m0 = to_maybe_pos (parse_u8_decimal_multiline src i len)
+  in case m0 of
+    Nothing -> -1
+    Just p0 ->
+      let m1 = to_maybe_pos (parse_ident_or_operator src p0 len)
+      in case m1 of
+        Nothing -> -1
+        Just p1 ->
+          let m2 = to_maybe_pos (parse_eq src p1 len)
+          in case m2 of
+            Nothing -> -1
+            Just p2 -> parse_ident src p2 len
+
+parse_infix_line src i len =
+  let p0 = parse_decl_line "infixl" parse_infix_payload src i len
+      m0 = to_maybe_pos p0
+  in case m0 of
+    Just p -> p
+    Nothing ->
+      let p1 = parse_decl_line "infixr" parse_infix_payload src i len
+          m1 = to_maybe_pos p1
+      in case m1 of
+        Just p -> p
+        Nothing -> parse_decl_line "infix" parse_infix_payload src i len
+
+parse_top_decl src i len =
+  let i0 = parse_blank_or_comment_lines src i len
+      i1 = parse_attribute_lines src i0 len
+  in parse_top_decl_dispatch src i1 len
+
+parse_top_decl_dispatch src i len =
+  parse_top_decl_dispatch_loop src i len 0
+
+parse_decl_try_keyword keyword parse_decl src i len =
+  let mk = to_maybe_pos (parse_keyword src i len keyword)
+  in case mk of
+    Nothing -> DeclNoMatch
+    Just _ ->
+      let mp = to_maybe_pos (parse_decl src i len)
+      in case mp of
+        Nothing -> DeclCommitFail
+        Just p -> DeclMatch p
+
+parse_top_decl_dispatch_step src i len n = case n of
+  0 -> parse_decl_try_keyword "import" parse_import_line src i len
+  1 -> parse_decl_try_keyword "export" parse_export_line src i len
+  2 -> parse_decl_try_keyword "infixl" parse_infix_line src i len
+  3 -> parse_decl_try_keyword "infixr" parse_infix_line src i len
+  4 -> parse_decl_try_keyword "infix" parse_infix_line src i len
+  5 -> parse_decl_try_keyword "data" parse_data_line src i len
+  6 -> parse_decl_try_keyword "newtype" parse_newtype_line src i len
+  7 -> parse_decl_try_keyword "class" parse_class_line src i len
+  8 -> parse_decl_try_keyword "law" parse_law_line src i len
+  9 -> parse_decl_try_keyword "instance" parse_instance_line src i len
+  _ -> parse_decl_try_keyword "type" parse_type_line src i len
+
+parse_top_decl_dispatch_fallback src i len =
+  let p10 = parse_signature_line src i len
+  in case (is_fail_pos p10) of
+    true -> parse_function_line src i len
+    _ -> p10
+
+parse_top_decl_dispatch_loop src i len n = case (n < 11) of
+  true -> parse_top_decl_dispatch_loop_step src i len n
+  _ -> parse_top_decl_dispatch_fallback src i len
+
+parse_top_decl_dispatch_loop_step src i len n =
+  let st = parse_top_decl_dispatch_step src i len n
+  in case st of
+    DeclNoMatch -> parse_top_decl_dispatch_loop src i len (n + 1)
+    DeclCommitFail -> -1
+    DeclMatch p -> p
+
+parse_data_payload src i len =
+  let p = parse_ident *> parser_many parse_ident *> parse_eq *> parse_nonempty_tail
+  in p src i len
+
+parse_newtype_payload src i len =
+  let p = parse_ident *> parser_many parse_ident *> parse_eq *> parse_nonempty_tail
+  in p src i len
+
+parse_type_payload src i len =
+  let p = parse_ident *> parser_many parse_ident *> parse_eq *> parse_type_payload_tail
+  in p src i len
+
+parse_type_payload_tail src i len =
+  let m0 = to_maybe_pos (parse_token_literal src i len "<")
+  in case m0 of
+    Nothing -> parse_nonempty_tail src i len
+    Just p0 -> parse_type_literal_union src p0 len
+
+parse_type_literal_union src i len =
+  let m0 = to_maybe_pos (parser_sep_by1 parse_type_union_member parse_type_union_pipe src i len)
+  in case m0 of
+    Nothing -> -1
+    Just p0 ->
+      let m1 = to_maybe_pos (parse_token_literal src p0 len ">")
+      in case m1 of
+        Nothing -> -1
+        Just p1 -> p1
+
+parse_type_union_pipe src i len = parse_token_literal src i len "|"
+parse_type_union_member src i len =
+  let i0 = skip_spaces src i len
+  in case (i0 < len) of
+    true -> parse_type_union_member_at src i0 len
+    _ -> -1
+
+parse_type_union_member_at src i0 len =
+  let p0 = parse_signed_u8_decimal src i0 len
+      m0 = to_maybe_pos p0
+  in case m0 of
+    Just p -> p
+    Nothing -> parse_string_literal src i0 len
+
+parse_class_payload src i len =
+  let p = parse_ident *> parser_some parse_ident *> parse_colon *> parse_ident *> parser_many parse_ident
+  in p src i len
+
+parse_law_payload src i len =
+  let p = parse_ident *> parse_ident *> parse_eq *> parse_nonempty_tail
+  in p src i len
+
+parse_instance_payload src i len =
+  let p = parse_ident *> parse_colon *> parse_ident *> parser_some parse_ident *> parse_tail_has_eq
+  in p src i len
+
+parse_data_line src i len = parse_decl_line "data" parse_data_payload src i len
+parse_newtype_line src i len = parse_decl_line "newtype" parse_newtype_payload src i len
+parse_type_line src i len = parse_decl_line "type" parse_type_payload src i len
+parse_class_line src i len = parse_decl_line "class" parse_class_payload src i len
+parse_law_line src i len = parse_decl_line "law" parse_law_payload src i len
+parse_instance_line src i len = parse_decl_line "instance" parse_instance_payload src i len
+
+parse_signature_line src i len =
+  parse_line_from_payload (parse_ident *> parse_colon *> parse_nonempty_tail) src i len
+
+parse_function_payload_plain src i len =
+  let m0 = parse_function_head_eq_m src i len
+      m1 = maybe_bind m0 (parse_plain_tail_m src len)
+  in from_maybe_pos m1
+
+parse_function_payload_case_inline src i len =
+  let m0 = parse_function_head_eq_m src i len
+      m1 = maybe_bind m0 (parse_case_kw_m src len)
+      m2 = maybe_bind m1 (parse_case_inline_arrow_m src len)
+  in from_maybe_pos m2
+
+parse_plain_tail_m src len p2 =
+  let mk = to_maybe_pos (parse_keyword src p2 len "case")
+  in case mk of
+    Just _ -> Nothing
+    Nothing -> to_maybe_pos (parse_nonempty_tail src p2 len)
+
+parse_case_inline_arrow_m src len p3 =
+  let m0 = to_maybe_pos (parse_tail_has_arrow src p3 len)
+  in case m0 of
+    Nothing -> Nothing
+    Just _ -> to_maybe_pos (parse_nonempty_tail src p3 len)
+
+parse_function_line src i len =
+  let p0 = parse_function_payload_case_block src i len
+      m0 = to_maybe_pos p0
+  in case m0 of
+    Just p -> p
+    Nothing ->
+      let p1 = parse_line_from_payload parse_function_payload_case_inline src i len
+          m1 = to_maybe_pos p1
+      in case m1 of
+        Just p -> p
+        Nothing ->
+          let p2 = parse_line_from_payload parse_function_payload_plain src i len
+              m2 = to_maybe_pos p2
+          in case m2 of
+            Just p -> p
+            Nothing ->
+              let p3 = parse_function_line_guarded_multiline src i len
+                  m3 = to_maybe_pos p3
+              in case m3 of
+                Just p -> p
+                Nothing -> parse_function_payload_block src i len
+
+parse_program src =
+  let bytes = str_to_slice src
+      len = slice_len bytes
+      pipeline = id_pos <$> (parse_module_line *> parser_many parse_import_or_blank_or_comment_line *> parser_some parse_top_decl *> parse_blank_or_comment_lines <* parser_eof)
+      p = pipeline bytes 0 len
+      mp = to_maybe_pos p
+  in case mp of
+    Nothing -> 0
+    Just j ->
+      case (j == len) of
+        true -> len
+        _ -> j
+
+decl_tag_base = 17
+decl_tag_module = 1
+decl_tag_import = 2
+decl_tag_export = 3
+decl_tag_infix = 4
+decl_tag_data = 5
+decl_tag_newtype = 6
+decl_tag_class = 7
+decl_tag_law = 8
+decl_tag_instance = 9
+decl_tag_type = 10
+decl_tag_signature = 11
+decl_tag_function_plain = 12
+decl_tag_function_guarded = 13
+decl_tag_function_case = 14
+decl_tag_function_let = 15
+decl_tag_attribute = 16
+
+pack_decl_tag tag pos = pos * decl_tag_base + tag
+
+decode_decl_tag x = decode_decl_tag_next x 0
+
+decode_decl_tag_next x pos = case (x <= 0) of
+  true -> Nothing
+  _ ->
+    case (x < decl_tag_base) of
+      true -> Just (DecodedDeclTag x pos)
+      _ -> decode_decl_tag_next (x - decl_tag_base) (pos + 1)
+
+decode_tag_pos x = case (decode_decl_tag x) of
+  Nothing -> 0
+  Just decoded ->
+    case decoded of
+      DecodedDeclTag _ pos -> pos
+
+decode_tag_kind x = case (decode_decl_tag x) of
+  Nothing -> 0
+  Just decoded ->
+    case decoded of
+      DecodedDeclTag kind _ -> kind
+
+classify_module_start src len =
+  let p0 = parse_module_line_tagged src 0 len
+      m0 = to_maybe_pos p0
+  in case m0 of
+    Nothing -> NoModule
+    Just p ->
+      let tag0 = decode_tag_kind p
+          pos0 = decode_tag_pos p
+      in case tag0 of
+        decl_tag_module -> ModulePos pos0
+        _ -> ModuleBad
+
+tagged_parser p tag src i len =
+  let q = parser_map (pack_decl_tag tag) p
+  in q src i len
+
+parse_module_line_tagged src i len = tagged_parser parse_module_line decl_tag_module src i len
+parse_import_line_tagged src i len = tagged_parser parse_import_line decl_tag_import src i len
+parse_export_line_tagged src i len = tagged_parser parse_export_line decl_tag_export src i len
+parse_infix_line_tagged src i len = tagged_parser parse_infix_line decl_tag_infix src i len
+parse_data_line_tagged src i len = tagged_parser parse_data_line decl_tag_data src i len
+parse_newtype_line_tagged src i len = tagged_parser parse_newtype_line decl_tag_newtype src i len
+parse_type_line_tagged src i len = tagged_parser parse_type_line decl_tag_type src i len
+parse_class_line_tagged src i len = tagged_parser parse_class_line decl_tag_class src i len
+parse_law_line_tagged src i len = tagged_parser parse_law_line decl_tag_law src i len
+parse_instance_line_tagged src i len = tagged_parser parse_instance_line decl_tag_instance src i len
+parse_signature_line_tagged src i len = tagged_parser parse_signature_line decl_tag_signature src i len
+parse_function_line_plain_tagged src i len =
+  let p = parse_line_from_payload parse_function_payload_plain <|> parse_function_payload_block
+  in tagged_parser p decl_tag_function_plain src i len
+parse_function_line_guarded_tagged src i len =
+  let p = parse_function_line_guarded_multiline
+  in tagged_parser p decl_tag_function_guarded src i len
+parse_function_line_case_tagged src i len =
+  let m0 = to_maybe_pos (parse_function_payload_case_block src i len)
+      m1 = to_maybe_pos (parse_line_from_payload parse_function_payload_case_inline src i len)
+      m2 = maybe_or m0 m1
+      m3 = maybe_bind m2 parse_case_tag_pos_m
+  in from_maybe_pos m3
+
+parse_case_tag_pos_m p =
+  Just (pack_decl_tag decl_tag_function_case p)
+parse_function_line_let_tagged src i len =
+  let m0 = parse_function_head_eq_m src i len
+      m1 = maybe_bind m0 (parse_let_kw_m src len)
+      m2 = maybe_bind m1 (parse_let_tail_m src len)
+  in case m2 of
+    Nothing -> -1
+    Just p5 -> pack_decl_tag decl_tag_function_let p5
+
+parse_let_kw_m src len p2 =
+  to_maybe_pos (parse_keyword src p2 len "let")
+
+parse_let_tail_m src len p3 =
+  let i0 = skip_spaces src p3 len
+  in case (i0 < len) of
+    true -> parse_let_tail_start src len i0
+    _ -> -1
+
+parse_let_tail_start src len i0 =
+  let b0 = slice_get_u8 src i0
+  in case (b0 == 10) of
+    true -> parse_let_block_body src (i0 + 1) len
+    _ -> parse_let_inline_body src len i0
+
+parse_let_inline_body src len p4 =
+  let m1 = to_maybe_pos (parse_nonempty_tail src p4 len)
+  in maybe_bind m1 (parse_let_finish_m src len)
+
+parse_let_block_body src i len =
+  to_maybe_pos (parse_indented_block src i len)
+
+parse_let_finish_m src len p4 =
+  to_maybe_pos (finish_line src p4 len)
+parse_function_line_any_tagged src i len =
+  let m0 = to_maybe_pos (parse_function_line_guarded_tagged src i len)
+      m1 = to_maybe_pos (parse_function_line_case_tagged src i len)
+      m2 = to_maybe_pos (parse_function_line_let_tagged src i len)
+      m3 = to_maybe_pos (parse_function_line_plain_tagged src i len)
+      m4 = maybe_or m0 (maybe_or3 m1 m2 m3)
+  in from_maybe_pos m4
+parse_attribute_line_tagged src i len = tagged_parser parse_attribute_line decl_tag_attribute src i len
+
+parse_any_decl_tagged src i len =
+  let i0 = parse_blank_or_comment_lines src i len
+      a0 = to_maybe_pos (parse_attribute_line_tagged src i0 len)
+  in case a0 of
+    Just p -> p
+    Nothing -> parse_any_decl_tagged_loop src i0 len 0
+
+parse_any_decl_tagged_step src i len n = case n of
+  0 -> parse_decl_try_keyword "import" parse_import_line_tagged src i len
+  1 -> parse_decl_try_keyword "export" parse_export_line_tagged src i len
+  2 -> parse_decl_try_keyword "infixl" parse_infix_line_tagged src i len
+  3 -> parse_decl_try_keyword "infixr" parse_infix_line_tagged src i len
+  4 -> parse_decl_try_keyword "infix" parse_infix_line_tagged src i len
+  5 -> parse_decl_try_keyword "data" parse_data_line_tagged src i len
+  6 -> parse_decl_try_keyword "newtype" parse_newtype_line_tagged src i len
+  7 -> parse_decl_try_keyword "class" parse_class_line_tagged src i len
+  8 -> parse_decl_try_keyword "law" parse_law_line_tagged src i len
+  9 -> parse_decl_try_keyword "instance" parse_instance_line_tagged src i len
+  _ -> parse_decl_try_keyword "type" parse_type_line_tagged src i len
+
+parse_any_decl_tagged_fallback src i len =
+  let p10 = to_maybe_pos (parse_signature_line_tagged src i len)
+      p11 = parse_function_line_any_tagged src i len
+  in maybe_pos_or p10 p11
+
+parse_any_decl_tagged_loop src i len n = case (n < 11) of
+  true -> parse_any_decl_tagged_loop_step src i len n
+  _ -> parse_any_decl_tagged_fallback src i len
+
+parse_any_decl_tagged_loop_step src i len n =
+  let st = parse_any_decl_tagged_step src i len n
+  in case st of
+    DeclNoMatch -> parse_any_decl_tagged_loop src i len (n + 1)
+    DeclCommitFail -> -1
+    DeclMatch p -> p
+
+roll_hash h tag = h * 131 + tag
+decl_event_code tag ord = tag + (ord * decl_tag_base)
+decl_step h tag ord = h * 131 + decl_event_code tag ord
+decl_finish h seen = h * 17 + seen
+
+pack_counts module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt =
+  (((((((((((((((module_cnt * 17 + import_cnt) * 17 + export_cnt) * 17 + infix_cnt) * 17 + data_cnt) * 17 + newtype_cnt) * 17 + class_cnt) * 17 + law_cnt) * 17 + instance_cnt) * 17 + type_cnt) * 17 + signature_cnt) * 17 + function_plain_cnt) * 17 + function_guarded_cnt) * 17 + function_case_cnt) * 17 + function_let_cnt) * 17 + attribute_cnt)
+
+parse_decls_counted src i len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt seen hash =
+  let i0 = parse_blank_or_comment_lines src i len
+      mj = to_maybe_pos (parse_any_decl_tagged src i0 len)
+  in case mj of
+    Nothing -> parse_decls_counted_none src i0 len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt hash
+    Just j -> parse_decls_counted_just src i0 len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt hash j
+
+parse_decls_counted_none src i0 len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt hash =
+  case (is_success_pos (parser_eof src i0 len)) of
+    true ->
+      let counts_hash = pack_counts module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt
+      in counts_hash * 257 + hash
+    _ -> 0
+
+parse_decls_counted_just src i0 len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt hash j =
+  case (decode_decl_tag j) of
+    Nothing -> 0
+    Just decoded ->
+      case decoded of
+        DecodedDeclTag tag pos ->
+          case (pos <= i0) of
+            true -> 0
+            _ ->
+              case tag of
+                1 -> parse_decls_counted src pos len (module_cnt + 1) import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt 1 (roll_hash hash tag)
+                2 -> parse_decls_counted src pos len module_cnt (import_cnt + 1) export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt 1 (roll_hash hash tag)
+                3 -> parse_decls_counted src pos len module_cnt import_cnt (export_cnt + 1) infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt 1 (roll_hash hash tag)
+                4 -> parse_decls_counted src pos len module_cnt import_cnt export_cnt (infix_cnt + 1) data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt 1 (roll_hash hash tag)
+                5 -> parse_decls_counted src pos len module_cnt import_cnt export_cnt infix_cnt (data_cnt + 1) newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt 1 (roll_hash hash tag)
+                6 -> parse_decls_counted src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt (newtype_cnt + 1) class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt 1 (roll_hash hash tag)
+                7 -> parse_decls_counted src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt (class_cnt + 1) law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt 1 (roll_hash hash tag)
+                8 -> parse_decls_counted src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt (law_cnt + 1) instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt 1 (roll_hash hash tag)
+                9 -> parse_decls_counted src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt (instance_cnt + 1) type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt 1 (roll_hash hash tag)
+                10 -> parse_decls_counted src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt (type_cnt + 1) signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt 1 (roll_hash hash tag)
+                11 -> parse_decls_counted src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt (signature_cnt + 1) function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt 1 (roll_hash hash tag)
+                12 -> parse_decls_counted src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt (function_plain_cnt + 1) function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt 1 (roll_hash hash tag)
+                13 -> parse_decls_counted src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt (function_guarded_cnt + 1) function_case_cnt function_let_cnt attribute_cnt 1 (roll_hash hash tag)
+                14 -> parse_decls_counted src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt (function_case_cnt + 1) function_let_cnt attribute_cnt 1 (roll_hash hash tag)
+                15 -> parse_decls_counted src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt (function_let_cnt + 1) attribute_cnt 1 (roll_hash hash tag)
+                16 -> parse_decls_counted src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt (attribute_cnt + 1) 1 (roll_hash hash tag)
+                _ -> 0
+
+parse_decls_stream src i len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt seen hash =
+  let i0 = parse_blank_or_comment_lines src i len
+      mj = to_maybe_pos (parse_any_decl_tagged src i0 len)
+  in case mj of
+    Nothing -> parse_decls_stream_none src i0 len seen hash
+    Just j -> parse_decls_stream_just src i0 len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt seen hash j
+
+parse_decls_stream_none src i0 len seen hash =
+  case (is_success_pos (parser_eof src i0 len)) of
+    true -> decl_finish hash seen
+    _ -> 0
+
+parse_decls_stream_just src i0 len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt seen hash j =
+  let decoded = decode_decl_tag j
+      seen1 = seen + 1
+  in case decoded of
+    Nothing -> 0
+    Just decoded_tag ->
+      case decoded_tag of
+                DecodedDeclTag tag pos ->
+                  case (pos <= i0) of
+                    true -> 0
+                    _ ->
+                      case tag of
+                1 ->
+                  parse_decls_stream src pos len (module_cnt + 1) import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt seen1 (decl_step hash tag (module_cnt + 1))
+                2 ->
+                  parse_decls_stream src pos len module_cnt (import_cnt + 1) export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt seen1 (decl_step hash tag (import_cnt + 1))
+                3 ->
+                  parse_decls_stream src pos len module_cnt import_cnt (export_cnt + 1) infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt seen1 (decl_step hash tag (export_cnt + 1))
+                4 ->
+                  parse_decls_stream src pos len module_cnt import_cnt export_cnt (infix_cnt + 1) data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt seen1 (decl_step hash tag (infix_cnt + 1))
+                5 ->
+                  parse_decls_stream src pos len module_cnt import_cnt export_cnt infix_cnt (data_cnt + 1) newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt seen1 (decl_step hash tag (data_cnt + 1))
+                6 ->
+                  parse_decls_stream src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt (newtype_cnt + 1) class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt seen1 (decl_step hash tag (newtype_cnt + 1))
+                7 ->
+                  parse_decls_stream src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt (class_cnt + 1) law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt seen1 (decl_step hash tag (class_cnt + 1))
+                8 ->
+                  parse_decls_stream src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt (law_cnt + 1) instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt seen1 (decl_step hash tag (law_cnt + 1))
+                9 ->
+                  parse_decls_stream src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt (instance_cnt + 1) type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt seen1 (decl_step hash tag (instance_cnt + 1))
+                10 ->
+                  parse_decls_stream src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt (type_cnt + 1) signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt seen1 (decl_step hash tag (type_cnt + 1))
+                11 ->
+                  parse_decls_stream src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt (signature_cnt + 1) function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt seen1 (decl_step hash tag (signature_cnt + 1))
+                12 ->
+                  parse_decls_stream src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt (function_plain_cnt + 1) function_guarded_cnt function_case_cnt function_let_cnt attribute_cnt seen1 (decl_step hash tag (function_plain_cnt + 1))
+                13 ->
+                  parse_decls_stream src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt (function_guarded_cnt + 1) function_case_cnt function_let_cnt attribute_cnt seen1 (decl_step hash tag (function_guarded_cnt + 1))
+                14 ->
+                  parse_decls_stream src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt (function_case_cnt + 1) function_let_cnt attribute_cnt seen1 (decl_step hash tag (function_case_cnt + 1))
+                15 ->
+                  parse_decls_stream src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt (function_let_cnt + 1) attribute_cnt seen1 (decl_step hash tag (function_let_cnt + 1))
+                16 ->
+                  parse_decls_stream src pos len module_cnt import_cnt export_cnt infix_cnt data_cnt newtype_cnt class_cnt law_cnt instance_cnt type_cnt signature_cnt function_plain_cnt function_guarded_cnt function_case_cnt function_let_cnt (attribute_cnt + 1) seen1 (decl_step hash tag (attribute_cnt + 1))
+                _ -> 0
+
+parse_program_decl_stats src =
+  let stats_hash = parse_program_decl_counted_from_source src
+      stream_hash = parse_program_decl_stream_from_source src
+  in parse_program_decl_stats_finalize stats_hash stream_hash
+
+parse_program_decl_stats_finalize stats_hash stream_hash =
+  case (stats_hash == 0) of
+    true -> 0
+    _ ->
+      case (stream_hash == 0) of
+        true -> 0
+        _ -> stats_hash * 257 + stream_hash
+
+parse_program_decl_counted_from_source src =
+  let bytes = str_to_slice src
+      len = slice_len bytes
+      module_pos = parse_module_line_tagged bytes 0 len
+  in case (module_pos == -1) of
+    true -> parse_decls_counted bytes 0 len 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+    _ -> parse_program_decl_counted_from_source_module_if bytes len module_pos
+
+parse_program_decl_counted_from_source_module_if bytes len module_pos =
+  let tag0 = decode_tag_kind module_pos
+      pos0 = decode_tag_pos module_pos
+  in case (tag0 == decl_tag_module) of
+    true -> parse_decls_counted bytes pos0 len 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 (roll_hash 0 decl_tag_module)
+    _ -> parse_decls_counted bytes 0 len 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+
+parse_program_decl_stream_from_source src =
+  let bytes = str_to_slice src
+      len = slice_len bytes
+      module_pos = parse_module_line_tagged bytes 0 len
+  in case (module_pos == -1) of
+    true -> parse_decls_stream bytes 0 len 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+    _ -> parse_program_decl_stream_from_source_module_if bytes len module_pos
+
+parse_program_decl_stream_from_source_module_if bytes len module_pos =
+  let tag0 = decode_tag_kind module_pos
+      pos0 = decode_tag_pos module_pos
+  in case (tag0 == decl_tag_module) of
+    true -> parse_decls_stream bytes pos0 len 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 (decl_step 0 decl_tag_module 1)
+    _ -> parse_decls_stream bytes 0 len 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+
+sample_source = "module entry\n\nimport util.base\nimport util.math\n\nexport main, helper\ninfixl 6 +. = add\ndata Pair a b = Pair a b\nnewtype UserId = UserId i64\ntype Digit = <0 | 1 | 2>\ntype SignedDigit = <-1 | 0 | 1>\ntype Tag = <\"a\" | \"b\">\nclass plus_rules i : add\nlaw plus_rules right_identity = add x 0 => x\ninstance plus_on_i64 : plus_rules i add=add\n#[memo 64]\n#[test \"helper\"]\nhelper : i64 -> i64\nhelper x | eq x 0 = 0\n  | otherwise = x\nworker y = case (eq y 0) of\n  true -> 0\n  _ -> y\ndispatch z = case (eq z 0) of\n  true -> 0\n  _ -> z\nlocal z = let k = z in k\nblock v =\n  case (eq v 0) of\n    true -> 0\n    _ -> v\nmain x = block (local (dispatch (worker (helper x))))\n"
+
+bad_data_source = "module entry\ndata = Pair a\n"
+bad_class_source = "module entry\nclass plus_rules :\n"
+bad_law_source = "module entry\nlaw plus_rules = add x 0 => x\n"
+bad_instance_source = "module entry\ninstance plus_on_i64 : plus_rules i\n"
+bad_infix_source = "module entry\ninfixl +. = add\n"
+bad_attribute_source = "module entry\n#[memo\nmain x = x\n"
+bad_guard_function_source = "module entry\nmain x | eq x 0\n"
+bad_block_function_source = "module entry\nmain x =\nnext y = y\n"
+bad_guard_continuation_source = "module entry\nmain x | eq x 0 = 0\n  | otherwise x\n"
+bad_case_block_source = "module entry\nmain x = case (eq x 0) of\nnext y = y\n"
+bad_type_source = "module entry\ntype Broken\n"
+bad_type_union_source = "module entry\ntype Digit = <0 | >\n"
+bad_type_union_string_source = "module entry\ntype Tag = <\"a\" | >\n"
+module_optional_source = "import util.base\nmain x = x\n"
+
+bad_sources_ok =
+  let b0 = parse_program_decl_stats bad_data_source
+      b1 = parse_program_decl_stats bad_class_source
+      b2 = parse_program_decl_stats bad_law_source
+      b3 = parse_program_decl_stats bad_instance_source
+      b4 = parse_program_decl_stats bad_infix_source
+      b5 = parse_program_decl_stats bad_attribute_source
+      b6 = parse_program_decl_stats bad_guard_function_source
+      b7 = parse_program_decl_stats bad_block_function_source
+      b8 = parse_program_decl_stats bad_guard_continuation_source
+      b9 = parse_program_decl_stats bad_case_block_source
+      b10 = parse_program_decl_stats bad_type_source
+      b11 = parse_program_decl_stats bad_type_union_source
+      b12 = parse_program_decl_stats bad_type_union_string_source
+      g0 = parse_program_decl_stats module_optional_source
+      ok0 = bool_and (is_zero b0) (is_zero b1)
+      ok1 = bool_and ok0 (is_zero b2)
+      ok2 = bool_and ok1 (is_zero b3)
+      ok3 = bool_and ok2 (is_zero b4)
+      ok4 = bool_and ok3 (is_zero b5)
+      ok5 = bool_and ok4 (is_zero b6)
+      ok6 = bool_and ok5 (is_zero b7)
+      ok7 = bool_and ok6 (is_zero b8)
+      ok8 = bool_and ok7 (is_zero b9)
+      ok9 = bool_and ok8 (is_zero b10)
+      ok10 = bool_and ok9 (is_zero b11)
+      all_bad = bool_and ok10 (is_zero b12)
+      module_optional_ok = (g0 == 0)
+      module_optional_missing = not2 module_optional_ok
+  in bool_and all_bad module_optional_missing
+
+is_zero x = (x == 0)
+
+main_stats _ =
+  parse_program_decl_counted_from_source sample_source
+
+main_stream _ =
+  parse_program_decl_stream_from_source sample_source
+
+main _ =
+  parse_program_decl_stats sample_source
+
+main_bad_type _ =
+  let ok = parse_program_decl_stats bad_type_source
+  in case (is_zero ok) of
+    true -> -1
+    _ -> 0
+
+main_bad_type_union _ =
+  let ok = parse_program_decl_stats bad_type_union_source
+  in case (is_zero ok) of
+    true -> -1
+    _ -> 0
+
+main_bad_type_union_string _ =
+  let ok = parse_program_decl_stats bad_type_union_string_source
+  in case (is_zero ok) of
+    true -> -1
+    _ -> 0

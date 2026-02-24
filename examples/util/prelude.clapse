@@ -1,0 +1,34 @@
+module prelude
+export to_bool, from_bool, bool_not, bool_and, bool_or, not
+
+data bool = true<1> | false<0>
+data Maybe a = Just a | Nothing
+data Either e a = Left e | Right a
+data Ordering = LT | EQ | GT
+data Unit = Unit
+data Pair a b = Pair a b
+
+infixr 3 && = bool_and
+infixr 2 || = bool_or
+
+to_bool x = case x of
+  0 -> false
+  _ -> true
+
+from_bool b = case b of
+  true -> 1
+  false -> 0
+
+bool_not b = case b of
+  true -> false
+  false -> true
+
+not = bool_not
+
+bool_and a b = case a b of
+  true true -> true
+  _ _ -> false
+
+bool_or a b = case a b of
+  false false -> false
+  _ _ -> true

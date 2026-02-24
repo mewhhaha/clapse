@@ -1,0 +1,14 @@
+module parser_attribute_pain_points
+export main, fast_add, tagged_identity, tagged_guard
+
+#[memo 64]
+fast_add x = add x 1
+
+#[bench "attr-bench"]
+#[test "attr-test"]
+tagged_identity x = x
+
+#[test "guarded-attr"]
+tagged_guard x | eq x 0 = 0; | otherwise = x
+
+main x = add (fast_add x) (tagged_guard (tagged_identity x))

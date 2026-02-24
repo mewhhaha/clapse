@@ -42,7 +42,8 @@ The struct field/tag operations are now emitted in-module:
 - Slice values are linear-memory descriptors:
   - descriptor `[ptr,len]` at handle address
   - contiguous payload bytes at `ptr`
-  - `slice_len`/`slice_get_u8`/`slice_set_u8` lower to wasm memory load/store ops.
+  - `slice_len`/`slice_get_u8`/`slice_set_u8`/`slice_eq_u8` lower to wasm memory
+    load/store ops.
   - allocation and bulk memory operations are lowered inline in generated Wasm (no standalone `rt_slice_*`, `rt_region_*`, `rt_memcpy`, or `rt_memset` helper bodies).
 
 ## Interop Boundaries (Current)
@@ -55,6 +56,10 @@ The struct field/tag operations are now emitted in-module:
   - `slice_len : slice byte -> i64`
   - `slice_get_u8 : slice byte -> i64 -> i64` (current backend numeric model)
   - `slice_set_u8 : slice byte -> i64 -> i64 -> slice byte`
+  - `slice_eq_u8 : slice byte -> slice byte -> bool` (bytewise equality)
+  - `str_to_slice : string -> slice byte` (bridge/view)
+  - `slice_to_string : slice byte -> string` (bridge/view)
+  - `str_eq : string -> string -> bool` (bytewise content equality)
 - Clapse source also exposes low-level linear-memory builtins:
   - `slice_new_u8 : i64 -> slice byte`
   - `slice_data_ptr : slice byte -> i64`
@@ -85,7 +90,7 @@ Clapse keeps `[]` as an abstract collection syntax and uses explicit slice intri
 
 - `[]` still lowers to `collection_empty` / `collection_extend`
 - packed interop bytes use linear-memory slice descriptors
-- intrinsics currently available: `slice_len`, `slice_get_u8`, `slice_set_u8`, `slice_new_u8`, `slice_data_ptr`, `slice_len_raw`
+- intrinsics currently available: `slice_len`, `slice_get_u8`, `slice_set_u8`, `slice_eq_u8`, `str_to_slice`, `slice_to_string`, `slice_new_u8`, `slice_data_ptr`, `slice_len_raw`
 - low-level region/memory helpers are available: `region_mark`, `region_alloc`, `region_reset`, `memcpy_u8`, `memset_u8`
 
 ## Game-Engine Implication

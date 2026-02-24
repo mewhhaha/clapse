@@ -13,6 +13,7 @@ module Clapse.Syntax
   , ConstructorInfo(..)
   , parseModule
   , parseModuleWithPlugins
+  , parseModuleWithConstructorImportsInfo
   , parseFunctionLine
   , parseExpr
   , desugarCaseExpr
@@ -129,6 +130,7 @@ data RawLine
   | RawFunction Int String
   | RawFunctionContinuation Int String
   | RawData Int String
+  | RawType Int String
   | RawClass Int String
   | RawLaw Int String
   | RawInstance Int String
@@ -136,8 +138,9 @@ data RawLine
 
 data ContinuationKind
   = ContinueNone
+  | ContinueExpr
   | ContinueCase Bool
-  | ContinueLet
+  | ContinueLet Bool
   | ContinueGuard
 
 data ClassDecl = ClassDecl
@@ -228,6 +231,7 @@ data ConstructorInfo = ConstructorInfo
   , ctorFieldCount :: Int
   , ctorTypeParamCount :: Int
   , ctorFieldParamMap :: [Maybe Int]
+  , ctorLiteralBacking :: Maybe TypeUnionLiteral
   }
   deriving (Eq, Show)
 
@@ -240,6 +244,11 @@ data DataDecl = DataDecl
   }
   deriving (Eq, Show)
 
+data TypeUnionLiteral
+  = TypeUnionInt Int
+  | TypeUnionString String
+  deriving (Eq, Show)
+
 type Substitution = [(Name, Expr)]
 type OperatorTable = [(String, OperatorInfo)]
 type ConstructorTable = [(Name, ConstructorInfo)]
@@ -248,11 +257,20 @@ parseModule :: String -> Either String Module
 parseModule src = parseModuleWithPlugins defaultFunctionAttributePlugins src
 
 parseModuleWithPlugins :: [FunctionAttributePlugin] -> String -> Either String Module
-parseModuleWithPlugins plugins src = do
+parseModuleWithPlugins plugins src =
+  fst <$> parseModuleWithPluginsAndConstructors plugins [] src
+
+parseModuleWithConstructorImportsInfo :: ConstructorTable -> String -> Either String (Module, ConstructorTable)
+parseModuleWithConstructorImportsInfo importedConstructors src =
+  parseModuleWithPluginsAndConstructors defaultFunctionAttributePlugins importedConstructors src
+
+parseModuleWithPluginsAndConstructors :: [FunctionAttributePlugin] -> ConstructorTable -> String -> Either String (Module, ConstructorTable)
+parseModuleWithPluginsAndConstructors plugins importedConstructors src = do
   rawLines <- traverse classifyLine (zip [1 :: Int ..] (lines src))
   logicalLines <- coalesceRawLines rawLines
   operatorDecls <- collectOperatorDecls rawLines
-  constructorTable <- collectConstructorDecls rawLines
+  localConstructorTable <- collectConstructorDecls rawLines
+  let constructorTable = localConstructorTable <> importedConstructors
   let operatorTable = buildOperatorTable operatorDecls
   parsed <- parseLinesWithAttributes operatorTable constructorTable logicalLines
   signatureDecls <- collectSignatureDecls parsed
@@ -262,7 +280,7 @@ parseModuleWithPlugins plugins src = do
   mergedFns <- mergeFunctionClauses runtimeFns
   let optimizedFns = optimizeFunctions derivedRules mergedFns
   processedFns <- applyFunctionAttributePlugins plugins optimizedFns
-  pure Module {signatures = signatureDecls, functions = processedFns}
+  pure (Module {signatures = signatureDecls, functions = processedFns}, localConstructorTable)
   where
     parseLinesWithAttributes :: OperatorTable -> ConstructorTable -> [RawLine] -> Either String [ParsedLine]
     parseLinesWithAttributes operators constructors linesToParse =
@@ -389,7 +407,11 @@ parseModuleWithPlugins plugins src = do
                            in if endsWithEquals currentTrimmed
                                 then
                                   let mergedText = currentText <> " " <> arm
-                                      nextContinuation = continuationKindForFunction mergedText
+                                      detectedContinuation = continuationKindForFunction mergedText
+                                      nextContinuation =
+                                        case detectedContinuation of
+                                          ContinueNone -> ContinueExpr
+                                          _ -> detectedContinuation
                                    in Right ((RawFunction declLineNo mergedText, nextContinuation) : rest)
                                 else
                                   Left
@@ -403,24 +425,37 @@ parseModuleWithPlugins plugins src = do
                                 lineNo
                                 "indented line is not allowed here (expected case/let/guard continuation)"
                             )
+                    ContinueExpr ->
+                      case current of
+                        RawFunction declLineNo currentText ->
+                          let mergedText = currentText <> " " <> arm
+                              detectedContinuation = continuationKindForFunction mergedText
+                              nextContinuation =
+                                case detectedContinuation of
+                                  ContinueNone -> ContinueExpr
+                                  _ -> detectedContinuation
+                           in Right ((RawFunction declLineNo mergedText, nextContinuation) : rest)
+                        _ ->
+                          Left (withLine lineNo "indented line is not allowed here")
                     ContinueCase hasArm ->
                       case current of
                         RawFunction declLineNo currentText ->
                           let currentTrimmed = trim currentText
                               armBodyContinues = endsWithArrow currentTrimmed
+                              currentEndsWithOf = endsWithKeyword "of" currentTrimmed
                               separator =
-                                if hasArm && not armBodyContinues
+                                if hasArm && not armBodyContinues && not currentEndsWithOf
                                   then " ; "
                                   else " "
                               mergedText = currentText <> separator <> arm
                               nextContinuation =
                                 if hasUnclosedLet mergedText
-                                  then ContinueLet
+                                  then ContinueLet True
                                   else ContinueCase True
                            in Right ((RawFunction declLineNo mergedText, nextContinuation) : rest)
                         _ ->
                           Left (withLine lineNo "indented line is not allowed here")
-                    ContinueLet ->
+                    ContinueLet continueCaseAfterLet ->
                       case current of
                         RawFunction declLineNo currentText ->
                           let armTrimmed = trim arm
@@ -429,12 +464,20 @@ parseModuleWithPlugins plugins src = do
                                 case words currentTrimmed of
                                   [] -> False
                                   ws -> last ws == "let"
+                              currentEndsWithEquals = endsWithEquals currentTrimmed
                               separator =
-                                if startsWith "in " armTrimmed || armTrimmed == "in" || currentEndsWithLet || ";" `isSuffixOf` currentTrimmed
+                                if startsWith "in " armTrimmed || armTrimmed == "in" || currentEndsWithLet || currentEndsWithEquals || ";" `isSuffixOf` currentTrimmed || startsWithOperatorContinuation armTrimmed
                                   then " "
                                   else " ; "
                               mergedText = currentText <> separator <> arm
-                              nextContinuation = continuationKindForFunction mergedText
+                              detectedContinuation = continuationKindForFunction mergedText
+                              nextContinuation =
+                                case detectedContinuation of
+                                  ContinueNone
+                                    | continueCaseAfterLet ->
+                                        ContinueCase True
+                                  _ ->
+                                    detectedContinuation
                            in Right ((RawFunction declLineNo mergedText, nextContinuation) : rest)
                         _ ->
                           Left (withLine lineNo "indented line is not allowed here")
@@ -474,7 +517,7 @@ parseModuleWithPlugins plugins src = do
             then ContinueCase False
             else
               if hasUnclosedLet source
-                then ContinueLet
+                then ContinueLet (hasCaseContext source)
                 else if hasGuardHeader source then ContinueGuard else ContinueNone
 
         isCaseHeader :: String -> Bool
@@ -485,6 +528,17 @@ parseModuleWithPlugins plugins src = do
               case words (trim rhsRaw) of
                 [] -> False
                 rhsWords -> last rhsWords == "of"
+
+        hasCaseContext :: String -> Bool
+        hasCaseContext source =
+          case splitOnFirst '=' source of
+            Nothing -> False
+            Just (_, rhsRaw) ->
+              let rhsWords = words (trim rhsRaw)
+               in case rhsWords of
+                    [] -> False
+                    firstWord : _ ->
+                      firstWord == "case" && "of" `elem` rhsWords
 
         hasUnclosedLet :: String -> Bool
         hasUnclosedLet source =
@@ -513,6 +567,50 @@ parseModuleWithPlugins plugins src = do
           let trimmed = trimRight source
               n = length trimmed
            in n >= 1 && drop (n - 1) trimmed == "="
+
+        endsWithKeyword :: String -> String -> Bool
+        endsWithKeyword keyword source =
+          case words source of
+            [] -> False
+            ws -> last ws == keyword
+
+        startsWithOperatorContinuation :: String -> Bool
+        startsWithOperatorContinuation txt = startsWithAny operatorContinuationPrefixes txt
+
+        startsWithAny :: [String] -> String -> Bool
+        startsWithAny [] _ = False
+        startsWithAny (prefix : rest) txt =
+          if startsWith prefix txt
+            then True
+            else startsWithAny rest txt
+
+        operatorContinuationPrefixes :: [String]
+        operatorContinuationPrefixes =
+          [ "<|>"
+          , "*>"
+          , "<*"
+          , "<$>"
+          , "<*>"
+          , ">>="
+          , ">>"
+          , "&&"
+          , "||"
+          , "=="
+          , "/="
+          , "<="
+          , ">="
+          , "+"
+          , "-"
+          , "*"
+          , "/"
+          , "<"
+          , ">"
+          , ":"
+          , "."
+          , "|"
+          , "&"
+          , "="
+          ]
 
         trimRight :: String -> String
         trimRight = reverse . trimLeft . reverse
@@ -579,25 +677,27 @@ parseModuleWithPlugins plugins src = do
                   if startsWith "module " cleaned || startsWith "import " cleaned || startsWith "export " cleaned
                     then Right RawEmpty
                     else
-                      if startsWith "data " cleaned
+                      if startsWith "data " cleaned || startsWith "newtype " cleaned
                         then Right (RawData lineNo cleaned)
                         else
-                          if startsWith "class " cleaned
-                            then Right (RawClass lineNo cleaned)
+                          if startsWith "type " cleaned
+                            then Right (RawType lineNo cleaned)
                             else
-                              if startsWith "law " cleaned
-                                then Right (RawLaw lineNo cleaned)
+                              if startsWith "class " cleaned
+                                then Right (RawClass lineNo cleaned)
                                 else
-                                  if startsWith "instance " cleaned
-                                    then Right (RawInstance lineNo cleaned)
+                                  if startsWith "law " cleaned
+                                    then Right (RawLaw lineNo cleaned)
                                     else
-                                      if startsWith "infixl " cleaned || startsWith "infixr " cleaned || startsWith "infix " cleaned
-                                        then Right (RawOperator lineNo cleaned)
+                                      if startsWith "instance " cleaned
+                                        then Right (RawInstance lineNo cleaned)
                                         else
-                                          if looksLikeTypeSignature cleaned
-                                            then Right (RawSignature lineNo cleaned)
-                                            else Right (RawFunction lineNo cleaned)
-
+                                          if startsWith "infixl " cleaned || startsWith "infixr " cleaned || startsWith "infix " cleaned
+                                            then Right (RawOperator lineNo cleaned)
+                                            else
+                                              if looksLikeTypeSignature cleaned
+                                                then Right (RawSignature lineNo cleaned)
+                                                else Right (RawFunction lineNo cleaned)
     isAttributeLine :: String -> Bool
     isAttributeLine lineText =
       length lineText >= 3 && startsWith "#[" lineText && last lineText == ']'
@@ -621,7 +721,9 @@ parseModuleWithPlugins plugins src = do
 
     collectConstructorDecls :: [RawLine] -> Either String ConstructorTable
     collectConstructorDecls raws = do
-      ctorEntries <- traverse toCtor [entry | entry@(RawData _ _) <- raws]
+      ctorEntries <-
+        traverse toCtor
+          [entry | entry <- raws, isDataOrTypeDecl entry]
       let ctorPairs = concat ctorEntries
       case duplicates (map fst ctorPairs) of
         [] ->
@@ -629,11 +731,21 @@ parseModuleWithPlugins plugins src = do
         d:_ ->
           Left ("duplicate data constructor declaration: " <> d)
       where
+        isDataOrTypeDecl :: RawLine -> Bool
+        isDataOrTypeDecl raw =
+          case raw of
+            RawData{} -> True
+            RawType{} -> True
+            _ -> False
+
         toCtor :: RawLine -> Either String [ (Name, ConstructorInfo) ]
         toCtor raw =
           case raw of
             RawData lineNo cleaned -> do
               decls <- parseDataDeclAt lineNo cleaned
+              pure (map (\decl -> (dataCtorName decl, dataCtorInfo decl)) decls)
+            RawType lineNo cleaned -> do
+              decls <- parseTypeDeclAt lineNo cleaned
               pure (map (\decl -> (dataCtorName decl, dataCtorInfo decl)) decls)
             _ ->
               Left "internal parser error while collecting constructors"
@@ -659,6 +771,7 @@ parseModuleWithPlugins plugins src = do
       Left "internal parser error: stray attribute outside function declaration"
     parseRawLine _ _ (RawSignature lineNo cleaned) = ParsedSignature <$> parseTypeSignatureAt lineNo cleaned
     parseRawLine _ _ (RawData lineNo cleaned) = ParsedFunctions <$> parseDataLineAt lineNo cleaned
+    parseRawLine _ _ (RawType lineNo cleaned) = ParsedFunctions <$> parseTypeLineAt lineNo cleaned
     parseRawLine _ _ (RawClass lineNo cleaned) = ParsedClass <$> parseClassDecl lineNo cleaned
     parseRawLine operators constructors (RawLaw lineNo cleaned) =
       ParsedLaw <$> parseLawDeclWithOperators operators constructors lineNo cleaned
@@ -1439,11 +1552,15 @@ parseGuardedFunctionClause operators constructors src = do
         (Just guardExpr, bodyExpr):rest -> do
           fallbackExpr <- buildGuardedBody rest
           pure
-            ( Case
-                [guardExpr]
-                [ CaseArm {armPatterns = [PatInt 1], armBody = bodyExpr}
-                , CaseArm {armPatterns = [PatWildcard], armBody = fallbackExpr}
-                ]
+            ( App
+                ( App
+                    ( App
+                        (Var "if")
+                        guardExpr
+                    )
+                    (Lam "__guard_dummy" bodyExpr)
+                )
+                (Lam "__guard_dummy" fallbackExpr)
             )
 
 parseCasePattern :: ConstructorTable -> String -> [ExprTok] -> Either String (CasePattern, [ExprTok])
@@ -1531,10 +1648,19 @@ parseExprTokens operators constructors minPrec toks =
 
 parseCaseTokens :: OperatorTable -> ConstructorTable -> [ExprTok] -> Either String (Expr, [ExprTok])
 parseCaseTokens operators constructors toks =
+  parseCaseTokensWithContext operators constructors Nothing toks
+
+parseCaseTokensWithContext ::
+  OperatorTable ->
+  ConstructorTable ->
+  Maybe Int ->
+  [ExprTok] ->
+  Either String (Expr, [ExprTok])
+parseCaseTokensWithContext operators constructors outerArmCount toks =
   case toks of
     TokCase:rest -> do
       (scrutinees, afterOf) <- parseCaseScrutinees rest
-      (arms, restFinal) <- parseCaseArms (length scrutinees) afterOf
+      (arms, restFinal) <- parseCaseArms (length scrutinees) outerArmCount afterOf
       validateCaseArms scrutinees arms
       pure (Case scrutinees arms, restFinal)
     _ ->
@@ -1556,8 +1682,8 @@ parseCaseTokens operators constructors toks =
               (scrutineeExpr, rest1) <- parseTermTokens operators constructors toks1
               go (scrutineeExpr : acc) rest1
 
-    parseCaseArms :: Int -> [ExprTok] -> Either String ([CaseArm], [ExprTok])
-    parseCaseArms scrutineeCount toks0 = do
+    parseCaseArms :: Int -> Maybe Int -> [ExprTok] -> Either String ([CaseArm], [ExprTok])
+    parseCaseArms scrutineeCount outerArmCount toks0 = do
       (firstArm, rest1) <- parseCaseArm scrutineeCount toks0
       gather [firstArm] rest1
       where
@@ -1565,10 +1691,29 @@ parseCaseTokens operators constructors toks =
         gather acc toks1 =
           case toks1 of
             TokSemicolon:rest2 -> do
-              (nextArm, rest3) <- parseCaseArm scrutineeCount rest2
-              gather (acc <> [nextArm]) rest3
-            _ ->
-              Right (acc, toks1)
+              if startsCaseArm scrutineeCount rest2
+                then do
+                  (nextArm, rest3) <- parseCaseArm scrutineeCount rest2
+                  gather (acc <> [nextArm]) rest3
+                else if looksLikeCaseArmPrefix scrutineeCount rest2
+                  then case outerArmCount of
+                    Just outerCount
+                      | outerCount /= scrutineeCount &&
+                        startsCaseArm outerCount rest2 ->
+                          Right (acc, toks1)
+                    _ ->
+                      Left "could not parse expression; case arm list is malformed (missing ->)"
+                  else
+                    Right (acc, toks1)
+            _
+              | startsCaseArm scrutineeCount toks1 -> do
+                  (nextArm, rest2) <- parseCaseArm scrutineeCount toks1
+                  gather (acc <> [nextArm]) rest2
+              | looksLikeCaseArmPrefix scrutineeCount toks1 ->
+                  Left
+                    "could not parse expression; case arm list is malformed (missing ';' between arms)"
+              | otherwise ->
+                  Right (acc, toks1)
 
     parseCaseArm :: Int -> [ExprTok] -> Either String (CaseArm, [ExprTok])
     parseCaseArm scrutineeCount toks0 = do
@@ -1577,7 +1722,12 @@ parseCaseTokens operators constructors toks =
         case afterPatterns of
           TokArrow:rest -> Right rest
           _ -> Left "could not parse expression; case arm is missing ->"
-      (bodyExpr0, restOut) <- parseExprTokens operators constructors 0 afterArrow
+      (bodyExpr0, restOut) <-
+        case afterArrow of
+          TokCase : _ ->
+            parseCaseTokensWithContext operators constructors (Just scrutineeCount) afterArrow
+          _ ->
+            parseExprTokens operators constructors 0 afterArrow
       pure (CaseArm {armPatterns = patterns0, armBody = bodyExpr0}, restOut)
 
     parsePatterns :: Int -> [ExprTok] -> Either String ([CasePattern], [ExprTok])
@@ -1589,6 +1739,18 @@ parseCaseTokens operators constructors toks =
           | otherwise = do
               (pat, rest1) <- parseCasePattern constructors "case pattern" toks1
               go (pat : revAcc) (remaining - 1) rest1
+
+    startsCaseArm :: Int -> [ExprTok] -> Bool
+    startsCaseArm expectedCount toks1 =
+      case parsePatterns expectedCount toks1 of
+        Right (_, TokArrow : _) -> True
+        _ -> False
+
+    looksLikeCaseArmPrefix :: Int -> [ExprTok] -> Bool
+    looksLikeCaseArmPrefix expectedCount toks1 =
+      case parsePatterns expectedCount toks1 of
+        Right _ -> True
+        _ -> False
 
     validateCaseArms :: [Expr] -> [CaseArm] -> Either String ()
     validateCaseArms scrutinees arms =
@@ -1729,20 +1891,26 @@ desugarCaseExpr expr =
     buildArmCondition scrutineeNames patterns0 =
       let checks = zipWith buildPatternCondition scrutineeNames patterns0
        in case checks of
-            [] -> IntLit 1
+            [] -> trueExpr
             c:cs -> foldl (\acc x -> App (App (Var "and") acc) x) c cs
 
     buildPatternCondition :: Name -> CasePattern -> Expr
     buildPatternCondition scrutineeName pat =
       case pat of
-        PatWildcard -> IntLit 1
-        PatVar _ -> IntLit 1
+        PatWildcard -> trueExpr
+        PatVar _ -> trueExpr
         PatInt n ->
           App (App (Var "eq") (Var scrutineeName)) (IntLit n)
         PatString s ->
           App (App (Var "str_eq") (Var scrutineeName)) (StringLit s)
         PatConstructor _ ctorInfo _ ->
-          App (Var (mkIsBuiltinName ctorInfo)) (Var scrutineeName)
+          case ctorLiteralBacking ctorInfo of
+            Just (TypeUnionInt n) ->
+              App (App (Var "eq") (Var scrutineeName)) (IntLit n)
+            Just (TypeUnionString s) ->
+              App (App (Var "str_eq") (Var scrutineeName)) (StringLit s)
+            Nothing ->
+              App (Var (mkIsBuiltinName ctorInfo)) (Var scrutineeName)
 
     applyPatternBindings :: [Name] -> [CasePattern] -> Expr -> Expr
     applyPatternBindings scrutineeNames patterns0 bodyExpr0 =
@@ -1757,17 +1925,21 @@ desugarCaseExpr expr =
             PatVar n ->
               App (Lam n bodyExpr) (Var scrutineeName)
             PatConstructor _ ctorInfo fieldNames ->
-              foldr
-                (\(idx, fieldName) acc ->
-                    if fieldName == "_"
-                      then acc
-                      else
-                        App
-                          (Lam fieldName acc)
-                          (App (Var (mkGetterBuiltinName ctorInfo idx)) (Var scrutineeName))
-                )
-                bodyExpr
-                (zip [0 :: Int ..] fieldNames)
+              case ctorLiteralBacking ctorInfo of
+                Just _ ->
+                  bodyExpr
+                Nothing ->
+                  foldr
+                    (\(idx, fieldName) acc ->
+                        if fieldName == "_"
+                          then acc
+                          else
+                            App
+                              (Lam fieldName acc)
+                              (App (Var (mkGetterBuiltinName ctorInfo idx)) (Var scrutineeName))
+                    )
+                    bodyExpr
+                    (zip [0 :: Int ..] fieldNames)
 
     mkIfExpr :: Name -> Expr -> Expr -> Expr -> Expr
     mkIfExpr dummyName condExpr thenExpr elseExpr =
@@ -1780,6 +1952,10 @@ desugarCaseExpr expr =
             (Lam dummyName thenExpr)
         )
         (Lam dummyName elseExpr)
+
+    trueExpr :: Expr
+    trueExpr =
+      App (App (Var "eq") (IntLit 0)) (IntLit 0)
 
     freshMany :: Name -> Int -> Int -> [Name] -> ([Name], Int)
     freshMany _prefix seed count _used
@@ -2164,6 +2340,9 @@ tokenizeExpr = go []
       | c == '"' = do
           (literalText, restSrc) <- consumeStringLiteral [] cs
           go (TokString literalText : acc) restSrc
+      | c == '\'' = do
+          (literalChar, restSrc) <- consumeCharLiteral cs
+          go (TokInteger (fromEnum literalChar) : acc) restSrc
       | c == '`' =
           case span (/= '`') cs of
             (_inner, []) ->
@@ -2219,10 +2398,39 @@ tokenizeExpr = go []
         ch:rest ->
           consumeStringLiteral (ch : revAcc) rest
 
+    consumeCharLiteral :: String -> Either String (Char, String)
+    consumeCharLiteral src =
+      case src of
+        [] ->
+          Left "could not parse expression; unterminated char literal"
+        '\n':_ ->
+          Left "could not parse expression; char literal cannot contain newline"
+        '\\':rest ->
+          case rest of
+            [] ->
+              Left "could not parse expression; unterminated char escape"
+            esc:tailChars ->
+              case decodeEscape esc of
+                Nothing ->
+                  Left ("could not parse expression; invalid char escape: \\" <> [esc])
+                Just decoded ->
+                  case tailChars of
+                    '\'':after ->
+                      Right (decoded, after)
+                    _ ->
+                      Left "could not parse expression; char literal must contain exactly one character"
+        ch:rest ->
+          case rest of
+            '\'':after ->
+              Right (ch, after)
+            _ ->
+              Left "could not parse expression; char literal must contain exactly one character"
+
     decodeEscape :: Char -> Maybe Char
     decodeEscape esc =
       case esc of
         '"' -> Just '"'
+        '\'' -> Just '\''
         '\\' -> Just '\\'
         'n' -> Just '\n'
         't' -> Just '\t'
@@ -2281,6 +2489,10 @@ defaultOperatorDecls =
   , OperatorDecl 0 AssocLeft 6 "-" "sub"
   , OperatorDecl 0 AssocLeft 7 "*" "mul"
   , OperatorDecl 0 AssocLeft 7 "/" "div"
+  , OperatorDecl 0 AssocNone 4 "<" "lt"
+  , OperatorDecl 0 AssocNone 4 "<=" "le"
+  , OperatorDecl 0 AssocNone 4 ">" "gt"
+  , OperatorDecl 0 AssocNone 4 ">=" "ge"
   , OperatorDecl 0 AssocNone 4 "==" "eq"
   , OperatorDecl 0 AssocRight 3 "&&" "and"
   ]
@@ -2722,31 +2934,254 @@ parseDataDeclAt lineNo src =
 
 parseDataDecl :: String -> Either String [DataDecl]
 parseDataDecl src =
-  case words src of
-    ("data":typeName:restTokens) -> do
-      validateUpperIdentifier "data type name" typeName
-      (typeParams, ctorAndFields) <-
-        case break (== "=") restTokens of
-          (params0, "=":rhs0) -> Right (params0, rhs0)
-          _ -> Left "could not parse data declaration; expected: data <type_name> [type_param ...] = <constructor_name> <field>..."
-      traverse_ (validateIdentifier "data type parameter") typeParams
-      case duplicates typeParams of
-        [] -> Right ()
-        d:_ -> Left ("duplicate data type parameter: " <> d)
-      traverse (parseDataConstructor typeName typeParams) (splitTopLevelChar '|' (unwords ctorAndFields))
-    _ ->
-      Left "could not parse data declaration; expected: data <type_name> [type_param ...] = <constructor_name> <field>..."
+  do
+    (isNewtypeDecl, typeName, restTokens) <-
+      case words src of
+        ("data":typeName0:rest0) ->
+          Right (False, typeName0, rest0)
+        ("newtype":typeName0:rest0) ->
+          Right (True, typeName0, rest0)
+        _ ->
+          Left "could not parse data declaration; expected: data|newtype <type_name> [type_param ...] = <constructor_name> <field>..."
+    validateTypeArg "data type name" typeName
+    (typeParams, ctorAndFields) <-
+      case break (== "=") restTokens of
+        (params0, "=":rhs0) -> Right (params0, rhs0)
+        _ -> Left "could not parse data declaration; expected: data|newtype <type_name> [type_param ...] = <constructor_name> <field>..."
+    traverse_ (validateIdentifier "data type parameter") typeParams
+    case duplicates typeParams of
+      [] -> Right ()
+      d:_ -> Left ("duplicate data type parameter: " <> d)
+    decls <- traverse (parseDataConstructor typeName typeParams) (splitTopLevelChar '|' (unwords ctorAndFields))
+    validateLiteralBackedConstructors decls
+    if isNewtypeDecl
+      then validateNewtypeConstructors decls
+      else Right decls
   where
+    validateLiteralBackedConstructors :: [DataDecl] -> Either String ()
+    validateLiteralBackedConstructors decls =
+      let backed = [literal | decl <- decls, Just literal <- [ctorLiteralBacking (dataCtorInfo decl)]]
+       in case duplicates (map renderTypeUnionLiteral backed) of
+            [] -> Right ()
+            d:_ ->
+              Left ("could not parse data declaration; duplicate literal-backed constructor value: " <> d)
+
+    renderTypeUnionLiteral :: TypeUnionLiteral -> String
+    renderTypeUnionLiteral literal =
+      case literal of
+        TypeUnionInt n -> show n
+        TypeUnionString s -> "\"" <> s <> "\""
+
+    validateNewtypeConstructors :: [DataDecl] -> Either String [DataDecl]
+    validateNewtypeConstructors decls =
+      case decls of
+        [decl]
+          | ctorFieldCount (dataCtorInfo decl) == 1 ->
+              Right decls
+          | otherwise ->
+              Left "could not parse newtype declaration; expected exactly one constructor field"
+        _ ->
+          Left "could not parse newtype declaration; expected exactly one constructor"
+
     parseDataConstructor :: Name -> [Name] -> String -> Either String DataDecl
-    parseDataConstructor typeName0 typeParams0 rawCtor =
-      if null rawCtor
+    parseDataConstructor typeName0 typeParams0 rawCtor0 =
+      let rawCtor = trim rawCtor0
+       in if null rawCtor
         then Left "could not parse data declaration; expected constructor declaration"
         else
-          case splitOnFirst ':' rawCtor of
+          case parseLiteralBackedZeroFieldCtor typeName0 typeParams0 rawCtor of
+            Just (Right decl) ->
+              Right decl
+            Just (Left err) ->
+              Left err
             Nothing ->
-              parseOldStyleCtor typeName0 typeParams0 (trim rawCtor)
-            Just (ctorNameRaw, rhsRaw) ->
-              parseGadtStyleCtor typeName0 typeParams0 (trim ctorNameRaw) (trim rhsRaw)
+              case parsePrimitiveBackedSingleFieldCtor typeName0 typeParams0 rawCtor of
+                Just (Right decl) ->
+                  Right decl
+                Just (Left err) ->
+                  Left err
+                Nothing ->
+                  case splitOnFirst ':' rawCtor of
+                    Nothing ->
+                      parseOldStyleCtor typeName0 typeParams0 rawCtor
+                    Just (ctorNameRaw, rhsRaw) ->
+                      parseGadtStyleCtor typeName0 typeParams0 (trim ctorNameRaw) (trim rhsRaw)
+
+    parseLiteralBackedZeroFieldCtor ::
+      Name ->
+      [Name] ->
+      String ->
+      Maybe (Either String DataDecl)
+    parseLiteralBackedZeroFieldCtor typeName0 typeParams0 rawCtor =
+      case splitAngleCtor rawCtor of
+        Nothing ->
+          Nothing
+        Just (ctorName0, payloadRaw) ->
+          case parseLiteralPayload payloadRaw of
+            Nothing ->
+              Nothing
+            Just literal ->
+              if not (validLowerIdentifier typeName0)
+                then
+                  Just
+                    ( Left
+                        "could not parse data declaration; literal-backed type name must be lowercase"
+                    )
+                else
+                  case
+                    ( if validLowerIdentifier ctorName0
+                        then Right ()
+                        else Left ("data constructor name is invalid: " <> ctorName0)
+                    ) of
+                    Left err ->
+                      Just (Left err)
+                    Right () ->
+                      let ctorInfo0 =
+                            ConstructorInfo
+                              { ctorTypeName = typeName0
+                              , ctorName = ctorName0
+                              , ctorFieldCount = 0
+                              , ctorTypeParamCount = length typeParams0
+                              , ctorFieldParamMap = []
+                              , ctorLiteralBacking = Just literal
+                              }
+                       in Just
+                            ( Right
+                                DataDecl
+                                  { dataTypeName = typeName0
+                                  , dataTypeParams = typeParams0
+                                  , dataCtorName = ctorName0
+                                  , dataCtorFields = []
+                                  , dataCtorInfo = ctorInfo0
+                                  }
+                            )
+      where
+        parseLiteralPayload :: String -> Maybe TypeUnionLiteral
+        parseLiteralPayload raw =
+          case tokenizeExpr raw of
+            Right [TokInteger n] ->
+              Just (TypeUnionInt n)
+            Right [TokOperator "-", TokInteger n] ->
+              Just (TypeUnionInt (-n))
+            Right [TokString s] ->
+              Just (TypeUnionString s)
+            _ ->
+              Nothing
+
+        splitAngleCtor :: String -> Maybe (Name, String)
+        splitAngleCtor raw =
+          let trimmed = trim raw
+           in case break (== '<') trimmed of
+                (ctorNameRaw, '<' : rest) ->
+                  let ctorName0 = trim ctorNameRaw
+                   in case consumeAngleBody 1 "" rest of
+                        Just (payload, trailing)
+                          | not (null ctorName0)
+                              && null (trim trailing) ->
+                              Just (ctorName0, trim payload)
+                        _ ->
+                          Nothing
+                _ ->
+                  Nothing
+
+        consumeAngleBody :: Int -> String -> String -> Maybe (String, String)
+        consumeAngleBody _ _ [] = Nothing
+        consumeAngleBody depth cur (c:rest)
+          | c == '<' =
+              consumeAngleBody (depth + 1) (cur <> [c]) rest
+          | c == '>' && depth == 1 =
+              Just (cur, rest)
+          | c == '>' =
+              consumeAngleBody (depth - 1) (cur <> [c]) rest
+          | otherwise =
+              consumeAngleBody depth (cur <> [c]) rest
+
+    parsePrimitiveBackedSingleFieldCtor ::
+      Name ->
+      [Name] ->
+      String ->
+      Maybe (Either String DataDecl)
+    parsePrimitiveBackedSingleFieldCtor typeName0 typeParams0 rawCtor =
+      case splitPrimitiveCtor rawCtor of
+        Nothing ->
+          Nothing
+        Just (ctorName0, fieldTypeExpr) ->
+          if not (validLowerIdentifier typeName0)
+            then
+              Just
+                ( Left
+                    "could not parse data declaration; primitive-backed type name must be lowercase"
+                )
+            else
+              if ctorName0 /= typeName0
+                then
+                  Just
+                    ( Left
+                        "could not parse data declaration; primitive-backed constructor name must match data type name"
+                    )
+                else
+                  case
+                    ( if validLowerIdentifier ctorName0
+                        then Right ()
+                        else Left ("data constructor name is invalid: " <> ctorName0)
+                    ) of
+                    Left err ->
+                      Just (Left err)
+                    Right () ->
+                      case validateFieldTypeExpr fieldTypeExpr of
+                        Left err ->
+                          Just (Left err)
+                        Right () ->
+                          case buildFieldParamMap typeParams0 [fieldTypeExpr] of
+                            Left err ->
+                              Just (Left err)
+                            Right (typeParamCount0, fieldParamMap0) ->
+                              Just
+                                ( Right
+                                    DataDecl
+                                      { dataTypeName = typeName0
+                                      , dataTypeParams = typeParams0
+                                      , dataCtorName = ctorName0
+                                      , dataCtorFields = inferFieldArgNames [fieldTypeExpr]
+                                      , dataCtorInfo =
+                                          ConstructorInfo
+                                            { ctorTypeName = typeName0
+                                            , ctorName = ctorName0
+                                            , ctorFieldCount = 1
+                                            , ctorTypeParamCount = typeParamCount0
+                                            , ctorFieldParamMap = fieldParamMap0
+                                            , ctorLiteralBacking = Nothing
+                                            }
+                                      }
+                                )
+      where
+        splitPrimitiveCtor :: String -> Maybe (Name, String)
+        splitPrimitiveCtor raw =
+          let trimmed = trim raw
+           in case break (== '<') trimmed of
+                (ctorNameRaw, '<' : rest) ->
+                  let ctorName0 = trim ctorNameRaw
+                   in case consumeAngleBody 1 "" rest of
+                        Just (fieldExpr, trailing)
+                          | not (null ctorName0)
+                              && null (trim trailing) ->
+                              Just (ctorName0, trim fieldExpr)
+                        _ ->
+                          Nothing
+                _ ->
+                  Nothing
+
+        consumeAngleBody :: Int -> String -> String -> Maybe (String, String)
+        consumeAngleBody _ _ [] = Nothing
+        consumeAngleBody depth cur (c:rest)
+          | c == '<' =
+              consumeAngleBody (depth + 1) (cur <> [c]) rest
+          | c == '>' && depth == 1 =
+              Just (cur, rest)
+          | c == '>' =
+              consumeAngleBody (depth - 1) (cur <> [c]) rest
+          | otherwise =
+              consumeAngleBody depth (cur <> [c]) rest
 
     parseOldStyleCtor :: Name -> [Name] -> String -> Either String DataDecl
     parseOldStyleCtor _typeName _typeParams0 rawCtor =
@@ -2764,6 +3199,7 @@ parseDataDecl src =
                   , ctorFieldCount = length fieldTypeExprs
                   , ctorTypeParamCount = typeParamCount0
                   , ctorFieldParamMap = fieldParamMap0
+                  , ctorLiteralBacking = Nothing
                   }
           Right
             DataDecl
@@ -2819,6 +3255,7 @@ parseDataDecl src =
                                 , ctorFieldCount = length fieldTypeExprs
                                 , ctorTypeParamCount = length _typeParams0
                                 , ctorFieldParamMap = map (parseTypeParamField _typeParams0) fieldTypeExprs
+                                , ctorLiteralBacking = Nothing
                                 }
                           }
 
@@ -2991,17 +3428,171 @@ parseDataDecl src =
                 | c == sep && depth == 0 ->
                     let chunk = trim cur
                         next = rest
-                     in trim chunk : split' 0 "" next
+                    in trim chunk : split' 0 "" next
                 | otherwise ->
                     split' depth (cur <> [c]) rest
        in split' 0 "" input
 
+parseTypeLineAt :: Int -> String -> Either String [FunctionClause]
+parseTypeLineAt lineNo src =
+  case parseTypeDeclAt lineNo src of
+    Left err ->
+      Left err
+    Right decls ->
+      Right (map mkConstructorClause decls)
+
+parseTypeDeclAt :: Int -> String -> Either String [DataDecl]
+parseTypeDeclAt lineNo src =
+  case parseTypeDecl src of
+    Left err ->
+      Left (withLine lineNo err)
+    Right out ->
+      Right out
+
+parseTypeDecl :: String -> Either String [DataDecl]
+parseTypeDecl src =
+  do
+    (typeName, typeParams, rhsRaw) <-
+      case splitOnFirst '=' (trim src) of
+        Nothing ->
+          Left "could not parse type declaration; expected: type <type_name> [type_param ...] = <member> | ..."
+        Just (lhsRaw, rhsRaw0) -> do
+          let rhsRaw1 = trim rhsRaw0
+          case words (trim lhsRaw) of
+            "type":typeName0:typeParams0 -> Right (typeName0, typeParams0, rhsRaw1)
+            _ ->
+              Left "could not parse type declaration; expected: type <type_name> [type_param ...] = <member> | ..."
+    validateTypeArg "type name" typeName
+    traverse_ (validateTypeArg "type parameter") typeParams
+    case duplicates typeParams of
+      [] -> Right ()
+      d:_ -> Left ("duplicate type parameter: " <> d)
+    if null rhsRaw
+      then Left "could not parse type declaration; type body is missing"
+      else
+        if isUnionSyntax rhsRaw
+          then do
+            _ <- parseTypeUnionDecl typeName typeParams rhsRaw
+            Right []
+          else Right []
+  where
+    isUnionSyntax :: String -> Bool
+    isUnionSyntax raw =
+      let trimmed = trim raw
+       in length trimmed >= 2 && head trimmed == '<' && last trimmed == '>'
+
+    parseTypeUnionDecl :: Name -> [Name] -> String -> Either String [TypeUnionLiteral]
+    parseTypeUnionDecl _typeName _typeParams rawUnion =
+      do
+        let inner = trim (drop 1 (init (trim rawUnion)))
+        if null inner
+          then Left "could not parse type declaration; empty type union"
+          else do
+            literals <- traverse parseTypeUnionMember (splitTopLevelUnionMembers inner)
+            case duplicates (map renderUnionLiteral literals) of
+              [] -> Right literals
+              d:_ -> Left ("could not parse type declaration; duplicate literal in type union: " <> d)
+
+    parseTypeUnionMember ::
+      String ->
+      Either String TypeUnionLiteral
+    parseTypeUnionMember rawMember =
+      let member = trim rawMember
+       in if null member
+            then Left "could not parse type declaration; expected union member"
+            else parseTypeUnionLiteral member
+
+    parseTypeUnionLiteral :: String -> Either String TypeUnionLiteral
+    parseTypeUnionLiteral raw =
+      case tokenizeExpr raw of
+        Right [TokInteger n] ->
+          Right (TypeUnionInt n)
+        Right [TokOperator "-", TokInteger n] ->
+          Right (TypeUnionInt (-n))
+        Right [TokString s] ->
+          Right (TypeUnionString s)
+        Right _ ->
+          Left ("could not parse type declaration; expected literal union member: " <> raw)
+        Left _ ->
+          Left ("could not parse type declaration; expected literal union member: " <> raw)
+
+    renderUnionLiteral :: TypeUnionLiteral -> String
+    renderUnionLiteral literal =
+      case literal of
+        TypeUnionInt n -> show n
+        TypeUnionString s -> "\"" <> s <> "\""
+
+    splitTopLevelUnionMembers :: String -> [String]
+    splitTopLevelUnionMembers input =
+      let split' ::
+            Int ->
+            Int ->
+            Bool ->
+            Bool ->
+            Bool ->
+            String ->
+            String ->
+            [String] ->
+            [String]
+          split' parenDepth angleDepth inString inChar escaped cur xs out =
+            case xs of
+              [] ->
+                let token = trim cur
+                    outWithToken = if null token then out else token : out
+                 in reverse outWithToken
+              c:rest
+                | escaped ->
+                    split' parenDepth angleDepth inString inChar False (cur <> [c]) rest out
+                | inString ->
+                    case c of
+                      '\\' ->
+                        split' parenDepth angleDepth True inChar True (cur <> [c]) rest out
+                      '\"' ->
+                        split' parenDepth angleDepth False inChar False (cur <> [c]) rest out
+                      _ ->
+                        split' parenDepth angleDepth True inChar False (cur <> [c]) rest out
+                | inChar ->
+                    case c of
+                      '\\' ->
+                        split' parenDepth angleDepth inString True True (cur <> [c]) rest out
+                      '\'' ->
+                        split' parenDepth angleDepth inString False False (cur <> [c]) rest out
+                      _ ->
+                        split' parenDepth angleDepth inString False False (cur <> [c]) rest out
+                | c == '\"' ->
+                    split' parenDepth angleDepth True False False (cur <> [c]) rest out
+                | c == '\'' ->
+                    split' parenDepth angleDepth False True False (cur <> [c]) rest out
+                | c == '|' && parenDepth == 0 && angleDepth == 0 ->
+                    let token = trim cur
+                        out' = if null token then out else token : out
+                     in split' parenDepth angleDepth False False False "" rest out'
+                | c == '(' ->
+                    split' (parenDepth + 1) angleDepth False False False (cur <> [c]) rest out
+                | c == ')' ->
+                    split' (max 0 (parenDepth - 1)) angleDepth False False False (cur <> [c]) rest out
+                | c == '<' ->
+                    split' parenDepth (angleDepth + 1) False False False (cur <> [c]) rest out
+                | c == '>' ->
+                    split' parenDepth (max 0 (angleDepth - 1)) False False False (cur <> [c]) rest out
+                | otherwise ->
+                    split' parenDepth angleDepth False False False (cur <> [c]) rest out
+       in split' 0 0 False False False "" input []
+
 mkConstructorClause :: DataDecl -> FunctionClause
 mkConstructorClause decl =
+  let ctorInfo = dataCtorInfo decl
+      ctorFields = dataCtorFields decl
+      ctorBody =
+        case ctorLiteralBacking ctorInfo of
+          Just (TypeUnionInt n) -> IntLit n
+          Just (TypeUnionString s) -> StringLit s
+          Nothing -> mkCallExpr ctorInfo ctorFields
+   in
   FunctionClause
     { fnClauseName = dataCtorName decl
-    , fnClausePatterns = map PatVar (dataCtorFields decl)
-    , fnClauseBody = mkCallExpr (dataCtorInfo decl) (dataCtorFields decl)
+    , fnClausePatterns = map PatVar ctorFields
+    , fnClauseBody = ctorBody
     , fnClauseAttributes = []
     }
 
@@ -3091,6 +3682,7 @@ reservedKeywords =
   , "law"
   , "instance"
   , "data"
+  , "newtype"
   , "infix"
   , "infixl"
   , "infixr"

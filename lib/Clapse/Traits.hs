@@ -17,6 +17,8 @@ import Clapse.Syntax (CaseArm(..), Expr(..), Name)
 
 data TraitCategory
   = ArithmeticCategory
+  | OrdCategory
+  | SliceCategory
   | MonoidCategory
   | FunctorCategory
   | ApplicativeCategory
@@ -52,6 +54,8 @@ basicTraits =
   , subTrait
   , mulTrait
   , divTrait
+  , ordTrait
+  , sliceTrait
   , monoidTrait
   , functorTrait
   , applicativeTrait
@@ -271,6 +275,29 @@ divTrait =
     , rules =
         [ RewriteRule "div-right-one" (pCall "div" [PHole "x", PInt 1]) (PHole "x")
         ]
+    }
+
+ordTrait :: Trait
+ordTrait =
+  Trait
+    { traitName = "ord"
+    , category = OrdCategory
+    , operations = ["lt", "le", "gt", "ge", "eq"]
+    , rules =
+        [ RewriteRule "lt-irreflexive" (pCall "lt" [PHole "x", PHole "x"]) (PInt 0)
+        , RewriteRule "le-reflexive" (pCall "le" [PHole "x", PHole "x"]) (PInt 1)
+        , RewriteRule "gt-irreflexive" (pCall "gt" [PHole "x", PHole "x"]) (PInt 0)
+        , RewriteRule "ge-reflexive" (pCall "ge" [PHole "x", PHole "x"]) (PInt 1)
+        ]
+    }
+
+sliceTrait :: Trait
+sliceTrait =
+  Trait
+    { traitName = "slice"
+    , category = SliceCategory
+    , operations = ["slice_len", "slice_get_u8", "slice_set_u8"]
+    , rules = []
     }
 
 monoidTrait :: Trait

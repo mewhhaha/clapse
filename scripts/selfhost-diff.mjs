@@ -17,8 +17,10 @@ function parseArgs(argv) {
     rightName: "haskell",
     requireDistinctEngines: false,
     requireRightEngineMode: "",
-    left: 'CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --',
-    right: 'CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --',
+    left:
+      'CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --',
+    right:
+      'CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --',
     out: "out/selfhost-diff",
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -78,6 +80,14 @@ async function readMaybe(path) {
   }
 }
 
+function modeMatches(expected, actual) {
+  if (expected === "wasm") return actual.startsWith("wasm");
+  if (expected.includes("|")) {
+    return expected.split("|").map((x) => x.trim()).includes(actual);
+  }
+  return actual === expected;
+}
+
 async function ensureCleanDir(path) {
   await Deno.mkdir(path, { recursive: true });
 }
@@ -93,9 +103,11 @@ async function main() {
   if (cfg.requireRightEngineMode.length > 0) {
     const probe = await runShell(`${cfg.right} engine-mode`);
     const mode = probe.stdout.trim();
-    if (!probe.ok || mode !== cfg.requireRightEngineMode) {
+    if (!probe.ok || !modeMatches(cfg.requireRightEngineMode, mode)) {
       console.error(
-        `selfhost-diff: right engine mode mismatch (expected '${cfg.requireRightEngineMode}', got '${mode || "<error>"}')`,
+        `selfhost-diff: right engine mode mismatch (expected '${cfg.requireRightEngineMode}', got '${
+          mode || "<error>"
+        }')`,
       );
       if (!probe.ok && probe.stderr.trim().length > 0) {
         console.error(probe.stderr.trim());
@@ -115,8 +127,12 @@ async function main() {
     await ensureCleanDir(leftDir);
     await ensureCleanDir(rightDir);
 
-    const leftCmd = `${cfg.left} selfhost-artifacts ${shQuote(entry)} ${shQuote(leftDir)}`;
-    const rightCmd = `${cfg.right} selfhost-artifacts ${shQuote(entry)} ${shQuote(rightDir)}`;
+    const leftCmd = `${cfg.left} selfhost-artifacts ${shQuote(entry)} ${
+      shQuote(leftDir)
+    }`;
+    const rightCmd = `${cfg.right} selfhost-artifacts ${shQuote(entry)} ${
+      shQuote(rightDir)
+    }`;
     const left = await runShell(leftCmd);
     const right = await runShell(rightCmd);
     const mismatches = [];
@@ -137,7 +153,9 @@ async function main() {
       right_stderr: right.stderr.trim(),
       mismatches,
     });
-    const status = left.ok && right.ok && mismatches.length === 0 ? "PASS" : "FAIL";
+    const status = left.ok && right.ok && mismatches.length === 0
+      ? "PASS"
+      : "FAIL";
     console.log(`[${status}] ${entry}`);
   }
 
@@ -159,9 +177,14 @@ async function main() {
     failed: failures.length,
     results,
   };
-  await Deno.writeTextFile(`${cfg.out}/report.json`, JSON.stringify(report, null, 2));
+  await Deno.writeTextFile(
+    `${cfg.out}/report.json`,
+    JSON.stringify(report, null, 2),
+  );
   if (failures.length > 0) {
-    console.error(`selfhost-diff: ${failures.length}/${results.length} entries failed`);
+    console.error(
+      `selfhost-diff: ${failures.length}/${results.length} entries failed`,
+    );
     Deno.exit(1);
   }
   console.log(`selfhost-diff: PASS (${results.length} entries)`);

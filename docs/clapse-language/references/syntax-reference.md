@@ -3,7 +3,13 @@
 ## Naming
 
 - Value/function identifiers: `snake_case`
-- Data type and constructor names: `PascalCase`
+- Data type names: `PascalCase`
+- Constructor names are usually `PascalCase`, with literal-backed constructors
+  commonly written as lowercase (for example `true`/`false`):
+
+```haskell
+data bool = true<1> | false<0>
+```
 
 ## Functions
 
@@ -19,6 +25,12 @@ Pattern-style multiple equations:
 add 0 0 = 0
 add x y = x + y
 ```
+
+## Literals
+
+- Integer: `42`, `-1`
+- String: `"hello\nworld"`
+- Char: `'a'`, `'\n'`, `'\''` (parsed as integer codepoints)
 
 ## Lambda
 
@@ -73,6 +85,12 @@ Multi-constructor GADT-like one-line form:
 data Maybe a = Just : a -> Maybe a | Nothing : Maybe a
 ```
 
+Newtype form (single constructor + single field):
+
+```haskell
+newtype UserId = UserId i64
+```
+
 ## Type Signatures and Constraints
 
 ```haskell
@@ -95,7 +113,8 @@ Builtin operators (no declaration required):
 ```haskell
 x + y
 x * y
-x == y && y == z
+x < y && y >= z
+not x && y || z
 ```
 
 - `+` => `add` (infixl 6)
@@ -103,12 +122,19 @@ x == y && y == z
 - `*` => `mul` (infixl 7)
 - `/` => `div` (infixl 7)
 - `==` => `eq` (infix 4)
+- `<` => `lt` (infix 4)
+- `<=` => `le` (infix 4)
+- `>` => `gt` (infix 4)
+- `>=` => `ge` (infix 4)
+- `not` => `bool_not` (prefix function application; e.g. `not x`, often used with parenthesized expr like `not (x == y)`)
 - `&&` => `and` (infixr 3)
+- `||` => `bool_or` (infixr 2, declaration usually `infixr 2 || = bool_or` in prelude/custom modules)
 
 Custom operators:
 
 ```haskell
 infixl 6 +. = add
+infixr 2 || = bool_or
 infixr 5 <> = append
 infixl 6 plus_op = add
 ```

@@ -1,0 +1,4 @@
+module string_slice
+export slice_eq_u8, slice_eq_str
+
+slice_eq_str bytes text = slice_eq_u8 bytes (str_to_slice text)

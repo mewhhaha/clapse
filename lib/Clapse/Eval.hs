@@ -7,7 +7,10 @@ module Clapse.Eval
 import Control.Monad (foldM)
 import Data.Char (isDigit)
 import Data.Bits ((.|.), shiftL, shiftR)
+import Data.Text (pack)
+import Data.Text.Encoding (encodeUtf8)
 import Data.Int (Int32)
+import qualified Data.ByteString as BS
 
 import qualified Clapse.CollapseIR as C
 import Clapse.Lowering (lowerModule)
@@ -16,6 +19,7 @@ import qualified Clapse.Syntax as S
 data SourceValue
   = SourceInt Int
   | SourceString String
+  | SourceSlice String
   | SourceClosure SourceEnv [S.Name] S.Expr
   | SourceBuiltin S.Name Int [SourceValue]
   | SourceStruct S.Name [SourceValue]
@@ -26,6 +30,7 @@ type SourceEnv = [(S.Name, SourceValue)]
 data RuntimeValue
   = RuntimeInt Int
   | RuntimeString String
+  | RuntimeSlice String
   | RuntimeClosure S.Name Int [RuntimeValue]
   | RuntimeStruct S.Name [RuntimeValue]
 
@@ -82,7 +87,14 @@ evalSourceFunction modu entry args = do
   _ <- validateNoDuplicateFunctions (S.functions modu)
   let fullEnv = sourceUserEnv modu <> sourceBuiltins
   entryVal <- lookupRequired ("source evaluator: unknown function: " <> entry) entry fullEnv
-  (applied, _) <- runEvalM (foldM applySourceValue entryVal (map SourceInt args)) initialEvalState
+  (applied, _) <-
+    runEvalM
+      ( do
+          applied0 <- foldM applySourceValue entryVal (map SourceInt args)
+          applied1 <- applyUnusedArityDefaults applied0
+          forceSourceValue applied1
+      )
+      initialEvalState
   toSourceInt ("source evaluator: function did not reduce to Int: " <> entry) applied
 
 differentialCheckSourceCollapsed :: S.Module -> S.Name -> [Int] -> Either String ()
@@ -128,7 +140,14 @@ sourceBuiltins =
   , ("div", SourceBuiltin "div" 2 [])
   , ("mod", SourceBuiltin "mod" 2 [])
   , ("eq", SourceBuiltin "eq" 2 [])
+  , ("lt", SourceBuiltin "lt" 2 [])
+  , ("le", SourceBuiltin "le" 2 [])
+  , ("gt", SourceBuiltin "gt" 2 [])
+  , ("ge", SourceBuiltin "ge" 2 [])
   , ("str_eq", SourceBuiltin "str_eq" 2 [])
+  , ("str_to_slice", SourceBuiltin "str_to_slice" 1 [])
+  , ("slice_to_string", SourceBuiltin "slice_to_string" 1 [])
+  , ("slice_eq_u8", SourceBuiltin "slice_eq_u8" 2 [])
   , ("and", SourceBuiltin "and" 2 [])
   , ("if", SourceBuiltin "if" 3 [])
   , ("pure", SourceBuiltin "pure" 1 [])
@@ -158,6 +177,8 @@ applySourceValue fnVal argVal =
       evalFail "source evaluator: attempted to call Int value"
     SourceString _ ->
       evalFail "source evaluator: attempted to call string value"
+    SourceSlice _ ->
+      evalFail "source evaluator: attempted to call slice value"
     SourceStruct _ _ ->
       evalFail "source evaluator: attempted to call struct value"
     SourceBuiltin builtinName builtinArity gotArgs -> do
@@ -192,10 +213,10 @@ evalSourceExpr env expr =
     S.Var n ->
       case lookup n env of
         Just v ->
-          evalPure v
+          forceSourceValue v
         Nothing ->
           case sourceBuiltinArity n of
-            Just arityN -> evalPure (SourceBuiltin n arityN [])
+            Just arityN -> forceSourceValue (SourceBuiltin n arityN [])
             Nothing -> evalFail ("source evaluator: unknown variable: " <> n)
     S.Lam n bodyExpr ->
       evalPure (SourceClosure env [n] bodyExpr)
@@ -203,6 +224,17 @@ evalSourceExpr env expr =
       fnVal <- evalSourceExpr env f
       argVal <- evalSourceExpr env x
       applySourceValue fnVal argVal
+
+forceSourceValue :: SourceValue -> EvalM SourceValue
+forceSourceValue val =
+  case val of
+    SourceClosure env [] bodyExpr ->
+      evalSourceExpr env bodyExpr >>= forceSourceValue
+    SourceBuiltin builtinName 0 gotArgs
+      | null gotArgs ->
+          evalSourceBuiltin builtinName [] >>= forceSourceValue
+    _ ->
+      evalPure val
 
 evalSourceBuiltin :: S.Name -> [SourceValue] -> EvalM SourceValue
 evalSourceBuiltin name args =
@@ -235,13 +267,48 @@ evalSourceBuiltin name args =
         then evalFail "source evaluator: modulo by zero"
         else evalPure (SourceInt (taggedArith2 rem lhs rhs))
     ("eq", [a, b]) -> do
-      lhs <- toSourceIntM "source evaluator: eq lhs" a
-      rhs <- toSourceIntM "source evaluator: eq rhs" b
+      lhs <- coerceSourceIntForEq "source evaluator: eq lhs" a
+      rhs <- coerceSourceIntForEq "source evaluator: eq rhs" b
       evalPure (SourceInt (if normalizeTaggedIntPayload lhs == normalizeTaggedIntPayload rhs then 1 else 0))
+    ("lt", [a, b]) -> do
+      lhs <- toSourceIntM "source evaluator: lt lhs" a
+      rhs <- toSourceIntM "source evaluator: lt rhs" b
+      evalPure (SourceInt (if normalizeTaggedIntPayload lhs < normalizeTaggedIntPayload rhs then 1 else 0))
+    ("le", [a, b]) -> do
+      lhs <- toSourceIntM "source evaluator: le lhs" a
+      rhs <- toSourceIntM "source evaluator: le rhs" b
+      evalPure (SourceInt (if normalizeTaggedIntPayload lhs <= normalizeTaggedIntPayload rhs then 1 else 0))
+    ("gt", [a, b]) -> do
+      lhs <- toSourceIntM "source evaluator: gt lhs" a
+      rhs <- toSourceIntM "source evaluator: gt rhs" b
+      evalPure (SourceInt (if normalizeTaggedIntPayload lhs > normalizeTaggedIntPayload rhs then 1 else 0))
+    ("ge", [a, b]) -> do
+      lhs <- toSourceIntM "source evaluator: ge lhs" a
+      rhs <- toSourceIntM "source evaluator: ge rhs" b
+      evalPure (SourceInt (if normalizeTaggedIntPayload lhs >= normalizeTaggedIntPayload rhs then 1 else 0))
     ("str_eq", [a, b]) -> do
       lhs <- toSourceStringM "source evaluator: str_eq lhs" a
       rhs <- toSourceStringM "source evaluator: str_eq rhs" b
       evalPure (SourceInt (if lhs == rhs then 1 else 0))
+    ("slice_eq_u8", [SourceString a, SourceString b]) ->
+      evalPure (SourceInt (if a == b then 1 else 0))
+    ("slice_eq_u8", [SourceSlice a, SourceSlice b]) ->
+      evalPure (SourceInt (if a == b then 1 else 0))
+    ("slice_eq_u8", [SourceSlice a, SourceString b]) ->
+      evalPure (SourceInt (if a == b then 1 else 0))
+    ("slice_eq_u8", [SourceString a, SourceSlice b]) ->
+      evalPure (SourceInt (if a == b then 1 else 0))
+    ("slice_eq_u8", [_, _]) ->
+      evalFail "source evaluator: slice_eq_u8 requires host-provided slice value"
+    ("str_to_slice", [x]) ->
+      case x of
+        SourceString s -> evalPure (SourceSlice s)
+        SourceSlice _ -> evalPure x
+        _ -> evalPure x
+    ("slice_to_string", [x]) ->
+      case x of
+        SourceSlice s -> evalPure (SourceString s)
+        _ -> evalPure x
     ("and", [a, b]) -> do
       lhs <- toSourceIntM "source evaluator: and lhs" a
       rhs <- toSourceIntM "source evaluator: and rhs" b
@@ -264,8 +331,26 @@ evalSourceBuiltin name args =
       applySourceValue f x
     ("ap", [f, x]) ->
       applySourceValue f x
+    ("slice_len", [SourceSlice s]) ->
+      do
+        let bytes = encodeUtf8 (pack s)
+        evalPure (SourceInt (BS.length bytes))
     ("slice_len", [_slice]) ->
       evalFail "source evaluator: slice_len requires host-provided slice value"
+    ("slice_get_u8", [SourceSlice s, _index]) ->
+      do
+        let bytes = encodeUtf8 (pack s)
+        index <- toSourceIntM "source evaluator: slice_get_u8 index" _index
+        if index < 0 || index >= BS.length bytes
+          then
+            evalFail
+              ( "source evaluator: slice_get_u8 index out of range (index="
+                  <> show index
+                  <> ", len="
+                  <> show (BS.length bytes)
+                  <> ")"
+              )
+          else evalPure (SourceInt (fromIntegral (bytes `BS.index` index)))
     ("slice_get_u8", [_slice, _index]) ->
       evalFail "source evaluator: slice_get_u8 requires host-provided slice value"
     ("slice_set_u8", [_slice, _index, _value]) ->
@@ -397,6 +482,18 @@ toSourceInt err val =
 toSourceIntM :: String -> SourceValue -> EvalM Int
 toSourceIntM err val = liftEither (toSourceInt err val)
 
+coerceSourceIntForEq :: String -> SourceValue -> EvalM Int
+coerceSourceIntForEq err val =
+  case val of
+    SourceInt n ->
+      pure n
+    SourceClosure _ [] _ ->
+      forceSourceValue val >>= coerceSourceIntForEq err
+    SourceBuiltin _ 0 _ ->
+      forceSourceValue val >>= coerceSourceIntForEq err
+    _ ->
+      liftEither (Left err)
+
 toSourceString :: String -> SourceValue -> Either String String
 toSourceString err val =
   case val of
@@ -404,12 +501,24 @@ toSourceString err val =
     _ -> Left err
 
 toSourceStringM :: String -> SourceValue -> EvalM String
-toSourceStringM err val = liftEither (toSourceString err val)
+toSourceStringM err val = forceSourceValue val >>= liftEither . toSourceString err
 
 liftEither :: Either String a -> EvalM a
 liftEither ev = EvalM (\state -> case ev of
   Right x -> Right (x, state)
   Left err -> Left err)
+
+applyUnusedArityDefaults :: SourceValue -> EvalM SourceValue
+applyUnusedArityDefaults val =
+  case val of
+    SourceClosure env params bodyExpr
+      | all (== "_") params ->
+          foldM
+            applySourceValue
+            val
+            (replicate (length params) (SourceInt 0))
+    _ ->
+      pure val
 
 runFunction :: FunctionEnv -> C.CollapsedFunction -> [RuntimeValue] -> EvalM RuntimeValue
 runFunction env fn args = do
@@ -489,6 +598,8 @@ applyRuntimeValue env fnVal argVal =
       evalFail "collapsed evaluator: attempted to call Int value"
     RuntimeString _ ->
       evalFail "collapsed evaluator: attempted to call string value"
+    RuntimeSlice _ ->
+      evalFail "collapsed evaluator: attempted to call slice value"
     RuntimeStruct _ _ ->
       evalFail "collapsed evaluator: attempted to call struct value"
     RuntimeClosure callee totalArity boundArgs -> do
@@ -539,13 +650,48 @@ evalRuntimeBuiltin env name args =
         then evalFail "collapsed evaluator: modulo by zero"
         else evalPure (RuntimeInt (taggedArith2 rem lhs rhs))
     ("eq", [a, b]) -> do
-      lhs <- toRuntimeIntM "collapsed evaluator: eq lhs" a
-      rhs <- toRuntimeIntM "collapsed evaluator: eq rhs" b
+      lhs <- coerceRuntimeIntForEq env "collapsed evaluator: eq lhs" a
+      rhs <- coerceRuntimeIntForEq env "collapsed evaluator: eq rhs" b
       evalPure (RuntimeInt (if normalizeTaggedIntPayload lhs == normalizeTaggedIntPayload rhs then 1 else 0))
+    ("lt", [a, b]) -> do
+      lhs <- toRuntimeIntM "collapsed evaluator: lt lhs" a
+      rhs <- toRuntimeIntM "collapsed evaluator: lt rhs" b
+      evalPure (RuntimeInt (if normalizeTaggedIntPayload lhs < normalizeTaggedIntPayload rhs then 1 else 0))
+    ("le", [a, b]) -> do
+      lhs <- toRuntimeIntM "collapsed evaluator: le lhs" a
+      rhs <- toRuntimeIntM "collapsed evaluator: le rhs" b
+      evalPure (RuntimeInt (if normalizeTaggedIntPayload lhs <= normalizeTaggedIntPayload rhs then 1 else 0))
+    ("gt", [a, b]) -> do
+      lhs <- toRuntimeIntM "collapsed evaluator: gt lhs" a
+      rhs <- toRuntimeIntM "collapsed evaluator: gt rhs" b
+      evalPure (RuntimeInt (if normalizeTaggedIntPayload lhs > normalizeTaggedIntPayload rhs then 1 else 0))
+    ("ge", [a, b]) -> do
+      lhs <- toRuntimeIntM "collapsed evaluator: ge lhs" a
+      rhs <- toRuntimeIntM "collapsed evaluator: ge rhs" b
+      evalPure (RuntimeInt (if normalizeTaggedIntPayload lhs >= normalizeTaggedIntPayload rhs then 1 else 0))
     ("str_eq", [RuntimeString a, RuntimeString b]) ->
       evalPure (RuntimeInt (if a == b then 1 else 0))
     ("str_eq", [_, _]) ->
       evalPure (RuntimeInt 0)
+    ("slice_eq_u8", [RuntimeString a, RuntimeString b]) ->
+      evalPure (RuntimeInt (if a == b then 1 else 0))
+    ("slice_eq_u8", [RuntimeSlice a, RuntimeSlice b]) ->
+      evalPure (RuntimeInt (if a == b then 1 else 0))
+    ("slice_eq_u8", [RuntimeSlice a, RuntimeString b]) ->
+      evalPure (RuntimeInt (if a == b then 1 else 0))
+    ("slice_eq_u8", [RuntimeString a, RuntimeSlice b]) ->
+      evalPure (RuntimeInt (if a == b then 1 else 0))
+    ("slice_eq_u8", [_, _]) ->
+      evalPure (RuntimeInt 0)
+    ("str_to_slice", [x]) ->
+      case x of
+        RuntimeString s -> evalPure (RuntimeSlice s)
+        RuntimeSlice _ -> evalPure x
+        _ -> evalPure x
+    ("slice_to_string", [x]) ->
+      case x of
+        RuntimeSlice s -> evalPure (RuntimeString s)
+        _ -> evalPure x
     ("and", [a, b]) -> do
       lhs <- toRuntimeIntM "collapsed evaluator: and lhs" a
       rhs <- toRuntimeIntM "collapsed evaluator: and rhs" b
@@ -568,8 +714,26 @@ evalRuntimeBuiltin env name args =
       applyRuntimeValue env f x
     ("ap", [f, x]) ->
       applyRuntimeValue env f x
+    ("slice_len", [RuntimeSlice s]) ->
+      do
+        let bytes = encodeUtf8 (pack s)
+        evalPure (RuntimeInt (BS.length bytes))
     ("slice_len", [_slice]) ->
       evalFail "collapsed evaluator: slice_len requires host-provided slice value"
+    ("slice_get_u8", [RuntimeSlice s, _index]) ->
+      do
+        let bytes = encodeUtf8 (pack s)
+        index <- toRuntimeIntM "collapsed evaluator: slice_get_u8 index" _index
+        if index < 0 || index >= BS.length bytes
+          then
+            evalFail
+              ( "collapsed evaluator: slice_get_u8 index out of range (index="
+                  <> show index
+                  <> ", len="
+                  <> show (BS.length bytes)
+                  <> ")"
+              )
+          else evalPure (RuntimeInt (fromIntegral (bytes `BS.index` index)))
     ("slice_get_u8", [_slice, _index]) ->
       evalFail "collapsed evaluator: slice_get_u8 requires host-provided slice value"
     ("slice_set_u8", [_slice, _index, _value]) ->
@@ -697,6 +861,18 @@ toRuntimeInt err val =
 
 toRuntimeIntM :: String -> RuntimeValue -> EvalM Int
 toRuntimeIntM err val = liftEither (toRuntimeInt err val)
+
+coerceRuntimeIntForEq :: FunctionEnv -> String -> RuntimeValue -> EvalM Int
+coerceRuntimeIntForEq env err val =
+  case val of
+    RuntimeInt n ->
+      pure n
+    RuntimeClosure callee 0 _ ->
+      do
+        calleeFn <- liftEither (lookupRequired ("collapsed evaluator: closure target missing: " <> callee) callee env)
+        coerceRuntimeIntForEq env err =<< runFunction env calleeFn []
+    _ ->
+      liftEither (Left err)
 
 taggedArith2 :: (Int32 -> Int32 -> Int32) -> Int -> Int -> Int
 taggedArith2 op lhs rhs =
@@ -918,7 +1094,14 @@ sourceBuiltinArity n =
     "div" -> Just 2
     "mod" -> Just 2
     "eq" -> Just 2
+    "lt" -> Just 2
+    "le" -> Just 2
+    "gt" -> Just 2
+    "ge" -> Just 2
     "str_eq" -> Just 2
+    "str_to_slice" -> Just 1
+    "slice_to_string" -> Just 1
+    "slice_eq_u8" -> Just 2
     "and" -> Just 2
     "if" -> Just 3
     "pure" -> Just 1

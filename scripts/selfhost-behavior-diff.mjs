@@ -7,8 +7,10 @@ function parseArgs(argv) {
     rightName: "haskell",
     requireDistinctEngines: false,
     requireRightEngineMode: "",
-    left: 'CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --',
-    right: 'CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --',
+    left:
+      'CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --',
+    right:
+      'CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --',
     out: "out/selfhost-behavior-diff",
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -36,7 +38,8 @@ function shQuote(s) {
 
 function scenarioKey(s) {
   const args = Array.isArray(s.args) ? s.args.join("_") : "";
-  return `${s.entry}__${s.export ?? "main"}__${args}`.replaceAll("/", "__").replaceAll(".clapse", "");
+  return `${s.entry}__${s.export ?? "main"}__${args}`.replaceAll("/", "__")
+    .replaceAll(".clapse", "");
 }
 
 async function runShell(cmd) {
@@ -56,6 +59,14 @@ async function runShell(cmd) {
 
 async function ensureDir(path) {
   await Deno.mkdir(path, { recursive: true });
+}
+
+function modeMatches(expected, actual) {
+  if (expected === "wasm") return actual.startsWith("wasm");
+  if (expected.includes("|")) {
+    return expected.split("|").map((x) => x.trim()).includes(actual);
+  }
+  return actual === expected;
 }
 
 function normalizeOut(s) {
@@ -81,9 +92,11 @@ async function main() {
   if (cfg.requireRightEngineMode.length > 0) {
     const probe = await runShell(`${cfg.right} engine-mode`);
     const mode = probe.stdout.trim();
-    if (!probe.ok || mode !== cfg.requireRightEngineMode) {
+    if (!probe.ok || !modeMatches(cfg.requireRightEngineMode, mode)) {
       console.error(
-        `selfhost-behavior-diff: right engine mode mismatch (expected '${cfg.requireRightEngineMode}', got '${mode || "<error>"}')`,
+        `selfhost-behavior-diff: right engine mode mismatch (expected '${cfg.requireRightEngineMode}', got '${
+          mode || "<error>"
+        }')`,
       );
       if (!probe.ok && probe.stderr.trim().length > 0) {
         console.error(probe.stderr.trim());
@@ -99,8 +112,12 @@ async function main() {
 
   for (const s of scenarios) {
     const key = scenarioKey(s);
-    const outLeft = `${cfg.out}/left/${s.entry.replaceAll("/", "__").replaceAll(".clapse", "")}.wasm`;
-    const outRight = `${cfg.out}/right/${s.entry.replaceAll("/", "__").replaceAll(".clapse", "")}.wasm`;
+    const outLeft = `${cfg.out}/left/${
+      s.entry.replaceAll("/", "__").replaceAll(".clapse", "")
+    }.wasm`;
+    const outRight = `${cfg.out}/right/${
+      s.entry.replaceAll("/", "__").replaceAll(".clapse", "")
+    }.wasm`;
     await ensureDir(`${cfg.out}/left`);
     await ensureDir(`${cfg.out}/right`);
 
@@ -126,30 +143,36 @@ async function main() {
     }
 
     let leftRun = { ok: false, code: -1, stdout: "", stderr: "compile failed" };
-    let rightRun = { ok: false, code: -1, stdout: "", stderr: "compile failed" };
+    let rightRun = {
+      ok: false,
+      code: -1,
+      stdout: "",
+      stderr: "compile failed",
+    };
     if (leftCompile.ok) {
       leftRun = await runShell(
-        `deno run -A scripts/run-wasm.mjs ${shQuote(outLeft)} ${shQuote(exportName)} ${argsJoined}`,
+        `deno run -A scripts/run-wasm.mjs ${shQuote(outLeft)} ${
+          shQuote(exportName)
+        } ${argsJoined}`,
       );
     }
     if (rightCompile.ok) {
       rightRun = await runShell(
-        `deno run -A scripts/run-wasm.mjs ${shQuote(outRight)} ${shQuote(exportName)} ${argsJoined}`,
+        `deno run -A scripts/run-wasm.mjs ${shQuote(outRight)} ${
+          shQuote(exportName)
+        } ${argsJoined}`,
       );
     }
 
-    const sameOutput =
-      leftRun.ok &&
+    const sameOutput = leftRun.ok &&
       rightRun.ok &&
       normalizeOut(leftRun.stdout) === normalizeOut(rightRun.stdout);
-    const sameTrap =
-      !leftRun.ok &&
+    const sameTrap = !leftRun.ok &&
       !rightRun.ok &&
       normalizeOut(leftRun.stderr) === normalizeOut(rightRun.stderr);
-    const scenarioPass =
-      expect === "trap"
-        ? leftCompile.ok && rightCompile.ok && sameTrap
-        : leftCompile.ok && rightCompile.ok && sameOutput;
+    const scenarioPass = expect === "trap"
+      ? leftCompile.ok && rightCompile.ok && sameTrap
+      : leftCompile.ok && rightCompile.ok && sameOutput;
 
     results.push({
       entry,
@@ -169,7 +192,9 @@ async function main() {
       scenario_pass: scenarioPass,
     });
     console.log(
-      `[${scenarioPass ? "PASS" : "FAIL"}] ${entry} ${exportName}(${(s.args ?? []).join(",")})`,
+      `[${scenarioPass ? "PASS" : "FAIL"}] ${entry} ${exportName}(${
+        (s.args ?? []).join(",")
+      })`,
     );
   }
 
@@ -189,9 +214,14 @@ async function main() {
     failed: failures.length,
     results,
   };
-  await Deno.writeTextFile(`${cfg.out}/report.json`, JSON.stringify(report, null, 2));
+  await Deno.writeTextFile(
+    `${cfg.out}/report.json`,
+    JSON.stringify(report, null, 2),
+  );
   if (failures.length > 0) {
-    console.error(`selfhost-behavior-diff: ${failures.length}/${results.length} scenarios failed`);
+    console.error(
+      `selfhost-behavior-diff: ${failures.length}/${results.length} scenarios failed`,
+    );
     Deno.exit(1);
   }
   console.log(`selfhost-behavior-diff: PASS (${results.length} scenarios)`);

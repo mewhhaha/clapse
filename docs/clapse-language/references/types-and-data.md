@@ -7,7 +7,13 @@ Current language-level target set:
 - `i64` (default numeric literal/arithmetic type in source model)
 - `u64` (reserved)
 - `byte` (reserved for compact binary/host ABI boundaries)
-- `string` (contiguous byte-string runtime value in linear-memory descriptor form)
+
+Conventional core data wrappers:
+
+- `data string = string<slice byte>`
+- `data bool = true<1> | false<0>`
+
+`type` aliases may define literal unions (for example `type Digit = <0 | 1 | 2>`) and may not own constructors. Constructor ownership belongs to `data`.
 
 ## Current Inference Behavior
 

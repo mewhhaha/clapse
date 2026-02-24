@@ -1,0 +1,14 @@
+class ord_i64_rules t : ord
+law ord_i64_rules irreflexive_lt = lt x x => 0
+law ord_i64_rules reflexive_le = le x x => 1
+law ord_i64_rules reflexive_ge = ge x x => 1
+law ord_i64_rules antisymmetry = and (le x y) (le y x) => eq x y
+law ord_i64_rules duality = gt x y => lt y x
+instance ord_i64 : ord_i64_rules i64 lt=lt le=le gt=gt ge=ge eq=eq
+
+class slice_byte_rules s : slice
+law slice_byte_rules set_preserves_len = slice_len (slice_set_u8 s i v) => slice_len s
+law slice_byte_rules get_after_set_same_index = slice_get_u8 (slice_set_u8 s i v) i => v
+instance slice_byte : slice_byte_rules byte slice_len=slice_len slice_get_u8=slice_get_u8 slice_set_u8=slice_set_u8
+
+ord_ok a b = and (lt a b) (ge b a)

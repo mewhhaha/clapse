@@ -13,8 +13,13 @@ deno run -A scripts/clapse.mjs lsp --stdio
 deno run -A scripts/clapse.mjs bench [iterations]
 ```
 
-- `compile`/`selfhost-artifacts` use compiler-wasm mode by default (`CLAPSE_COMPILER_WASM_PATH` required); pass `--host` to force host compile.
-- `format`, `lsp`, and `bench` are host-backed today, but invoked via the same deno command surface.
+- `compile`/`selfhost-artifacts`/`format`/`lsp` use compiler-wasm mode by
+  default; pass `--host` to force host execution.
+  - compiler wasm is resolved from `CLAPSE_COMPILER_WASM_PATH`, then
+    `out/clapse_compiler.wasm`.
+  - transitional bridge artifact (`out/clapse_compiler_bridge.wasm`) requires
+    `CLAPSE_ALLOW_BRIDGE=1`.
+- `bench` is host-backed today, but invoked via the same deno command surface.
 
 ## Just Targets
 
@@ -42,8 +47,12 @@ Browser Game of Life demo:
 Self-host parity:
 
 - `just selfhost-artifacts`
+- `just selfhost-parser-parity`
+- `just selfhost-parser-parity-strict`
 - `just selfhost-diff`
 - `just selfhost-behavior-diff`
+- `just formatter-idempotence-corpus`
+- `CLAPSE_ALLOW_BRIDGE=1 CLAPSE_COMPILER_WASM_PATH=out/clapse_compiler_bridge.wasm just lsp-wasm-fixtures`
 - `just selfhost-bootstrap-abc`
 - `just selfhost-check`
 - `just selfhost-check-strict`
@@ -53,17 +62,23 @@ Self-host parity:
 - `just selfhost-bench`
 - `just selfhost-bench-wasm`
 - `just selfhost-bench-wasm-fresh`
-- `scripts/selfhost-bench.mjs --reuse-compiles-across-repeats 0|1` (default `1` for steady-state compile reuse)
-- `scripts/run-clapse-compiler-wasm.mjs` (strict right-engine entrypoint; executes compiler wasm through `clapse_run` ABI)
-  - validates ABI exports (`memory`/`__memory`, `clapse_run`) and response JSON shape before writing outputs
+- `scripts/selfhost-bench.mjs --reuse-compiles-across-repeats 0|1` (default `1`
+  for steady-state compile reuse)
+- `scripts/run-clapse-compiler-wasm.mjs` (strict right-engine entrypoint;
+  executes compiler wasm through `clapse_run` ABI)
+  - validates ABI exports (`memory`/`__memory`, `clapse_run`) and response JSON
+    shape before writing outputs
+  - `engine-mode` reports `wasm-native` or `wasm-bridge`
 
 ## LSP and Formatter
 
-- LSP currently provides parse diagnostics, type diagnostics, hover inferred types, and inlay hints.
+- LSP currently provides parse diagnostics, type diagnostics, hover inferred
+  types, and inlay hints.
 - Formatter is conservative and source-preserving:
   - validate syntax
   - normalize trailing/inner whitespace rules
-  - render multiline `let` blocks in Haskell-style layout (`let` + aligned bindings + `in` line)
+  - render multiline `let` blocks in Haskell-style layout (`let` + aligned
+    bindings + `in` line)
   - avoid semantic rewrites in formatter pass
 
 ## Tree-sitter and Helix

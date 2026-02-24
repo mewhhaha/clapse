@@ -90,9 +90,12 @@ tests =
   , testParseOrphanFunctionAttributeFails
   , testParseLambda
   , testParseStringLiteral
+  , testParseCharLiteral
+  , testParseEscapedCharLiteral
   , testParseUnaryNegativeLiteral
   , testParseBinaryMinusUnaffectedByUnaryLiteralSupport
   , testParseCaseMultipleScrutinees
+  , testParseCaseCharPattern
   , testParseCaseConstructorPattern
   , testParseCaseConstructorPatternMultiline
   , testParseCaseConstructorPatternExhaustiveSingleScrutinee
@@ -102,14 +105,31 @@ tests =
   , testParseLetFunctionBinding
   , testParseLetMultilineContinuation
   , testParseLetMultilineNoSemicolon
+  , testParseLetMultilineOperatorContinuation
   , testParseFunctionGuards
   , testParseFunctionGuardsWithBuiltinOperatorConditions
   , testParseFunctionGuardsWithOperatorConditions
+  , testParseNestedCaseChainFromKernelPainPoint
+  , testParseMultilineParenthesizedApplicationFromKernelPainPoint
+  , testParseInlineCaseDeclarationFromKernelPainPoint
+  , testParseNestedCaseInCaseArmBody
+  , testParseCaseArmMultilineLetContinuation
   , testParseFunctionPatternClauses
   , testParseDataDeclarationGeneratesFunctions
+  , testParseNewtypeDeclarationGeneratesFunctions
+  , testParseNewtypeRequiresSingleField
   , testParseDataDeclarationSupportsPascalCase
+  , testParseDataDeclarationSupportsPrimitiveBackedSyntax
+  , testParseDataDeclarationSupportsLiteralBackedConstructors
+  , testParseDataDeclarationRejectsDuplicateLiteralBackedConstructors
   , testParseDataDeclarationSupportsMultiConstructors
   , testParseDataDeclarationGadtStyle
+  , testParseBoolDataConstructors
+  , testParseTypeAliasDeclaration
+  , testParseTypeUnionLiteralMembers
+  , testParseTypeUnionSignedIntMembers
+  , testParseTypeUnionWithConstructors
+  , testParseTypeUnionRejectsDuplicateLiterals
   , testParseTypeSignatureWithOptionalWitness
   , testParseTypeSignatureRequiresFunction
   , testParseCollectionLiteral
@@ -118,8 +138,11 @@ tests =
   , testParseClassInstanceDeclarationsRewriteFunctions
   , testParseClassDeclarationRequiresLaws
   , testParseHKTInstanceArityMismatchFails
+  , testParseClassDeclarationSupportsOrdAndSliceKinds
   , testParseBuiltinInfixPrecedence
   , testParseBuiltinEqRejectsChain
+  , testParseBuiltinRelationalInfixPrecedence
+  , testParseBuiltinRelationalRejectsChain
   , testParseCustomInfixPrecedence
   , testParseCustomInfixRightAssociative
   , testParseCustomInfixOverrideBuiltin
@@ -137,6 +160,9 @@ tests =
   , testFormatCollapsesInnerWhitespace
   , testFormatExpandsLongInlineLet
   , testFormatExpandsNestedInlineLet
+  , testFormatParseRoundtripNestedCasePainPoint
+  , testFormatParseRoundtripMultilineApplicationPainPoint
+  , testFormatParseRoundtripLongLetPainPoint
   , testFormatRejectsInvalidSource
   , testLowerFunction
   , testLowerStringLiteral
@@ -181,14 +207,19 @@ tests =
   , testClassDefRequiresLaws
   , testClassDefAcceptsCompleteLawSet
   , testInferSourceTypesForDataAndNoDo
+  , testInferSourceTypesBoolData
+  , testInferSourceTypesLiteralUnionSignatures
   , testInferSourceTypesForOldStyleDataNoTypeParams
   , testInferSourceTypesStringLiteral
+  , testInferSourceTypesStringSliceBridge
   , testInferSourceTypesSliceBuiltins
+  , testInferSourceTypesSliceEqBuiltin
   , testInferSourceTypesLinearMemoryBuiltins
   , testInferSourceTypesCasePatternConstrainsScrutinee
   , testEvalSourceFunctionWithClosure
   , testEvalSourceFunctionWithCaseExpression
   , testEvalSourceFunctionWithCaseExpressionMultiline
+  , testEvalSourceFunctionWithBoolData
   , testEvalSourceFunctionWithMaybeEitherMonads
   , testDifferentialDataAndNoDoSemantics
   , testDifferentialCaseExpressionSemantics
@@ -215,11 +246,13 @@ tests =
   , testCompileWasmSupportsMaybeEitherMonads
   , testCompileWasmSupportsCurrying
   , testCompileWasmSupportsDataAndNoDo
+  , testCompileWasmSupportsBoolData
   , testCompileWasmSupportsStructWithManyFields
   , testCompileWasmSupportsCollectionLiterals
   , testCompileWasmSupportsStringLiterals
   , testCompileWasmSupportsUtf8StringLiterals
   , testCompileWasmSupportsSliceInteropImports
+  , testCompileWasmSupportsSliceEqBuiltin
   , testCompileWasmSupportsSliceSetImport
   , testCompileWasmSupportsLinearMemoryHelpers
   , testCompileWasmStructHelpersInlined
@@ -235,6 +268,11 @@ tests =
   , testBootstrapPhase6ModuleDispatchCompiles
   , testBootstrapPhase7HostCapabilityCompiles
   , testBootstrapPhase8PatternAndOperatorsCompiles
+  , testBootstrapPhase11ParserCombinatorHashAndStream
+  , testBootstrapPhase11ParserCombinatorBadType
+  , testBootstrapPhase11ParserCombinatorBadTypeUnion
+  , testBootstrapPhase11ParserCombinatorSignedIntUnion
+  , testBootstrapPhase11ParserCombinatorBadTypeUnionString
   , testParitySupportsTopLevelFunctionAsValue
   , testParityExampleCorpusCompiles
   , testParitySupportsStringCasePatterns
@@ -243,6 +281,8 @@ tests =
   , testCompileEntryModuleDedupesHostIoImport
   , testCompileEntryModuleHostTimeBuiltinImport
   , testCompileEntryModuleLoadsDottedImport
+  , testCompileEntryModuleImportedConstructorPattern
+  , testCompileEntryModuleAmbiguousConstructorImport
   , testCompileEntryModuleMissingImport
   , testCompileEntryModuleImportCycle
   , testCompileEntryModuleDefaultExports
@@ -727,6 +767,39 @@ testFormatExpandsNestedInlineLet = do
     Right out ->
       assertEqual "format expands nested inline let" expected out
 
+testFormatParseRoundtripNestedCasePainPoint :: IO Bool
+testFormatParseRoundtripNestedCasePainPoint =
+  assertFormatParseRoundtrip
+    "format/parse roundtrip for nested case pain point"
+    ( unlines
+        [ "dispatch marker = case (marker == 99) of"
+        , "  1 -> 1"
+        , "  _ -> case (marker == 102) of"
+        , "    1 -> 2"
+        , "    _ -> case (marker == 115) of"
+        , "      1 -> 3"
+        , "      _ -> 0"
+        ]
+    )
+
+testFormatParseRoundtripMultilineApplicationPainPoint :: IO Bool
+testFormatParseRoundtripMultilineApplicationPainPoint =
+  assertFormatParseRoundtrip
+    "format/parse roundtrip for multiline parenthesized application pain point"
+    ( unlines
+        [ "main x ="
+        , "  add"
+        , "    (add x 1)"
+        , "    (add x 2)"
+        ]
+    )
+
+testFormatParseRoundtripLongLetPainPoint :: IO Bool
+testFormatParseRoundtripLongLetPainPoint =
+  assertFormatParseRoundtrip
+    "format/parse roundtrip for long chained let pain point"
+    "main x = let half = div x 2; left = add half 1; right = add half 2 in add left right\n"
+
 testFormatRejectsInvalidSource :: IO Bool
 testFormatRejectsInvalidSource = do
   let src = "main = (x"
@@ -777,6 +850,48 @@ testParseStringLiteral = do
       failTest "parse string literals" ("unexpected parse error: " <> err)
     Right parsed ->
       assertEqual "parse string literals" expected parsed
+
+testParseCharLiteral :: IO Bool
+testParseCharLiteral = do
+  let src = "main = 'A'"
+      expected =
+        Module
+          { signatures = []
+          , functions =
+              [ Function
+                  { name = "main"
+                  , args = []
+                  , body = IntLit 65
+                  , attributes = []
+                  }
+              ]
+          }
+  case parseModule src of
+    Left err ->
+      failTest "parse char literal" ("unexpected parse error: " <> err)
+    Right parsed ->
+      assertEqual "parse char literal" expected parsed
+
+testParseEscapedCharLiteral :: IO Bool
+testParseEscapedCharLiteral = do
+  let src = "main = '\\n'"
+      expected =
+        Module
+          { signatures = []
+          , functions =
+              [ Function
+                  { name = "main"
+                  , args = []
+                  , body = IntLit 10
+                  , attributes = []
+                  }
+              ]
+          }
+  case parseModule src of
+    Left err ->
+      failTest "parse escaped char literal" ("unexpected parse error: " <> err)
+    Right parsed ->
+      assertEqual "parse escaped char literal" expected parsed
 
 testParseUnaryNegativeLiteral :: IO Bool
 testParseUnaryNegativeLiteral = do
@@ -851,6 +966,32 @@ testParseCaseMultipleScrutinees = do
       failTest "parse case expression with multiple scrutinees" ("unexpected parse error: " <> err)
     Right parsed ->
       assertEqual "parse case expression with multiple scrutinees" expected parsed
+
+testParseCaseCharPattern :: IO Bool
+testParseCaseCharPattern = do
+  let src = "main c = case c of 'a' -> 1; _ -> 0"
+      expected =
+        Module
+          { signatures = []
+          , functions =
+              [ Function
+                  { name = "main"
+                  , args = ["c"]
+                  , body =
+                      Case
+                        [Var "c"]
+                        [ CaseArm {armPatterns = [PatInt 97], armBody = IntLit 1}
+                        , CaseArm {armPatterns = [PatWildcard], armBody = IntLit 0}
+                        ]
+                  , attributes = []
+                  }
+              ]
+          }
+  case parseModule src of
+    Left err ->
+      failTest "parse case char pattern" ("unexpected parse error: " <> err)
+    Right parsed ->
+      assertEqual "parse case char pattern" expected parsed
 
 testParseCaseConstructorPattern :: IO Bool
 testParseCaseConstructorPattern = do
@@ -1092,6 +1233,21 @@ testParseLetMultilineNoSemicolon = do
     Right parsed ->
       assertEqual "parse let multiline continuation without semicolons" expected parsed
 
+testParseLetMultilineOperatorContinuation :: IO Bool
+testParseLetMultilineOperatorContinuation = do
+  let src =
+        unlines
+          [ "infixl 3 <|> = or_else"
+          , "main x = let p = eq x 0"
+          , "  <|> eq x 1"
+          , "  in p"
+          ]
+  case parseModule src of
+    Left err ->
+      failTest "parse let multiline operator continuation" ("unexpected parse error: " <> err)
+    Right _parsed ->
+      assertTrue "parse let multiline operator continuation" True
+
 testParseFunctionGuards :: IO Bool
 testParseFunctionGuards = do
   let src =
@@ -1106,17 +1262,15 @@ testParseFunctionGuards = do
                   { name = "add_or_zero"
                   , args = ["x", "y"]
                   , body =
-                      Case
-                        [App (App (Var "eq") (Var "x")) (IntLit 0)]
-                        [ CaseArm
-                            { armPatterns = [PatInt 1]
-                            , armBody = IntLit 0
-                            }
-                        , CaseArm
-                            { armPatterns = [PatWildcard]
-                            , armBody = App (App (Var "add") (Var "x")) (Var "y")
-                            }
-                        ]
+                      App
+                        ( App
+                            ( App
+                                (Var "if")
+                                (App (App (Var "eq") (Var "x")) (IntLit 0))
+                            )
+                            (Lam "__guard_dummy" (IntLit 0))
+                        )
+                        (Lam "__guard_dummy" (App (App (Var "add") (Var "x")) (Var "y")))
                   , attributes = []
                   }
               ]
@@ -1141,20 +1295,18 @@ testParseFunctionGuardsWithBuiltinOperatorConditions = do
                   { name = "add"
                   , args = ["x", "y"]
                   , body =
-                      Case
-                        [ App
-                            (App (Var "and") (App (App (Var "eq") (Var "x")) (IntLit 0)))
-                            (App (App (Var "eq") (Var "y")) (IntLit 0))
-                        ]
-                        [ CaseArm
-                            { armPatterns = [PatInt 1]
-                            , armBody = IntLit 0
-                            }
-                        , CaseArm
-                            { armPatterns = [PatWildcard]
-                            , armBody = App (App (Var "add") (Var "x")) (Var "y")
-                            }
-                        ]
+                      App
+                        ( App
+                            ( App
+                                (Var "if")
+                                ( App
+                                    (App (Var "and") (App (App (Var "eq") (Var "x")) (IntLit 0)))
+                                    (App (App (Var "eq") (Var "y")) (IntLit 0))
+                                )
+                            )
+                            (Lam "__guard_dummy" (IntLit 0))
+                        )
+                        (Lam "__guard_dummy" (App (App (Var "add") (Var "x")) (Var "y")))
                   , attributes = []
                   }
               ]
@@ -1182,20 +1334,18 @@ testParseFunctionGuardsWithOperatorConditions = do
                   { name = "add"
                   , args = ["x", "y"]
                   , body =
-                      Case
-                        [ App
-                            (App (Var "and") (App (App (Var "eq") (Var "x")) (IntLit 0)))
-                            (App (App (Var "eq") (Var "y")) (IntLit 0))
-                        ]
-                        [ CaseArm
-                            { armPatterns = [PatInt 1]
-                            , armBody = IntLit 0
-                            }
-                        , CaseArm
-                            { armPatterns = [PatWildcard]
-                            , armBody = App (App (Var "add") (Var "x")) (Var "y")
-                            }
-                        ]
+                      App
+                        ( App
+                            ( App
+                                (Var "if")
+                                ( App
+                                    (App (Var "and") (App (App (Var "eq") (Var "x")) (IntLit 0)))
+                                    (App (App (Var "eq") (Var "y")) (IntLit 0))
+                                )
+                            )
+                            (Lam "__guard_dummy" (IntLit 0))
+                        )
+                        (Lam "__guard_dummy" (App (App (Var "add") (Var "x")) (Var "y")))
                   , attributes = []
                   }
               ]
@@ -1205,6 +1355,98 @@ testParseFunctionGuardsWithOperatorConditions = do
       failTest "parse guarded function declarations with operators" ("unexpected parse error: " <> err)
     Right parsed ->
       assertEqual "parse guarded function declarations with operators" expected parsed
+
+testParseNestedCaseChainFromKernelPainPoint :: IO Bool
+testParseNestedCaseChainFromKernelPainPoint = do
+  let src =
+        unlines
+          [ "dispatch marker = case (marker == 99) of"
+          , "  1 -> 1"
+          , "  _ -> case (marker == 102) of"
+          , "    1 -> 2"
+          , "    _ -> case (marker == 115) of"
+          , "      1 -> 3"
+          , "      _ -> 0"
+          ]
+  case parseModule src of
+    Left err ->
+      failTest "parse nested case chain from kernel pain point" ("unexpected parse error: " <> err)
+    Right parsed ->
+      case findFunctionByName "dispatch" (functions parsed) of
+        Just _ ->
+          passTest "parse nested case chain from kernel pain point"
+        Nothing ->
+          failTest "parse nested case chain from kernel pain point" "missing function: dispatch"
+
+testParseMultilineParenthesizedApplicationFromKernelPainPoint :: IO Bool
+testParseMultilineParenthesizedApplicationFromKernelPainPoint = do
+  let src =
+        unlines
+          [ "main x ="
+          , "  add"
+          , "    (add x 1)"
+          , "    (add x 2)"
+          ]
+  case parseModule src of
+    Left err ->
+      failTest "parse multiline parenthesized application from kernel pain point" ("unexpected parse error: " <> err)
+    Right parsed ->
+      case findFunctionByName "main" (functions parsed) of
+        Just _ ->
+          passTest "parse multiline parenthesized application from kernel pain point"
+        Nothing ->
+          failTest "parse multiline parenthesized application from kernel pain point" "missing function: main"
+
+testParseInlineCaseDeclarationFromKernelPainPoint :: IO Bool
+testParseInlineCaseDeclarationFromKernelPainPoint = do
+  let src =
+        unlines
+          [ "step_range in_cells out_cells w h start span = case (eq span 0) (eq span 1) of 1 _ -> out_cells; _ 1 -> slice_set_u8 out_cells start (slice_get_u8 in_cells start); _ _ -> out_cells"
+          ]
+  case parseModule src of
+    Left err ->
+      failTest "parse inline case declaration from kernel pain point" ("unexpected parse error: " <> err)
+    Right parsed ->
+      case findFunctionByName "step_range" (functions parsed) of
+        Just _ ->
+          passTest "parse inline case declaration from kernel pain point"
+        Nothing ->
+          failTest "parse inline case declaration from kernel pain point" "missing function: step_range"
+
+testParseNestedCaseInCaseArmBody :: IO Bool
+testParseNestedCaseInCaseArmBody = do
+  let src =
+        unlines
+          [ "f x y = case (x == 0) (y == 0) of 1 1 -> case (x == y) of 1 -> 1; _ -> 2; _ _ -> 0"
+          ]
+  case parseModule src of
+    Left err ->
+      failTest "parse nested case in case arm body" ("unexpected parse error: " <> err)
+    Right parsed ->
+      case findFunctionByName "f" (functions parsed) of
+        Just _ ->
+          passTest "parse nested case in case arm body"
+        Nothing ->
+          failTest "parse nested case in case arm body" "missing function: f"
+
+testParseCaseArmMultilineLetContinuation :: IO Bool
+testParseCaseArmMultilineLetContinuation = do
+  let src =
+        unlines
+          [ "f x y = case (x == 0) (y == 0) of 1 1 -> let a = add x 1;"
+          , "  b = add y 2"
+          , "  in add a b"
+          , "  _ _ -> 0"
+          ]
+  case parseModule src of
+    Left err ->
+      failTest "parse case arm multiline let continuation" ("unexpected parse error: " <> err)
+    Right parsed ->
+      case findFunctionByName "f" (functions parsed) of
+        Just _ ->
+          passTest "parse case arm multiline let continuation"
+        Nothing ->
+          failTest "parse case arm multiline let continuation" "missing function: f"
 
 testParseFunctionPatternClauses :: IO Bool
 testParseFunctionPatternClauses = do
@@ -1265,6 +1507,40 @@ testParseDataDeclarationGeneratesFunctions = do
     Right parsed ->
       assertEqual "parse data declaration generates functions" expected parsed
 
+testParseNewtypeDeclarationGeneratesFunctions :: IO Bool
+testParseNewtypeDeclarationGeneratesFunctions = do
+  let src = "newtype UserId = UserId i64"
+  case parseModule src of
+    Left err ->
+      failTest "parse newtype declaration generates functions" ("unexpected parse error: " <> err)
+    Right parsed ->
+      case findFunctionByName "UserId" (functions parsed) of
+        Just Function {args = ctorArgs, body = ctorBody} ->
+          case ctorBody of
+            App (Var ctorBuiltin) (Var argName) ->
+              assertTrue
+                "parse newtype declaration generates functions"
+                (ctorArgs == ["i64"] && argName == "i64" && "__mk_UserId" `isPrefixOf` ctorBuiltin)
+            _ ->
+              failTest "parse newtype declaration generates functions" ("unexpected constructor body: " <> show ctorBody)
+        _ ->
+          failTest "parse newtype declaration generates functions" "missing function: UserId"
+
+testParseNewtypeRequiresSingleField :: IO Bool
+testParseNewtypeRequiresSingleField = do
+  let src =
+        unlines
+          [ "newtype Bad = Bad i64 i64"
+          , "main x = x"
+          ]
+  case parseModule src of
+    Left err ->
+      assertTrue
+        "parse newtype declaration requires single field"
+        ("newtype declaration" `isInfixOf` err)
+    Right parsed ->
+      failTest "parse newtype declaration requires single field" ("unexpected parse success: " <> show parsed)
+
 testParseDataDeclarationSupportsPascalCase :: IO Bool
 testParseDataDeclarationSupportsPascalCase = do
   let src = "data HttpRequest h p v = HttpRequest h p v"
@@ -1290,6 +1566,84 @@ testParseDataDeclarationSupportsPascalCase = do
       failTest "parse data declaration supports PascalCase names" ("unexpected parse error: " <> err)
     Right parsed ->
       assertEqual "parse data declaration supports PascalCase names" expected parsed
+
+testParseDataDeclarationSupportsPrimitiveBackedSyntax :: IO Bool
+testParseDataDeclarationSupportsPrimitiveBackedSyntax = do
+  let src = "data string = string<slice byte>"
+  case parseModule src of
+    Left err ->
+      failTest
+        "parse data declaration with primitive-backed lowercase syntax"
+        ("unexpected parse error: " <> err)
+    Right parsed ->
+      case findFunctionByName "string" (functions parsed) of
+        Just Function {args = ctorArgs, body = ctorBody} ->
+          case ctorBody of
+            App (Var ctorBuiltin) (Var argName) ->
+              assertTrue
+                "parse data declaration with primitive-backed lowercase syntax"
+                (ctorArgs == ["__ctor_field_0"] && argName == "__ctor_field_0" && ctorBuiltin == "__mk_string#string_1_tpar_0_fmap_u")
+            _ ->
+              failTest
+                "parse data declaration with primitive-backed lowercase syntax"
+                ("unexpected constructor body: " <> show ctorBody)
+        Nothing ->
+          failTest
+            "parse data declaration with primitive-backed lowercase syntax"
+            "missing function: string"
+
+testParseDataDeclarationSupportsLiteralBackedConstructors :: IO Bool
+testParseDataDeclarationSupportsLiteralBackedConstructors = do
+  let src =
+        unlines
+          [ "data bool = true<1> | false<0>"
+          , "to_i64 b = case b of"
+          , "  true -> 1"
+          , "  false -> 0"
+          ]
+  case parseModule src of
+    Left err ->
+      failTest
+        "parse data declaration with literal-backed constructors"
+        ("unexpected parse error: " <> err)
+    Right parsed ->
+      case
+        ( findFunctionByName "true" (functions parsed)
+        , findFunctionByName "false" (functions parsed)
+        , findFunctionByName "to_i64" (functions parsed)
+        ) of
+        ( Just Function {args = trueArgs, body = trueBody}
+          , Just Function {args = falseArgs, body = falseBody}
+          , Just Function {body = Case [_] arms}
+          ) ->
+            assertTrue "parse data declaration with literal-backed constructors" $
+              null trueArgs
+                && null falseArgs
+                && trueBody == IntLit 1
+                && falseBody == IntLit 0
+                && case arms of
+                  [ CaseArm {armPatterns = [PatConstructor ctorTrue _ []], armBody = IntLit 1}
+                    , CaseArm {armPatterns = [PatConstructor ctorFalse _ []], armBody = IntLit 0}
+                    ] ->
+                      ctorTrue == "true" && ctorFalse == "false"
+                  _ -> False
+        _ ->
+          failTest
+            "parse data declaration with literal-backed constructors"
+            "missing true/false/to_i64 functions"
+
+testParseDataDeclarationRejectsDuplicateLiteralBackedConstructors :: IO Bool
+testParseDataDeclarationRejectsDuplicateLiteralBackedConstructors = do
+  let src = "data bool = true<1> | false<0> | maybe_true<1>"
+  case parseModule src of
+    Left err ->
+      assertTrue
+        "parse data declaration rejects duplicate literal-backed constructors"
+        ("duplicate literal-backed constructor value" `isInfixOf` err)
+    Right parsed ->
+      failTest
+        "parse data declaration rejects duplicate literal-backed constructors"
+        ("unexpected parse success: " <> show parsed)
 
 testParseDataDeclarationSupportsMultiConstructors :: IO Bool
 testParseDataDeclarationSupportsMultiConstructors = do
@@ -1353,6 +1707,99 @@ testParseDataDeclarationGadtStyle = do
           assertTrue "parse gadt-style data declaration" (length pairArgs == 2)
         Nothing ->
           failTest "parse gadt-style data declaration" "missing constructor function for MkPair"
+
+testParseBoolDataConstructors :: IO Bool
+testParseBoolDataConstructors = do
+  let src =
+        unlines
+          [ "data bool = true<1> | false<0>"
+          , "to_i64 b = case b of"
+          , "  true -> 1"
+          , "  false -> 0"
+          ]
+  case parseModule src of
+    Left err ->
+      failTest "parse Bool data constructors" ("unexpected parse error: " <> err)
+    Right parsed ->
+      case
+        ( findFunctionByName "true" (functions parsed)
+        , findFunctionByName "false" (functions parsed)
+        , findFunctionByName "to_i64" (functions parsed)
+        ) of
+        ( Just Function {args = trueArgs}
+          , Just Function {args = falseArgs}
+          , Just Function {body = Case [_] arms}
+          ) ->
+            assertTrue "parse Bool data constructors" $
+              null trueArgs
+                && null falseArgs
+                && case arms of
+                  [ CaseArm {armPatterns = [PatConstructor ctorTrue _ []], armBody = IntLit 1}
+                    , CaseArm {armPatterns = [PatConstructor ctorFalse _ []], armBody = IntLit 0}
+                    ] ->
+                      ctorTrue == "true" && ctorFalse == "false"
+                  _ -> False
+        _ ->
+          failTest "parse Bool data constructors" "missing true/false/to_i64 functions"
+
+testParseTypeAliasDeclaration :: IO Bool
+testParseTypeAliasDeclaration = do
+  let src = "type Digit = <0 | 1 | 2>"
+  case parseModule src of
+    Left err ->
+      failTest "parse type alias declaration" ("unexpected parse error: " <> err)
+    Right parsed ->
+      assertTrue
+        "parse type alias declaration"
+        (null (signatures parsed) && null (functions parsed))
+
+testParseTypeUnionLiteralMembers :: IO Bool
+testParseTypeUnionLiteralMembers = do
+  let src = "type Digit = <0 | 1 | \"2\">"
+  case parseModule src of
+    Left err ->
+      failTest "parse type union with literal members" ("unexpected parse error: " <> err)
+    Right parsed ->
+      assertTrue
+        "parse type union with literal members"
+        (null (signatures parsed) && null (functions parsed))
+
+testParseTypeUnionSignedIntMembers :: IO Bool
+testParseTypeUnionSignedIntMembers = do
+  let src = "type Signed = <-1 | 0 | 1>"
+  case parseModule src of
+    Left err ->
+      failTest "parse type union with signed literal members" ("unexpected parse error: " <> err)
+    Right parsed ->
+      assertTrue
+        "parse type union with signed literal members"
+        (null (signatures parsed) && null (functions parsed))
+
+testParseTypeUnionWithConstructors :: IO Bool
+testParseTypeUnionWithConstructors = do
+  let src = "type Boolish = <true<\"true\"> | false<\"false\">>"
+  case parseModule src of
+    Left err ->
+      assertTrue
+        "parse type union with constructor members"
+        ("expected literal union member" `isInfixOf` err)
+    Right parsed ->
+      failTest
+        "parse type union with constructor members"
+        ("unexpected parse success: " <> show parsed)
+
+testParseTypeUnionRejectsDuplicateLiterals :: IO Bool
+testParseTypeUnionRejectsDuplicateLiterals = do
+  let src = "type Digit = <0 | 1 | \"2\" | 1>"
+  case parseModule src of
+    Left err ->
+      assertTrue
+        "parse type union rejects duplicate literals"
+        ("duplicate literal in type union" `isInfixOf` err)
+    Right parsed ->
+      failTest
+        "parse type union rejects duplicate literals"
+        ("unexpected parse success: " <> show parsed)
 
 testParseTypeSignatureWithOptionalWitness :: IO Bool
 testParseTypeSignatureWithOptionalWitness = do
@@ -1511,6 +1958,29 @@ testParseHKTInstanceArityMismatchFails = do
     Right parsed ->
       failTest "parse HKT class instance arity mismatch is rejected" ("unexpected parse success: " <> show parsed)
 
+testParseClassDeclarationSupportsOrdAndSliceKinds :: IO Bool
+testParseClassDeclarationSupportsOrdAndSliceKinds = do
+  let src =
+        unlines
+          [ "class ord_i64_rules t : ord"
+          , "law ord_i64_rules irreflexive_lt = lt x x => 0"
+          , "law ord_i64_rules reflexive_le = le x x => 1"
+          , "law ord_i64_rules reflexive_ge = ge x x => 1"
+          , "law ord_i64_rules antisymmetry = and (le x y) (le y x) => eq x y"
+          , "law ord_i64_rules duality = gt x y => lt y x"
+          , "instance ord_i64 : ord_i64_rules i64 lt=lt le=le gt=gt ge=ge eq=eq"
+          , "class slice_byte_rules s : slice"
+          , "law slice_byte_rules set_preserves_len = slice_len (slice_set_u8 s i v) => slice_len s"
+          , "law slice_byte_rules get_after_set_same_index = slice_get_u8 (slice_set_u8 s i v) i => v"
+          , "instance slice_byte : slice_byte_rules byte slice_len=slice_len slice_get_u8=slice_get_u8 slice_set_u8=slice_set_u8"
+          , "main x y = and (lt x y) (ge y x)"
+          ]
+  case parseModule src of
+    Left err ->
+      failTest "parse class declarations supports ord and slice kinds" ("unexpected parse error: " <> err)
+    Right _parsed ->
+      passTest "parse class declarations supports ord and slice kinds"
+
 testParseBuiltinInfixPrecedence :: IO Bool
 testParseBuiltinInfixPrecedence = do
   let src = "main x = x + 1 * 2"
@@ -1544,6 +2014,43 @@ testParseBuiltinEqRejectsChain = do
         ("non-associative operator cannot be chained" `isInfixOf` err)
     Right parsed ->
       failTest "parse builtin non-associative eq rejects chains" ("unexpected parse success: " <> show parsed)
+
+testParseBuiltinRelationalInfixPrecedence :: IO Bool
+testParseBuiltinRelationalInfixPrecedence = do
+  let src = "main x y z = x < y && y >= z"
+      expected =
+        Module
+          { signatures = [], functions =
+              [ Function
+                  { name = "main"
+                  , args = ["x", "y", "z"]
+                  , body =
+                      App
+                        ( App
+                            (Var "and")
+                            (App (App (Var "lt") (Var "x")) (Var "y"))
+                        )
+                        (App (App (Var "ge") (Var "y")) (Var "z"))
+                  , attributes = []
+                  }
+              ]
+          }
+  case parseModule src of
+    Left err ->
+      failTest "parse builtin relational infix precedence" ("unexpected parse error: " <> err)
+    Right parsed ->
+      assertEqual "parse builtin relational infix precedence" expected parsed
+
+testParseBuiltinRelationalRejectsChain :: IO Bool
+testParseBuiltinRelationalRejectsChain = do
+  let src = "main x y z = x < y < z"
+  case parseModule src of
+    Left err ->
+      assertTrue
+        "parse builtin non-associative relational rejects chains"
+        ("non-associative operator cannot be chained" `isInfixOf` err)
+    Right parsed ->
+      failTest "parse builtin non-associative relational rejects chains" ("unexpected parse success: " <> show parsed)
 
 testParseCustomInfixPrecedence :: IO Bool
 testParseCustomInfixPrecedence = do
@@ -2733,13 +3240,17 @@ testCollapseFromRootsPrunesUnusedHelpers = do
 testTraitCatalogHasCoreTraits :: IO Bool
 testTraitCatalogHasCoreTraits = do
   let names = map traitName basicTraits
-  assertTrue "trait catalog has core traits" (all (`elem` names) ["add", "sub", "mul", "div", "monoid", "functor", "applicative", "monad"])
+  assertTrue
+    "trait catalog has core traits"
+    (all (`elem` names) ["add", "sub", "mul", "div", "ord", "slice", "monoid", "functor", "applicative", "monad"])
 
 testTraitCategoriesAvailable :: IO Bool
 testTraitCategoriesAvailable = do
   let arithmeticCount = length (traitsByCategory ArithmeticCategory basicTraits)
+      ordCount = length (traitsByCategory OrdCategory basicTraits)
+      sliceCount = length (traitsByCategory SliceCategory basicTraits)
       monadCount = length (traitsByCategory MonadCategory basicTraits)
-  assertTrue "trait categories filter traits" (arithmeticCount >= 4 && monadCount >= 1)
+  assertTrue "trait categories filter traits" (arithmeticCount >= 4 && ordCount >= 1 && sliceCount >= 1 && monadCount >= 1)
 
 testRewriteWithArithmeticSubset :: IO Bool
 testRewriteWithArithmeticSubset = do
@@ -2845,6 +3356,49 @@ testInferSourceTypesForDataAndNoDo = do
         _ ->
           failTest "infer source types for data and no-do" "missing inferred type for expected function(s)"
 
+testInferSourceTypesBoolData :: IO Bool
+testInferSourceTypesBoolData = do
+  let src =
+        unlines
+          [ "data bool = true<1> | false<0>"
+          , "to_i64 b = case b of"
+          , "  true -> 1"
+          , "  false -> 0"
+          ]
+  case inferSourceTypes src of
+    Left err ->
+      failTest "infer source types for Bool data" ("unexpected inference error: " <> err)
+    Right infos ->
+      case findTypeInfo "to_i64" infos of
+        Just toI64Info ->
+          let inferred = renderType (fnType toI64Info)
+           in assertEqual "infer source types for Bool data" "bool -> i64" inferred
+        Nothing ->
+          failTest "infer source types for Bool data" "missing inferred type for to_i64"
+
+testInferSourceTypesLiteralUnionSignatures :: IO Bool
+testInferSourceTypesLiteralUnionSignatures = do
+  let src =
+        unlines
+          [ "signed_id : <-1 | 0 | 1> -> <-1 | 0 | 1>"
+          , "signed_id n = n"
+          , "switch : <\"on\" | \"off\"> -> <\"on\" | \"off\">"
+          , "switch state = state"
+          ]
+  case inferSourceTypes src of
+    Left err ->
+      failTest "infer source types for literal-union signatures" ("unexpected inference error: " <> err)
+    Right infos ->
+      case (findTypeInfo "signed_id" infos, findTypeInfo "switch" infos) of
+        (Just signedInfo, Just switchInfo) ->
+          let signedType = renderType (fnType signedInfo)
+              switchType = renderType (fnType switchInfo)
+           in assertTrue
+                "infer source types for literal-union signatures"
+                (signedType == "<-1 | 0 | 1> -> <-1 | 0 | 1>" && switchType == "<\"on\" | \"off\"> -> <\"on\" | \"off\">")
+        _ ->
+          failTest "infer source types for literal-union signatures" "missing inferred type for expected function(s)"
+
 testInferSourceTypesForOldStyleDataNoTypeParams :: IO Bool
 testInferSourceTypesForOldStyleDataNoTypeParams = do
   let src =
@@ -2890,6 +3444,27 @@ testInferSourceTypesStringLiteral = do
         _ ->
           failTest "infer source types for string literals" "missing inferred type for expected function(s)"
 
+testInferSourceTypesStringSliceBridge :: IO Bool
+testInferSourceTypesStringSliceBridge = do
+  let src =
+        unlines
+          [ "to_bytes s = str_to_slice s"
+          , "to_string bytes = slice_to_string bytes"
+          ]
+  case inferSourceTypes src of
+    Left err ->
+      failTest "infer source types for string/slice bridge builtins" ("unexpected inference error: " <> err)
+    Right infos ->
+      case (findTypeInfo "to_bytes" infos, findTypeInfo "to_string" infos) of
+        (Just toBytesInfo, Just toStringInfo) ->
+          let toBytesType = renderType (fnType toBytesInfo)
+              toStringType = renderType (fnType toStringInfo)
+           in assertTrue
+                "infer source types for string/slice bridge builtins"
+                (toBytesType == "string -> slice byte" && toStringType == "slice byte -> string")
+        _ ->
+          failTest "infer source types for string/slice bridge builtins" "missing inferred type for expected function(s)"
+
 testInferSourceTypesSliceBuiltins :: IO Bool
 testInferSourceTypesSliceBuiltins = do
   let src =
@@ -2912,6 +3487,23 @@ testInferSourceTypesSliceBuiltins = do
                 (lenType == "slice byte -> i64" && firstType == "slice byte -> i64" && writeType == "slice byte -> slice byte")
         _ ->
           failTest "infer source types for slice builtins" "missing inferred type for expected function(s)"
+
+testInferSourceTypesSliceEqBuiltin :: IO Bool
+testInferSourceTypesSliceEqBuiltin = do
+  let src =
+        unlines
+          [ "same bytes = slice_eq_u8 bytes bytes"
+          ]
+  case inferSourceTypes src of
+    Left err ->
+      failTest "infer source types for slice_eq_u8 builtin" ("unexpected inference error: " <> err)
+    Right infos ->
+      case findTypeInfo "same" infos of
+        Just sameInfo ->
+          let sameType = renderType (fnType sameInfo)
+           in assertEqual "infer source types for slice_eq_u8 builtin" "slice byte -> bool" sameType
+        Nothing ->
+          failTest "infer source types for slice_eq_u8 builtin" "missing inferred type for same"
 
 testInferSourceTypesLinearMemoryBuiltins :: IO Bool
 testInferSourceTypesLinearMemoryBuiltins = do
@@ -3035,6 +3627,26 @@ testEvalSourceFunctionWithCaseExpressionMultiline = do
                     ("unexpected eval error at [3,4]: " <> err)
                 Right out1 ->
                   assertEqual "eval source function with case expression multiline" 7 out1
+
+testEvalSourceFunctionWithBoolData :: IO Bool
+testEvalSourceFunctionWithBoolData = do
+  let src =
+        unlines
+          [ "data bool = true<1> | false<0>"
+          , "to_i64 b = case b of"
+          , "  true -> 1"
+          , "  false -> 0"
+          , "main = add (to_i64 true) (to_i64 false)"
+          ]
+  case parseModule src of
+    Left err ->
+      failTest "eval source function with Bool data" ("unexpected parse error: " <> err)
+    Right modu ->
+      case evalSourceFunction modu "main" [] of
+        Left err ->
+          failTest "eval source function with Bool data" ("unexpected eval error: " <> err)
+        Right out ->
+          assertEqual "eval source function with Bool data" 1 out
 
 testEvalSourceFunctionWithMaybeEitherMonads :: IO Bool
 testEvalSourceFunctionWithMaybeEitherMonads = do
@@ -3514,6 +4126,25 @@ testCompileWasmSupportsDataAndNoDo = do
             && not (wasmContainsName wasmBytes "rt_make_struct")
         )
 
+testCompileWasmSupportsBoolData :: IO Bool
+testCompileWasmSupportsBoolData = do
+  let src =
+        unlines
+          [ "data bool = true<1> | false<0>"
+          , "to_i64 b = case b of"
+          , "  true -> 1"
+          , "  false -> 0"
+          , "main x = case x of"
+          , "  0 -> to_i64 false"
+          , "  _ -> to_i64 true"
+          ]
+      wasmMagic = BS.pack [0x00, 0x61, 0x73, 0x6d]
+  case compileSourceToWasm src of
+    Left err ->
+      failTest "compile wasm supports Bool data" ("unexpected wasm compile error: " <> err)
+    Right wasmBytes ->
+      assertTrue "compile wasm supports Bool data" (BS.take 4 wasmBytes == wasmMagic)
+
 testCompileWasmSupportsStructWithManyFields :: IO Bool
 testCompileWasmSupportsStructWithManyFields = do
   let src =
@@ -3589,6 +4220,23 @@ testCompileWasmSupportsSliceInteropImports = do
             && not (wasmContainsName wasmBytes "rt_slice_len")
             && not (wasmContainsName wasmBytes "rt_slice_get_u8")
             && not (wasmContainsName wasmBytes "rt_slice_set_u8")
+        )
+
+testCompileWasmSupportsSliceEqBuiltin :: IO Bool
+testCompileWasmSupportsSliceEqBuiltin = do
+  let src =
+        unlines
+          [ "main a b = slice_eq_u8 a b"
+          ]
+      wasmMagic = BS.pack [0x00, 0x61, 0x73, 0x6d]
+  case compileSourceToWasm src of
+    Left err ->
+      failTest "compile wasm inlines slice_eq_u8 builtin" ("unexpected wasm compile error: " <> err)
+    Right wasmBytes ->
+      assertTrue
+        "compile wasm inlines slice_eq_u8 builtin"
+        ( BS.take 4 wasmBytes == wasmMagic
+            && not (wasmContainsName wasmBytes "rt_slice_eq_u8")
         )
 
 testCompileWasmSupportsSliceSetImport :: IO Bool
@@ -3929,6 +4577,188 @@ testBootstrapPhase8PatternAndOperatorsCompiles = do
         "bootstrap phase 8 pattern/operators compiles"
         (BS.take 4 wasmBytes == BS.pack [0x00, 0x61, 0x73, 0x6d])
 
+testBootstrapPhase11ParserCombinatorHashAndStream :: IO Bool
+testBootstrapPhase11ParserCombinatorHashAndStream = do
+  src <- readFile "examples/bootstrap_phase11_parser_combinator_pilot.clapse"
+  case parseModule src of
+    Left err ->
+      failTest
+        "phase11 hash and stream paths include type declarations"
+        ("unexpected parse error: " <> err)
+    Right modu ->
+      case compileSourceToCollapsed src of
+        Left err ->
+          failTest
+            "phase11 hash and stream paths include type declarations"
+            ("unexpected collapse error: " <> err)
+        Right collapsed ->
+          let hasFn fnName0 =
+                case findCollapsed fnName0 collapsed of
+                  Just _ -> True
+                  Nothing -> False
+              hasExpectedFns =
+                hasFn "main_stats" && hasFn "main_stream" && hasFn "main"
+           in if not hasExpectedFns
+                then
+                  failTest
+                    "phase11 hash and stream paths include type declarations"
+                    "expected main_stats, main_stream, and main in collapsed output"
+            else
+              case evalSourceFunction modu "main" [0] of
+                Left err ->
+                  failTest
+                    "phase11 hash and stream paths include type declarations"
+                    ("unexpected eval error for main: " <> err)
+                Right mainOut ->
+                  case evalSourceFunction modu "main_stats" [0] of
+                    Left err ->
+                      failTest
+                        "phase11 hash and stream paths include type declarations"
+                        ("unexpected eval error for main_stats: " <> err)
+                    Right mainStatsOut ->
+                      case evalSourceFunction modu "main_stream" [0] of
+                        Left err ->
+                          failTest
+                            "phase11 hash and stream paths include type declarations"
+                            ("unexpected eval error for main_stream: " <> err)
+                        Right mainStreamOut ->
+                          assertTrue
+                            "phase11 hash and stream paths include type declarations"
+                            (mainOut /= 0 && mainStatsOut /= 0 && mainStreamOut /= 0)
+
+testBootstrapPhase11ParserCombinatorBadType :: IO Bool
+testBootstrapPhase11ParserCombinatorBadType = do
+  src <- readFile "examples/bootstrap_phase11_parser_combinator_pilot.clapse"
+  case parseModule src of
+    Left err ->
+      failTest
+        "phase11 bad type declaration rejects malformed source"
+        ("unexpected parse error: " <> err)
+    Right modu ->
+      case compileSourceToCollapsed src of
+        Left err ->
+          failTest
+            "phase11 bad type declaration rejects malformed source"
+            ("unexpected collapse error: " <> err)
+        Right collapsed ->
+          case findCollapsed "main_bad_type" collapsed of
+            Nothing ->
+              failTest
+                "phase11 bad type declaration rejects malformed source"
+                "expected main_bad_type in collapsed output"
+            Just _ ->
+              case evalSourceFunction modu "main_bad_type" [0] of
+                Left err ->
+                  failTest
+                    "phase11 bad type declaration rejects malformed source"
+                    ("unexpected eval error for main_bad_type: " <> err)
+                Right out ->
+                  assertEqual
+                    "phase11 bad type declaration rejects malformed source"
+                    (-1)
+                    out
+
+testBootstrapPhase11ParserCombinatorBadTypeUnion :: IO Bool
+testBootstrapPhase11ParserCombinatorBadTypeUnion = do
+  src <- readFile "examples/bootstrap_phase11_parser_combinator_pilot.clapse"
+  case parseModule src of
+    Left err ->
+      failTest
+        "phase11 bad literal-union type declaration rejects malformed source"
+        ("unexpected parse error: " <> err)
+    Right modu ->
+      case compileSourceToCollapsed src of
+        Left err ->
+          failTest
+            "phase11 bad literal-union type declaration rejects malformed source"
+            ("unexpected collapse error: " <> err)
+        Right collapsed ->
+          case
+            ( findCollapsed "main_stats" collapsed
+            , findCollapsed "main_bad_type_union" collapsed
+            ) of
+            (Just _, Just _) ->
+              case evalSourceFunction modu "main_bad_type_union" [0] of
+                Left err ->
+                  failTest
+                    "phase11 bad literal-union type declaration rejects malformed source"
+                    ("unexpected eval error for main_bad_type_union: " <> err)
+                Right out ->
+                  assertEqual
+                    "phase11 bad literal-union type declaration rejects malformed source"
+                    (-1)
+                    out
+            _ ->
+              failTest
+                "phase11 bad literal-union type declaration rejects malformed source"
+                "expected main_stats and main_bad_type_union in collapsed output"
+
+testBootstrapPhase11ParserCombinatorSignedIntUnion :: IO Bool
+testBootstrapPhase11ParserCombinatorSignedIntUnion = do
+  src <- readFile "examples/bootstrap_phase11_parser_combinator_pilot.clapse"
+  case parseModule src of
+    Left err ->
+      failTest
+        "phase11 signed-int union fixture keeps source/collapsed parity"
+        ("unexpected parse error: " <> err)
+    Right modu ->
+      case compileSourceToCollapsed src of
+        Left err ->
+          failTest
+            "phase11 signed-int union fixture keeps source/collapsed parity"
+            ("unexpected collapse error: " <> err)
+        Right collapsed ->
+          case findCollapsed "main_stats" collapsed of
+            Nothing ->
+              failTest
+                "phase11 signed-int union fixture keeps source/collapsed parity"
+                "expected main_stats in collapsed output"
+            Just _ ->
+              case evalSourceFunction modu "main_stats" [0] of
+                Left err ->
+                  failTest
+                    "phase11 signed-int union fixture keeps source/collapsed parity"
+                    ("unexpected eval error for main_stats: " <> err)
+                Right out ->
+                  assertTrue
+                    "phase11 signed-int union fixture keeps source/collapsed parity"
+                    (out /= 0)
+
+testBootstrapPhase11ParserCombinatorBadTypeUnionString :: IO Bool
+testBootstrapPhase11ParserCombinatorBadTypeUnionString = do
+  src <- readFile "examples/bootstrap_phase11_parser_combinator_pilot.clapse"
+  case parseModule src of
+    Left err ->
+      failTest
+        "phase11 bad string-literal-union type declaration rejects malformed source"
+        ("unexpected parse error: " <> err)
+    Right modu ->
+      case compileSourceToCollapsed src of
+        Left err ->
+          failTest
+            "phase11 bad string-literal-union type declaration rejects malformed source"
+            ("unexpected collapse error: " <> err)
+        Right collapsed ->
+          case
+            ( findCollapsed "main_stats" collapsed
+            , findCollapsed "main_bad_type_union_string" collapsed
+            ) of
+            (Just _, Just _) ->
+              case evalSourceFunction modu "main_bad_type_union_string" [0] of
+                Left err ->
+                  failTest
+                    "phase11 bad string-literal-union type declaration rejects malformed source"
+                    ("unexpected eval error for main_bad_type_union_string: " <> err)
+                Right out ->
+                  assertEqual
+                    "phase11 bad string-literal-union type declaration rejects malformed source"
+                    (-1)
+                    out
+            _ ->
+              failTest
+                "phase11 bad string-literal-union type declaration rejects malformed source"
+                "expected main_stats and main_bad_type_union_string in collapsed output"
+
 testParitySupportsTopLevelFunctionAsValue :: IO Bool
 testParitySupportsTopLevelFunctionAsValue = do
   let src =
@@ -4179,6 +5009,76 @@ testCompileEntryModuleLoadsDottedImport = do
       assertTrue
         "compile entry module with dotted import"
         (BS.take 4 wasmBytes == expectedMagic)
+
+testCompileEntryModuleImportedConstructorPattern :: IO Bool
+testCompileEntryModuleImportedConstructorPattern = do
+  let files =
+        [ ( "entry.clapse"
+          , unlines
+              [ "module entry"
+              , "import prelude"
+              , "main x = case x of"
+              , "  true -> 1"
+              , "  _ -> 0"
+              ]
+          )
+        , ( "prelude.clapse"
+          , unlines
+              [ "module prelude"
+              , "data bool = true<1> | false<0>"
+              ]
+          )
+        ]
+      expectedMagic = BS.pack [0x00, 0x61, 0x73, 0x6d]
+  result <- compileFixtureModule files "entry.clapse"
+  case result of
+    Left err ->
+      failTest "compile entry module imported constructor pattern" ("unexpected compile error: " <> err)
+    Right wasmBytes ->
+      assertTrue
+        "compile entry module imported constructor pattern"
+        (BS.take 4 wasmBytes == expectedMagic)
+
+testCompileEntryModuleAmbiguousConstructorImport :: IO Bool
+testCompileEntryModuleAmbiguousConstructorImport = do
+  let files =
+        [ ( "entry.clapse"
+          , unlines
+              [ "module entry"
+              , "import a"
+              , "import b"
+              , "main x = case x of"
+              , "  true -> 1"
+              , "  _ -> 0"
+              ]
+          )
+        , ( "a.clapse"
+          , unlines
+              [ "module a"
+              , "data bool = true<1> | false<0>"
+              ]
+          )
+        , ( "b.clapse"
+          , unlines
+              [ "module b"
+              , "data bool = true<1> | false<0>"
+              ]
+          )
+        ]
+  result <- compileFixtureModule files "entry.clapse"
+  case result of
+    Left err ->
+      assertTrue
+        "compile entry module rejects ambiguous constructor import"
+        ( "ambiguous constructor import for true" `isInfixOf` err
+            || "ambiguous constructor import for false" `isInfixOf` err
+            || "ambiguous import for true" `isInfixOf` err
+            || "ambiguous import for false" `isInfixOf` err
+        )
+    Right _ ->
+      failTest
+        "compile entry module rejects ambiguous constructor import"
+        "expected ambiguous constructor import failure"
 
 testCompileEntryModuleMissingImport :: IO Bool
 testCompileEntryModuleMissingImport = do
@@ -4653,6 +5553,22 @@ findTypeInfo _name [] = Nothing
 findTypeInfo target (info:rest)
   | fnName info == target = Just info
   | otherwise = findTypeInfo target rest
+
+assertFormatParseRoundtrip :: String -> String -> IO Bool
+assertFormatParseRoundtrip label src =
+  case formatSource src of
+    Left err ->
+      failTest label ("unexpected format error on first pass: " <> err)
+    Right formatted1 ->
+      case parseModule formatted1 of
+        Left err ->
+          failTest label ("formatted source did not parse: " <> err)
+        Right _ ->
+          case formatSource formatted1 of
+            Left err ->
+              failTest label ("unexpected format error on second pass: " <> err)
+            Right formatted2 ->
+              assertEqual label formatted1 formatted2
 
 compileSourceToCollapsed :: String -> Either String [CollapsedFunction]
 compileSourceToCollapsed src = do

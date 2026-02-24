@@ -819,7 +819,78 @@ compileStringHandleEq :: StringLayout -> CollapsedFunction -> Atom -> Atom -> Ei
 compileStringHandleEq stringLayout fn x y = do
   xInstrs <- compileAtom stringLayout fn x
   yInstrs <- compileAtom stringLayout fn y
-  pure (xInstrs <> yInstrs <> [opcodeI32Eq] <> retagBoolInstrs)
+  let xPtrLocal = scratchPtrLocalIx fn
+      yPtrLocal = scratchAuxLocalIx fn
+      lenLocal = scratchTmpLocalIx fn
+      idxLocal = applySizeLocalIx fn
+      xDataLocal = applyAlignLocalIx fn
+      yDataLocal = applyCalleeLocalIx fn
+      resultLocal = applyArgLocalIx fn
+      loopBody =
+        [ opcodeBlock
+        , blockTypeEmpty
+        , opcodeLoop
+        , blockTypeEmpty
+        ]
+          <> [opcodeLocalGet] <> encodeU32 idxLocal
+          <> [opcodeLocalGet] <> encodeU32 lenLocal
+          <> [opcodeI32GeS]
+          <> [opcodeBrIf] <> encodeU32 1
+          <> [opcodeLocalGet] <> encodeU32 xDataLocal
+          <> [opcodeLocalGet] <> encodeU32 idxLocal
+          <> [opcodeI32Add]
+          <> [opcodeI32Load8U] <> encodeMemArg 0 0
+          <> [opcodeLocalGet] <> encodeU32 yDataLocal
+          <> [opcodeLocalGet] <> encodeU32 idxLocal
+          <> [opcodeI32Add]
+          <> [opcodeI32Load8U] <> encodeMemArg 0 0
+          <> [opcodeI32Ne]
+          <> [opcodeIf, blockTypeEmpty]
+          <> rawI32Const 1
+          <> [opcodeLocalSet] <> encodeU32 resultLocal
+          <> [opcodeBr] <> encodeU32 1
+          <> [opcodeEnd]
+          <> [opcodeLocalGet] <> encodeU32 idxLocal
+          <> rawI32Const 1
+          <> [opcodeI32Add]
+          <> [opcodeLocalSet] <> encodeU32 idxLocal
+          <> [opcodeBr] <> encodeU32 0
+          <> [opcodeEnd]
+          <> [opcodeEnd]
+  pure
+    ( xInstrs
+        <> [opcodeLocalSet] <> encodeU32 xPtrLocal
+        <> yInstrs
+        <> [opcodeLocalSet] <> encodeU32 yPtrLocal
+        <> [opcodeLocalGet] <> encodeU32 xPtrLocal
+        <> [opcodeI32Load] <> encodeMemArg 2 4
+        <> [opcodeLocalSet] <> encodeU32 lenLocal
+        <> [opcodeLocalGet] <> encodeU32 xPtrLocal
+        <> [opcodeI32Load] <> encodeMemArg 2 0
+        <> [opcodeLocalSet] <> encodeU32 xDataLocal
+        <> [opcodeLocalGet] <> encodeU32 yPtrLocal
+        <> [opcodeI32Load] <> encodeMemArg 2 0
+        <> [opcodeLocalSet] <> encodeU32 yDataLocal
+        <> rawI32Const 3
+        <> [opcodeLocalSet] <> encodeU32 resultLocal
+        <> [opcodeLocalGet] <> encodeU32 yPtrLocal
+        <> [opcodeI32Load] <> encodeMemArg 2 4
+        <> [opcodeLocalGet] <> encodeU32 lenLocal
+        <> [opcodeI32Ne]
+        <> [opcodeIf, blockTypeEmpty]
+        <> rawI32Const 1
+        <> [opcodeLocalSet] <> encodeU32 resultLocal
+        <> [opcodeEnd]
+        <> rawI32Const 0
+        <> [opcodeLocalSet] <> encodeU32 idxLocal
+        <> [opcodeLocalGet] <> encodeU32 resultLocal
+        <> rawI32Const 1
+        <> [opcodeI32Ne]
+        <> [opcodeIf, blockTypeEmpty]
+        <> loopBody
+        <> [opcodeEnd]
+        <> [opcodeLocalGet] <> encodeU32 resultLocal
+    )
 
 compileTaggedCmp :: StringLayout -> CollapsedFunction -> Atom -> Atom -> Word8 -> Either String [Word8]
 compileTaggedCmp stringLayout fn x y cmpOp = do
@@ -998,6 +1069,8 @@ compileInlineSliceBuiltin stringLayout fn callee args =
       Just (compileInlineSliceGetU8 stringLayout fn sliceHandle index)
     ("slice_set_u8", [sliceHandle, index, value]) ->
       Just (compileInlineSliceSetU8 stringLayout fn sliceHandle index value)
+    ("slice_eq_u8", [x, y]) ->
+      Just (compileStringHandleEq stringLayout fn x y)
     _ ->
       Nothing
 
@@ -1084,6 +1157,16 @@ compileCoreBuiltin stringLayout tagIdMap closureCallTypeCases funcMap ifThunkMap
         )
     ("pure", [x]) ->
       Just (compileAtom stringLayout fn x)
+    ("pure", _) ->
+      Just (builtinArityError "pure" 1 (length args))
+    ("str_to_slice", [x]) ->
+      Just (compileAtom stringLayout fn x)
+    ("str_to_slice", _) ->
+      Just (builtinArityError "str_to_slice" 1 (length args))
+    ("slice_to_string", [x]) ->
+      Just (compileAtom stringLayout fn x)
+    ("slice_to_string", _) ->
+      Just (builtinArityError "slice_to_string" 1 (length args))
     ("fmap", [f, x]) ->
       Just (compileApplyAtoms stringLayout closureCallTypeCases fn f x)
     ("ap", [f, x]) ->
@@ -2135,8 +2218,14 @@ opcodeCallIndirect = 0x11
 opcodeBlock :: Word8
 opcodeBlock = 0x02
 
+opcodeLoop :: Word8
+opcodeLoop = 0x03
+
 opcodeBr :: Word8
 opcodeBr = 0x0c
+
+opcodeBrIf :: Word8
+opcodeBrIf = 0x0d
 
 opcodeLocalGet :: Word8
 opcodeLocalGet = 0x20

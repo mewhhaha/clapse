@@ -120,6 +120,41 @@ function runHostCompile(request) {
   };
 }
 
+function runHostFormat(request) {
+  const source = String(request.source ?? "");
+  const mode = String(request.mode ?? "stdout");
+  const inputPath = String(request.input_path ?? "");
+  const tmpPath = Deno.makeTempFileSync({
+    prefix: "clapse-host-format-",
+    suffix: ".clapse",
+  });
+  Deno.writeTextFileSync(tmpPath, source);
+  const cmd = mode === "write"
+    ? `CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse -- format --write ${
+      shQuote(tmpPath)
+    }`
+    : `CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse -- format ${
+      shQuote(tmpPath)
+    }`;
+  const run = runHostCommandSync(cmd);
+  if (!run.ok) {
+    return {
+      ok: false,
+      error: run.stderr.trim() || run.stdout.trim() ||
+        `host format failed (${run.code})`,
+    };
+  }
+  const formatted = mode === "write"
+    ? Deno.readTextFileSync(tmpPath)
+    : run.stdout;
+  return {
+    ok: true,
+    formatted,
+    input_path: inputPath,
+    mode,
+  };
+}
+
 function runHostSelfhostArtifacts(request) {
   const inputPath = String(request.input_path ?? "");
   if (inputPath.length === 0) {
@@ -164,44 +199,66 @@ function runHostClapseRequest(request) {
   if (command === "selfhost-artifacts") {
     return runHostSelfhostArtifacts(request);
   }
+  if (command === "format") {
+    return runHostFormat(request);
+  }
   return { ok: false, error: `unsupported command: ${command}` };
+}
+
+function allowBridgeFallback() {
+  const raw = (Deno.env.get("CLAPSE_ALLOW_BRIDGE") ?? "").toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
 }
 
 async function loadCompilerWasm(path) {
   const wasmBytes = await Deno.readFile(path);
+  const module = await WebAssembly.compile(wasmBytes);
+  const imports = WebAssembly.Module.imports(module);
+  const isBridge = imports.some((imp) =>
+    imp.module === "host" && imp.name === "clapse_run"
+  );
+  if (isBridge && !allowBridgeFallback()) {
+    throw new Error(
+      "bridge compiler wasm detected; set CLAPSE_ALLOW_BRIDGE=1 for transitional testing or use a native compiler wasm artifact",
+    );
+  }
   const runtime = makeRuntime();
   let instanceRef = null;
-  const hostImports = {
-    host: {
-      clapse_run: (requestHandle) => {
-        if (instanceRef === null) {
-          throw new Error(
-            "compiler wasm host bridge called before instance initialization",
+  const hostImports = isBridge
+    ? {
+      host: {
+        clapse_run: (requestHandle) => {
+          if (instanceRef === null) {
+            throw new Error(
+              "compiler wasm host bridge called before instance initialization",
+            );
+          }
+          const memory = instanceRef.exports.__memory ??
+            instanceRef.exports.memory;
+          if (!(memory instanceof WebAssembly.Memory)) {
+            throw new Error(
+              "compiler wasm missing memory export during host bridge call",
+            );
+          }
+          const requestBytes = decodeSliceBytes(memory, requestHandle | 0);
+          const requestText = UTF8_DECODER.decode(requestBytes);
+          let requestObj;
+          try {
+            requestObj = JSON.parse(requestText);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            requestObj = { command: "invalid", parse_error: message };
+          }
+          const responseObj = runHostClapseRequest(requestObj);
+          const responseBytes = UTF8_ENCODER.encode(
+            JSON.stringify(responseObj),
           );
-        }
-        const memory = instanceRef.exports.__memory ??
-          instanceRef.exports.memory;
-        if (!(memory instanceof WebAssembly.Memory)) {
-          throw new Error(
-            "compiler wasm missing memory export during host bridge call",
-          );
-        }
-        const requestBytes = decodeSliceBytes(memory, requestHandle | 0);
-        const requestText = UTF8_DECODER.decode(requestBytes);
-        let requestObj;
-        try {
-          requestObj = JSON.parse(requestText);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          requestObj = { command: "invalid", parse_error: message };
-        }
-        const responseObj = runHostClapseRequest(requestObj);
-        const responseBytes = UTF8_ENCODER.encode(JSON.stringify(responseObj));
-        return runtime.alloc_slice_u8(responseBytes);
+          return runtime.alloc_slice_u8(responseBytes);
+        },
       },
-    },
-  };
-  const { instance } = await WebAssembly.instantiate(wasmBytes, hostImports);
+    }
+    : {};
+  const instance = await WebAssembly.instantiate(module, hostImports);
   instanceRef = instance;
   assertCompilerExports(instance);
   const memoryExport = instance.exports.__memory ?? instance.exports.memory;
@@ -238,14 +295,32 @@ export async function callCompilerWasm(path, requestObject) {
   return decodeResponseBytes(runtime, responseHandle);
 }
 
-export async function validateCompilerWasmAbi(path) {
+export async function inspectCompilerWasmAbi(path) {
   const wasmBytes = await Deno.readFile(path);
-  const { instance } = await WebAssembly.instantiate(wasmBytes, {
+  const module = await WebAssembly.compile(wasmBytes);
+  const imports = WebAssembly.Module.imports(module);
+  const isBridge = imports.some((imp) =>
+    imp.module === "host" && imp.name === "clapse_run"
+  );
+  const instance = await WebAssembly.instantiate(module, {
     host: {
       clapse_run: (handle) => handle | 0,
     },
   });
   assertCompilerExports(instance);
+  return {
+    ok: true,
+    mode: isBridge ? "bridge" : "native",
+  };
+}
+
+export async function validateCompilerWasmAbi(path) {
+  const info = await inspectCompilerWasmAbi(path);
+  if (info.mode === "bridge" && !allowBridgeFallback()) {
+    throw new Error(
+      "bridge compiler wasm is disabled by default; set CLAPSE_ALLOW_BRIDGE=1 to use transitional bridge mode",
+    );
+  }
   return true;
 }
 

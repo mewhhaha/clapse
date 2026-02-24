@@ -26,6 +26,7 @@ module.exports = grammar({
         $.module_declaration,
         $.import_declaration,
         $.export_declaration,
+        $.type_declaration,
         $.class_declaration,
         $.law_declaration,
         $.instance_declaration,
@@ -177,6 +178,54 @@ module.exports = grammar({
             ),
           ),
         ),
+      ),
+
+    type_declaration: ($) =>
+      seq(
+        $._kw_type,
+        $._ws1,
+        field("type_name", $.capitalized_identifier),
+        $._ws1,
+        "=",
+        $._ws1,
+        $.type_union,
+      ),
+
+    type_union: ($) =>
+      seq(
+        "<",
+        optional($._ws1),
+        field("member", $.type_union_member),
+        repeat(
+          seq(
+            optional($._ws1),
+            "|",
+            optional($._ws1),
+            field("member", $.type_union_member),
+          ),
+        ),
+        optional($._ws1),
+        ">",
+      ),
+
+    type_union_member: ($) =>
+        choice(
+        $.type_union_literal,
+        seq(
+          field("constructor_name", $.identifier),
+          optional($._ws1),
+          "<",
+          optional($._ws1),
+          field("literal", $.type_union_literal),
+          optional($._ws1),
+          ">",
+        ),
+      ),
+
+    type_union_literal: ($) =>
+      choice(
+        $.integer,
+        $.string,
       ),
 
     module_declaration: ($) =>
@@ -639,6 +688,7 @@ module.exports = grammar({
     _kw_module: () => token(prec(1, "module")),
     _kw_import: () => token(prec(1, "import")),
     _kw_export: () => token(prec(1, "export")),
+    _kw_type: () => token(prec(1, "type")),
     _kw_let: () => token(prec(1, "let")),
     _kw_in: () => token(prec(1, "in")),
     _let_in_sep: () =>

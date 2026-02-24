@@ -1,0 +1,26 @@
+module slice_scan
+export slice_find_u8, slice_find_seq_u8
+
+data bool = true<1> | false<0>
+
+slice_find_u8 bytes needle start | start >= slice_len bytes = -1
+                                 | slice_get_u8 bytes start == needle = start
+                                 | otherwise = slice_find_u8 bytes needle (start + 1)
+
+slice_prefix_matches haystack needle hay_i needle_i needle_len | needle_i == needle_len = true
+                                                                | slice_get_u8 haystack hay_i == slice_get_u8 needle needle_i = slice_prefix_matches haystack needle (hay_i + 1) (needle_i + 1) needle_len
+                                                                | otherwise = false
+
+slice_find_seq_loop haystack needle start limit needle_len | start > limit = -1
+                                                            | slice_prefix_matches haystack needle start 0 needle_len = start
+                                                            | otherwise = slice_find_seq_loop haystack needle (start + 1) limit needle_len
+
+slice_find_seq_u8 haystack needle start =
+  let hay_len = slice_len haystack
+      needle_len = slice_len needle
+      limit = hay_len - needle_len
+  in case (needle_len == 0) (start >= hay_len) (needle_len > hay_len) of
+       true _ _ -> start
+       _ true _ -> -1
+       _ _ true -> -1
+       _ _ _ -> slice_find_seq_loop haystack needle start limit needle_len

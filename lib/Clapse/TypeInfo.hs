@@ -6,19 +6,26 @@ module Clapse.TypeInfo
   , renderType
   ) where
 
-import Data.Char (chr, isDigit)
+import Data.Char (chr, isAlpha, isAlphaNum, isDigit, isSpace)
 import Control.Applicative ((<|>))
 
-import Clapse.Syntax (CaseArm(..), CasePattern(..), ConstructorInfo(..), Expr(..), Function(..), Module(..), Name, parseModule)
+import Clapse.Syntax (CaseArm(..), CasePattern(..), ConstructorInfo(..), Expr(..), Function(..), Module(..), Name, TypeSignature(..), parseModule)
 
 data Type
   = TI64
   | TU64
   | TByte
-  | TString
   | TData Name [Type]
   | TVar Int
   | TFun Type Type
+  | TLitInt Int
+  | TLitString String
+  | TTypeUnion [TypeUnionMember]
+  deriving (Eq, Show)
+
+data TypeUnionMember
+  = TypeUnionInt Int
+  | TypeUnionString String
   deriving (Eq, Show)
 
 data FunctionTypeInfo = FunctionTypeInfo
@@ -53,9 +60,10 @@ inferSourceTypes src = do
   inferModuleTypes modu
 
 inferModuleTypes :: Module -> Either String [FunctionTypeInfo]
-inferModuleTypes Module {functions = funs} = do
+inferModuleTypes Module {functions = funs, signatures = sigs} = do
   _ <- validateUniqueNames funs
-  (seeds, st0) <- buildSeeds funs (InferState {nextVar = 0, subst = []})
+  let signatureMap = map (\sig -> (sigName sig, sigTypeExpr sig)) sigs
+  (seeds, st0) <- buildSeeds funs signatureMap (InferState {nextVar = 0, subst = []})
   let envFns = map (\seed -> (nameFromSeed seed, seedFnType seed)) seeds
   (_, stFinal) <- inferAll seeds envFns st0
   pure (map (toInfo (subst stFinal)) seeds)
@@ -69,24 +77,55 @@ validateUniqueNames funs =
     fnName :: Function -> Name
     fnName (Function n _ _ _) = n
 
-buildSeeds :: [Function] -> InferState -> Either String ([Seed], InferState)
-buildSeeds funs st = go [] st funs
+buildSeeds :: [Function] -> [(Name, String)] -> InferState -> Either String ([Seed], InferState)
+buildSeeds funs signatureMap st = go [] st funs
   where
     go :: [Seed] -> InferState -> [Function] -> Either String ([Seed], InferState)
     go acc cur [] = Right (reverse acc, cur)
     go acc cur (fn:fns) = do
       let argc = argCount fn
-      (argTys, cur1) <- freshMany argc cur
-      (retTy, cur2) <- freshType cur1
-      let fullTy = foldr TFun retTy argTys
-          seed =
-            Seed
-              { seedFn = fn
-              , seedArgTypes = argTys
-              , seedRetType = retTy
-              , seedFnType = fullTy
-              }
-      go (seed : acc) cur2 fns
+          fnName0 = nameFromFunction fn
+      case lookup fnName0 signatureMap of
+        Just sigExpr -> do
+          sigTy <- withFnContext fnName0 (parseSignatureTypeExpr sigExpr)
+          (sigArgTys, sigRetTy) <- withFnContext fnName0 (splitSignatureFunType sigTy)
+          if length sigArgTys /= argc
+            then
+              Left
+                ( "type inference: signature arity mismatch for "
+                    <> fnName0
+                    <> ": signature has "
+                    <> show (length sigArgTys)
+                    <> " args, function has "
+                    <> show argc
+                )
+            else
+              let seed =
+                    Seed
+                      { seedFn = fn
+                      , seedArgTypes = sigArgTys
+                      , seedRetType = sigRetTy
+                      , seedFnType = sigTy
+                      }
+               in go (seed : acc) cur fns
+        Nothing -> do
+          (argTys, cur1) <- freshMany argc cur
+          (retTy, cur2) <- freshType cur1
+          let fullTy = foldr TFun retTy argTys
+              seed =
+                Seed
+                  { seedFn = fn
+                  , seedArgTypes = argTys
+                  , seedRetType = retTy
+                  , seedFnType = fullTy
+                  }
+          go (seed : acc) cur2 fns
+
+    withFnContext :: Name -> Either String a -> Either String a
+    withFnContext fnName0 out =
+      case out of
+        Left err -> Left ("type inference: invalid signature for " <> fnName0 <> ": " <> err)
+        Right value -> Right value
 
 inferAll :: [Seed] -> Env -> InferState -> InferResult ()
 inferAll [] _env st = Right ((), st)
@@ -114,10 +153,10 @@ toInfo finalSubst seed =
 inferExpr :: Env -> Expr -> InferState -> InferResult Type
 inferExpr env expr st =
   case expr of
-    IntLit _ ->
-      Right (TI64, st)
-    StringLit _ ->
-      Right (TString, st)
+    IntLit n ->
+      Right (TLitInt n, st)
+    StringLit s ->
+      Right (TLitString s, st)
     CollectionLit elems ->
       inferExpr env (desugarCollectionExpr elems) st
     Case scrutinees arms ->
@@ -181,11 +220,11 @@ inferPatternBinding scrutineeTy pat st0 =
       Right ([], st0)
     PatVar n ->
       Right ([(n, applySubst (subst st0) scrutineeTy)], st0)
-    PatInt _ -> do
-      st1 <- unify scrutineeTy TI64 st0
+    PatInt n -> do
+      st1 <- unify scrutineeTy (TLitInt n) st0
       Right ([], st1)
-    PatString _ -> do
-      st1 <- unify scrutineeTy TString st0
+    PatString s -> do
+      st1 <- unify scrutineeTy (TLitString s) st0
       Right ([], st1)
     PatConstructor _ ctorInfo fieldNames -> do
       (paramTypes, st1) <- freshMany (ctorTypeParamCount ctorInfo) st0
@@ -224,17 +263,23 @@ inferBuiltin n st =
     "mul" -> Right (binaryI64Type, st)
     "div" -> Right (binaryI64Type, st)
     "mod" -> Right (binaryI64Type, st)
-    "eq" -> Right (binaryI64Type, st)
-    "str_eq" -> Right (TFun TString (TFun TString TI64), st)
-    "lt" -> Right (binaryI64Type, st)
-    "gt" -> Right (binaryI64Type, st)
-    "le" -> Right (binaryI64Type, st)
-    "ge" -> Right (binaryI64Type, st)
-    "and" -> Right (binaryI64Type, st)
+    "eq" -> Right (TFun TI64 (TFun TI64 boolType), st)
+    "str_eq" -> Right (TFun stringType (TFun stringType boolType), st)
+    "str_to_slice" ->
+      Right (TFun stringType sliceByteType, st)
+    "slice_to_string" ->
+      Right (TFun sliceByteType stringType, st)
+    "slice_eq_u8" ->
+      Right (TFun sliceByteType (TFun sliceByteType boolType), st)
+    "lt" -> Right (TFun TI64 (TFun TI64 boolType), st)
+    "gt" -> Right (TFun TI64 (TFun TI64 boolType), st)
+    "le" -> Right (TFun TI64 (TFun TI64 boolType), st)
+    "ge" -> Right (TFun TI64 (TFun TI64 boolType), st)
+    "and" -> Right (binaryBoolType, st)
     "if" -> do
       (a, st1) <- freshType st
       let thunkTy = TFun TI64 a
-      Right (TFun TI64 (TFun thunkTy (TFun thunkTy a)), st1)
+      Right (TFun boolType (TFun thunkTy (TFun thunkTy a)), st1)
     "pure" -> do
       (a, st1) <- freshType st
       Right (TFun a a, st1)
@@ -314,12 +359,21 @@ inferBuiltin n st =
               case parseIsBuiltin n of
                 Just _tag -> do
                   (inputTy, st1) <- freshType st
-                  Right (TFun inputTy TI64, st1)
+                  Right (TFun inputTy boolType, st1)
                 Nothing ->
                   Left ("type inference: unknown variable or function: " <> n)
 
 binaryI64Type :: Type
 binaryI64Type = TFun TI64 (TFun TI64 TI64)
+
+binaryBoolType :: Type
+binaryBoolType = TFun boolType (TFun boolType boolType)
+
+boolType :: Type
+boolType = TData "bool" []
+
+stringType :: Type
+stringType = TData "string" []
 
 sliceByteType :: Type
 sliceByteType = TData "slice" [TByte]
@@ -358,7 +412,33 @@ unifyTypes :: Type -> Type -> InferState -> Either String InferState
 unifyTypes a b st
   | a == b = Right st
   | otherwise =
-      case (a, b) of
+    case (a, b) of
+        (TLitInt _, TLitInt _) -> Right st
+        (TLitInt _, TI64) -> Right st
+        (TI64, TLitInt _) -> Right st
+        (TLitString _, TLitString _) -> Right st
+        (TLitString _, t)
+          | isStringType t -> Right st
+        (t, TLitString _)
+          | isStringType t -> Right st
+        (TLitInt n, TTypeUnion members)
+          | unionHasInt n members -> Right st
+        (TTypeUnion members, TLitInt n)
+          | unionHasInt n members -> Right st
+        (TLitString s0, TTypeUnion members)
+          | unionHasString s0 members -> Right st
+        (TTypeUnion members, TLitString s0)
+          | unionHasString s0 members -> Right st
+        (TTypeUnion members, TI64)
+          | allUnionMembersInt members -> Right st
+        (TI64, TTypeUnion members)
+          | allUnionMembersInt members -> Right st
+        (TTypeUnion members, t)
+          | isStringType t && allUnionMembersString members -> Right st
+        (t, TTypeUnion members)
+          | isStringType t && allUnionMembersString members -> Right st
+        (TTypeUnion xs, TTypeUnion ys)
+          | not (null (intersectUnionMembers xs ys)) -> Right st
         (TVar v, t) -> bindVar v t st
         (t, TVar v) -> bindVar v t st
         (TFun a1 a2, TFun b1 b2) -> do
@@ -379,13 +459,68 @@ bindVar v t st
           updated = map (\(k, ty) -> (k, applyOne v t' ty)) (subst st)
        in Right st {subst = (v, t') : updated}
 
+isStringType :: Type -> Bool
+isStringType ty = ty == stringType
+
+unionHasInt :: Int -> [TypeUnionMember] -> Bool
+unionHasInt target members =
+  any
+    ( \member ->
+        case member of
+          TypeUnionInt n -> n == target
+          TypeUnionString _ -> False
+    )
+    members
+
+unionHasString :: String -> [TypeUnionMember] -> Bool
+unionHasString target members =
+  any
+    ( \member ->
+        case member of
+          TypeUnionInt _ -> False
+          TypeUnionString s0 -> s0 == target
+    )
+    members
+
+allUnionMembersInt :: [TypeUnionMember] -> Bool
+allUnionMembersInt members =
+  not (null members)
+    && all
+      ( \member ->
+          case member of
+            TypeUnionInt _ -> True
+            TypeUnionString _ -> False
+      )
+      members
+
+allUnionMembersString :: [TypeUnionMember] -> Bool
+allUnionMembersString members =
+  not (null members)
+    && all
+      ( \member ->
+          case member of
+            TypeUnionInt _ -> False
+            TypeUnionString _ -> True
+      )
+      members
+
+intersectUnionMembers :: [TypeUnionMember] -> [TypeUnionMember] -> [TypeUnionMember]
+intersectUnionMembers xs ys =
+  case xs of
+    [] -> []
+    x:rest
+      | x `elem` ys -> x : intersectUnionMembers rest ys
+      | otherwise -> intersectUnionMembers rest ys
+
 occurs :: Int -> Type -> Bool
 occurs v ty =
   case ty of
     TI64 -> False
     TU64 -> False
     TByte -> False
-    TString -> False
+    TLitInt _ -> False
+    TLitString _ -> False
+    TTypeUnion _ -> False
     TData _ argsT -> any (occurs v) argsT
     TVar x -> x == v
     TFun a b -> occurs v a || occurs v b
@@ -396,7 +531,9 @@ applySubst s ty =
     TI64 -> TI64
     TU64 -> TU64
     TByte -> TByte
-    TString -> TString
+    TLitInt n -> TLitInt n
+    TLitString s0 -> TLitString s0
+    TTypeUnion members -> TTypeUnion members
     TData n argsT -> TData n (map (applySubst s) argsT)
     TVar v ->
       case lookup v s of
@@ -410,7 +547,9 @@ applyOne v rep ty =
     TI64 -> TI64
     TU64 -> TU64
     TByte -> TByte
-    TString -> TString
+    TLitInt n -> TLitInt n
+    TLitString s0 -> TLitString s0
+    TTypeUnion members -> TTypeUnion members
     TData n argsT -> TData n (map (applyOne v rep) argsT)
     TVar x
       | x == v -> rep
@@ -428,7 +567,9 @@ renderType ty =
         TI64 -> "i64"
         TU64 -> "u64"
         TByte -> "byte"
-        TString -> "string"
+        TLitInt _ -> "i64"
+        TLitString _ -> "string"
+        TTypeUnion members -> "<" <> renderUnionMembers members <> ">"
         TData n argsT ->
           if null argsT
             then n
@@ -447,6 +588,34 @@ renderType ty =
         TFun _ _ -> "(" <> render argTy <> ")"
         _ -> render argTy
 
+    renderUnionMembers :: [TypeUnionMember] -> String
+    renderUnionMembers members =
+      case members of
+        [] -> ""
+        [member] -> renderUnionMember member
+        member:rest -> renderUnionMember member <> " | " <> renderUnionMembers rest
+
+    renderUnionMember :: TypeUnionMember -> String
+    renderUnionMember member =
+      case member of
+        TypeUnionInt n -> show n
+        TypeUnionString s0 -> "\"" <> escapeTypeString s0 <> "\""
+
+    escapeTypeString :: String -> String
+    escapeTypeString input =
+      case input of
+        [] -> []
+        c:rest ->
+          let escaped =
+                case c of
+                  '"' -> "\\\""
+                  '\\' -> "\\\\"
+                  '\n' -> "\\n"
+                  '\r' -> "\\r"
+                  '\t' -> "\\t"
+                  _ -> [c]
+           in escaped <> escapeTypeString rest
+
 normalizeVars :: Type -> Type
 normalizeVars ty =
   let (out, _, _) = go [] 0 ty
@@ -458,7 +627,9 @@ normalizeVars ty =
         TI64 -> (TI64, next, env)
         TU64 -> (TU64, next, env)
         TByte -> (TByte, next, env)
-        TString -> (TString, next, env)
+        TLitInt n -> (TLitInt n, next, env)
+        TLitString s0 -> (TLitString s0, next, env)
+        TTypeUnion members -> (TTypeUnion members, next, env)
         TData n argsT ->
           let (argsOut, nextOut, envOut) = goList env next argsT
            in (TData n argsOut, nextOut, envOut)
@@ -486,6 +657,224 @@ varName :: Int -> String
 varName i
   | i < 26 = "'" <> [chr (fromEnum 'a' + i)]
   | otherwise = "'t" <> show i
+
+data TypeTok
+  = TokIdent String
+  | TokInt Int
+  | TokString String
+  | TokArrow
+  | TokLParen
+  | TokRParen
+  | TokLAngle
+  | TokRAngle
+  | TokPipe
+  deriving (Eq, Show)
+
+parseSignatureTypeExpr :: String -> Either String Type
+parseSignatureTypeExpr src = do
+  toks <- tokenizeTypeExpr src
+  (ty, rest) <- parseTypeArrow toks
+  case rest of
+    [] -> Right ty
+    tok:_ -> Left ("unexpected token in signature type: " <> showTypeTok tok)
+
+splitSignatureFunType :: Type -> Either String ([Type], Type)
+splitSignatureFunType ty = Right (reverse argsRev, outTy)
+  where
+    (argsRev, outTy) = go [] ty
+
+    go :: [Type] -> Type -> ([Type], Type)
+    go acc current =
+      case current of
+        TFun a b -> go (a : acc) b
+        _ -> (acc, current)
+
+parseTypeArrow :: [TypeTok] -> Either String (Type, [TypeTok])
+parseTypeArrow toks = do
+  (lhs, rest) <- parseTypeApp toks
+  case rest of
+    TokArrow:rest0 -> do
+      (rhs, rest1) <- parseTypeArrow rest0
+      Right (TFun lhs rhs, rest1)
+    _ -> Right (lhs, rest)
+
+parseTypeApp :: [TypeTok] -> Either String (Type, [TypeTok])
+parseTypeApp toks = do
+  (headTy, rest) <- parseTypeAtom toks
+  consumeArgs headTy rest
+  where
+    consumeArgs :: Type -> [TypeTok] -> Either String (Type, [TypeTok])
+    consumeArgs current toks0 =
+      case toks0 of
+        tok:_ | isTypeAtomStart tok -> do
+          (argTy, rest1) <- parseTypeAtom toks0
+          current1 <- appendTypeArg current argTy
+          consumeArgs current1 rest1
+        _ -> Right (current, toks0)
+
+    appendTypeArg :: Type -> Type -> Either String Type
+    appendTypeArg current argTy =
+      case current of
+        TData n argsT -> Right (TData n (argsT <> [argTy]))
+        _ -> Left "invalid type application in signature type"
+
+parseTypeAtom :: [TypeTok] -> Either String (Type, [TypeTok])
+parseTypeAtom toks =
+  case toks of
+    TokIdent n : rest -> Right (parseNamedType n, rest)
+    TokLParen : rest -> do
+      (inner, rest1) <- parseTypeArrow rest
+      case rest1 of
+        TokRParen : rest2 -> Right (inner, rest2)
+        _ -> Left "expected ')' in signature type"
+    TokLAngle : rest ->
+      parseTypeUnion rest
+    TokInt _ : _ ->
+      Left "literal type values must appear inside <...> union syntax"
+    TokString _ : _ ->
+      Left "literal type values must appear inside <...> union syntax"
+    tok : _ ->
+      Left ("unexpected token in signature type: " <> showTypeTok tok)
+    [] ->
+      Left "unexpected end of signature type"
+
+parseTypeUnion :: [TypeTok] -> Either String (Type, [TypeTok])
+parseTypeUnion toks =
+  case toks of
+    TokRAngle : _ -> Left "literal union type cannot be empty"
+    _ -> do
+      (firstMember, rest) <- parseTypeUnionMember toks
+      parseTypeUnionTail [firstMember] rest
+  where
+    parseTypeUnionTail :: [TypeUnionMember] -> [TypeTok] -> Either String (Type, [TypeTok])
+    parseTypeUnionTail members toks0 =
+      case toks0 of
+        TokPipe : rest -> do
+          (member, rest1) <- parseTypeUnionMember rest
+          parseTypeUnionTail (member : members) rest1
+        TokRAngle : rest ->
+          Right (TTypeUnion (reverse members), rest)
+        tok : _ ->
+          Left ("expected '|' or '>' in literal union type, found " <> showTypeTok tok)
+        [] ->
+          Left "unterminated literal union type, expected '>'"
+
+parseTypeUnionMember :: [TypeTok] -> Either String (TypeUnionMember, [TypeTok])
+parseTypeUnionMember toks =
+  case toks of
+    TokInt n : rest -> Right (TypeUnionInt n, rest)
+    TokString s0 : rest -> Right (TypeUnionString s0, rest)
+    TokRAngle : _ -> Left "literal union type cannot be empty"
+    tok : _ -> Left ("expected literal union member, found " <> showTypeTok tok)
+    [] -> Left "expected literal union member, found end of input"
+
+isTypeAtomStart :: TypeTok -> Bool
+isTypeAtomStart tok =
+  case tok of
+    TokIdent _ -> True
+    TokLParen -> True
+    TokLAngle -> True
+    TokInt _ -> False
+    TokString _ -> False
+    TokArrow -> False
+    TokRParen -> False
+    TokRAngle -> False
+    TokPipe -> False
+
+parseNamedType :: String -> Type
+parseNamedType n =
+  case n of
+    "i64" -> TI64
+    "u64" -> TU64
+    "byte" -> TByte
+    _ -> TData n []
+
+tokenizeTypeExpr :: String -> Either String [TypeTok]
+tokenizeTypeExpr src = go [] src
+  where
+    go :: [TypeTok] -> String -> Either String [TypeTok]
+    go acc input =
+      case input of
+        [] -> Right (reverse acc)
+        c:rest
+          | isSpace c -> go acc rest
+          | c == '-' ->
+              case rest of
+                '>':rest1 -> go (TokArrow : acc) rest1
+                d:_
+                  | isDigit d ->
+                      let (digits, rest1) = span isDigit rest
+                          raw = '-' : digits
+                       in case parseSignedInt raw of
+                            Just n -> go (TokInt n : acc) rest1
+                            Nothing -> Left "invalid integer literal in signature type"
+                _ -> Left "unexpected '-' in signature type"
+          | c == '(' -> go (TokLParen : acc) rest
+          | c == ')' -> go (TokRParen : acc) rest
+          | c == '<' -> go (TokLAngle : acc) rest
+          | c == '>' -> go (TokRAngle : acc) rest
+          | c == '|' -> go (TokPipe : acc) rest
+          | c == '"' -> do
+              (value, rest1) <- parseQuotedStringToken rest
+              go (TokString value : acc) rest1
+          | isDigit c ->
+              let (digits, rest1) = span isDigit rest
+                  raw = c : digits
+               in case parseSignedInt raw of
+                    Just n -> go (TokInt n : acc) rest1
+                    Nothing -> Left "invalid integer literal in signature type"
+          | isTypeIdentStart c ->
+              let (tailChars, rest1) = span isTypeIdentChar rest
+                  name0 = c : tailChars
+               in go (TokIdent name0 : acc) rest1
+          | otherwise ->
+              Left ("unexpected character in signature type: " <> [c])
+
+parseQuotedStringToken :: String -> Either String (String, String)
+parseQuotedStringToken src = go [] src
+  where
+    go :: String -> String -> Either String (String, String)
+    go acc input =
+      case input of
+        [] -> Left "unterminated string literal in signature type"
+        '"' : rest -> Right (reverse acc, rest)
+        '\\' : esc : rest ->
+          case esc of
+            '"' -> go ('"' : acc) rest
+            '\\' -> go ('\\' : acc) rest
+            'n' -> go ('\n' : acc) rest
+            'r' -> go ('\r' : acc) rest
+            't' -> go ('\t' : acc) rest
+            _ -> Left "unsupported escape sequence in signature type string literal"
+        '\\' : [] ->
+          Left "unterminated escape in signature type string literal"
+        c : rest ->
+          go (c : acc) rest
+
+isTypeIdentStart :: Char -> Bool
+isTypeIdentStart c = isAlpha c || c == '_'
+
+isTypeIdentChar :: Char -> Bool
+isTypeIdentChar c = isAlphaNum c || c == '_' || c == '#'
+
+parseSignedInt :: String -> Maybe Int
+parseSignedInt raw =
+  case reads raw of
+    [(n, "")] -> Just n
+    _ -> Nothing
+
+showTypeTok :: TypeTok -> String
+showTypeTok tok =
+  case tok of
+    TokIdent n -> "'" <> n <> "'"
+    TokInt n -> show n
+    TokString s0 -> "\"" <> s0 <> "\""
+    TokArrow -> "'->'"
+    TokLParen -> "'('"
+    TokRParen -> "')'"
+    TokLAngle -> "'<'"
+    TokRAngle -> "'>'"
+    TokPipe -> "'|'"
 
 data DataBuiltinSig = DataBuiltinSig
   { sigDataTypeTag :: Name
@@ -715,6 +1104,11 @@ nameFromSeed :: Seed -> Name
 nameFromSeed seed =
     case seedFn seed of
       Function n _ _ _ -> n
+
+nameFromFunction :: Function -> Name
+nameFromFunction fn =
+  case fn of
+    Function n _ _ _ -> n
 
 desugarCollectionExpr :: [Expr] -> Expr
 desugarCollectionExpr elems =

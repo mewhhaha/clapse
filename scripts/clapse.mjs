@@ -82,20 +82,41 @@ async function hasExistingPath(path) {
   }
 }
 
+async function resolveCompilerWasmPath() {
+  const fromEnv = Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "";
+  if (fromEnv.length > 0) {
+    return fromEnv;
+  }
+  const allowBridge =
+    ((Deno.env.get("CLAPSE_ALLOW_BRIDGE") ?? "").toLowerCase() === "1") ||
+    ((Deno.env.get("CLAPSE_ALLOW_BRIDGE") ?? "").toLowerCase() === "true");
+  const candidates = allowBridge
+    ? ["out/clapse_compiler.wasm", "out/clapse_compiler_bridge.wasm"]
+    : ["out/clapse_compiler.wasm"];
+  for (const candidate of candidates) {
+    if (await hasExistingPath(candidate)) {
+      return candidate;
+    }
+  }
+  return "";
+}
+
 async function runViaWasmRunner(commandArgs) {
-  const wasmPath = Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "";
+  const wasmPath = await resolveCompilerWasmPath();
   if (wasmPath.length === 0) {
     throw new Error(
-      "CLAPSE_COMPILER_WASM_PATH is required for wasm mode",
+      "CLAPSE_COMPILER_WASM_PATH is required for wasm mode (or place compiler wasm at out/clapse_compiler.wasm / out/clapse_compiler_bridge.wasm)",
     );
   }
   if (!(await hasExistingPath(wasmPath))) {
     throw new Error(`compiler wasm path not found: ${wasmPath}`);
   }
+  const env = Deno.env.toObject();
+  env.CLAPSE_COMPILER_WASM_PATH = wasmPath;
   await run(
     "deno",
     ["run", "-A", "scripts/run-clapse-compiler-wasm.mjs", "--", ...commandArgs],
-    Deno.env.toObject(),
+    env,
   );
 }
 
@@ -123,14 +144,16 @@ async function main() {
   }
   const command = rest[0];
   const commandArgs = rest;
-  const compileCommands = new Set([
+  const wasmRoutedCommands = new Set([
     "compile",
     "selfhost-artifacts",
     "engine-mode",
+    "format",
+    "lsp",
   ]);
-  const hostOnlyCommands = new Set(["format", "lsp", "bench"]);
+  const hostOnlyCommands = new Set(["bench"]);
 
-  if (compileCommands.has(command)) {
+  if (wasmRoutedCommands.has(command)) {
     if (preferWasm(parsed.mode)) {
       await runViaWasmRunner(commandArgs);
       return;
