@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Just
         uses: extractions/setup-just@v2
@@ -72,3 +74,27 @@ jobs:
             ${{ steps.release_dir.outputs.release_dir }}/native-selfhost-artifact-fixture-map.json
             ${{ steps.release_dir.outputs.release_dir }}/release-manifest.json
             ${{ steps.release_dir.outputs.release_dir }}/checksums.sha256
+
+      - name: Update latest compiler artifacts in repo
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          RELEASE_DIR: ${{ steps.release_dir.outputs.release_dir }}
+        run: |
+          set -euo pipefail
+          git lfs install --local
+          git fetch origin main
+          git switch -C main origin/main
+          mkdir -p artifacts/latest
+          cp "${RELEASE_DIR}/clapse_compiler.wasm" artifacts/latest/clapse_compiler.wasm
+          cp "${RELEASE_DIR}/clapse_compiler_bridge.wasm" artifacts/latest/clapse_compiler_bridge.wasm
+          cp "${RELEASE_DIR}/release-manifest.json" artifacts/latest/release-manifest.json
+          cp "${RELEASE_DIR}/checksums.sha256" artifacts/latest/checksums.sha256
+          if [ -z "$(git status --porcelain -- artifacts/latest)" ]; then
+            echo "artifacts/latest unchanged"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add artifacts/latest
+          git commit -m "release: update latest compiler artifacts for ${GITHUB_REF_NAME}"
+          git push origin HEAD:main
