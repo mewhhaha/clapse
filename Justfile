@@ -265,6 +265,18 @@ selfhost-check-wasm-bridge:
   just selfhost-build-wasm-bridge
   CLAPSE_ALLOW_BRIDGE=1 CLAPSE_COMPILER_WASM_PATH='out/clapse_compiler_bridge.wasm' just selfhost-check-wasm
 
+bootstrap-chain-proof out='out/bootstrap-chain':
+  mkdir -p .cabal-logs "{{out}}"
+  just bootstrap-phase9-compile "{{out}}/clapse_compiler_stageA.wasm"
+  test "$(CLAPSE_COMPILER_WASM_PATH='{{out}}/clapse_compiler_stageA.wasm' deno run -A scripts/run-clapse-compiler-wasm.mjs engine-mode)" = "wasm-native"
+  CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=0 CLAPSE_COMPILER_WASM_PATH='{{out}}/clapse_compiler_stageA.wasm' deno run -A scripts/run-clapse-compiler-wasm.mjs compile examples/bootstrap_phase9_compiler_kernel.clapse "{{out}}/clapse_compiler_stageB.wasm"
+  test "$(CLAPSE_COMPILER_WASM_PATH='{{out}}/clapse_compiler_stageB.wasm' deno run -A scripts/run-clapse-compiler-wasm.mjs engine-mode)" = "wasm-native"
+  CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=0 CLAPSE_COMPILER_WASM_PATH='{{out}}/clapse_compiler_stageB.wasm' deno run -A scripts/run-clapse-compiler-wasm.mjs compile examples/bootstrap_phase9_compiler_kernel.clapse "{{out}}/clapse_compiler_stageC.wasm"
+  test "$(CLAPSE_COMPILER_WASM_PATH='{{out}}/clapse_compiler_stageC.wasm' deno run -A scripts/run-clapse-compiler-wasm.mjs engine-mode)" = "wasm-native"
+  test "$(sha256sum '{{out}}/clapse_compiler_stageA.wasm' | awk '{print $1}')" = "$(sha256sum '{{out}}/clapse_compiler_stageB.wasm' | awk '{print $1}')"
+  test "$(sha256sum '{{out}}/clapse_compiler_stageB.wasm' | awk '{print $1}')" = "$(sha256sum '{{out}}/clapse_compiler_stageC.wasm' | awk '{print $1}')"
+  echo "bootstrap-chain-proof: PASS ($(sha256sum '{{out}}/clapse_compiler_stageA.wasm' | awk '{print $1}'))"
+
 release-candidate out='out/releases':
   mkdir -p .cabal-logs
   version="$(awk '/^version:/ {print $2; exit}' clapse.cabal)"
@@ -276,6 +288,7 @@ release-candidate out='out/releases':
   behavior_map="${release_dir}/native-behavior-fixture-map.json"
   artifact_map="${release_dir}/native-selfhost-artifact-fixture-map.json"
   mkdir -p "${release_dir}"
+  just bootstrap-chain-proof "${release_dir}/bootstrap-chain"
   just bootstrap-phase9-compile "${compiler_wasm}"
   just selfhost-build-wasm-bridge "${bridge_wasm}"
   CLAPSE_COMPILER_WASM_PATH="${compiler_wasm}" just selfhost-check-wasm

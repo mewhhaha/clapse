@@ -792,6 +792,15 @@ just bootstrap-phase10-smoke
 just bootstrap-phase11-smoke
 ```
 
+Three-stage compiler chain proof (Haskell -> wasm compiler A -> wasm compiler B -> wasm compiler C):
+
+```bash
+just bootstrap-chain-proof
+```
+
+This runs Stage B and Stage C with `CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=0` and
+requires identical wasm hashes for A/B/C.
+
 Compiler parity gate:
 
 ```bash
