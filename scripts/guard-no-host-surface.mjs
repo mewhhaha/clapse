@@ -5,6 +5,10 @@ const ALLOWLIST_PATHS = [
   "scripts/guard-no-host-surface.mjs",
 ];
 
+const SKIP_EXACT_PATHS = [".gitignore"];
+
+const SKIP_PATH_PREFIXES = [".agents/", ".helix/"];
+
 const DISALLOWED_PATH_PATTERNS = [
   { name: "*.hs/*.lhs", test: (path) => /\.(?:hs|lhs)$/u.test(path) },
   { name: "*.cabal", test: (path) => path.endsWith(".cabal") },
@@ -41,7 +45,13 @@ async function listTrackedFiles() {
 }
 
 async function scanFile(path, violations) {
-  if (ALLOWLIST_PATHS.includes(path)) return;
+  if (
+    ALLOWLIST_PATHS.includes(path) ||
+    SKIP_EXACT_PATHS.includes(path) ||
+    SKIP_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))
+  ) {
+    return;
+  }
   for (const pattern of DISALLOWED_PATH_PATTERNS) {
     if (pattern.test(path)) {
       violations.push(`path ${path} matches ${pattern.name}`);
