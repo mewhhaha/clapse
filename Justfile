@@ -37,13 +37,13 @@ release-candidate out='out/releases':
   cp artifacts/latest/clapse_compiler_bridge.wasm "${bridge_wasm}"
   cp scripts/wasm-behavior-fixture-map.json "${behavior_map}"
   cp scripts/wasm-selfhost-artifact-fixture-map.json "${artifact_map}"
-  cat > "${release_dir}/clapse" <<WRAPPER
-#!/usr/bin/env bash
-set -euo pipefail
-SELF_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
-export CLAPSE_COMPILER_WASM_PATH="\${CLAPSE_COMPILER_WASM_PATH:-\${SELF_DIR}/clapse_compiler.wasm}"
-exec deno run -A "https://raw.githubusercontent.com/mewhhaha/clapse/\${CLAPSE_SCRIPT_REF:-main}/scripts/clapse.mjs" --wasm "\$@"
-WRAPPER
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -euo pipefail' \
+    'SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"' \
+    'export CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-${SELF_DIR}/clapse_compiler.wasm}"' \
+    'exec deno run -A "https://raw.githubusercontent.com/mewhhaha/clapse/${CLAPSE_SCRIPT_REF:-main}/scripts/clapse.mjs" --wasm "$@"' \
+    > "${release_dir}/clapse"
   chmod +x "${release_dir}/clapse"
   deno run -A scripts/release-metadata.mjs --release-id "${release_id}" --clapse-version "${version}" --compiler-wasm "${compiler_wasm}" --bridge-wasm "${bridge_wasm}" --behavior-map "${behavior_map}" --artifact-map "${artifact_map}" --out "${release_dir}/release-manifest.json" --checksums "${release_dir}/checksums.sha256"
   echo "release-candidate: PASS (${release_dir})"

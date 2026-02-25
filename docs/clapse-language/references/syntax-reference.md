@@ -153,6 +153,35 @@ Use identifier operator:
 x `plus_op` y
 ```
 
+Monadic-style chaining
+
+These operators are typically available with low precedence and left associativity:
+
+`>>=` and `>>` are `infixl 1`, so they parse left-to-right.
+
+```haskell
+infixl 1 >>= = bind
+infixl 1 >> = seq
+
+m >>= \x ->
+  stepA x >>
+  stepB x
+```
+
+- `>>=` and `>>` are weaker than arithmetic/comparison/logical operators (`+`, `==`, `&&`, `||`, ...), so they usually go at the outer level: write `m1 >> m2 >>= \x -> ...` only if that order is intended.
+- Parentheses are only needed to override this order, e.g. to force sequencing before a larger continuation: `m >>= (\x -> f x >> g)`.
+- Formatter strategy: normalize multiline bind/sequence chains to a procedural left-rail layout:
+
+  ```haskell
+  pipeline input =
+    open_tx input
+    >>= \tx ->
+      step_a tx
+      >> step_b tx
+    >>= \a ->
+      finish a
+  ```
+
 ## Collection Literals
 
 ```haskell

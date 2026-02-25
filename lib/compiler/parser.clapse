@@ -1,0 +1,47 @@
+module compiler.parser
+export is_fail_pos, parser_bind, parser_then, parser_map, parser_ap, parser_keep_left, parser_keep_right, parser_or
+
+infixl 1 >>= = parser_bind
+infixl 1 >> = parser_then
+infixl 3 <|> = parser_or
+infixl 4 <$> = parser_map
+infixl 4 <*> = parser_ap
+infixl 4 <* = parser_keep_left
+infixl 4 *> = parser_keep_right
+
+data bool = true<1> | false<0>
+
+is_fail_pos p = (p == -1)
+
+parser_bind p q src i len =
+  let next = p src i len
+  in case is_fail_pos next of
+    true -> -1
+    _ -> q src next len
+
+parser_then p q = parser_bind p q
+
+parser_map f p src i len =
+  let next = p src i len
+  in case is_fail_pos next of
+    true -> -1
+    _ -> f next
+
+parser_ap p q = parser_keep_right p q
+
+parser_keep_left p q src i len =
+  let next = p src i len
+  in case is_fail_pos next of
+    true -> -1
+    _ ->
+      case is_fail_pos (q src next len) of
+        true -> -1
+        _ -> next
+
+parser_keep_right p q = parser_bind p q
+
+parser_or p q src i len =
+  let next = p src i len
+  in case is_fail_pos next of
+    true -> q src i len
+    _ -> next

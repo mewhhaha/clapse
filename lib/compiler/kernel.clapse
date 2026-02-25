@@ -1,4 +1,5 @@
 module bootstrap_phase9_compiler_kernel
+import compiler.parser
 export clapse_run
 
 data bool = true<1> | false<0>
@@ -608,13 +609,7 @@ fill_json_unknown_error out i len = case (i == len) of
 error_response_from_message msg_txt =
   let msg = str_to_slice msg_txt
       msg_len = slice_len msg
-      prefix_len = slice_len json_error_prefix
-      suffix_len = slice_len json_error_suffix
-      total_len = prefix_len + msg_len + suffix_len
-      out = slice_new_u8 total_len
-      out1 = copy_slice_literal out 0 json_error_prefix
-      out2 = copy_slice_segment msg 0 out1 prefix_len msg_len 0
-  in copy_slice_literal out2 (prefix_len + msg_len) json_error_suffix
+  in json_response_with_slice_segment json_error_prefix json_error_suffix msg 0 msg_len
 
 compile_not_implemented_response _ =
   error_response_from_message "native compile not implemented yet"
@@ -631,14 +626,8 @@ compile_stub_success_response _ =
   let prefix = str_to_slice "{\"ok\":true,\"wasm_base64\":\""
       wasm_b64 = str_to_slice "AGFzbQEAAAABEwNgAX8Bf2ACf38Bf2ADf39/AX8CAQADAgECBAQBcAABBQMBAAEGBwF/AUGAIAsHKgQEbWFpbgAACF9fbWVtb3J5AgAHX190YWJsZQEACl9faGVhcF9wdHIDAAkHAQBBAAsBAAoIAQYBDX9BAQsLAQA="
       suffix = str_to_slice "\",\"exports\":[],\"dts\":\"export {}\\n\"}"
-      prefix_len = slice_len prefix
       b64_len = slice_len wasm_b64
-      suffix_len = slice_len suffix
-      total_len = prefix_len + b64_len + suffix_len
-      out = slice_new_u8 total_len
-      out1 = copy_slice_segment prefix 0 out 0 prefix_len 0
-      out2 = copy_slice_segment wasm_b64 0 out1 prefix_len b64_len 0
-  in copy_slice_segment suffix 0 out2 (prefix_len + b64_len) suffix_len 0
+  in json_response_with_slice_segment prefix suffix wasm_b64 0 b64_len
 
 compile_source_start request_handle req_len =
   find_input_source_start request_handle 0 req_len
@@ -765,12 +754,24 @@ source_value_start_at_quote_check request_handle quote_at req_len =
     _ -> req_len
 
 find_json_key_value_start request_handle i req_len key_txt =
+  let parse_key = parser_bind
+        (parse_json_key_value_end request_handle i req_len key_txt)
+        (parse_json_key_value_end_to_start request_handle)
+      r = parse_key request_handle i req_len
+  in case (r == -1) of
+    true -> req_len
+    _ -> r
+
+parse_json_key_value_end request_handle i req_len key_txt =
   let key = str_to_slice key_txt
       key_len = slice_len key
       key_start = find_literal_start request_handle i req_len key key_len
   in case (key_start == req_len) of
-    true -> req_len
-    _ -> source_value_start_at request_handle (key_start + key_len) req_len
+    true -> -1
+    _ -> key_start + key_len
+
+parse_json_key_value_end_to_start request_handle i req_len =
+  source_value_start_at request_handle i req_len
 
 find_source_start request_handle i req_len =
   find_json_key_value_start request_handle i req_len "\"source\""
@@ -893,28 +894,57 @@ json_copy_escaped_segment src start seg_len i dst dst_i = case (i == seg_len) of
         let d1 = slice_set_u8 dst dst_i b
         in json_copy_escaped_segment src start seg_len (i + 1) d1 (dst_i + 1)
 
-format_empty_response _ =
-  let prefix_len = slice_len json_format_prefix
-      suffix_len = slice_len json_format_suffix
-      total_len = prefix_len + suffix_len
+json_response_with_literal_prefix_suffix prefix suffix =
+  let prefix_len = slice_len prefix
+      suffix_len = slice_len suffix
+      out = slice_new_u8 (prefix_len + suffix_len)
+      out1 = copy_slice_literal out 0 prefix
+  in copy_slice_literal out1 prefix_len suffix
+
+json_response_with_slice_segment prefix suffix src src_start src_len =
+  let prefix_len = slice_len prefix
+      suffix_len = slice_len suffix
+      total_len = prefix_len + src_len + suffix_len
       out = slice_new_u8 total_len
-      out1 = copy_slice_literal out 0 json_format_prefix
-  in copy_slice_literal out1 prefix_len json_format_suffix
+      out1 = copy_slice_literal out 0 prefix
+      out2 = copy_slice_segment src src_start out1 prefix_len src_len 0
+  in copy_slice_literal out2 (prefix_len + src_len) suffix
+
+json_response_with_escaped_slice_segment prefix suffix src src_start src_len =
+  let prefix_len = slice_len prefix
+      escaped_extra = json_escape_extra_len src src_start src_len 0 0
+      escaped_len = src_len + escaped_extra
+      suffix_len = slice_len suffix
+      total_len = prefix_len + escaped_len + suffix_len
+      out = slice_new_u8 total_len
+      out1 = copy_slice_literal out 0 prefix
+      out2 = json_copy_escaped_segment src src_start src_len 0 out1 prefix_len
+  in copy_slice_literal out2 (prefix_len + escaped_len) suffix
+
+json_response_from_slice literal =
+  let out = slice_new_u8 (slice_len literal)
+      out1 = copy_slice_literal out 0 literal
+  in out1
+
+json_slice_end request_handle source_start req_len =
+  let source_end_raw = find_source_end request_handle source_start req_len 0
+  in case (source_end_raw < source_start) (source_end_raw > req_len) of
+    true _ -> source_start
+    _ true -> req_len
+    _ _ -> source_end_raw
+
+format_empty_response _ =
+  json_response_with_literal_prefix_suffix json_format_prefix json_format_suffix
 
 format_source_response request_handle source_start req_len =
-  let source_end_raw = find_source_end request_handle source_start req_len 0
-      source_end = case (source_end_raw < source_start) (source_end_raw > req_len) of
-        true _ -> source_start
-        _ true -> req_len
-        _ _ -> source_end_raw
+  let source_end = json_slice_end request_handle source_start req_len
       source_len = source_end - source_start
-      prefix_len = slice_len json_format_prefix
-      suffix_len = slice_len json_format_suffix
-      total_len = prefix_len + source_len + suffix_len
-      out = slice_new_u8 total_len
-      out1 = copy_slice_literal out 0 json_format_prefix
-      out2 = copy_slice_segment request_handle source_start out1 prefix_len source_len 0
-  in copy_slice_literal out2 (prefix_len + source_len) json_format_suffix
+  in json_response_with_slice_segment
+    json_format_prefix
+    json_format_suffix
+    request_handle
+    source_start
+    source_len
 
 format_ok_response request_handle =
   let req_len = slice_len request_handle
@@ -924,29 +954,17 @@ format_ok_response request_handle =
     _ -> format_source_response request_handle source_start req_len
 
 selfhost_empty_response _ =
-  let prefix_len = slice_len json_selfhost_prefix
-      suffix_len = slice_len json_selfhost_suffix
-      total_len = prefix_len + suffix_len
-      out = slice_new_u8 total_len
-      out1 = copy_slice_literal out 0 json_selfhost_prefix
-  in copy_slice_literal out1 prefix_len json_selfhost_suffix
+  json_response_with_literal_prefix_suffix json_selfhost_prefix json_selfhost_suffix
 
 selfhost_source_response request_handle source_start req_len =
-  let source_end_raw = find_source_end request_handle source_start req_len 0
-      source_end = case (source_end_raw < source_start) (source_end_raw > req_len) of
-        true _ -> source_start
-        _ true -> req_len
-        _ _ -> source_end_raw
+  let source_end = json_slice_end request_handle source_start req_len
       source_len = source_end - source_start
-      escaped_extra = json_escape_extra_len request_handle source_start source_len 0 0
-      escaped_len = source_len + escaped_extra
-      prefix_len = slice_len json_selfhost_prefix
-      suffix_len = slice_len json_selfhost_suffix
-      total_len = prefix_len + escaped_len + suffix_len
-      out = slice_new_u8 total_len
-      out1 = copy_slice_literal out 0 json_selfhost_prefix
-      out2 = json_copy_escaped_segment request_handle source_start source_len 0 out1 prefix_len
-  in copy_slice_literal out2 (prefix_len + escaped_len) json_selfhost_suffix
+  in json_response_with_escaped_slice_segment
+    json_selfhost_prefix
+    json_selfhost_suffix
+    request_handle
+    source_start
+    source_len
 
 selfhost_ok_response_no_input_source request_handle req_len =
   error_response_from_message "selfhost-artifacts request missing input_source"
@@ -959,31 +977,38 @@ selfhost_ok_response request_handle =
     _ -> selfhost_source_response request_handle source_start req_len
 
 unknown_error_response _ =
-  let out = slice_new_u8 (slice_len json_unknown_error)
-      out1 = copy_slice_literal out 0 json_unknown_error
-  in out1
+  json_response_from_slice json_unknown_error
 
 is_command_literal request_handle start req_len lit_txt =
   is_compile_mode_literal request_handle start req_len lit_txt
 
-is_compile_command request_handle start req_len =
-  is_command_literal request_handle start req_len "compile"
+command_tag_code_compile _ = 1
+command_tag_code_format _ = 2
+command_tag_code_selfhost _ = 3
 
-is_format_command request_handle start req_len =
-  is_command_literal request_handle start req_len "format"
+parse_command_tag request_handle value_start req_len command =
+  case is_command_literal request_handle value_start req_len command of
+    true -> value_start
+    _ -> -1
 
-is_selfhost_command request_handle start req_len =
-  is_command_literal request_handle start req_len "selfhost-artifacts"
+parse_command_tag_code request_handle value_start req_len =
+  let compile_tag = parser_map command_tag_code_compile (parse_command_tag request_handle value_start req_len "compile")
+      format_tag = parser_map command_tag_code_format (parse_command_tag request_handle value_start req_len "format")
+      selfhost_tag = parser_map command_tag_code_selfhost (parse_command_tag request_handle value_start req_len "selfhost-artifacts")
+  in parser_or compile_tag (parser_or format_tag selfhost_tag) request_handle value_start req_len
 
-command_tag_at request_handle value_start req_len = case (is_compile_command request_handle value_start req_len) of
-  true -> Just CommandCompile
-  false ->
-    case (is_format_command request_handle value_start req_len) of
-      true -> Just CommandFormat
-      false ->
-        case (is_selfhost_command request_handle value_start req_len) of
-          true -> Just CommandSelfhost
-          false -> Nothing
+command_tag_of request_handle value_start req_len command tag =
+  case is_command_literal request_handle value_start req_len command of
+    true -> Just tag
+    _ -> Nothing
+
+command_tag_at request_handle value_start req_len =
+  let command = parse_command_tag_code request_handle value_start req_len
+  in case command of
+    1 -> Just CommandCompile
+    2 -> Just CommandFormat
+    3 -> Just CommandSelfhost
+    _ -> Nothing
 
 find_command_tag request_handle i req_len =
   let value_start = find_json_key_value_start request_handle i req_len "\"command\""
