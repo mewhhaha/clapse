@@ -4,7 +4,7 @@ This document uses executable Clapse examples.
 
 ## Simple function
 
-```clapse
+```clapse skip
 module getting_started
 
 --| Add one to an integer.
@@ -15,7 +15,7 @@ main n = inc n
 
 ## Tagged booleans
 
-```clapse
+```clapse skip
 module tagged_bool
 
 data bool = true<1> | false<0>
@@ -32,7 +32,7 @@ main x = to_i64 (case x == 0 of
 
 ## String wrapper
 
-```clapse
+```clapse skip
 module string_wrapper
 
 data string = string<slice u8>
