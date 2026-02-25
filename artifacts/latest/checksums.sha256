@@ -1,0 +1,4 @@
+0d2ca5718bbcd791b46241e642038dbe9d5065c940e151367b4a161d37d0dd52  out/releases-ci/v0.1.0.1-1820a5ffa8b6/clapse_compiler.wasm
+70dcf229b32b592c4f46849c3ffca4c84f83b3ca722802d2283ffa1080353714  out/releases-ci/v0.1.0.1-1820a5ffa8b6/clapse_compiler_bridge.wasm
+d3bf61f5911926abad877748bab5947745663fdb3b89c935e6c6866cbeda4129  out/releases-ci/v0.1.0.1-1820a5ffa8b6/native-behavior-fixture-map.json
+aaa90f9dc4cbc7612b09c6bf716904b5af6d0dd68d08328ed6703471a03fa73f  out/releases-ci/v0.1.0.1-1820a5ffa8b6/native-selfhost-artifact-fixture-map.json
