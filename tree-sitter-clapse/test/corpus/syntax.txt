@@ -516,7 +516,36 @@ let_multiline x = let y = add x 1;
           body: (expression
             (application_expression
               function: (identifier)
-              argument: (identifier)))))))
+          argument: (identifier)))))))
+
+==================
+class/instance where blocks
+==================
+
+class Functor f where
+  fmap : (a -> b) -> f a -> f b
+
+instance ParserFunctor : Functor parser where
+  fmap = parser_map
+
+---
+
+(source_file
+  (declaration
+    (class_declaration
+      name: (identifier)
+      type_parameter: (identifier)
+      method_signature: (class_method_signature
+        method_name: (identifier)
+        signature: (signature_text))))
+  (declaration
+    (instance_declaration
+      name: (identifier)
+      class_name: (identifier)
+      class_type_argument: (identifier)
+      binding: (instance_binding
+        method_name: (identifier)
+        target_name: (identifier)))))
   (declaration
     (function_declaration
       name: (identifier)

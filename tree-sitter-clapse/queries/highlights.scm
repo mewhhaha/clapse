@@ -54,6 +54,12 @@
 (class_declaration
   kind: (class_kind) @type.builtin)
 
+(class_method_signature
+  method_name: (identifier) @property)
+
+(class_method_signature
+  signature: (signature_text) @type)
+
 (law_declaration
   class_name: (identifier) @type)
 
@@ -152,6 +158,7 @@
   "class"
   "law"
   "instance"
+  "where"
   "data"
   "infix"
   "infixl"

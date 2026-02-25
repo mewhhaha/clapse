@@ -9,6 +9,8 @@ examples/bootstrap_phase5_dispatch_pilot.clapse
 examples/bootstrap_phase6_entry.clapse
 examples/bootstrap_phase7_host_capability_pilot.clapse
 examples/bootstrap_phase8_pattern_and_operators.clapse
+lib/compiler/prelude.clapse
+lib/compiler/parser.clapse
 lib/compiler/kernel.clapse
 examples/bootstrap_phase10_frontend_lexer.clapse
 examples/bootstrap_phase11_parser_combinator_pilot.clapse

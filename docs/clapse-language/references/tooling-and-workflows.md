@@ -72,13 +72,15 @@ Self-host parity:
 
 ## LSP and Formatter
 
-- LSP currently provides parse diagnostics, type diagnostics, hover inferred
-  types, and inlay hints.
+- LSP currently provides compile diagnostics from wasm compiler responses and
+  hover for `--|` doc comments attached to declarations (including
+  class/instance `where` method lines).
 - Formatter is conservative and source-preserving:
   - validate syntax
   - normalize trailing/inner whitespace rules
   - render multiline `let` blocks in Haskell-style layout (`let` + aligned
     bindings + `in` line)
+  - preserve class/instance `where` block declarations without semantic rewrite
   - avoid semantic rewrites in formatter pass
 
 ## Tree-sitter and Helix

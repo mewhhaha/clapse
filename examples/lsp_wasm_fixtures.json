@@ -19,6 +19,18 @@
       },
       "expectedDiagnosticsAtLeast": 1,
       "hoverExpectation": null
+    },
+    {
+      "name": "where_method_hover_contains_doc",
+      "source": "class Functor f where\n  --| Map over a functor value.\n  fmap : (a -> b) -> f a -> f b\nmain x = x\n",
+      "hover": {
+        "line": 2,
+        "character": 4
+      },
+      "expectedDiagnostics": 0,
+      "hoverExpectation": {
+        "contains": "Map over a functor value."
+      }
     }
   ]
 }

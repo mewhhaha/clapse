@@ -7,6 +7,9 @@
 (class_declaration
   name: (identifier) @name) @definition.type
 
+(class_method_signature
+  method_name: (identifier) @name) @definition.function
+
 (data_declaration
   type_name: (capitalized_identifier) @name) @definition.type
 

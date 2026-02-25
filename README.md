@@ -176,20 +176,12 @@ External tools can also use `parseModuleWithPlugins` with custom
 `FunctionAttributePlugin`s to install additional attribute behaviour in the same
 parsing pipeline.
 
-LSP attribute metadata:
+LSP hover metadata:
 
-- The LSP now parses sources with
-  `parseModuleWithPlugins defaultFunctionAttributePlugins` for diagnostics and
-  type hover resolution.
-- Attribute hover is manifest-backed:
-  - built-ins (`memo`, `test`, `bench`) show arg kind + summary/details
-  - unknown/custom attributes show a fallback hover message until metadata is
-    registered
-- Manifest API (Haskell-side, future Clapse-plugin bridge):
-  `Clapse.AttributeManifest`
-  - `AttributeManifestEntry`, `AttributeKind`, `AttributeArgKind`
-  - `defaultAttributeManifest`, `lookupAttributeManifest`,
-    `mergeAttributeManifest`
+- LSP diagnostics are produced from wasm-compiler `compile` responses.
+- Hover currently serves `--|` doc comments attached to declarations, including
+  method declarations inside class/instance `where` blocks.
+- Attribute hover is not yet implemented in the wasm LSP path.
 
 Tree-sitter attribute syntax:
 
@@ -410,7 +402,8 @@ This system is for optimizer/collapse rewriting, not runtime dictionary passing.
 - Class declaration:
 
 ```haskell
-class <class_name> <type_ctor> : <kind>
+class <class_name> <type_ctor> where
+  <method_name> : <signature>
 ```
 
 - Law declaration:
@@ -422,14 +415,21 @@ law <class_name> <law_name> = <lhs_expr> => <rhs_expr>
 - Instance declaration:
 
 ```haskell
-instance <instance_name> : <class_name> <type_ctor> <method>=<target> ...
+instance <instance_name> : <class_name> <type_ctor> where
+  <method> = <target>
+  ...
 ```
 
-Example HKT class/instance declarations:
+Example class/instance declarations:
 
 ```haskell
-class monad_rules m : monad
-instance monad_on_maybe : monad_rules Maybe pure=maybe_pure bind=maybe_bind
+class monad_rules m where
+  pure : a -> m a
+  bind : m a -> (a -> m b) -> m b
+
+instance monad_on_maybe : monad_rules Maybe where
+  pure = maybe_pure
+  bind = maybe_bind
 ```
 
 ### Supported class kinds
@@ -511,6 +511,7 @@ Formatter behavior today:
   Haskell-style `let` layout
 - expands long inline `let ...; ... in ...` chains into multiline Haskell-style
   `let` blocks
+- preserves class/instance `where` block declarations
 - does not lower/collapse/rewrite declarations during formatting
 - `format` exits with a non-zero status on format errors (`--write` never writes
   on error)
@@ -519,9 +520,10 @@ No host install step is required; use the Deno CLI directly.
 
 LSP currently provides:
 
-- parse diagnostics
-- type diagnostics
-- hover inferred types (no function-signature inlay hints)
+- compile diagnostics
+- hover for `--|` doc comments on declarations (including class/instance
+  `where` method lines)
+- no inlay hints
 
 ## Benchmarking
 
@@ -1104,9 +1106,9 @@ Implemented now:
   named witness constraints
 - parser support for top-level function attributes (`#[memo ...]`,
   `#[test ...]`, `#[bench ...]`) and clause-group propagation
-- parser support for HKT-style class/instance declarations
-  (`class <name> <type_ctor> : kind`,
-  `instance <name> : <class> <type_ctor> ...`)
+- parser support for Haskell-style class/instance declarations with `where`
+  blocks (`class <name> <type_ctor> where ...`,
+  `instance <name> : <class> <type_ctor> where ...`)
 - parser support for collection literals (`[]`, `[a, b, ...]`)
 - parser tolerance for `module/import/export` directives in syntax
   validation/format/lsp paths

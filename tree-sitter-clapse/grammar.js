@@ -11,6 +11,10 @@ module.exports = grammar({
 
   word: ($) => $.identifier,
 
+  conflicts: ($) => [
+    [$.instance_declaration, $.instance_binding],
+  ],
+
   rules: {
     source_file: ($) =>
       repeat(

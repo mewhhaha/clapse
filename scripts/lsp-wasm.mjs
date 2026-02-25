@@ -60,10 +60,10 @@ function stripDocPrefix(line) {
 }
 
 function isFunctionDeclLine(rawLine) {
-  if (rawLine.length === 0 || /^\s/u.test(rawLine)) return null;
   const line = rawLine.trim();
   if (line.length === 0) return null;
   if (line.startsWith("--")) return null;
+  if (line.startsWith("#[")) return null;
   if (
     line.startsWith("module ") ||
     line.startsWith("import ") ||
@@ -71,13 +71,24 @@ function isFunctionDeclLine(rawLine) {
     line.startsWith("data ") ||
     line.startsWith("class ") ||
     line.startsWith("instance ") ||
-    line.startsWith("law ")
+    line.startsWith("law ") ||
+    line.startsWith("infix ")
+  ) {
+    return null;
+  }
+  if (
+    line.startsWith("infixl ") ||
+    line.startsWith("infixr ")
   ) {
     return null;
   }
   const eqAt = line.indexOf("=");
-  if (eqAt <= 0) return null;
-  const lhs = line.slice(0, eqAt).trim();
+  const colonAt = line.indexOf(":");
+  const sepAt = eqAt > 0 && colonAt > 0
+    ? Math.min(eqAt, colonAt)
+    : (eqAt > 0 ? eqAt : colonAt);
+  if (sepAt <= 0) return null;
+  const lhs = line.slice(0, sepAt).trim();
   if (lhs.length === 0) return null;
   const toks = lhs.split(/\s+/u).filter((x) => x.length > 0);
   if (toks.length === 0) return null;
