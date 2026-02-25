@@ -101,16 +101,52 @@ combine x y = append x y
 ## Classes/Laws/Instances (Rewrite Metadata)
 
 ```haskell
-class plus_rules i : add
+class plus_rules i where
+  add : i -> i -> i
 law plus_rules right_identity = add x 0 => x
-instance plus_on_i64 : plus_rules i add=plus
+instance plus_on_i64 : plus_rules i where
+  add = plus
 ```
 
 Functional dependencies can be written on the class header using
 `|` and `->` in minimal one-way form:
 
 ```haskell
-class eq_by_id a | a -> add : eq
+class eq_by_id a | a -> add where
+  eq : a -> a -> bool
+```
+
+Compiler prelude classes now follow Haskell-style `where` blocks:
+
+```haskell
+class Functor f where
+  fmap : (a -> b) -> f a -> f b
+
+class Applicative f where
+  pure : a -> f a
+  ap : f (a -> b) -> f a -> f b
+
+class Monad m where
+  bind : m a -> (a -> m b) -> m b
+
+class Alternative f where
+  empty : f a
+  append : f a -> f a -> f a
+
+instance ParserFunctor : Functor parser where
+  fmap = parser_map
+
+instance ParserApplicative : Applicative parser where
+  pure = parser_pure
+  ap = parser_ap
+
+instance ParserMonad : Monad parser where
+  pure = parser_pure
+  bind = parser_bind
+
+instance ParserAlternative : Alternative parser where
+  empty = parser_empty
+  append = parser_or
 ```
 
 The compiler now uses a local evidence model for dispatch:
@@ -186,7 +222,16 @@ The compiler prelude also defines the shared boolean class in Haskell-like namin
 
 ```haskell
 data bool = true<1> | false<0>
-class Boolean b : bool
+class Boolean b where
+  not : b -> b
+  and : b -> b -> b
+  or : b -> b -> b
+
+instance BooleanBool : Boolean bool where
+  not = bool_not
+  and = bool_and
+  or = bool_or
+
 infixr 3 && = and
 infixr 2 || = or
 ```
@@ -215,7 +260,7 @@ These operators are typically available with low precedence and left associativi
 
 ```haskell
 infixl 1 >>= = bind
-infixl 1 >> = seq
+infixl 1 >> = then_m
 
 m >>= \x ->
   stepA x >>

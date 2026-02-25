@@ -1,5 +1,5 @@
 module compiler.prelude
-export id, compose, then_m, keep_left, keep_right, alt, bool_not, bool_and, bool_or, not, and, or, Boolean
+export id, compose, then_m, keep_left, keep_right, alt, bool_not, bool_and, bool_or, not, and, or, Functor, Applicative, Monad, Alternative, Boolean
 
 infixl 1 >>= = bind
 infixl 1 >> = then_m
@@ -16,22 +16,28 @@ keep_left u v = ap (fmap (\x -> (\_ -> x)) u) v
 keep_right u v = ap (fmap (\_ -> id) u) v
 alt a b = append a b
 
-class Functor f : functor
+class Functor f where
+  fmap : (a -> b) -> f a -> f b
 law Functor identity = fmap id x => x
 law Functor composition = fmap f (fmap g x) => fmap (compose f g) x
 
-class Applicative f : applicative
+class Applicative f where
+  pure : a -> f a
+  ap : f (a -> b) -> f a -> f b
 law Applicative identity = ap (pure id) x => x
 law Applicative homomorphism = ap (pure f) (pure x) => pure (f x)
 law Applicative interchange = ap u (pure y) => ap (pure (\f -> f y)) u
 law Applicative composition = ap (ap (ap (pure compose) u) v) w => ap u (ap v w)
 
-class Monad m : monad
+class Monad m where
+  bind : m a -> (a -> m b) -> m b
 law Monad left_identity = bind (pure x) f => f x
 law Monad right_identity = bind m pure => m
 law Monad associativity = bind (bind m f) g => bind m (\x -> bind (f x) g)
 
-class Alternative f : monoid
+class Alternative f where
+  empty : f a
+  append : f a -> f a -> f a
 law Alternative left_identity = append empty x => x
 law Alternative right_identity = append x empty => x
 law Alternative associativity = append (append x y) z => append x (append y z)
@@ -57,11 +63,17 @@ not = bool_not
 and = bool_and
 or = bool_or
 
-class Boolean b : bool
+class Boolean b where
+  not : b -> b
+  and : b -> b -> b
+  or : b -> b -> b
 law Boolean and_identity = and true x => x
 law Boolean and_annihilation = and false x => false
 law Boolean or_identity = or x false => x
 law Boolean or_annihilation = or x true => true
 law Boolean double_negation = not (not x) => x
 
-instance BooleanBool : Boolean bool not=not and=and or=or
+instance BooleanBool : Boolean bool where
+  not = bool_not
+  and = bool_and
+  or = bool_or

@@ -249,16 +249,56 @@ module.exports = grammar({
       ),
 
     class_declaration: ($) =>
-      seq(
-        $._kw_class,
-        $._ws1,
-        field("name", $.identifier),
-        repeat(seq($._ws1, field("type_parameter", $.identifier)),
+      prec.right(
+        seq(
+          $._kw_class,
+          $._ws1,
+          field("name", $.identifier),
+          repeat(seq($._ws1, field("type_parameter", $.identifier))),
+          choice(
+            seq(
+              $._ws1,
+              ":",
+              $._ws1,
+              field("kind", $.class_kind),
+            ),
+            seq(
+              $._ws1,
+              $._kw_where,
+              choice(
+                seq(
+                  $._ws1,
+                  field("method_signature", $.class_method_signature),
+                  repeat(
+                    seq(
+                      $._class_method_separator,
+                      field("method_signature", $.class_method_signature),
+                    ),
+                  ),
+                ),
+                seq(
+                  $._newline_indent,
+                  field("method_signature", $.class_method_signature),
+                  repeat(
+                    seq(
+                      $._newline_indent,
+                      field("method_signature", $.class_method_signature),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
-        $._ws1,
+      ),
+
+    class_method_signature: ($) =>
+      seq(
+        field("method_name", $.identifier),
+        optional($._ws1),
         ":",
-        $._ws1,
-        field("kind", $.class_kind),
+        optional($._ws1),
+        field("signature", $.signature_text),
       ),
 
     instance_declaration: ($) =>
@@ -277,15 +317,65 @@ module.exports = grammar({
               field("class_type_argument", choice($.identifier, $.capitalized_identifier)),
             ),
           ),
-          repeat1(seq($._ws1, field("binding", $.instance_binding))),
+          choice(
+            repeat1(seq($._ws1, field("binding", $.instance_binding))),
+            seq(
+              $._ws1,
+              $._kw_where,
+              choice(
+                seq(
+                  $._ws1,
+                  field("binding", $.instance_binding),
+                  repeat(
+                    seq(
+                      $._instance_binding_separator,
+                      field("binding", $.instance_binding),
+                    ),
+                  ),
+                ),
+                seq(
+                  $._newline_indent,
+                  field("binding", $.instance_binding),
+                  repeat(
+                    seq(
+                      $._newline_indent,
+                      field("binding", $.instance_binding),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
 
     instance_binding: ($) =>
       seq(
         field("method_name", $.identifier),
+        optional($._ws1),
         "=",
+        optional($._ws1),
         field("target_name", $.identifier),
+      ),
+
+    _class_method_separator: ($) =>
+      choice(
+        seq(
+          optional($._ws1),
+          ";",
+          optional(choice($._ws1, seq($._newline, optional($._ws1)))),
+        ),
+        $._newline_indent,
+      ),
+
+    _instance_binding_separator: ($) =>
+      choice(
+        seq(
+          optional($._ws1),
+          ";",
+          optional(choice($._ws1, seq($._newline, optional($._ws1)))),
+        ),
+        $._newline_indent,
       ),
 
     law_declaration: ($) =>
@@ -685,6 +775,7 @@ module.exports = grammar({
     _kw_class: () => token(prec(1, "class")),
     _kw_law: () => token(prec(1, "law")),
     _kw_instance: () => token(prec(1, "instance")),
+    _kw_where: () => token(prec(1, "where")),
     _kw_module: () => token(prec(1, "module")),
     _kw_import: () => token(prec(1, "import")),
     _kw_export: () => token(prec(1, "export")),
