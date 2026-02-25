@@ -14,12 +14,12 @@ deno run -A scripts/clapse.mjs bench [iterations]
 ```
 
 - `compile`/`selfhost-artifacts`/`format`/`lsp` use compiler-wasm mode by
-  default; pass `--host` to force host execution.
+  default.
   - compiler wasm is resolved from `CLAPSE_COMPILER_WASM_PATH`, then
     `out/clapse_compiler.wasm`.
   - transitional bridge artifact (`out/clapse_compiler_bridge.wasm`) requires
     `CLAPSE_ALLOW_BRIDGE=1`.
-- `bench` is host-backed today, but invoked via the same deno command surface.
+- `bench` is currently invoked via the same deno command surface through the wasm runner.
 
 ## Just Targets
 
@@ -99,7 +99,7 @@ When changing syntax/semantics/lowering/WASM behavior:
 ## Minimal Validation Set
 
 ```bash
-CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal test
+just selfhost-check-wasm
 just bench
 just wasm-smoke
 just life-smoke

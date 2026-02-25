@@ -4,13 +4,23 @@ import { cliArgs, failWithError } from "./runtime-env.mjs";
 
 const UTF8_DECODER = new TextDecoder();
 
+const SELFHOST_ARTIFACT_FILES = [
+  "merged_module.txt",
+  "type_info.txt",
+  "type_info_error.txt",
+  "lowered_ir.txt",
+  "collapsed_ir.txt",
+  "exports.txt",
+  "wasm_stats.txt",
+];
+
 function usage() {
   console.log(
-    "Usage: deno run -A scripts/build-native-behavior-fixture-map.mjs [--manifest path ...] [--out path]",
+    "Usage: deno run -A scripts/build-wasm-selfhost-artifact-fixture-map.mjs [--manifest path ...] [--out path]",
   );
   console.log("  --manifest  Manifest path (repeatable)");
   console.log(
-    "  --out       Output fixture map JSON (default scripts/native-behavior-fixture-map.json)",
+    "  --out       Output fixture map JSON (default scripts/wasm-selfhost-artifact-fixture-map.json)",
   );
   console.log("  --help      Show this help");
 }
@@ -42,7 +52,9 @@ function parseJsonManifest(raw, sourcePath) {
   const out = [];
   if (Array.isArray(doc?.scenarios)) {
     for (const scenario of doc.scenarios) {
-      out.push(normalizeEntry(scenario?.entry));
+      if (scenario && typeof scenario.entry === "string") {
+        out.push(normalizeEntry(scenario.entry));
+      }
     }
   }
   if (Array.isArray(doc?.entries)) {
@@ -66,24 +78,14 @@ function parseJsonManifest(raw, sourcePath) {
   return out.filter((entry) => typeof entry === "string" && entry.length > 0);
 }
 
-async function parseManifest(path, seen) {
+async function parseManifest(path, out) {
   const raw = await Deno.readTextFile(path);
   const entries = path.endsWith(".json")
     ? parseJsonManifest(raw, path)
     : parseTextManifest(raw);
   for (const entry of entries) {
-    if (typeof entry === "string" && !seen.has(entry)) {
-      seen.add(entry);
-    }
+    if (typeof entry === "string" && !out.has(entry)) out.add(entry);
   }
-}
-
-function toBase64(bytes) {
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 1) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
 }
 
 async function sha256Hex(bytes) {
@@ -93,40 +95,57 @@ async function sha256Hex(bytes) {
     .join("");
 }
 
-async function hostCompile(entry, outputPath, buildLog, buildSummary) {
-  const result = await new Deno.Command("cabal", {
+async function runWasmSelfhostArtifacts(entry) {
+  const outDir = await Deno.makeTempDir({
+    prefix: "clapse_native_selfhost_artifacts_",
+    dir: "/tmp",
+  });
+  const result = await new Deno.Command("deno", {
     args: [
       "run",
-      "clapse",
-      `--build-log=${buildLog}`,
-      `--build-summary=${buildSummary}`,
+      "-A",
+      "scripts/run-clapse-compiler-wasm.mjs",
       "--",
-      "compile",
+      "selfhost-artifacts",
       entry,
-      outputPath,
+      outDir,
     ],
     env: {
       ...Deno.env.toObject(),
-      CABAL_DIR: `${Deno.cwd()}/.cabal`,
-      CABAL_LOGDIR: `${Deno.cwd()}/.cabal-logs`,
     },
     stdout: "piped",
     stderr: "piped",
   }).output();
 
-  if (!result.success) {
-    const stderr = UTF8_DECODER.decode(result.stderr).trim();
-    const stdout = UTF8_DECODER.decode(result.stdout).trim();
-    throw new Error(
-      `host compile failed for ${entry}: ${stderr || stdout || `exit=${result.code}`}`,
-    );
+  try {
+    if (!result.success) {
+      const stderr = UTF8_DECODER.decode(result.stderr).trim();
+      const stdout = UTF8_DECODER.decode(result.stdout).trim();
+      throw new Error(
+        `wasm selfhost-artifacts failed for ${entry}: ${
+          stderr || stdout || `exit=${result.code}`
+        }`,
+      );
+    }
+
+    const artifacts = {};
+    for (const file of SELFHOST_ARTIFACT_FILES) {
+      const value = await Deno.readTextFile(`${outDir}/${file}`).catch(() => null);
+      if (value === null) {
+        throw new Error(`missing artifact file ${file} for ${entry}`);
+      }
+      artifacts[file] = value;
+    }
+    return artifacts;
+  } finally {
+    await Deno.remove(outDir, { recursive: true }).catch(() => {});
   }
 }
 
 function parseArgs(argv) {
   const cfg = {
     manifests: [],
-    outPath: "scripts/native-behavior-fixture-map.json",
+    outPath: "scripts/wasm-selfhost-artifact-fixture-map.json",
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -146,16 +165,14 @@ function parseArgs(argv) {
       usage();
       return null;
     }
-    throw new Error(`unknown arg: ${arg}`);
+    if (arg.startsWith("--")) {
+      throw new Error(`unknown arg: ${arg}`);
+    }
   }
 
   if (cfg.manifests.length === 0) {
-    cfg.manifests.push(
-      "examples/selfhost_corpus.txt",
-      "examples/selfhost_behavior_corpus.json",
-    );
+    cfg.manifests.push("examples/selfhost_corpus.txt");
   }
-
   return cfg;
 }
 
@@ -163,50 +180,37 @@ async function main() {
   const cfg = parseArgs(cliArgs());
   if (!cfg) return;
 
-  const seen = new Set();
+  const entries = new Set();
   for (const manifest of cfg.manifests) {
-    await parseManifest(manifest, seen);
+    await parseManifest(manifest, entries);
   }
-  const entries = [...seen];
-  if (entries.length === 0) {
+  const entryList = [...entries];
+  if (entryList.length === 0) {
     throw new Error("no entries found in manifest inputs");
   }
 
-  await Deno.mkdir(`${Deno.cwd()}/.cabal-logs`, { recursive: true });
   if (cfg.outPath.includes("/")) {
     const outDir = cfg.outPath.slice(0, cfg.outPath.lastIndexOf("/"));
-    if (outDir.length > 0) {
-      await Deno.mkdir(outDir, { recursive: true });
-    }
+    if (outDir.length > 0) await Deno.mkdir(outDir, { recursive: true });
   }
 
-  const buildLog = `${Deno.cwd()}/.cabal-logs/build.log`;
-  const buildSummary = `${Deno.cwd()}/.cabal-logs/build.summary`;
   const fixtureMap = {};
 
-  for (const entry of entries) {
+  for (const entry of entryList) {
     const sourceBytes = await Deno.readFile(entry);
     const sourceSha256 = await sha256Hex(sourceBytes);
-    const outWasm = await Deno.makeTempFile({
-      suffix: ".wasm",
-      prefix: "clapse_native_fixture_",
-      dir: "/tmp",
-    });
-    try {
-      await hostCompile(entry, outWasm, buildLog, buildSummary);
-      const wasmBytes = await Deno.readFile(outWasm);
-      fixtureMap[entry] = {
-        source_sha256: sourceSha256,
-        wasm_base64: toBase64(wasmBytes),
-      };
-      console.log(`[fixture-map] built ${entry}`);
-    } finally {
-      await Deno.remove(outWasm).catch(() => {});
-    }
+    const selfhostArtifacts = await runWasmSelfhostArtifacts(entry);
+    fixtureMap[entry] = {
+      source_sha256: sourceSha256,
+      selfhost_artifacts: selfhostArtifacts,
+    };
+    console.log(`[selfhost-artifact-fixture-map] built ${entry}`);
   }
 
   await Deno.writeTextFile(cfg.outPath, `${JSON.stringify(fixtureMap, null, 2)}\n`);
-  console.log(`[fixture-map] wrote ${entries.length} entries to ${cfg.outPath}`);
+  console.log(
+    `[selfhost-artifact-fixture-map] wrote ${entryList.length} entries to ${cfg.outPath}`,
+  );
 }
 
 await main().catch(failWithError);

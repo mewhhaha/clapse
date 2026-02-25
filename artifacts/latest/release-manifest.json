@@ -6,9 +6,7 @@
   "built_at_utc": "2026-02-25T13:37:47.812Z",
   "platform": "linux-x86_64",
   "tool_versions": {
-    "deno": "2.7.0+fb4db33 (canary, release, x86_64-unknown-linux-gnu)",
-    "ghc": "9.14.1",
-    "cabal": "3.16.1.0"
+    "deno": "2.7.0+fb4db33 (canary, release, x86_64-unknown-linux-gnu)"
   },
   "git": {
     "commit": "6f247f1fc2707325dc99d333862777c831bd72c8",

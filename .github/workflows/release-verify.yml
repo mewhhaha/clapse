@@ -25,12 +25,15 @@ jobs:
         with:
           deno-version: v2.x
 
+      - name: Guard no host toolchain surface
+        run: deno run -A scripts/guard-no-host-surface.mjs
+
       - name: Resolve release context
         id: release_context
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           set -euo pipefail
-          version="$(awk '/^version:/ {print $2; exit}' clapse.cabal)"
+          version="$(cat VERSION)"
           short_sha="$(git rev-parse --short=12 HEAD)"
           release_id="${GITHUB_REF_NAME}-${short_sha}"
           release_dir="out/releases-ci/${release_id}"
@@ -52,8 +55,8 @@ jobs:
             artifacts/latest/clapse_compiler.wasm \
             artifacts/latest/clapse_compiler_bridge.wasm \
             artifacts/latest/seed-lock.json \
-            scripts/native-behavior-fixture-map.json \
-            scripts/native-selfhost-artifact-fixture-map.json
+            scripts/wasm-behavior-fixture-map.json \
+            scripts/wasm-selfhost-artifact-fixture-map.json
           do
             if [ ! -f "${path}" ]; then
               echo "missing required release input: ${path}" >&2
@@ -86,22 +89,19 @@ jobs:
           echo "seed lock verified (${seed_release_id})"
 
           mkdir -p "${RELEASE_DIR}"
-          CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=0 \
-            CLAPSE_COMPILER_WASM_PATH="${PWD}/artifacts/latest/clapse_compiler.wasm" \
+          CLAPSE_COMPILER_WASM_PATH="${PWD}/artifacts/latest/clapse_compiler.wasm" \
             deno run -A scripts/run-clapse-compiler-wasm.mjs \
-              compile examples/bootstrap_phase9_compiler_kernel.clapse \
+              compile lib/compiler/kernel.clapse \
               "${RELEASE_DIR}/clapse_compiler.wasm"
           cp artifacts/latest/clapse_compiler_bridge.wasm "${RELEASE_DIR}/clapse_compiler_bridge.wasm"
-          cp scripts/native-behavior-fixture-map.json "${RELEASE_DIR}/native-behavior-fixture-map.json"
-          cp scripts/native-selfhost-artifact-fixture-map.json "${RELEASE_DIR}/native-selfhost-artifact-fixture-map.json"
+          cp scripts/wasm-behavior-fixture-map.json "${RELEASE_DIR}/wasm-behavior-fixture-map.json"
+          cp scripts/wasm-selfhost-artifact-fixture-map.json "${RELEASE_DIR}/wasm-selfhost-artifact-fixture-map.json"
 
           cat > "${RELEASE_DIR}/clapse" <<EOF
           #!/usr/bin/env bash
           set -euo pipefail
           SELF_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
           export CLAPSE_COMPILER_WASM_PATH="\${CLAPSE_COMPILER_WASM_PATH:-\${SELF_DIR}/clapse_compiler.wasm}"
-          export CLAPSE_ALLOW_HOST_COMPILE_FALLBACK="\${CLAPSE_ALLOW_HOST_COMPILE_FALLBACK:-0}"
-          export CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK="\${CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK:-0}"
           exec deno run -A "https://raw.githubusercontent.com/mewhhaha/clapse/${GITHUB_REF_NAME}/scripts/clapse.mjs" --wasm "\$@"
           EOF
           chmod +x "${RELEASE_DIR}/clapse"
@@ -111,8 +111,8 @@ jobs:
             --clapse-version "${CLAPSE_VERSION}" \
             --compiler-wasm "${RELEASE_DIR}/clapse_compiler.wasm" \
             --bridge-wasm "${RELEASE_DIR}/clapse_compiler_bridge.wasm" \
-            --behavior-map "${RELEASE_DIR}/native-behavior-fixture-map.json" \
-            --artifact-map "${RELEASE_DIR}/native-selfhost-artifact-fixture-map.json" \
+            --behavior-map "${RELEASE_DIR}/wasm-behavior-fixture-map.json" \
+            --artifact-map "${RELEASE_DIR}/wasm-selfhost-artifact-fixture-map.json" \
             --out "${RELEASE_DIR}/release-manifest.json" \
             --checksums "${RELEASE_DIR}/checksums.sha256"
 
@@ -139,8 +139,8 @@ jobs:
             ${{ steps.release_context.outputs.release_dir }}/clapse
             ${{ steps.release_context.outputs.release_dir }}/clapse_compiler.wasm
             ${{ steps.release_context.outputs.release_dir }}/clapse_compiler_bridge.wasm
-            ${{ steps.release_context.outputs.release_dir }}/native-behavior-fixture-map.json
-            ${{ steps.release_context.outputs.release_dir }}/native-selfhost-artifact-fixture-map.json
+            ${{ steps.release_context.outputs.release_dir }}/wasm-behavior-fixture-map.json
+            ${{ steps.release_context.outputs.release_dir }}/wasm-selfhost-artifact-fixture-map.json
             ${{ steps.release_context.outputs.release_dir }}/release-manifest.json
             ${{ steps.release_context.outputs.release_dir }}/checksums.sha256
 

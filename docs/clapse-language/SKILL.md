@@ -43,7 +43,7 @@ Use for the execution checklist to move from Haskell-hosted compilation to Claps
 ## Fast Validation Commands
 
 ```bash
-CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal test
+just selfhost-check-wasm
 just bench
 just wasm-smoke
 just life-smoke

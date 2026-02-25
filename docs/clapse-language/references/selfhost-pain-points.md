@@ -103,8 +103,7 @@ When we hit a new blocker while self-hosting:
 - Root cause:
   - manual byte-copy of raw source into quoted JSON fields without escaping.
 - Current mitigation:
-  - wasm runner host fallback for `selfhost-artifacts` when native payload is
-    invalid/incomplete.
+  - strict JSON escape path is gated in self-host checks before release.
 - Ship blocker to close:
   - native JSON escaping helper (`json_escape_string_to_slice`) and parity tests
     for quote/backslash/newline-heavy inputs.
@@ -116,7 +115,8 @@ When we hit a new blocker while self-hosting:
 - Root cause:
   - deep recursive scanners/copy loops over request payloads.
 - Current mitigation:
-  - fallback on native selfhost artifact path.
+  - replace recursive request scanning/copy with bounded iterative paths under
+    self-host parity gates.
 - Ship blocker to close:
   - bounded iterative scanners/copy loops (or recursion depth guards) in native
     compiler kernel.

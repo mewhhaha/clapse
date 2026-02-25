@@ -66,12 +66,12 @@ deno run -A scripts/clapse.mjs lsp --stdio
 ```
 
 - `compile`/`selfhost-artifacts`/`format`/`lsp` route through compiler-wasm mode
-  unless `--host` is passed.
+  by default.
   - compiler wasm is resolved from `CLAPSE_COMPILER_WASM_PATH`, then
     `out/clapse_compiler.wasm`.
   - transitional bridge artifact (`out/clapse_compiler_bridge.wasm`) is only
     allowed when `CLAPSE_ALLOW_BRIDGE=1`.
-- `bench` currently routes through the host executable behind the same deno
+- `bench` currently routes through the wasm runner behind the same deno
   frontend.
 
 Release/version pipeline for compiler artifacts:
@@ -89,8 +89,8 @@ just release-candidate out=out/releases-ci
 - builds `clapse_compiler.wasm` + bridge artifact in a versioned directory
 - runs strict wasm selfhost parity (`selfhost-check-wasm`)
 - regenerates fixture maps and requires byte-for-byte parity against:
-  - `scripts/native-behavior-fixture-map.json`
-  - `scripts/native-selfhost-artifact-fixture-map.json`
+  - `scripts/wasm-behavior-fixture-map.json`
+  - `scripts/wasm-selfhost-artifact-fixture-map.json`
 - emits:
   - `release-manifest.json` (version, commit, toolchain, artifact hashes/sizes)
   - `checksums.sha256` (reproducible checksum list)
@@ -486,12 +486,12 @@ normalization (`VSelfTailCall`).
 Single executable provides compiler + formatter + LSP:
 
 ```bash
-cabal run clapse -- format <file>
-cabal run clapse -- format --write <file>
-cabal run clapse -- format --stdin
-cabal run clapse -- compile <input.clapse> [output.wasm]
-cabal run clapse -- bench [iterations]
-cabal run clapse -- lsp --stdio
+deno run -A scripts/clapse.mjs format <file>
+deno run -A scripts/clapse.mjs format --write <file>
+deno run -A scripts/clapse.mjs format --stdin
+deno run -A scripts/clapse.mjs compile <input.clapse> [output.wasm]
+deno run -A scripts/clapse.mjs bench [iterations]
+deno run -A scripts/clapse.mjs lsp --stdio
 ```
 
 `compile` writes the wasm file at the requested output path and a `.d.ts`
@@ -515,11 +515,7 @@ Formatter behavior today:
 - `format` exits with a non-zero status on format errors (`--write` never writes
   on error)
 
-Install:
-
-```bash
-cabal install exe:clapse
-```
+No host install step is required; use the Deno CLI directly.
 
 LSP currently provides:
 
@@ -601,7 +597,7 @@ Current backend supports:
 Deno runtime smoke:
 
 ```bash
-cabal run clapse -- compile examples/wasm_main.clapse out/wasm_main.wasm
+deno run -A scripts/clapse.mjs compile examples/wasm_main.clapse out/wasm_main.wasm
 deno run -A scripts/run-wasm.mjs out/wasm_main.wasm main 7
 ```
 
@@ -682,7 +678,7 @@ Key examples:
 - `examples/bootstrap_phase6_entry.clapse`
 - `examples/bootstrap_phase7_host_capability_pilot.clapse`
 - `examples/bootstrap_phase8_pattern_and_operators.clapse`
-- `examples/bootstrap_phase9_compiler_kernel.clapse`
+- `lib/compiler/kernel.clapse`
 - `examples/bootstrap_phase10_frontend_lexer.clapse`
 - `examples/bootstrap_phase11_parser_combinator_pilot.clapse`
 - `examples/parser_layout_pain_points.clapse`
@@ -747,7 +743,7 @@ Self-host bootstrap checkpoint (`1/2/3/4/5/6/7/8/9/10/11`) now has concrete fixt
 8. Syntax/behavior pilot: guards + operators + constructor-pattern case
    (`examples/bootstrap_phase8_pattern_and_operators.clapse`)
 9. Native compiler ABI kernel: exported `clapse_run` response path in Clapse
-   source (`examples/bootstrap_phase9_compiler_kernel.clapse`)
+   source (`lib/compiler/kernel.clapse`)
    - command dispatch now handles `compile`/`format`/`selfhost-artifacts`
      request shapes at protocol level
    - command detection now uses request-byte scanning for `"command":"..."`
@@ -798,7 +794,7 @@ Three-stage compiler chain proof (Haskell -> wasm compiler A -> wasm compiler B 
 just bootstrap-chain-proof
 ```
 
-This runs Stage B and Stage C with `CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=0` and
+This runs Stage B and Stage C with a wasm-only command path and
 requires identical wasm hashes for A/B/C.
 
 Compiler parity gate:
@@ -811,7 +807,7 @@ Self-host differential artifacts/parity gates:
 
 ```bash
 # emit parse/type/lower/collapse/export/wasm stats artifacts for one entry module
-cabal run clapse -- selfhost-artifacts examples/bootstrap_phase6_entry.clapse out/selfhost-artifacts
+deno run -A scripts/run-clapse-compiler-wasm.mjs -- selfhost-artifacts examples/bootstrap_phase6_entry.clapse out/selfhost-artifacts
 
 # compare left/right compiler engines over corpus manifest
 deno run -A scripts/selfhost-diff.mjs --manifest examples/selfhost_corpus.txt --out out/selfhost-diff
@@ -834,11 +830,11 @@ deno run -A scripts/selfhost-bootstrap-abc.mjs --manifest examples/selfhost_corp
 # one-shot local gate
 just selfhost-check
 
-# strict gate: requires distinct left/right engine commands (host-vs-host is rejected)
+# strict gate: requires distinct left/right engine commands
 just selfhost-check-strict
 
 # strict gate with explicit engine commands
-SELFHOST_LEFT_CMD='CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --' \
+SELFHOST_LEFT_CMD='CLAPSE_COMPILER_WASM_PATH=out/clapse_compiler.wasm deno run -A scripts/run-clapse-compiler-wasm.mjs --' \
 SELFHOST_RIGHT_CMD='CLAPSE_COMPILER_WASM_PATH=out/clapse_compiler.wasm deno run -A scripts/run-clapse-compiler-wasm.mjs --' \
 just selfhost-check-strict
 ```
@@ -891,38 +887,13 @@ Wasm compiler runner:
 CLAPSE_COMPILER_WASM_PATH=out/clapse_compiler.wasm
 ```
 
-Optional transitional fallback (compile command):
-
-```bash
-# default is enabled
-CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=1
-# disable to force native-only compile
-CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=0
-```
-
-When enabled, if native wasm compile returns `"native compile not implemented yet"`,
-the runner falls back to host `cabal run clapse -- compile`.
-With `CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=0`, the runner now fails fast instead
-of substituting fixture wasm artifacts.
-
-Optional transitional fallback (`selfhost-artifacts` command):
-
-```bash
-# default is enabled
-CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK=1
-# disable to force native-only selfhost artifact generation
-CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK=0
-```
-
-When enabled, if native wasm `selfhost-artifacts` returns invalid/incomplete
-artifact JSON (or placeholder artifacts), the runner falls back to host
-`cabal run clapse -- selfhost-artifacts`.
-With `CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK=0`, the runner now fails fast instead
-of substituting fixture artifact maps.
+Compile and `selfhost-artifacts` are strict wasm execution paths.
+If the compiler artifact is missing/invalid, or responses are malformed,
+commands fail immediately.
 
 Current phase9 kernel wiring:
 
-- `examples/bootstrap_phase9_compiler_kernel.clapse` imports `host.clapse` and
+- `lib/compiler/kernel.clapse` imports `host.clapse` and
   routes `compile` and `selfhost-artifacts` requests through
   `clapse_host_run`.
 - This keeps strict wasm-right parity free of fixture substitution while the
@@ -1004,7 +975,7 @@ compiler-in-clapse wasm artifact is still in progress.
 Strict gates can be wired explicitly:
 
 ```bash
-SELFHOST_LEFT_CMD='CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --' \
+SELFHOST_LEFT_CMD='CLAPSE_COMPILER_WASM_PATH=out/clapse_compiler.wasm deno run -A scripts/run-clapse-compiler-wasm.mjs --' \
 SELFHOST_RIGHT_CMD='CLAPSE_COMPILER_WASM_PATH=out/clapse_compiler.wasm deno run -A scripts/run-clapse-compiler-wasm.mjs --' \
 just selfhost-check-strict
 ```

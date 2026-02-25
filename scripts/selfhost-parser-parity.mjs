@@ -1,6 +1,8 @@
 #!/usr/bin/env -S deno run -A
 
 function parseArgs(argv) {
+  const defaultCompilerCommand =
+    "deno run -A scripts/run-clapse-compiler-wasm.mjs --";
   const out = {
     manifest: "examples/selfhost_parser_corpus.txt",
     leftName: "left",
@@ -9,9 +11,9 @@ function parseArgs(argv) {
     requireRightEngineMode: "",
     requireExactMerged: true,
     left:
-      'CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --',
+      defaultCompilerCommand,
     right:
-      'CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --',
+      defaultCompilerCommand,
     out: "out/selfhost-parser-parity",
   };
 

@@ -87,71 +87,20 @@ function toBase64(bytes) {
 
 function runHostCompile(request) {
   const inputPath = String(request.input_path ?? "");
-  if (inputPath.length === 0) {
-    return { ok: false, error: "compile request missing input_path" };
-  }
-  const tmpWasm = Deno.makeTempFileSync({
-    prefix: "clapse-host-compile-",
-    suffix: ".wasm",
-  });
-  const cmd =
-    `CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse -- compile ${
-      shQuote(inputPath)
-    } ${shQuote(tmpWasm)}`;
-  const run = runHostCommandSync(cmd);
-  if (!run.ok) {
-    return {
-      ok: false,
-      error: run.stderr.trim() || run.stdout.trim() ||
-        `host compile failed (${run.code})`,
-    };
-  }
-  const wasmBytes = Deno.readFileSync(tmpWasm);
-  const dtsPath = tmpWasm.replace(/\.wasm$/u, ".d.ts");
-  let dts = "";
-  try {
-    dts = Deno.readTextFileSync(dtsPath);
-  } catch {
-    dts = "";
-  }
   return {
-    ok: true,
-    wasm_base64: toBase64(wasmBytes),
-    dts,
-    exports: [],
+    ok: false,
+    error:
+      `host compile bridge is removed (input=${inputPath}); use native wasm compiler artifact`,
   };
 }
 
 function runHostFormat(request) {
-  const source = String(request.source ?? "");
-  const mode = String(request.mode ?? "stdout");
   const inputPath = String(request.input_path ?? "");
-  const tmpPath = Deno.makeTempFileSync({
-    prefix: "clapse-host-format-",
-    suffix: ".clapse",
-  });
-  Deno.writeTextFileSync(tmpPath, source);
-  const cmd = mode === "write"
-    ? `CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse -- format --write ${
-      shQuote(tmpPath)
-    }`
-    : `CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse -- format ${
-      shQuote(tmpPath)
-    }`;
-  const run = runHostCommandSync(cmd);
-  if (!run.ok) {
-    return {
-      ok: false,
-      error: run.stderr.trim() || run.stdout.trim() ||
-        `host format failed (${run.code})`,
-    };
-  }
-  const formatted = mode === "write"
-    ? Deno.readTextFileSync(tmpPath)
-    : run.stdout;
+  const mode = String(request.mode ?? "stdout");
   return {
-    ok: true,
-    formatted,
+    ok: false,
+    error:
+      `host format bridge is removed (input=${inputPath}, mode=${mode}); use native wasm compiler artifact`,
     input_path: inputPath,
     mode,
   };
@@ -159,35 +108,11 @@ function runHostFormat(request) {
 
 function runHostSelfhostArtifacts(request) {
   const inputPath = String(request.input_path ?? "");
-  if (inputPath.length === 0) {
-    return {
-      ok: false,
-      error: "selfhost-artifacts request missing input_path",
-    };
-  }
-  const outDir = Deno.makeTempDirSync({ prefix: "clapse-host-selfhost-" });
-  const cmd =
-    `CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse -- selfhost-artifacts ${
-      shQuote(inputPath)
-    } ${shQuote(outDir)}`;
-  const run = runHostCommandSync(cmd);
-  if (!run.ok) {
-    return {
-      ok: false,
-      error: run.stderr.trim() || run.stdout.trim() ||
-        `host selfhost-artifacts failed (${run.code})`,
-    };
-  }
-  const artifacts = {};
-  for (const name of SELFHOST_ARTIFACT_FILES) {
-    const path = `${outDir}/${name}`;
-    try {
-      artifacts[name] = Deno.readTextFileSync(path);
-    } catch {
-      artifacts[name] = "";
-    }
-  }
-  return { ok: true, artifacts };
+  return {
+    ok: false,
+    error:
+      `host selfhost-artifacts bridge is removed (input=${inputPath}); use native wasm compiler artifact`,
+  };
 }
 
 function runHostClapseRequest(request) {

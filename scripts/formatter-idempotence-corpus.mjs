@@ -1,10 +1,11 @@
 #!/usr/bin/env -S deno run -A
 
 function parseArgs(argv) {
+  const defaultCompilerCommand =
+    "deno run -A scripts/run-clapse-compiler-wasm.mjs --";
   const out = {
     manifest: "examples/compiler_source_corpus.txt",
-    cmd:
-      'CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --',
+    cmd: defaultCompilerCommand,
     out: "out/formatter-idempotence",
   };
 

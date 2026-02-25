@@ -13,17 +13,19 @@ const FILES = [
 const UTF8_ENCODER = new TextEncoder();
 
 function parseArgs(argv) {
+  const defaultCompilerCommand =
+    "deno run -A scripts/run-clapse-compiler-wasm.mjs --";
   const out = {
     manifest: "examples/selfhost_corpus.txt",
-    leftName: "haskell",
-    rightName: "haskell",
+    leftName: "wasm",
+    rightName: "wasm",
     requireDistinctEngines: false,
     requireRightEngineMode: "",
     requireExactArtifacts: true,
     left:
-      'CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --',
+      defaultCompilerCommand,
     right:
-      'CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --',
+      defaultCompilerCommand,
     out: "out/selfhost-diff",
   };
   for (let i = 0; i < argv.length; i += 1) {

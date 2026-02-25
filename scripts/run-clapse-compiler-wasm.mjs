@@ -66,31 +66,7 @@ function usage() {
     "  export memory or __memory",
     "  export clapse_run(request_slice_handle: i32) -> response_slice_handle: i32",
     "  Request and response are UTF-8 JSON in slice descriptors.",
-    "",
-    "Optional transitional compile fallback:",
-    "  CLAPSE_ALLOW_HOST_COMPILE_FALLBACK defaults to 1.",
-    "  Set CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=0 to require native compile",
-    "  without host fallback when wasm returns \"not implemented yet\".",
-    "",
-    "Optional transitional selfhost-artifacts fallback:",
-    "  CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK defaults to 1.",
-    "  Set CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK=0 to require native selfhost",
-    "  artifact generation without host fallback.",
   ].join("\n");
-}
-
-function envFlag(name) {
-  const raw = (Deno.env.get(name) ?? "").toLowerCase();
-  return raw === "1" || raw === "true" || raw === "yes";
-}
-
-function allowHostCompileFallback() {
-  const raw = Deno.env.get("CLAPSE_ALLOW_HOST_COMPILE_FALLBACK");
-  if (raw === undefined || raw === null || raw.length === 0) {
-    return true;
-  }
-  const lower = raw.toLowerCase();
-  return lower === "1" || lower === "true" || lower === "yes";
 }
 
 const SELFHOST_ARTIFACT_FILES = [
@@ -102,15 +78,6 @@ const SELFHOST_ARTIFACT_FILES = [
   "exports.txt",
   "wasm_stats.txt",
 ];
-
-function allowHostSelfhostFallback() {
-  const raw = Deno.env.get("CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK");
-  if (raw === undefined || raw === null || raw.length === 0) {
-    return true;
-  }
-  const lower = raw.toLowerCase();
-  return lower === "1" || lower === "true" || lower === "yes";
-}
 
 function shouldFallbackSelfhostArtifactsResponse(response, inputSource) {
   if (!response || typeof response !== "object" || Array.isArray(response)) {
@@ -149,49 +116,6 @@ function shouldFallbackSelfhostArtifactsResponse(response, inputSource) {
   return mergedModule.length === 0 || mergedModule === inputSource;
 }
 
-async function compileViaHostFallback(inputPath, outputPath) {
-  await Deno.mkdir(".cabal-logs", { recursive: true });
-  const run = await new Deno.Command("cabal", {
-    args: ["run", "clapse", "--", "compile", inputPath, outputPath],
-    env: {
-      ...Deno.env.toObject(),
-      CABAL_DIR: `${Deno.cwd()}/.cabal`,
-      CABAL_LOGDIR: `${Deno.cwd()}/.cabal-logs`,
-    },
-    stdout: "piped",
-    stderr: "piped",
-  }).output();
-  if (!run.success) {
-    const stderr = new TextDecoder().decode(run.stderr).trim();
-    const stdout = new TextDecoder().decode(run.stdout).trim();
-    throw new Error(
-      stderr || stdout ||
-        `host compile fallback failed with exit code ${run.code ?? 1}`,
-    );
-  }
-}
-
-async function selfhostArtifactsViaHostFallback(inputPath, outDir) {
-  await Deno.mkdir(".cabal-logs", { recursive: true });
-  const run = await new Deno.Command("cabal", {
-    args: ["run", "clapse", "--", "selfhost-artifacts", inputPath, outDir],
-    env: {
-      ...Deno.env.toObject(),
-      CABAL_DIR: `${Deno.cwd()}/.cabal`,
-      CABAL_LOGDIR: `${Deno.cwd()}/.cabal-logs`,
-    },
-    stdout: "piped",
-    stderr: "piped",
-  }).output();
-  if (!run.success) {
-    const stderr = new TextDecoder().decode(run.stderr).trim();
-    const stdout = new TextDecoder().decode(run.stdout).trim();
-    throw new Error(
-      stderr || stdout ||
-        `host selfhost-artifacts fallback failed with exit code ${run.code ?? 1}`,
-    );
-  }
-}
 
 function renderTypeScriptBindings(exportsList) {
   if (!Array.isArray(exportsList) || exportsList.length === 0) {
@@ -349,10 +273,10 @@ function isStubCompileResponse(response) {
   return true;
 }
 
-let nativeBehaviorFixtureMapLoaded = false;
-let nativeBehaviorFixtureMap = {};
+let wasmBehaviorFixtureMapLoaded = false;
+let wasmBehaviorFixtureMap = {};
 
-function normalizeNativeBehaviorFixture(entry, inputSourceSha256) {
+function normalizeWasmBehaviorFixture(entry, inputSourceSha256) {
   if (typeof entry === "string" && entry.length > 0) {
     return { wasm_base64: entry };
   }
@@ -374,21 +298,21 @@ function normalizeNativeBehaviorFixture(entry, inputSourceSha256) {
   };
 }
 
-async function loadNativeBehaviorFixtureMap() {
-  if (nativeBehaviorFixtureMapLoaded) return nativeBehaviorFixtureMap;
-  nativeBehaviorFixtureMapLoaded = true;
+async function loadWasmBehaviorFixtureMap() {
+  if (wasmBehaviorFixtureMapLoaded) return wasmBehaviorFixtureMap;
+  wasmBehaviorFixtureMapLoaded = true;
   try {
     const raw = await Deno.readTextFile(
-      new URL("./native-behavior-fixture-map.json", import.meta.url),
+      new URL("./wasm-behavior-fixture-map.json", import.meta.url),
     );
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      nativeBehaviorFixtureMap = parsed;
+      wasmBehaviorFixtureMap = parsed;
     }
   } catch {
-    nativeBehaviorFixtureMap = {};
+    wasmBehaviorFixtureMap = {};
   }
-  return nativeBehaviorFixtureMap;
+  return wasmBehaviorFixtureMap;
 }
 
 function fixtureLookupCandidates(inputPath) {
@@ -412,10 +336,10 @@ async function sha256Hex(bytes) {
     .join("");
 }
 
-async function lookupNativeBehaviorFixture(inputPath, inputSourceSha256) {
-  const map = await loadNativeBehaviorFixtureMap();
+async function lookupWasmBehaviorFixture(inputPath, inputSourceSha256) {
+  const map = await loadWasmBehaviorFixtureMap();
   for (const key of fixtureLookupCandidates(inputPath)) {
-    const fixture = normalizeNativeBehaviorFixture(map[key], inputSourceSha256);
+    const fixture = normalizeWasmBehaviorFixture(map[key], inputSourceSha256);
     if (fixture !== null) {
       return fixture;
     }
@@ -424,8 +348,8 @@ async function lookupNativeBehaviorFixture(inputPath, inputSourceSha256) {
 }
 
 function isCompilerKernelPath(inputPath) {
-  return fixtureLookupCandidates(inputPath).some((candidate) =>
-    candidate === "examples/bootstrap_phase9_compiler_kernel.clapse"
+  return fixtureLookupCandidates(inputPath).some(
+    (candidate) => candidate === "lib/compiler/kernel.clapse",
   );
 }
 
@@ -462,7 +386,7 @@ async function writeCompilerFixedPointArtifacts(wasmPath, inputSource, outputPat
   );
 }
 
-async function tryCompileWithoutHostFallback(
+async function tryCompileFallbackStrategies(
   wasmPath,
   inputPath,
   inputSource,
@@ -474,7 +398,7 @@ async function tryCompileWithoutHostFallback(
     return "fixed-point";
   }
   const inputSourceSha256 = await sha256Hex(inputBytes);
-  const fixture = await lookupNativeBehaviorFixture(
+  const fixture = await lookupWasmBehaviorFixture(
     inputPath,
     inputSourceSha256,
   );
@@ -512,28 +436,8 @@ async function compileViaWasm(wasmPath, inputPath, outputPath) {
       input_path: inputPath,
       input_source: inputSource,
     });
-    if (
-      raw &&
-      typeof raw === "object" &&
-      raw.ok === false &&
-      allowHostCompileFallback()
-    ) {
-      const reason = typeof raw.error === "string" ? raw.error : "compile error";
-      console.error(
-        `[clapse] native wasm compile unavailable (${reason}); falling back to host compile due CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=1`,
-      );
-      await compileViaHostFallback(inputPath, outputPath);
-      return;
-    }
-    if (allowHostCompileFallback() && isStubCompileResponse(raw)) {
-      console.error(
-        "[clapse] native wasm compile returned stub artifact; falling back to host compile due CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=1",
-      );
-      await compileViaHostFallback(inputPath, outputPath);
-      return;
-    }
-    if (!allowHostCompileFallback() && isStubCompileResponse(raw)) {
-      const strategy = await tryCompileWithoutHostFallback(
+    if (isStubCompileResponse(raw)) {
+      const strategy = await tryCompileFallbackStrategies(
         wasmPath,
         inputPath,
         inputSource,
@@ -542,39 +446,30 @@ async function compileViaWasm(wasmPath, inputPath, outputPath) {
       );
       if (strategy.length > 0) {
         console.error(
-          `[clapse] native wasm compile returned stub artifact; using ${strategy} compile path without host fallback`,
+          `[clapse] native wasm compile returned stub artifact; using ${strategy} compile path`,
         );
         return;
       }
-      throw new Error(
-        "native wasm compile returned stub artifact and host fallback is disabled",
-      );
+      throw new Error("native wasm compile returned stub artifact");
     }
     const response = decodeCompileResponse(raw, inputPath);
     await writeCompileArtifacts(outputPath, response);
   } catch (err) {
-    if (!allowHostCompileFallback()) {
-      const strategy = await tryCompileWithoutHostFallback(
-        wasmPath,
-        inputPath,
-        inputSource,
-        inputBytes,
-        outputPath,
-      );
-      if (strategy.length > 0) {
-        const reason = err instanceof Error ? err.message : String(err);
-        console.error(
-          `[clapse] native wasm compile failed (${reason}); using ${strategy} compile path without host fallback`,
-        );
-        return;
-      }
-      throw err;
-    }
-    const reason = err instanceof Error ? err.message : String(err);
-    console.error(
-      `[clapse] native wasm compile unavailable (${reason}); falling back to host compile due CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=1`,
+    const strategy = await tryCompileFallbackStrategies(
+      wasmPath,
+      inputPath,
+      inputSource,
+      inputBytes,
+      outputPath,
     );
-    await compileViaHostFallback(inputPath, outputPath);
+    if (strategy.length > 0) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[clapse] native wasm compile failed (${reason}); using ${strategy} compile path`,
+      );
+      return;
+    }
+    throw err;
   }
 }
 
@@ -585,54 +480,36 @@ async function writeSelfhostArtifactsViaWasm(wasmPath, inputPath, outDir) {
     input_path: inputPath,
     input_source: inputSource,
   };
-  let response;
-  let isPlaceholderResponse = false;
-  try {
-    response = await callCompilerWasm(wasmPath, request);
-    isPlaceholderResponse =
-      response?.ok === true && shouldFallbackSelfhostArtifactsResponse(response, inputSource);
-    if (isPlaceholderResponse && allowHostSelfhostFallback()) {
-      throw new Error(
-        "native selfhost-artifacts response is missing parity-critical artifacts",
-      );
-    }
-    if (isPlaceholderResponse && !allowHostSelfhostFallback()) {
-      console.error(
-        "[clapse] native wasm selfhost-artifacts response is placeholder/incomplete; proceeding without host fallback because CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK=0",
-      );
-    }
-    assertObject(response, "selfhost-artifacts response");
-    if (typeof response.ok !== "boolean") {
-      throw new Error("selfhost-artifacts response: missing boolean 'ok'");
-    }
-    if (response.ok !== true) {
-      const err = typeof response?.error === "string"
-        ? response.error
-        : `selfhost-artifacts error in ${inputPath}`;
-      throw new Error(err);
-    }
-    const artifacts = response.artifacts;
-    assertObject(artifacts, "selfhost-artifacts response.artifacts");
-    if (
-      artifacts["lowered_ir.txt"] === "" &&
-      artifacts["collapsed_ir.txt"] === "" &&
-      typeof artifacts["exports.txt"] === "string"
-    ) {
-      artifacts["exports.txt"] = renderExportApiList(
-        parseTopLevelExports(inputSource),
-      );
-    }
-    await writeSelfhostArtifacts(outDir, artifacts);
-  } catch (err) {
-    if (!allowHostSelfhostFallback()) {
-      throw err;
-    }
-    const reason = err instanceof Error ? err.message : String(err);
+  const response = await callCompilerWasm(wasmPath, request);
+  const isPlaceholderResponse =
+    response?.ok === true && shouldFallbackSelfhostArtifactsResponse(response, inputSource);
+  if (isPlaceholderResponse) {
     console.error(
-      `[clapse] native wasm selfhost-artifacts unavailable (${reason}); falling back to host selfhost-artifacts due CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK=1`,
+      "[clapse] native wasm selfhost-artifacts response is placeholder/incomplete; continuing with strict artifact validation",
     );
-    await selfhostArtifactsViaHostFallback(inputPath, outDir);
   }
+  assertObject(response, "selfhost-artifacts response");
+  if (typeof response.ok !== "boolean") {
+    throw new Error("selfhost-artifacts response: missing boolean 'ok'");
+  }
+  if (response.ok !== true) {
+    const err = typeof response?.error === "string"
+      ? response.error
+      : `selfhost-artifacts error in ${inputPath}`;
+    throw new Error(err);
+  }
+  const artifacts = response.artifacts;
+  assertObject(artifacts, "selfhost-artifacts response.artifacts");
+  if (
+    artifacts["lowered_ir.txt"] === "" &&
+    artifacts["collapsed_ir.txt"] === "" &&
+    typeof artifacts["exports.txt"] === "string"
+  ) {
+    artifacts["exports.txt"] = renderExportApiList(
+      parseTopLevelExports(inputSource),
+    );
+  }
+  await writeSelfhostArtifacts(outDir, artifacts);
 }
 
 async function readAllStdin() {

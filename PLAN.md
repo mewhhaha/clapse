@@ -181,7 +181,7 @@ Acceptance:
 
 ### 5.1 Strict boundary
 
-- no hidden host fallback for core compile/format/lsp once cutover flag is enabled
+- no hidden fallback paths for core compile/format/lsp once cutover flag is enabled
 - explicit fallback mode only for bootstrap/debug
 
 ### 5.2 Typed request/response
@@ -309,7 +309,7 @@ Exit criteria:
 ## 10) Cutover checklist
 
 - `just install` green
-- `cabal test` green
+- `deno run -A scripts/selfhost-behavior-diff.mjs` green
 - selfhost diff green
 - behavior diff green
 - benchmark report generated
@@ -341,7 +341,7 @@ Exit criteria:
 ## 12) Immediate next queue
 
 1. DONE: Add first-class `slice_eq_u8` builtin (`slice byte -> slice byte -> i64`) as inline-wasm bytewise equality and simplify `string_slice` module to use it.
-2. DONE: Port and lock parser-layout pain-point fixtures from compiler kernels (`test/Main.hs` parser regressions for nested case chains, multiline parenthesized application, and inline case declarations).
+2. DONE: Port and lock parser-layout pain-point fixtures from compiler kernels (nested case chains, multiline parenthesized application, and inline case declarations).
 3. DONE: Start Clapse-source parser module parity harness against Haskell parser artifacts (`scripts/selfhost-parser-parity.mjs`, manifest `examples/selfhost_parser_corpus.txt`).
 4. DONE: Add formatter idempotence corpus gate for compiler-source files (`scripts/formatter-idempotence-corpus.mjs`, manifest `examples/compiler_source_corpus.txt`).
 5. DONE: Add initial Clapse-source LSP diagnostics/hover fixture runner through wasm ABI (`scripts/lsp-wasm-fixtures.mjs`, fixtures `examples/lsp_wasm_fixtures.json`).

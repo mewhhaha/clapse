@@ -15,6 +15,8 @@ function getWasmPath() {
     ((Deno.env.get("CLAPSE_ALLOW_BRIDGE") ?? "").toLowerCase() === "true");
   const candidates = [
     Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "",
+    "artifacts/latest/clapse_compiler.wasm",
+    ...(allowBridge ? ["artifacts/latest/clapse_compiler_bridge.wasm"] : []),
     "out/clapse_compiler.wasm",
     ...(allowBridge ? ["out/clapse_compiler_bridge.wasm"] : []),
   ];
@@ -28,7 +30,7 @@ function getWasmPath() {
     }
   }
   throw new Error(
-    "wasm LSP mode requires CLAPSE_COMPILER_WASM_PATH or out/clapse_compiler.wasm (bridge additionally requires CLAPSE_ALLOW_BRIDGE=1)",
+    "wasm LSP mode requires CLAPSE_COMPILER_WASM_PATH or artifacts/latest/clapse_compiler.wasm (bridge additionally requires CLAPSE_ALLOW_BRIDGE=1)",
   );
 }
 
@@ -48,6 +50,92 @@ function fullRangeForText(text) {
     start: { line: 0, character: 0 },
     end: { line: endLine, character: endCharacter },
   };
+}
+
+function stripDocPrefix(line) {
+  const trimmed = line.trim();
+  if (trimmed.startsWith("--|")) return trimmed.slice(3).trimStart();
+  if (trimmed.startsWith("///")) return trimmed.slice(3).trimStart();
+  return null;
+}
+
+function isFunctionDeclLine(rawLine) {
+  if (rawLine.length === 0 || /^\s/u.test(rawLine)) return null;
+  const line = rawLine.trim();
+  if (line.length === 0) return null;
+  if (line.startsWith("--")) return null;
+  if (
+    line.startsWith("module ") ||
+    line.startsWith("import ") ||
+    line.startsWith("type ") ||
+    line.startsWith("data ") ||
+    line.startsWith("class ") ||
+    line.startsWith("instance ") ||
+    line.startsWith("law ")
+  ) {
+    return null;
+  }
+  const eqAt = line.indexOf("=");
+  if (eqAt <= 0) return null;
+  const lhs = line.slice(0, eqAt).trim();
+  if (lhs.length === 0) return null;
+  const toks = lhs.split(/\s+/u).filter((x) => x.length > 0);
+  if (toks.length === 0) return null;
+  const name = toks[0];
+  if (!/^[A-Za-z_][A-Za-z0-9_$.']*$/u.test(name)) return null;
+  return name;
+}
+
+function buildFunctionDocIndex(text) {
+  const lines = String(text).split("\n");
+  const out = new Map();
+  let pending = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const raw = lines[i];
+    const docLine = stripDocPrefix(raw);
+    if (docLine !== null) {
+      pending.push(docLine);
+      continue;
+    }
+    if (raw.trim().length === 0) {
+      if (pending.length > 0) pending.push("");
+      continue;
+    }
+    const fnName = isFunctionDeclLine(raw);
+    if (fnName !== null) {
+      if (pending.length > 0) {
+        const start = raw.indexOf(fnName);
+        out.set(fnName, {
+          doc: pending.join("\n").trim(),
+          line: i,
+          start: Math.max(0, start),
+          end: Math.max(0, start) + fnName.length,
+        });
+      }
+      pending = [];
+      continue;
+    }
+    pending = [];
+  }
+  return out;
+}
+
+function isIdentChar(ch) {
+  return /[A-Za-z0-9_$.']/u.test(ch);
+}
+
+function wordAtPosition(lineText, character) {
+  if (typeof lineText !== "string" || lineText.length === 0) return "";
+  const pos = Math.max(0, Math.min(character, lineText.length));
+  let left = pos;
+  let right = pos;
+  if (left > 0 && !isIdentChar(lineText[left]) && isIdentChar(lineText[left - 1])) {
+    left -= 1;
+    right = left + 1;
+  }
+  while (left > 0 && isIdentChar(lineText[left - 1])) left -= 1;
+  while (right < lineText.length && isIdentChar(lineText[right])) right += 1;
+  return lineText.slice(left, right);
 }
 
 async function formatSource(wasmPath, uri, source) {
@@ -187,6 +275,7 @@ async function main() {
   const wasmPath = getWasmPath();
   await validateCompilerWasmAbi(wasmPath);
   const docs = new Map();
+  const docIndex = new Map();
   let shutdownRequested = false;
 
   await readMessages(async (msg) => {
@@ -199,7 +288,7 @@ async function main() {
           capabilities: {
             textDocumentSync: 1,
             documentFormattingProvider: true,
-            hoverProvider: false,
+            hoverProvider: true,
             inlayHintProvider: false,
           },
           serverInfo: { name: "clapse-wasm-lsp", version: "0.1.0" },
@@ -223,6 +312,7 @@ async function main() {
         const text = msg.params?.textDocument?.text ?? "";
         if (typeof uri === "string") {
           docs.set(uri, String(text));
+          docIndex.set(uri, buildFunctionDocIndex(String(text)));
           const diagnostics = await compileDiagnostics(
             wasmPath,
             uri,
@@ -244,6 +334,7 @@ async function main() {
         ) {
           const text = String(changes[changes.length - 1].text ?? "");
           docs.set(uri, text);
+          docIndex.set(uri, buildFunctionDocIndex(text));
           const diagnostics = await compileDiagnostics(wasmPath, uri, text);
           await sendNotification("textDocument/publishDiagnostics", {
             uri,
@@ -268,6 +359,7 @@ async function main() {
         const uri = msg.params?.textDocument?.uri;
         if (typeof uri === "string") {
           docs.delete(uri);
+          docIndex.delete(uri);
           await sendNotification("textDocument/publishDiagnostics", {
             uri,
             diagnostics: [],
@@ -288,6 +380,41 @@ async function main() {
           range: fullRangeForText(text),
           newText: formatted,
         }]);
+        return;
+      }
+
+      if (method === "textDocument/hover") {
+        const uri = msg.params?.textDocument?.uri;
+        const line = Number(msg.params?.position?.line ?? 0);
+        const character = Number(msg.params?.position?.character ?? 0);
+        if (typeof uri !== "string") {
+          await sendResponse(id, null);
+          return;
+        }
+        const text = docs.get(uri) ?? "";
+        const index = docIndex.get(uri) ?? new Map();
+        const lines = text.split("\n");
+        const lineText = lines[Math.max(0, Math.min(line, lines.length - 1))] ?? "";
+        const symbol = wordAtPosition(lineText, character);
+        if (symbol.length === 0) {
+          await sendResponse(id, null);
+          return;
+        }
+        const entry = index.get(symbol);
+        if (!entry || typeof entry.doc !== "string" || entry.doc.length === 0) {
+          await sendResponse(id, null);
+          return;
+        }
+        await sendResponse(id, {
+          contents: {
+            kind: "markdown",
+            value: `### ${symbol}\n\n${entry.doc}`,
+          },
+          range: {
+            start: { line: entry.line, character: entry.start },
+            end: { line: entry.line, character: entry.end },
+          },
+        });
         return;
       }
 

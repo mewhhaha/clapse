@@ -1,18 +1,20 @@
 #!/usr/bin/env -S deno run -A
 
 function parseArgs(argv) {
+  const defaultCompilerCommand =
+    "deno run -A scripts/run-clapse-compiler-wasm.mjs --";
   const out = {
     manifest: "examples/selfhost_corpus.txt",
     behaviorManifest: "examples/selfhost_behavior_corpus.json",
-    leftName: "haskell",
-    rightName: "haskell",
+    leftName: "wasm",
+    rightName: "wasm",
     requireDistinctEngines: false,
     requireRightEngineMode: "",
     requireExactArtifacts: true,
     forbidHostClapseImports: false,
     out: "out/selfhost-bootstrap",
-    left: 'CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --',
-    right: 'CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --',
+    left: defaultCompilerCommand,
+    right: defaultCompilerCommand,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
@@ -119,9 +121,9 @@ async function main() {
   }
   await Deno.mkdir(cfg.out, { recursive: true });
 
-  console.log("Stage A: build host compiler");
+  console.log("Stage A: ensure wasm compiler");
   const stageA = await runShell(
-    'mkdir -p .cabal-logs && CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal build exe:clapse',
+    "deno run -A scripts/run-clapse-compiler-wasm.mjs -- engine-mode",
   );
   if (!stageA.ok) {
     await Deno.writeTextFile(`${cfg.out}/stage_a.stderr.log`, stageA.stderr);

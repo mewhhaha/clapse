@@ -1,0 +1,31 @@
+---
+name: docs
+description: Author and maintain the Clapse documentation set with executable examples. Use this for docs structure, reference edits, tutorial snippets, and docs validation workflows.
+---
+
+# Clapse Docs Skill
+
+## Purpose
+
+Maintain docs as executable specs. Every Clapse code fence should compile with the current wasm compiler unless explicitly marked `skip`.
+
+## Rules
+
+1. Prefer `clapse` code fences in markdown for language examples.
+2. Keep snippets minimal but complete enough to compile.
+3. Use `--|` doc comments above public functions in examples where intent matters.
+4. Mark non-compilable examples as ` ```clapse skip `.
+
+## Validation
+
+Run:
+
+```bash
+just docs-validate
+```
+
+Or directly:
+
+```bash
+CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scripts/validate-docs.mjs
+```

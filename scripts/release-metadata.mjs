@@ -43,10 +43,23 @@ function parentDir(path) {
   return slash === -1 ? "." : path.slice(0, slash);
 }
 
-function parseVersionFromCabal(cabalText) {
-  const line = cabalText.split(/\r?\n/u).find((l) => l.startsWith("version:"));
-  if (!line) return "";
-  return line.slice("version:".length).trim();
+async function hasPath(path) {
+  try {
+    await Deno.stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function defaultCompilerWasmPath() {
+  return Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ??
+    "artifacts/latest/clapse_compiler.wasm";
+}
+
+function parseVersion(versionText) {
+  return versionText.split(/\r?\n/u).find((line) => line.trim().length > 0)
+    ?.trim() ?? "";
 }
 
 async function runOutput(command, args) {
@@ -92,11 +105,11 @@ async function main() {
   await Deno.mkdir(parentDir(cfg.outPath), { recursive: true });
   await Deno.mkdir(parentDir(cfg.checksumsPath), { recursive: true });
 
-  const cabalText = await Deno.readTextFile("clapse.cabal");
-  const cabalVersion = parseVersionFromCabal(cabalText);
+  const versionText = await Deno.readTextFile("VERSION");
+  const sourceVersion = parseVersion(versionText);
   const clapseVersion = cfg.clapseVersion.length > 0
     ? cfg.clapseVersion
-    : cabalVersion;
+    : sourceVersion;
   const sourceDateEpoch = Deno.env.get("SOURCE_DATE_EPOCH");
   const builtAtUtc = sourceDateEpoch
     ? new Date(Number(sourceDateEpoch) * 1000).toISOString()
@@ -106,7 +119,7 @@ async function main() {
     schema_version: 1,
     release_id: cfg.releaseId,
     clapse_version: clapseVersion,
-    source_version: cabalVersion,
+    source_version: sourceVersion,
     built_at_utc: builtAtUtc,
     platform: `${Deno.build.os}-${Deno.build.arch}`,
     tool_versions: {
@@ -114,8 +127,8 @@ async function main() {
         /^deno\s+/u,
         "",
       ) ?? "",
-      ghc: (await runOutput("ghc", ["--numeric-version"])) || "not-installed",
-      cabal: (await runOutput("cabal", ["--numeric-version"])) || "not-installed",
+      clapse_compiler_wasm_path: defaultCompilerWasmPath(),
+      clapse_compiler_wasm_exists: (await hasPath(defaultCompilerWasmPath())),
     },
     git: {
       commit: await runOutput("git", ["rev-parse", "HEAD"]),
