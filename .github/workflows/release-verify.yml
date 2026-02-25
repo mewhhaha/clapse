@@ -7,7 +7,7 @@ on:
       - "v*"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
@@ -40,3 +40,35 @@ jobs:
           name: clapse-release-candidate-${{ github.sha }}
           path: out/releases-ci
           if-no-files-found: error
+
+      - name: Resolve release artifact directory
+        id: release_dir
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          release_dir="$(find out/releases-ci -mindepth 1 -maxdepth 1 -type d | sort | head -n 1)"
+          if [ -z "${release_dir}" ]; then
+            echo "no release directory found under out/releases-ci" >&2
+            exit 1
+          fi
+          echo "release_dir=${release_dir}" >> "$GITHUB_OUTPUT"
+          echo "release_id=$(basename "${release_dir}")" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: clapse ${{ github.ref_name }}
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            Verified release artifacts for `${{ steps.release_dir.outputs.release_id }}`.
+            Check `checksums.sha256` for artifact integrity.
+          files: |
+            ${{ steps.release_dir.outputs.release_dir }}/clapse_compiler.wasm
+            ${{ steps.release_dir.outputs.release_dir }}/clapse_compiler_bridge.wasm
+            ${{ steps.release_dir.outputs.release_dir }}/native-behavior-fixture-map.json
+            ${{ steps.release_dir.outputs.release_dir }}/native-selfhost-artifact-fixture-map.json
+            ${{ steps.release_dir.outputs.release_dir }}/release-manifest.json
+            ${{ steps.release_dir.outputs.release_dir }}/checksums.sha256
