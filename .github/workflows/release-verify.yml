@@ -1,0 +1,42 @@
+name: release-verify
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Just
+        uses: extractions/setup-just@v2
+
+      - name: Setup GHC
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: "9.12.2"
+          cabal-version: "3.14.2.0"
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Build release candidate
+        run: just release-candidate out=out/releases-ci
+
+      - name: Upload release candidate artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: clapse-release-candidate-${{ github.sha }}
+          path: out/releases-ci
+          if-no-files-found: error

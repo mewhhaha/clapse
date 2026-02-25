@@ -74,6 +74,27 @@ deno run -A scripts/clapse.mjs lsp --stdio
 - `bench` currently routes through the host executable behind the same deno
   frontend.
 
+Release/version pipeline for compiler artifacts:
+
+```bash
+# produces a versioned release candidate directory under out/releases/
+just release-candidate
+
+# custom output root
+just release-candidate out=out/releases-ci
+```
+
+`release-candidate` does all release gates in one pass:
+
+- builds `clapse_compiler.wasm` + bridge artifact in a versioned directory
+- runs strict wasm selfhost parity (`selfhost-check-wasm`)
+- regenerates fixture maps and requires byte-for-byte parity against:
+  - `scripts/native-behavior-fixture-map.json`
+  - `scripts/native-selfhost-artifact-fixture-map.json`
+- emits:
+  - `release-manifest.json` (version, commit, toolchain, artifact hashes/sizes)
+  - `checksums.sha256` (reproducible checksum list)
+
 Custom operator declarations:
 
 ```haskell
@@ -823,6 +844,15 @@ Manifest consistency guard:
 deno run -A scripts/check-selfhost-manifests.mjs
 ```
 
+Release candidate reproducibility guard:
+
+```bash
+just release-candidate
+```
+
+This is the release-time proof we use before deprecating the Haskell path: if
+artifact hashes or fixture maps diverge, the release fails.
+
 Additional manifests/fixtures used by the new parser/formatter/LSP gates:
 
 - `examples/selfhost_parser_corpus.txt`
@@ -1038,6 +1068,8 @@ optional fallback).
 - Default to self-hosted compiler path once parity and perf bars are met.
 - Keep Haskell path as fallback for a transition window; remove when stable.
 - Acceptance: release criteria met on correctness, performance, and DX.
+- Release gate: `just release-candidate` is green with stable fixture-map parity
+  and checksumed compiler artifacts.
 
 Recommended immediate next execution order:
 

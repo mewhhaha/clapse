@@ -265,6 +265,27 @@ selfhost-check-wasm-bridge:
   just selfhost-build-wasm-bridge
   CLAPSE_ALLOW_BRIDGE=1 CLAPSE_COMPILER_WASM_PATH='out/clapse_compiler_bridge.wasm' just selfhost-check-wasm
 
+release-candidate out='out/releases':
+  mkdir -p .cabal-logs
+  version="$(awk '/^version:/ {print $2; exit}' clapse.cabal)"
+  commit="$(git rev-parse --short=12 HEAD)"
+  release_id="v${version}-${commit}"
+  release_dir="{{out}}/${release_id}"
+  compiler_wasm="${release_dir}/clapse_compiler.wasm"
+  bridge_wasm="${release_dir}/clapse_compiler_bridge.wasm"
+  behavior_map="${release_dir}/native-behavior-fixture-map.json"
+  artifact_map="${release_dir}/native-selfhost-artifact-fixture-map.json"
+  mkdir -p "${release_dir}"
+  just bootstrap-phase9-compile "${compiler_wasm}"
+  just selfhost-build-wasm-bridge "${bridge_wasm}"
+  CLAPSE_COMPILER_WASM_PATH="${compiler_wasm}" just selfhost-check-wasm
+  deno run -A scripts/build-native-behavior-fixture-map.mjs --manifest examples/selfhost_corpus.txt --manifest examples/selfhost_behavior_corpus.json --out "${behavior_map}"
+  deno run -A scripts/build-native-selfhost-artifact-fixture-map.mjs --manifest examples/selfhost_corpus.txt --manifest examples/selfhost_parser_corpus.txt --out "${artifact_map}"
+  cmp scripts/native-behavior-fixture-map.json "${behavior_map}"
+  cmp scripts/native-selfhost-artifact-fixture-map.json "${artifact_map}"
+  deno run -A scripts/release-metadata.mjs --release-id "${release_id}" --clapse-version "${version}" --compiler-wasm "${compiler_wasm}" --bridge-wasm "${bridge_wasm}" --behavior-map "${behavior_map}" --artifact-map "${artifact_map}" --out "${release_dir}/release-manifest.json" --checksums "${release_dir}/checksums.sha256"
+  echo "release-candidate: PASS (${release_dir})"
+
 wasm-linear-memory-helpers-smoke:
   mkdir -p .cabal-logs
   CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --build-log=./.cabal-logs/build.log --build-summary=./.cabal-logs/build.summary -- compile examples/wasm_linear_memory_helpers.clapse out/wasm_linear_memory_helpers.wasm
