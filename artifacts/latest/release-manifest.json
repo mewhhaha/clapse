@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "release_id": "v0.1.0.1-1820a5ffa8b6",
+  "release_id": "v0.1.0.2-6f247f1fc270",
   "clapse_version": "0.1.0.0",
   "source_version": "0.1.0.0",
-  "built_at_utc": "2026-02-25T13:32:36.983Z",
+  "built_at_utc": "2026-02-25T13:37:47.812Z",
   "platform": "linux-x86_64",
   "tool_versions": {
     "deno": "2.7.0+fb4db33 (canary, release, x86_64-unknown-linux-gnu)",
@@ -11,27 +11,27 @@
     "cabal": "3.16.1.0"
   },
   "git": {
-    "commit": "1820a5ffa8b6ce319e791f4cc86e9fd927294333",
-    "short_commit": "1820a5ffa8b6"
+    "commit": "6f247f1fc2707325dc99d333862777c831bd72c8",
+    "short_commit": "6f247f1fc270"
   },
   "artifacts": {
     "compiler_wasm": {
-      "path": "out/releases-ci/v0.1.0.1-1820a5ffa8b6/clapse_compiler.wasm",
+      "path": "out/releases-ci/v0.1.0.2-6f247f1fc270/clapse_compiler.wasm",
       "bytes": 79297,
       "sha256": "0d2ca5718bbcd791b46241e642038dbe9d5065c940e151367b4a161d37d0dd52"
     },
     "compiler_bridge_wasm": {
-      "path": "out/releases-ci/v0.1.0.1-1820a5ffa8b6/clapse_compiler_bridge.wasm",
+      "path": "out/releases-ci/v0.1.0.2-6f247f1fc270/clapse_compiler_bridge.wasm",
       "bytes": 67,
       "sha256": "70dcf229b32b592c4f46849c3ffca4c84f83b3ca722802d2283ffa1080353714"
     },
     "native_behavior_fixture_map": {
-      "path": "out/releases-ci/v0.1.0.1-1820a5ffa8b6/native-behavior-fixture-map.json",
+      "path": "out/releases-ci/v0.1.0.2-6f247f1fc270/native-behavior-fixture-map.json",
       "bytes": 458013,
       "sha256": "d3bf61f5911926abad877748bab5947745663fdb3b89c935e6c6866cbeda4129"
     },
     "native_selfhost_artifact_fixture_map": {
-      "path": "out/releases-ci/v0.1.0.1-1820a5ffa8b6/native-selfhost-artifact-fixture-map.json",
+      "path": "out/releases-ci/v0.1.0.2-6f247f1fc270/native-selfhost-artifact-fixture-map.json",
       "bytes": 4020720,
       "sha256": "aaa90f9dc4cbc7612b09c6bf716904b5af6d0dd68d08328ed6703471a03fa73f"
     }
