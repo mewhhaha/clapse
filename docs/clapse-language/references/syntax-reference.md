@@ -106,6 +106,49 @@ law plus_rules right_identity = add x 0 => x
 instance plus_on_i64 : plus_rules i add=plus
 ```
 
+Functional dependencies can be written on the class header using
+`|` and `->` in minimal one-way form:
+
+```haskell
+class eq_by_id a | a -> add : eq
+```
+
+The compiler now uses a local evidence model for dispatch:
+`ClassEvidenceResolved`, `ClassEvidenceUnknown`, and `ClassEvidenceAmbiguous`.
+Static dispatch remains the default when inference resolves to a single target, and
+`ClassFundepInfoAmbiguous` forces dynamic dispatch.
+
+For applicative form `a <*> b`, dispatch is inferred from the combined evidence of both
+operands and fundep metadata, so type-directed static dispatch can be chosen without
+explicit signatures. Explicit signatures are only required when that inference remains
+ambiguous.
+
+## Class Dispatch Witness (Kernel)
+
+Class method resolution in the compiler kernel is controlled by an explicit witness:
+
+```haskell
+data ClassDispatchMode = ClassDispatchStatic | ClassDispatchDynamic
+kernel_class_dispatch = class_dispatch_default
+
+resolve_class_method dispatch static_method dynamic_method =
+  case dispatch of
+    ClassDispatchStatic -> static_method
+    ClassDispatchDynamic -> dynamic_method
+
+let selected_method =
+      resolve_class_method kernel_class_dispatch
+        law_static
+        law_dynamic
+in ...
+```
+
+`class_dispatch_default` is defined as `ClassDispatchStatic`, so the default bootstrap path resolves to static method implementations and enables static law simplification after rewrite selection.
+
+This is separate from parser branch selection (`ParserDispatch`), which still governs parser alternatives in `lib/compiler/parser.clapse`.
+
+Declaration parsing for `class`, `law`, and `instance` forms in compiler pathways feeds class declarations through the same class dispatch/law pipeline as `lib/compiler/kernel.clapse` using the same dispatch evidence model.
+
 ## Operators
 
 Builtin operators (no declaration required):

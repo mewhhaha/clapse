@@ -4,8 +4,16 @@ export main, main_stats, main_stream, main_bad_type, main_bad_type_union, main_b
 data bool = true<1> | false<0>
 data Maybe a = Just a | Nothing
 data ModuleStart = NoModule | ModulePos i64 | ModuleBad
+data ParserDispatch = ParserDispatchDefault | ParserDispatchRightBiased
+data ClassDispatchMode = ClassDispatchStatic | ClassDispatchDynamic
+data ClassDispatch = ClassDispatchWitness ClassDispatchMode
 data DispatchState = DeclNoMatch | DeclCommitFail | DeclMatch i64
 data DecodedDeclTag = DecodedDeclTag i64 i64
+data ClassMethodExpr = CBool bool | CVar i64 | CNot ClassMethodExpr | CAnd ClassMethodExpr ClassMethodExpr | COr ClassMethodExpr ClassMethodExpr
+data ClassFundepInfo = ClassFundepInfoNone | ClassFundepInfoSingle | ClassFundepInfoAmbiguous
+data ClassEvidence = ClassEvidenceResolved | ClassEvidenceUnknown | ClassEvidenceAmbiguous
+data ClassPayloadParse = ClassPayloadFail | ClassPayloadResult i64 ClassFundepInfo
+data ClassFundepParse = ClassFundepParseFail | ClassFundepParseResult i64 ClassFundepInfo
 
 infixl 1 >>= = parser_bind
 infixl 1 >> = parser_then
@@ -17,6 +25,26 @@ infixl 4 *> = parser_keep_right
 
 is_fail_pos p = (p == -1)
 is_success_pos p = if2 (is_fail_pos p) false true
+parser_dispatch_default = ParserDispatchDefault
+class_dispatch_default = ClassDispatchStatic
+class_dispatch_static = ClassDispatchWitness ClassDispatchStatic
+class_dispatch_dynamic = ClassDispatchWitness ClassDispatchDynamic
+kernel_class_dispatch = class_dispatch_static
+class_fundep_metadata_default = ClassFundepInfoNone
+class_dispatch_default_resolved =
+  infer_class_dispatch kernel_class_dispatch ClassEvidenceResolved class_fundep_metadata_default
+
+class_dispatch_mode witness =
+  case witness of
+    ClassDispatchWitness mode -> mode
+class_dispatch_is_static mode =
+  case mode of
+    ClassDispatchWitness ClassDispatchStatic -> true
+    _ -> false
+class_dispatch_is_dynamic mode =
+  case mode of
+    ClassDispatchWitness ClassDispatchDynamic -> true
+    _ -> false
 
 to_maybe_pos p = if2 (is_fail_pos p) Nothing (Just p)
 
@@ -28,6 +56,116 @@ and2 a b = if2 a b false
 not2 a = if2 a false true
 
 bool_and a b = and2 a b
+bool_or a b = case a of
+  false -> b
+  true -> true
+bool_not b = case b of
+  true -> false
+  false -> true
+
+resolve_class_method dispatch static_method dynamic_method =
+  case class_dispatch_mode dispatch of
+    ClassDispatchStatic -> static_method
+    ClassDispatchDynamic -> dynamic_method
+
+class_evidence_from_fundep fundep_info =
+  case fundep_info of
+    ClassFundepInfoAmbiguous -> ClassEvidenceAmbiguous
+    _ -> ClassEvidenceResolved
+
+class_evidence_for_applicative evidence_a evidence_b =
+  case evidence_a of
+    ClassEvidenceAmbiguous -> ClassEvidenceAmbiguous
+    ClassEvidenceUnknown ->
+      case evidence_b of
+        ClassEvidenceAmbiguous -> ClassEvidenceAmbiguous
+        _ -> ClassEvidenceUnknown
+    ClassEvidenceResolved ->
+      case evidence_b of
+        ClassEvidenceResolved -> ClassEvidenceResolved
+        _ -> ClassEvidenceUnknown
+
+infer_class_dispatch kernel_dispatch evidence fundep_info =
+  case (class_dispatch_is_dynamic kernel_dispatch) of
+    true -> kernel_dispatch
+    _ ->
+      case evidence of
+        ClassEvidenceResolved ->
+          case fundep_info of
+            ClassFundepInfoAmbiguous -> class_dispatch_dynamic
+            _ -> class_dispatch_static
+        _ -> class_dispatch_dynamic
+
+infer_class_dispatch_applicative kernel_dispatch evidence_a evidence_b fundep_info =
+  let evidence = class_evidence_for_applicative evidence_a evidence_b
+  in infer_class_dispatch kernel_dispatch evidence fundep_info
+
+default_class_dispatch_from_evidence evidence =
+  infer_class_dispatch kernel_class_dispatch evidence class_fundep_metadata_default
+
+rewrite_bool_law_expr expr =
+  case expr of
+    CBool _ -> expr
+    CVar _ -> expr
+    CNot inner ->
+      let inner1 = rewrite_bool_law_expr inner
+      in case inner1 of
+        CNot inner2 -> inner2
+        _ -> CNot inner1
+    CAnd left right =
+      let left1 = rewrite_bool_law_expr left
+          right1 = rewrite_bool_law_expr right
+      in case left1 of
+        CBool true -> right1
+        CBool false -> CBool false
+        _ -> case right1 of
+          CBool true -> left1
+          CBool false -> CBool false
+          _ -> CAnd left1 right1
+    COr left right =
+      let left1 = rewrite_bool_law_expr left
+          right1 = rewrite_bool_law_expr right
+      in case left1 of
+        CBool true -> CBool true
+        CBool false -> right1
+        _ -> case right1 of
+          CBool true -> CBool true
+          CBool false -> left1
+          _ -> COr left1 right1
+
+apply_class_law_rewrites dispatch law_expr =
+  case class_dispatch_mode dispatch of
+    ClassDispatchStatic -> rewrite_bool_law_expr law_expr
+    ClassDispatchDynamic -> law_expr
+
+derive_class_method_with_dispatch dispatch static_expr dynamic_expr =
+  let selected_method = resolve_class_method dispatch static_expr dynamic_expr
+  in apply_class_law_rewrites dispatch selected_method
+
+derive_law_expr_with_dispatch dispatch law_expr =
+  apply_class_law_rewrites dispatch law_expr
+
+derive_instance_method_with_dispatch dispatch static_expr dynamic_expr =
+  let selected_method = resolve_class_method dispatch static_expr dynamic_expr
+  in apply_class_law_rewrites dispatch selected_method
+
+class_rewrite_pipeline dispatch static_expr dynamic_expr =
+  derive_class_method_with_dispatch dispatch static_expr dynamic_expr
+
+derive_class_method static_expr dynamic_expr =
+  derive_class_method_with_dispatch class_dispatch_default_resolved static_expr dynamic_expr
+
+derive_instance_method static_expr dynamic_expr =
+  derive_instance_method_with_dispatch class_dispatch_default_resolved static_expr dynamic_expr
+
+derive_law_expr law_expr =
+  derive_law_expr_with_dispatch class_dispatch_default_resolved law_expr
+
+class_rewrite_pipeline_default static_expr dynamic_expr =
+  class_rewrite_pipeline class_dispatch_default_resolved static_expr dynamic_expr
+
+class_rewrite_pipeline_static static_expr dynamic_expr =
+  class_rewrite_pipeline kernel_class_dispatch static_expr dynamic_expr
 
 from_maybe_pos m = case m of
   Nothing -> -1
@@ -666,6 +804,9 @@ parse_tail_has_pipe_and_eq_scan src i len seen_pipe seen_eq = case (i < len) see
       _ _ _ -> parse_tail_has_pipe_and_eq_scan src (i + 1) len pipe1 eq1
 
 parser_bind p q src i len =
+  parser_bind_with parser_dispatch_default p q src i len
+
+parser_bind_with dispatch p q src i len =
   let m0 = to_maybe_pos (p src i len)
       m1 = maybe_bind m0 (parser_bind_next_m q src len)
   in from_maybe_pos m1
@@ -675,14 +816,22 @@ parser_then p q = parser_bind p q
 parser_bind_next_m q src len j =
   to_maybe_pos (q src j len)
 
-parser_map f p src i len =
+parser_map_with dispatch f p src i len =
+  case dispatch of
+    ParserDispatchRightBiased -> parser_map_with_base f p src i len
+    _ -> parser_map_with_base f p src i len
+
+parser_map_with_base f p src i len =
   let m0 = to_maybe_pos (p src i len)
       m1 = maybe_map f m0
   in from_maybe_pos m1
 
-parser_ap p q = parser_keep_right p q
+parser_map f p src i len = parser_map_with parser_dispatch_default f p src i len
 
-parser_keep_left p q src i len =
+parser_ap p q = parser_keep_right p q
+parser_ap_with dispatch p q = parser_keep_right_with dispatch p q
+
+parser_keep_left_with _dispatch p q src i len =
   let mj = to_maybe_pos (p src i len)
   in case mj of
     Nothing -> -1
@@ -692,13 +841,25 @@ parser_keep_left p q src i len =
         Nothing -> -1
         Just _ -> j
 
-parser_keep_right p q src i len = parser_bind p q src i len
+parser_keep_left p q = parser_keep_left_with parser_dispatch_default p q
+parser_keep_right_with dispatch p q = parser_bind_with dispatch p q
+parser_keep_right p q = parser_keep_right_with parser_dispatch_default p q
 
 parser_or p q src i len =
-  let m0 = to_maybe_pos (p src i len)
-  in case m0 of
-    Nothing -> q src i len
-    Just j -> j
+  parser_or_with parser_dispatch_default p q src i len
+
+parser_or_with dispatch p q src i len =
+  case dispatch of
+    ParserDispatchDefault ->
+      let m0 = to_maybe_pos (p src i len)
+      in case m0 of
+        Nothing -> q src i len
+        Just j -> j
+    ParserDispatchRightBiased ->
+      let m0 = to_maybe_pos (q src i len)
+      in case m0 of
+        Nothing -> p src i len
+        Just j -> j
 
 parser_many p src i len =
   let mj = to_maybe_pos (p src i len)
@@ -856,16 +1017,87 @@ parse_type_union_member_at src i0 len =
     Nothing -> parse_string_literal src i0 len
 
 parse_class_payload src i len =
-  let p = parse_ident *> parser_some parse_ident *> parse_colon *> parse_ident *> parser_many parse_ident
-  in p src i len
+  let parsed = parse_class_payload_parse src i len
+  in case parsed of
+    ClassPayloadFail -> -1
+    ClassPayloadResult p1 fundep_info ->
+      let inferred_dispatch =
+            infer_class_dispatch kernel_class_dispatch (class_evidence_from_fundep fundep_info) fundep_info
+      in case derive_class_method_with_dispatch inferred_dispatch (CVar p1) (CVar p1) of
+        _ -> p1
+
+parse_class_payload_parse src i len =
+  let m0 = to_maybe_pos (parse_ident src i len)
+  in case m0 of
+    Nothing -> ClassPayloadFail
+    Just p0 ->
+      let m1 = to_maybe_pos (parser_some parse_ident src p0 len)
+      in case m1 of
+        Nothing -> ClassPayloadFail
+        Just p1 ->
+          let mf = parse_class_fundep src p1 len
+          in case mf of
+            ClassFundepParseFail -> ClassPayloadFail
+            ClassFundepParseResult p2 fundep_info ->
+              let m2 = to_maybe_pos (parse_colon src p2 len)
+              in case m2 of
+                Nothing -> ClassPayloadFail
+                Just p3 ->
+                  let m3 = to_maybe_pos (parse_ident src p3 len)
+                  in case m3 of
+                    Nothing -> ClassPayloadFail
+                    Just p4 ->
+                      ClassPayloadResult (parser_many parse_ident src p4 len) fundep_info
+
+parse_class_fundep src i len =
+  let m0 = to_maybe_pos (parse_token_literal src i len "|")
+  in case m0 of
+    Nothing -> ClassFundepParseResult i ClassFundepInfoNone
+    Just p0 ->
+      let m1 = to_maybe_pos (parse_ident src p0 len)
+      in case m1 of
+            Nothing -> ClassFundepParseFail
+            Just p1 ->
+              let m2 = to_maybe_pos (parse_token_literal src p1 len "->")
+              in case m2 of
+                Nothing -> ClassFundepParseFail
+                Just p2 ->
+                  let m3 = to_maybe_pos (parse_ident src p2 len)
+                  in case m3 of
+                    Nothing -> ClassFundepParseFail
+                    Just p3 ->
+                      let m4 = to_maybe_pos (parse_class_fundep_rhs_tail src p3 len)
+                      in case m4 of
+                        Nothing -> ClassFundepParseResult p3 ClassFundepInfoSingle
+                        Just p4 ->
+                          let m5 = to_maybe_pos (parser_many parse_class_fundep_rhs_tail src p4 len)
+                          in case m5 of
+                            Nothing -> ClassFundepParseFail
+                            Just p5 -> ClassFundepParseResult p5 ClassFundepInfoAmbiguous
+
+parse_class_fundep_rhs_tail src i len =
+  let m0 = to_maybe_pos (parse_comma src i len)
+  in case m0 of
+    Nothing -> -1
+    Just p0 -> parse_ident src p0 len
 
 parse_law_payload src i len =
   let p = parse_ident *> parse_ident *> parse_eq *> parse_nonempty_tail
-  in p src i len
+      m0 = to_maybe_pos (p src i len)
+  in case m0 of
+    Nothing -> -1
+    Just p1 ->
+      case derive_law_expr_with_dispatch (default_class_dispatch_from_evidence ClassEvidenceResolved) (CVar p1) of
+        _ -> p1
 
 parse_instance_payload src i len =
   let p = parse_ident *> parse_colon *> parse_ident *> parser_some parse_ident *> parse_tail_has_eq
-  in p src i len
+      m0 = to_maybe_pos (p src i len)
+  in case m0 of
+    Nothing -> -1
+    Just p1 ->
+      case derive_instance_method_with_dispatch (default_class_dispatch_from_evidence ClassEvidenceResolved) (CVar p1) (CVar p1) of
+        _ -> p1
 
 parse_data_line src i len = parse_decl_line "data" parse_data_payload src i len
 parse_newtype_line src i len = parse_decl_line "newtype" parse_newtype_payload src i len

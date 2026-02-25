@@ -6,6 +6,11 @@ data bool = true<1> | false<0>
 data CommandTag = CommandCompile | CommandFormat | CommandSelfhost | CommandUnknown
 data CompileRequestTag = CompileRequestMissingPath | CompileRequestMissingSource | CompileRequestReady
 data Maybe a = Just a | Nothing
+data ClassMethodExpr = CBool bool | CVar i64 | CNot ClassMethodExpr | CAnd ClassMethodExpr ClassMethodExpr | COr ClassMethodExpr ClassMethodExpr
+
+kernel_class_dispatch = class_dispatch_static
+class_dispatch_default_resolved =
+  infer_class_dispatch kernel_class_dispatch ClassEvidenceResolved class_fundep_metadata_default
 
 bool_not b = case b of
   true -> false
@@ -18,6 +23,80 @@ bool_or a b = case a b of
 bool_and a b = case a b of
   true true -> true
   _ _ -> false
+
+resolve_class_method dispatch static_method dynamic_method =
+  case class_dispatch_mode dispatch of
+    ClassDispatchStatic -> static_method
+    ClassDispatchDynamic -> dynamic_method
+
+rewrite_bool_law_expr expr =
+  case expr of
+    CBool b -> CBool b
+    CVar _ -> expr
+    CNot inner ->
+      let inner1 = rewrite_bool_law_expr inner
+      in case inner1 of
+        CNot inner2 -> inner2
+        _ -> CNot inner1
+    CAnd left right =
+      let left1 = rewrite_bool_law_expr left
+          right1 = rewrite_bool_law_expr right
+      in case left1 of
+        CBool true -> right1
+        CBool false -> CBool false
+        _ -> case right1 of
+          CBool true -> left1
+          CBool false -> CBool false
+          _ -> CAnd left1 right1
+    COr left right =
+      let left1 = rewrite_bool_law_expr left
+          right1 = rewrite_bool_law_expr right
+      in case left1 of
+        CBool true -> CBool true
+        CBool false -> right1
+        _ -> case right1 of
+          CBool true -> CBool true
+          CBool false -> left1
+          _ -> COr left1 right1
+
+apply_class_law_rewrites dispatch law_expr =
+  case class_dispatch_mode dispatch of
+    ClassDispatchStatic -> rewrite_bool_law_expr law_expr
+    ClassDispatchDynamic -> law_expr
+
+derive_class_method_with_dispatch dispatch static_expr dynamic_expr =
+  let selected_method = resolve_class_method dispatch static_expr dynamic_expr
+  in apply_class_law_rewrites dispatch selected_method
+
+derive_class_method static_expr dynamic_expr =
+  derive_class_method_with_dispatch class_dispatch_default_resolved static_expr dynamic_expr
+
+derive_law_expr_with_dispatch dispatch law_expr =
+  apply_class_law_rewrites dispatch law_expr
+
+derive_law_expr law_expr =
+  derive_law_expr_with_dispatch class_dispatch_default_resolved law_expr
+
+derive_instance_method_with_dispatch dispatch static_expr dynamic_expr =
+  let selected_method = resolve_class_method dispatch static_expr dynamic_expr
+  in apply_class_law_rewrites dispatch selected_method
+
+derive_instance_method static_expr dynamic_expr =
+  derive_instance_method_with_dispatch class_dispatch_default_resolved static_expr dynamic_expr
+
+class_rewrite_pipeline dispatch static_expr dynamic_expr =
+  derive_class_method_with_dispatch dispatch static_expr dynamic_expr
+
+class_rewrite_pipeline_default evidence static_expr dynamic_expr =
+  let dispatch = infer_class_dispatch kernel_class_dispatch evidence class_fundep_metadata_default
+  in class_rewrite_pipeline dispatch static_expr dynamic_expr
+
+class_rewrite_pipeline_applicative evidence_a evidence_b fundep_info static_expr dynamic_expr =
+  let dispatch = infer_class_dispatch_applicative kernel_class_dispatch evidence_a evidence_b fundep_info
+  in class_rewrite_pipeline dispatch static_expr dynamic_expr
+
+class_rewrite_pipeline_static static_expr dynamic_expr =
+  class_rewrite_pipeline kernel_class_dispatch static_expr dynamic_expr
 
 min2 a b = case (a > b) of
   true -> b

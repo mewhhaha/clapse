@@ -4,6 +4,9 @@
 
 1. Parse source
 2. Derive/apply class-law rewrites from class/law/instance declarations
+   - class dispatch is explicit (static default), with static rewrites applying
+     boolean normalization for law terms (`not not`, `true/false` identities and
+     annihilations for `and`/`or`) and dynamic dispatch preserving method shape
 3. Lower to stack ops
 4. Collapse to normalized IR
 5. Verify IR invariants
@@ -35,6 +38,7 @@ Values:
 - slice ownership rewrite for `slice_set_u8` (linear reuse vs shared-target copy path)
 - Dead-temp pruning and compact temp renumbering
 - Self tail-call normalization
+- Compile-time bool-law simplification (`CAnd`/`COr`/`CNot`) when class dispatch is static
 
 ## Verifier Focus
 
@@ -55,3 +59,21 @@ Values:
 
 - Add new rewrites/passes only with verifier-safe invariants and tests.
 - Prefer small, composable passes over large opaque rewrites.
+
+## Class-Law Rewrite Stage (Static vs Dynamic)
+
+The class rewrite stage sits before lowering and chooses method implementations from class metadata:
+
+- `resolve_class_method` selects between `static_method` and `dynamic_method` with the mode witness.
+- `apply_class_law_rewrites` applies the bool-law rewrite only when mode is `ClassDispatchStatic`.
+- `ClassDispatchDynamic` keeps the law method unchanged.
+
+Safe fold set currently implemented in `rewrite_bool_law_expr`:
+
+- `not (not x)` -> `x`
+- `true && x` -> `x`
+- `false && x` -> `false`
+- `true || x` -> `true`
+- `false || x` -> `x`
+
+All of these are conservative bool simplifications and are documented as compile-time only.

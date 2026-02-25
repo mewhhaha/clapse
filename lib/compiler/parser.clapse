@@ -1,5 +1,5 @@
 module compiler.parser
-export is_fail_pos, parser_bind, parser_then, parser_map, parser_ap, parser_keep_left, parser_keep_right, parser_or
+export is_fail_pos, parser_dispatch_default, parser_or_with, parser_bind_with, parser_then_with, parser_map_with, parser_ap_with, parser_keep_left_with, parser_keep_right_with, parser_bind, parser_then, parser_map, parser_ap, parser_keep_left, parser_keep_right, parser_or, ParserDispatch, ClassDispatchMode, ClassDispatch, ClassFundepInfo, ClassEvidence, class_fundep_metadata_default, class_dispatch_default, class_dispatch_static, class_dispatch_dynamic, class_dispatch_default_resolved, class_dispatch_mode, class_dispatch_is_static, class_dispatch_is_dynamic, class_evidence_from_fundep, class_evidence_for_applicative, infer_class_dispatch, infer_class_dispatch_applicative, default_class_dispatch_from_evidence
 
 infixl 1 >>= = parser_bind
 infixl 1 >> = parser_then
@@ -10,26 +10,96 @@ infixl 4 <* = parser_keep_left
 infixl 4 *> = parser_keep_right
 
 data bool = true<1> | false<0>
+data ParserDispatch = ParserDispatchDefault | ParserDispatchRightBiased
+data ClassDispatchMode = ClassDispatchStatic | ClassDispatchDynamic
+data ClassDispatch = ClassDispatchWitness ClassDispatchMode
+data ClassFundepInfo = ClassFundepInfoNone | ClassFundepInfoSingle | ClassFundepInfoAmbiguous
+data ClassEvidence = ClassEvidenceResolved | ClassEvidenceUnknown | ClassEvidenceAmbiguous
+
+parser_dispatch_default = ParserDispatchDefault
+class_dispatch_default = ClassDispatchStatic
+class_dispatch_static = ClassDispatchWitness ClassDispatchStatic
+class_dispatch_dynamic = ClassDispatchWitness ClassDispatchDynamic
+class_fundep_metadata_default = ClassFundepInfoNone
+class_dispatch_default_resolved =
+  infer_class_dispatch class_dispatch_static ClassEvidenceResolved class_fundep_metadata_default
+
+class_dispatch_mode witness =
+  case witness of
+    ClassDispatchWitness mode -> mode
+
+class_dispatch_is_static mode =
+  case mode of
+    ClassDispatchWitness ClassDispatchStatic -> true
+    _ -> false
+
+class_dispatch_is_dynamic mode =
+  case mode of
+    ClassDispatchWitness ClassDispatchDynamic -> true
+    _ -> false
+
+class_evidence_from_fundep fundep_info =
+  case fundep_info of
+    ClassFundepInfoAmbiguous -> ClassEvidenceAmbiguous
+    _ -> ClassEvidenceResolved
+
+class_evidence_for_applicative evidence_a evidence_b =
+  case evidence_a of
+    ClassEvidenceAmbiguous -> ClassEvidenceAmbiguous
+    ClassEvidenceUnknown ->
+      case evidence_b of
+        ClassEvidenceAmbiguous -> ClassEvidenceAmbiguous
+        _ -> ClassEvidenceUnknown
+    ClassEvidenceResolved ->
+      case evidence_b of
+        ClassEvidenceResolved -> ClassEvidenceResolved
+        _ -> ClassEvidenceUnknown
+
+infer_class_dispatch kernel_dispatch evidence fundep_info =
+  case (class_dispatch_is_dynamic kernel_dispatch) of
+    true -> kernel_dispatch
+    _ ->
+      case evidence of
+        ClassEvidenceResolved ->
+          case fundep_info of
+            ClassFundepInfoAmbiguous -> class_dispatch_dynamic
+            _ -> class_dispatch_static
+        _ -> class_dispatch_dynamic
+
+infer_class_dispatch_applicative kernel_dispatch evidence_a evidence_b fundep_info =
+  let evidence = class_evidence_for_applicative evidence_a evidence_b
+  in infer_class_dispatch kernel_dispatch evidence fundep_info
+
+default_class_dispatch_from_evidence evidence =
+  infer_class_dispatch class_dispatch_static evidence class_fundep_metadata_default
 
 is_fail_pos p = (p == -1)
 
-parser_bind p q src i len =
+parser_bind_with _dispatch p q src i len =
   let next = p src i len
   in case is_fail_pos next of
     true -> -1
     _ -> q src next len
 
+parser_bind p q = parser_bind_with parser_dispatch_default p q
+
+parser_then_with dispatch p q = parser_bind_with dispatch p q
+
 parser_then p q = parser_bind p q
 
-parser_map f p src i len =
+parser_map_with dispatch f p src i len =
   let next = p src i len
   in case is_fail_pos next of
     true -> -1
     _ -> f next
 
+parser_map f p = parser_map_with parser_dispatch_default f p
+
+parser_ap_with dispatch p q = parser_keep_right_with dispatch p q
+
 parser_ap p q = parser_keep_right p q
 
-parser_keep_left p q src i len =
+parser_keep_left_with dispatch p q src i len =
   let next = p src i len
   in case is_fail_pos next of
     true -> -1
@@ -38,10 +108,23 @@ parser_keep_left p q src i len =
         true -> -1
         _ -> next
 
+parser_keep_left p q = parser_keep_left_with parser_dispatch_default p q
+
+parser_keep_right_with dispatch p q = parser_bind_with dispatch p q
+
 parser_keep_right p q = parser_bind p q
 
-parser_or p q src i len =
-  let next = p src i len
-  in case is_fail_pos next of
-    true -> q src i len
-    _ -> next
+parser_or_with dispatch p q src i len =
+  case dispatch of
+    ParserDispatchDefault ->
+      let next = p src i len
+      in case is_fail_pos next of
+        true -> q src i len
+        _ -> next
+    ParserDispatchRightBiased ->
+      let next = q src i len
+      in case is_fail_pos next of
+        true -> p src i len
+        _ -> next
+
+parser_or p q = parser_or_with parser_dispatch_default p q
