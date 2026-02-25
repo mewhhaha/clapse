@@ -28,6 +28,12 @@ jobs:
       - name: Guard no host toolchain surface
         run: deno run -A scripts/guard-no-host-surface.mjs
 
+      - name: Validate docs code fences
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          CLAPSE_COMPILER_WASM_PATH: artifacts/latest/clapse_compiler.wasm
+        run: deno run -A scripts/validate-docs.mjs
+
       - name: Resolve release context
         id: release_context
         if: startsWith(github.ref, 'refs/tags/v')
