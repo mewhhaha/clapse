@@ -15,13 +15,40 @@ data ClassEvidence = ClassEvidenceResolved | ClassEvidenceUnknown | ClassEvidenc
 data ClassPayloadParse = ClassPayloadFail | ClassPayloadResult i64 ClassFundepInfo
 data ClassFundepParse = ClassFundepParseFail | ClassFundepParseResult i64 ClassFundepInfo
 
-infixl 1 >>= = parser_bind
-infixl 1 >> = parser_then
+infixl 1 >>= = bind
+infixl 1 >> = then_m
 infixl 3 <|> = parser_or
-infixl 4 <$> = parser_map
-infixl 4 <*> = parser_ap
-infixl 4 <* = parser_keep_left
-infixl 4 *> = parser_keep_right
+infixl 4 <$> = fmap
+infixl 4 <*> = ap
+infixl 4 <* = keep_left
+infixl 4 *> = keep_right
+
+id x = x
+compose f g x = f (g x)
+fmap f p = parser_map f p
+pure _ = parser_pure_pos
+bind p q = parser_bind p q
+then_m p q = bind p q
+keep_left p q = ap (fmap (\x -> (\_ -> x)) p) q
+keep_right p q = ap (fmap (\_ -> id) p) q
+
+class Functor f : functor
+law Functor identity = fmap id x => x
+law Functor composition = fmap f (fmap g x) => fmap (compose f g) x
+instance ParserFunctor : Functor parser fmap=fmap id=id compose=compose
+
+class Applicative f : applicative
+law Applicative identity = ap (pure id) x => x
+law Applicative homomorphism = ap (pure f) (pure x) => pure (f x)
+law Applicative interchange = ap u (pure y) => ap (pure (\f -> f y)) u
+law Applicative composition = ap (ap (ap (pure compose) u) v) w => ap u (ap v w)
+instance ParserApplicative : Applicative parser pure=pure ap=ap fmap=fmap
+
+class Monad m : monad
+law Monad left_identity = bind (pure x) f => f x
+law Monad right_identity = bind m pure => m
+law Monad associativity = bind (bind m f) g => bind m (\x -> bind (f x) g)
+instance ParserMonad : Monad parser pure=pure bind=bind
 
 is_fail_pos p = (p == -1)
 is_success_pos p = if2 (is_fail_pos p) false true
@@ -828,8 +855,25 @@ parser_map_with_base f p src i len =
 
 parser_map f p src i len = parser_map_with parser_dispatch_default f p src i len
 
-parser_ap p q = parser_keep_right p q
-parser_ap_with dispatch p q = parser_keep_right_with dispatch p q
+parser_ap_static_with dispatch p q src i len =
+  parser_keep_right_with dispatch p q src i len
+
+parser_ap_dynamic_with dispatch p q src i len =
+  parser_keep_right_with dispatch p q src i len
+
+ap_with dispatch evidence_a evidence_b fundep_info p q src i len =
+  let class_dispatch = infer_class_dispatch_applicative class_dispatch_static evidence_a evidence_b fundep_info
+  in case class_dispatch_mode class_dispatch of
+    ClassDispatchStatic -> parser_ap_static_with dispatch p q src i len
+    ClassDispatchDynamic -> parser_ap_dynamic_with dispatch p q src i len
+
+ap p q =
+  ap_with parser_dispatch_default ClassEvidenceResolved ClassEvidenceResolved class_fundep_metadata_default p q
+
+parser_ap_with dispatch p q src i len =
+  ap_with dispatch ClassEvidenceResolved ClassEvidenceResolved class_fundep_metadata_default p q src i len
+
+parser_ap p q = ap p q
 
 parser_keep_left_with _dispatch p q src i len =
   let mj = to_maybe_pos (p src i len)

@@ -1,8 +1,8 @@
 module bootstrap_phase9_compiler_kernel
 import compiler.parser
+import compiler.prelude
 export clapse_run
 
-data bool = true<1> | false<0>
 data CommandTag = CommandCompile | CommandFormat | CommandSelfhost | CommandUnknown
 data CompileRequestTag = CompileRequestMissingPath | CompileRequestMissingSource | CompileRequestReady
 data Maybe a = Just a | Nothing
@@ -11,18 +11,6 @@ data ClassMethodExpr = CBool bool | CVar i64 | CNot ClassMethodExpr | CAnd Class
 kernel_class_dispatch = class_dispatch_static
 class_dispatch_default_resolved =
   infer_class_dispatch kernel_class_dispatch ClassEvidenceResolved class_fundep_metadata_default
-
-bool_not b = case b of
-  true -> false
-  false -> true
-
-bool_or a b = case a b of
-  false false -> false
-  _ _ -> true
-
-bool_and a b = case a b of
-  true true -> true
-  _ _ -> false
 
 resolve_class_method dispatch static_method dynamic_method =
   case class_dispatch_mode dispatch of

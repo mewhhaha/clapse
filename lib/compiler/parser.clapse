@@ -1,20 +1,22 @@
 module compiler.parser
-export is_fail_pos, parser_dispatch_default, parser_or_with, parser_bind_with, parser_then_with, parser_map_with, parser_ap_with, parser_keep_left_with, parser_keep_right_with, parser_bind, parser_then, parser_map, parser_ap, parser_keep_left, parser_keep_right, parser_or, ParserDispatch, ClassDispatchMode, ClassDispatch, ClassFundepInfo, ClassEvidence, class_fundep_metadata_default, class_dispatch_default, class_dispatch_static, class_dispatch_dynamic, class_dispatch_default_resolved, class_dispatch_mode, class_dispatch_is_static, class_dispatch_is_dynamic, class_evidence_from_fundep, class_evidence_for_applicative, infer_class_dispatch, infer_class_dispatch_applicative, default_class_dispatch_from_evidence
+import compiler.prelude
+export is_fail_pos, parser_dispatch_default, parser_or_with, parser_bind_with, parser_then_with, parser_map_with, ap_with, ap, parser_ap_with, parser_keep_left_with, parser_keep_right_with, parser_bind, parser_then, parser_map, parser_ap, parser_keep_left, parser_keep_right, parser_or, ParserDispatch, ClassDispatchMode, ClassDispatch, ClassFundepInfo, ClassEvidence, class_fundep_metadata_default, class_dispatch_default, class_dispatch_static, class_dispatch_dynamic, class_dispatch_default_resolved, class_dispatch_mode, class_dispatch_is_static, class_dispatch_is_dynamic, class_evidence_from_fundep, class_evidence_for_applicative, infer_class_dispatch, infer_class_dispatch_applicative, default_class_dispatch_from_evidence
 
-infixl 1 >>= = parser_bind
-infixl 1 >> = parser_then
-infixl 3 <|> = parser_or
-infixl 4 <$> = parser_map
-infixl 4 <*> = parser_ap
-infixl 4 <* = parser_keep_left
-infixl 4 *> = parser_keep_right
-
-data bool = true<1> | false<0>
 data ParserDispatch = ParserDispatchDefault | ParserDispatchRightBiased
 data ClassDispatchMode = ClassDispatchStatic | ClassDispatchDynamic
 data ClassDispatch = ClassDispatchWitness ClassDispatchMode
 data ClassFundepInfo = ClassFundepInfoNone | ClassFundepInfoSingle | ClassFundepInfoAmbiguous
 data ClassEvidence = ClassEvidenceResolved | ClassEvidenceUnknown | ClassEvidenceAmbiguous
+
+fmap f p = parser_map f p
+pure _ = parser_pure_pos
+bind p q = parser_bind p q
+choice_empty _ _ _ = -1
+
+instance ParserFunctor : Functor parser fmap=fmap id=id compose=compose
+instance ParserApplicative : Applicative parser pure=pure ap=ap fmap=fmap
+instance ParserMonad : Monad parser pure=pure bind=bind
+instance ParserAlternative : Alternative parser empty=choice_empty append=parser_or
 
 parser_dispatch_default = ParserDispatchDefault
 class_dispatch_default = ClassDispatchStatic
@@ -75,6 +77,8 @@ default_class_dispatch_from_evidence evidence =
 
 is_fail_pos p = (p == -1)
 
+parser_pure_pos _ i _ = i
+
 parser_bind_with _dispatch p q src i len =
   let next = p src i len
   in case is_fail_pos next of
@@ -95,9 +99,25 @@ parser_map_with dispatch f p src i len =
 
 parser_map f p = parser_map_with parser_dispatch_default f p
 
-parser_ap_with dispatch p q = parser_keep_right_with dispatch p q
+parser_ap_static_with parser_dispatch p q src i len =
+  parser_keep_right_with parser_dispatch p q src i len
 
-parser_ap p q = parser_keep_right p q
+parser_ap_dynamic_with parser_dispatch p q src i len =
+  parser_keep_right_with parser_dispatch p q src i len
+
+ap_with parser_dispatch evidence_a evidence_b fundep_info p q src i len =
+  let dispatch = infer_class_dispatch_applicative class_dispatch_static evidence_a evidence_b fundep_info
+  in case class_dispatch_mode dispatch of
+    ClassDispatchStatic -> parser_ap_static_with parser_dispatch p q src i len
+    ClassDispatchDynamic -> parser_ap_dynamic_with parser_dispatch p q src i len
+
+ap p q =
+  ap_with parser_dispatch_default ClassEvidenceResolved ClassEvidenceResolved class_fundep_metadata_default p q
+
+parser_ap_with dispatch p q src i len =
+  ap_with dispatch ClassEvidenceResolved ClassEvidenceResolved class_fundep_metadata_default p q src i len
+
+parser_ap p q = ap p q
 
 parser_keep_left_with dispatch p q src i len =
   let next = p src i len

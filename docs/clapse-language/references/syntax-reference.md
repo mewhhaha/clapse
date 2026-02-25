@@ -169,18 +169,29 @@ not x && y || z
 - `<=` => `le` (infix 4)
 - `>` => `gt` (infix 4)
 - `>=` => `ge` (infix 4)
-- `not` => `bool_not` (prefix function application; e.g. `not x`, often used with parenthesized expr like `not (x == y)`)
+- `not` => `bool_not` via the compiler-prelude alias `not`
 - `&&` => `and` (infixr 3)
-- `||` => `bool_or` (infixr 2, declaration usually `infixr 2 || = bool_or` in prelude/custom modules)
+- `||` => `or` (infixr 2, declaration usually `infixr 2 || = or` in prelude/custom modules)
 
 Custom operators:
 
 ```haskell
 infixl 6 +. = add
-infixr 2 || = bool_or
+infixr 2 || = or
 infixr 5 <> = append
 infixl 6 plus_op = add
 ```
+
+The compiler prelude also defines the shared boolean class in Haskell-like naming:
+
+```haskell
+data bool = true<1> | false<0>
+class Boolean b : bool
+infixr 3 && = and
+infixr 2 || = or
+```
+
+`Boolean` supplies the `bool` laws (identity, annihilation, and double-negation) with the default `bool` instance.
 
 Custom declarations override builtins for matching operator tokens.
 
