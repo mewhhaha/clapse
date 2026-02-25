@@ -91,8 +91,13 @@ async function resolveCompilerWasmPath() {
     ((Deno.env.get("CLAPSE_ALLOW_BRIDGE") ?? "").toLowerCase() === "1") ||
     ((Deno.env.get("CLAPSE_ALLOW_BRIDGE") ?? "").toLowerCase() === "true");
   const candidates = allowBridge
-    ? ["out/clapse_compiler.wasm", "out/clapse_compiler_bridge.wasm"]
-    : ["out/clapse_compiler.wasm"];
+    ? [
+      "artifacts/latest/clapse_compiler.wasm",
+      "artifacts/latest/clapse_compiler_bridge.wasm",
+      "out/clapse_compiler.wasm",
+      "out/clapse_compiler_bridge.wasm",
+    ]
+    : ["artifacts/latest/clapse_compiler.wasm", "out/clapse_compiler.wasm"];
   for (const candidate of candidates) {
     if (await hasExistingPath(candidate)) {
       return candidate;
@@ -105,7 +110,7 @@ async function runViaWasmRunner(commandArgs) {
   const wasmPath = await resolveCompilerWasmPath();
   if (wasmPath.length === 0) {
     throw new Error(
-      "CLAPSE_COMPILER_WASM_PATH is required for wasm mode (or place compiler wasm at out/clapse_compiler.wasm / out/clapse_compiler_bridge.wasm)",
+      "CLAPSE_COMPILER_WASM_PATH is required for wasm mode (or place compiler wasm at artifacts/latest/clapse_compiler.wasm / artifacts/latest/clapse_compiler_bridge.wasm / out/clapse_compiler.wasm / out/clapse_compiler_bridge.wasm)",
     );
   }
   if (!(await hasExistingPath(wasmPath))) {

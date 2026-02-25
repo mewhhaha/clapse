@@ -56,6 +56,23 @@ jobs:
           echo "release_dir=${release_dir}" >> "$GITHUB_OUTPUT"
           echo "release_id=$(basename "${release_dir}")" >> "$GITHUB_OUTPUT"
 
+      - name: Build release CLI wrapper
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          RELEASE_DIR: ${{ steps.release_dir.outputs.release_dir }}
+        run: |
+          set -euo pipefail
+          cat > "${RELEASE_DIR}/clapse" <<EOF
+          #!/usr/bin/env bash
+          set -euo pipefail
+          SELF_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+          export CLAPSE_COMPILER_WASM_PATH="\${CLAPSE_COMPILER_WASM_PATH:-\${SELF_DIR}/clapse_compiler.wasm}"
+          export CLAPSE_ALLOW_HOST_COMPILE_FALLBACK="\${CLAPSE_ALLOW_HOST_COMPILE_FALLBACK:-0}"
+          export CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK="\${CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK:-0}"
+          exec deno run -A "https://raw.githubusercontent.com/mewhhaha/clapse/${GITHUB_REF_NAME}/scripts/clapse.mjs" --wasm "\$@"
+          EOF
+          chmod +x "${RELEASE_DIR}/clapse"
+
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
@@ -70,6 +87,7 @@ jobs:
           files: |
             ${{ steps.release_dir.outputs.release_dir }}/clapse_compiler.wasm
             ${{ steps.release_dir.outputs.release_dir }}/clapse_compiler_bridge.wasm
+            ${{ steps.release_dir.outputs.release_dir }}/clapse
             ${{ steps.release_dir.outputs.release_dir }}/native-behavior-fixture-map.json
             ${{ steps.release_dir.outputs.release_dir }}/native-selfhost-artifact-fixture-map.json
             ${{ steps.release_dir.outputs.release_dir }}/release-manifest.json
@@ -87,8 +105,10 @@ jobs:
           mkdir -p artifacts/latest
           cp "${RELEASE_DIR}/clapse_compiler.wasm" artifacts/latest/clapse_compiler.wasm
           cp "${RELEASE_DIR}/clapse_compiler_bridge.wasm" artifacts/latest/clapse_compiler_bridge.wasm
+          cp "${RELEASE_DIR}/clapse" artifacts/latest/clapse
           cp "${RELEASE_DIR}/release-manifest.json" artifacts/latest/release-manifest.json
           cp "${RELEASE_DIR}/checksums.sha256" artifacts/latest/checksums.sha256
+          chmod +x artifacts/latest/clapse
           if [ -z "$(git status --porcelain -- artifacts/latest)" ]; then
             echo "artifacts/latest unchanged"
             exit 0

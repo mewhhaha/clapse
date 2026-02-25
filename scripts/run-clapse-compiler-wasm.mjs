@@ -26,8 +26,13 @@ async function resolveCompilerWasmPath() {
     ((Deno.env.get("CLAPSE_ALLOW_BRIDGE") ?? "").toLowerCase() === "1") ||
     ((Deno.env.get("CLAPSE_ALLOW_BRIDGE") ?? "").toLowerCase() === "true");
   const candidates = allowBridge
-    ? ["out/clapse_compiler.wasm", "out/clapse_compiler_bridge.wasm"]
-    : ["out/clapse_compiler.wasm"];
+    ? [
+      "artifacts/latest/clapse_compiler.wasm",
+      "artifacts/latest/clapse_compiler_bridge.wasm",
+      "out/clapse_compiler.wasm",
+      "out/clapse_compiler_bridge.wasm",
+    ]
+    : ["artifacts/latest/clapse_compiler.wasm", "out/clapse_compiler.wasm"];
   for (const candidate of candidates) {
     if (await fileExists(candidate)) {
       return candidate;
@@ -52,8 +57,10 @@ function usage() {
     "",
     "Compiler wasm resolution:",
     "  1) CLAPSE_COMPILER_WASM_PATH",
-    "  2) out/clapse_compiler.wasm",
-    "  3) out/clapse_compiler_bridge.wasm (only with CLAPSE_ALLOW_BRIDGE=1)",
+    "  2) artifacts/latest/clapse_compiler.wasm",
+    "  3) artifacts/latest/clapse_compiler_bridge.wasm (with CLAPSE_ALLOW_BRIDGE=1)",
+    "  4) out/clapse_compiler.wasm",
+    "  5) out/clapse_compiler_bridge.wasm (only with CLAPSE_ALLOW_BRIDGE=1)",
     "",
     "Required compiler wasm ABI:",
     "  export memory or __memory",
