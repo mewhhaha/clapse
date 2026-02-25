@@ -8,6 +8,8 @@ function parseArgs(argv) {
     rightName: "haskell",
     requireDistinctEngines: false,
     requireRightEngineMode: "",
+    requireExactArtifacts: true,
+    forbidHostClapseImports: false,
     out: "out/selfhost-bootstrap",
     left: 'CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --',
     right: 'CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --',
@@ -24,12 +26,78 @@ function parseArgs(argv) {
       out.requireDistinctEngines = val === "1" || val === "true";
     }
     if (key === "--require-right-engine-mode") out.requireRightEngineMode = val;
+    if (key === "--require-exact-artifacts") {
+      out.requireExactArtifacts = val === "1" || val === "true";
+    }
+    if (key === "--forbid-host-clapse-imports") {
+      out.forbidHostClapseImports = val === "1" || val === "true";
+    }
     if (key === "--out") out.out = val;
     if (key === "--left") out.left = val;
     if (key === "--right") out.right = val;
     if (key.startsWith("--")) i += 1;
   }
   return out;
+}
+
+function loadManifest(raw) {
+  return raw
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"));
+}
+
+function parseBehaviorManifest(raw) {
+  const decoded = JSON.parse(raw);
+  if (!decoded || !Array.isArray(decoded.scenarios)) {
+    throw new Error("invalid behavior manifest: expected { scenarios: [...] }");
+  }
+  return decoded.scenarios;
+}
+
+function extractBehaviorEntries(scenarios) {
+  return scenarios
+    .map((scenario) => scenario?.entry)
+    .filter((entry) => typeof entry === "string" && entry.length > 0);
+}
+
+function hasHostClapseImport(sourceText) {
+  return sourceText.includes("import host.clapse");
+}
+
+async function scanEntryFilesForHostClapseImports(entries) {
+  const bad = [];
+  const seen = new Set();
+  for (const entry of entries) {
+    if (seen.has(entry)) continue;
+    seen.add(entry);
+    const text = await Deno.readTextFile(entry);
+    if (hasHostClapseImport(text)) {
+      bad.push(entry);
+    }
+  }
+  return bad;
+}
+
+async function enforceNoHostClapseImports(cfg) {
+  const manifestEntries = loadManifest(await Deno.readTextFile(cfg.manifest));
+  const behaviorScenarios = parseBehaviorManifest(
+    await Deno.readTextFile(cfg.behaviorManifest),
+  );
+  const behaviorEntries = extractBehaviorEntries(behaviorScenarios);
+  const badEntries = await scanEntryFilesForHostClapseImports([
+    ...manifestEntries,
+    ...behaviorEntries,
+  ]);
+  if (badEntries.length > 0) {
+    console.error(
+      "selfhost-bootstrap-abc: forbidden host.clapse import found in entry files",
+    );
+    for (const entry of badEntries) {
+      console.error(`  - ${entry}`);
+    }
+    Deno.exit(4);
+  }
 }
 
 async function runShell(cmd) {
@@ -46,6 +114,9 @@ async function runShell(cmd) {
 
 async function main() {
   const cfg = parseArgs(Deno.args);
+  if (cfg.forbidHostClapseImports) {
+    await enforceNoHostClapseImports(cfg);
+  }
   await Deno.mkdir(cfg.out, { recursive: true });
 
   console.log("Stage A: build host compiler");
@@ -60,7 +131,7 @@ async function main() {
 
   console.log("Stage B/C: differential artifact comparison");
   const stageBC = await runShell(
-    `deno run -A scripts/selfhost-diff.mjs --manifest "${cfg.manifest}" --left-name '${cfg.leftName}' --right-name '${cfg.rightName}' --left '${cfg.left}' --right '${cfg.right}' --require-distinct-engines '${cfg.requireDistinctEngines ? "1" : "0"}' --require-right-engine-mode '${cfg.requireRightEngineMode}' --out "${cfg.out}/diff"`,
+    `deno run -A scripts/selfhost-diff.mjs --manifest "${cfg.manifest}" --left-name '${cfg.leftName}' --right-name '${cfg.rightName}' --left '${cfg.left}' --right '${cfg.right}' --require-distinct-engines '${cfg.requireDistinctEngines ? "1" : "0"}' --require-right-engine-mode '${cfg.requireRightEngineMode}' --require-exact-artifacts '${cfg.requireExactArtifacts ? "1" : "0"}' --out "${cfg.out}/diff"`,
   );
   await Deno.writeTextFile(`${cfg.out}/stage_bc.stdout.log`, stageBC.stdout);
   await Deno.writeTextFile(`${cfg.out}/stage_bc.stderr.log`, stageBC.stderr);
@@ -91,6 +162,8 @@ async function main() {
       right_name: cfg.rightName,
       require_distinct: cfg.requireDistinctEngines,
       require_right_engine_mode: cfg.requireRightEngineMode,
+      require_exact_artifacts: cfg.requireExactArtifacts,
+      forbid_host_clapse_imports: cfg.forbidHostClapseImports,
       left_cmd: cfg.left,
       right_cmd: cfg.right,
     },

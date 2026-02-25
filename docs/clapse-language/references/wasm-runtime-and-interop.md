@@ -13,7 +13,7 @@
 
 Target:
 
-- WebAssembly 3.0 (`return_call`, `if/else`, ref types as emitted by this compiler)
+- WebAssembly 3.0 (`return_call`, wasm `if/else` opcodes, ref types as emitted by this compiler)
 - compiled modules currently require no `rt_*` function imports for closure/struct core runtime operations.
 - JS host runtime no longer ships `rt_*` fallback imports.
 
@@ -23,8 +23,8 @@ The struct field/tag operations are now emitted in-module:
 - `get_field`/`has_tag`/`get_tag` helper names are not emitted as standalone runtime helpers.
 - JS host runtime intentionally does not provide struct helper import fallbacks.
 
-- `if` is lowered directly to WebAssembly `if/else` and no longer uses a runtime helper.
-- Single-use saturating case/if branch thunks are lowered to direct branch calls, skipping closure allocation/apply in those branches.
+- Internal conditionals generated from guards are lowered directly to WebAssembly `if/else` and no longer use a runtime helper.
+- Single-use saturating case/guard branch thunks are lowered to direct branch calls, skipping closure allocation/apply in those branches.
 
 ## Data/Closure Layout (Current)
 

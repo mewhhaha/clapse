@@ -142,12 +142,12 @@ async function main() {
       rightCompileCache.set(entry, rightCompile);
     }
 
-    let leftRun = { ok: false, code: -1, stdout: "", stderr: "compile failed" };
+    let leftRun = { ok: false, code: -1, stdout: "", stderr: "" };
     let rightRun = {
       ok: false,
       code: -1,
       stdout: "",
-      stderr: "compile failed",
+      stderr: "",
     };
     if (leftCompile.ok) {
       leftRun = await runShell(
@@ -174,6 +174,13 @@ async function main() {
       ? leftCompile.ok && rightCompile.ok && sameTrap
       : leftCompile.ok && rightCompile.ok && sameOutput;
 
+    const leftErr = leftCompile.ok
+      ? normalizeOut(leftRun.stderr)
+      : normalizeOut(leftCompile.stderr || leftRun.stderr);
+    const rightErr = rightCompile.ok
+      ? normalizeOut(rightRun.stderr)
+      : normalizeOut(rightCompile.stderr || rightRun.stderr);
+
     results.push({
       entry,
       export: exportName,
@@ -185,8 +192,8 @@ async function main() {
       right_run_ok: rightRun.ok,
       left_out: normalizeOut(leftRun.stdout),
       right_out: normalizeOut(rightRun.stdout),
-      left_err: normalizeOut(leftRun.stderr || leftCompile.stderr),
-      right_err: normalizeOut(rightRun.stderr || rightCompile.stderr),
+      left_err: leftErr,
+      right_err: rightErr,
       same_output: sameOutput,
       same_trap: sameTrap,
       scenario_pass: scenarioPass,

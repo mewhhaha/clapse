@@ -2360,6 +2360,8 @@ tokenizeExpr = go []
                 "in" -> go (TokIn : acc) restSrc
                 "case" -> go (TokCase : acc) restSrc
                 "of" -> go (TokOf : acc) restSrc
+                "then" -> Left "could not parse expression; if/then/else syntax is not supported; use case"
+                "else" -> Left "could not parse expression; if/then/else syntax is not supported; use case"
                 _ -> go (TokIdentifier ident : acc) restSrc
       | isDigit c =
           let (restDigits, restSrc) = span isDigit cs
@@ -3690,6 +3692,8 @@ reservedKeywords =
   , "in"
   , "case"
   , "of"
+  , "then"
+  , "else"
   ]
 
 duplicates :: [Name] -> [Name]

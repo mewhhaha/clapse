@@ -2,6 +2,7 @@ const MAX_TAGGED_INT = 1073741823;
 const MIN_TAGGED_INT = -1073741824;
 const TEXT_DECODER = new TextDecoder();
 const WASM_PAGE_SIZE = 65536;
+const HOST_ALLOC_GUARD_BYTES = 16 * WASM_PAGE_SIZE;
 const SLICE_DESC_SIZE = 8;
 const CLOSURE_MAGIC = 0x434c_4f53; // "CLOS"
 const CLOSURE_HEADER_SIZE = 16;
@@ -111,12 +112,12 @@ export function makeRuntime() {
   function initLinearAllocator() {
     const memory = ensureMemory();
     if (state.nextAlloc === null) {
-      state.nextAlloc = memory.buffer.byteLength;
+      state.nextAlloc = memory.buffer.byteLength + HOST_ALLOC_GUARD_BYTES;
     }
     if (state.heapGlobal instanceof WebAssembly.Global) {
       const floor = state.heapGlobal.value >>> 0;
       if (floor > state.nextAlloc) {
-        state.nextAlloc = floor;
+        state.nextAlloc = floor + HOST_ALLOC_GUARD_BYTES;
       }
     }
   }

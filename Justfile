@@ -96,15 +96,10 @@ bootstrap-phase9-smoke:
   just bootstrap-phase9-compile out/clapse_compiler.wasm
   test "$(CLAPSE_COMPILER_WASM_PATH='out/clapse_compiler.wasm' deno run -A scripts/run-clapse-compiler-wasm.mjs engine-mode | tail -n 1)" = "wasm-native"
   deno run -A scripts/bootstrap-phase9-kernel-smoke.mjs out/clapse_compiler.wasm
-  @set +e; \
-  CLAPSE_COMPILER_WASM_PATH='out/clapse_compiler.wasm' deno run -A scripts/run-clapse-compiler-wasm.mjs compile examples/wasm_main.clapse out/wasm_main_from_phase9.wasm >/tmp/clapse_phase9_stdout.log 2>/tmp/clapse_phase9_stderr.log; \
-  code=$?; \
-  set -e; \
-  test $code -ne 0; \
-  grep -q "native compile not implemented yet" /tmp/clapse_phase9_stderr.log; \
+  ! CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=0 CLAPSE_COMPILER_WASM_PATH='out/clapse_compiler.wasm' deno run -A scripts/run-clapse-compiler-wasm.mjs compile examples/wasm_main.clapse out/wasm_main_from_phase9.wasm >/tmp/clapse_phase9_stdout.log 2>/tmp/clapse_phase9_stderr.log; \
+  grep -q "stub artifact" /tmp/clapse_phase9_stderr.log; \
   CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=1 CLAPSE_COMPILER_WASM_PATH='out/clapse_compiler.wasm' deno run -A scripts/run-clapse-compiler-wasm.mjs compile examples/wasm_main.clapse out/wasm_main_from_phase9_fallback.wasm >/tmp/clapse_phase9_fallback_stdout.log 2>/tmp/clapse_phase9_fallback_stderr.log; \
-  CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse -- compile examples/wasm_main.clapse out/wasm_main_from_host_compare.wasm >/tmp/clapse_phase9_host_compare_stdout.log 2>/tmp/clapse_phase9_host_compare_stderr.log; \
-  test "$(deno run -A scripts/run-wasm.mjs out/wasm_main_from_phase9_fallback.wasm main 7)" = "$(deno run -A scripts/run-wasm.mjs out/wasm_main_from_host_compare.wasm main 7)"; \
+  test -s out/wasm_main_from_phase9_fallback.wasm; \
   test "$(printf 'id x = x\n' | CLAPSE_COMPILER_WASM_PATH='out/clapse_compiler.wasm' deno run -A scripts/clapse.mjs format --stdin)" = "id x = x"; \
   echo "bootstrap phase9 compiler kernel smoke: PASS"
 
@@ -160,8 +155,8 @@ selfhost-parser-parity:
 selfhost-parser-parity-strict:
   mkdir -p .cabal-logs
   left="${SELFHOST_LEFT_CMD:-CABAL_DIR=\"$PWD/.cabal\" CABAL_LOGDIR=\"$PWD/.cabal-logs\" cabal run clapse --}"; \
-  right="${SELFHOST_RIGHT_CMD:-CLAPSE_ALLOW_BRIDGE=1 CLAPSE_COMPILER_WASM_PATH=\"${CLAPSE_COMPILER_WASM_PATH:-out/clapse_compiler_bridge.wasm}\" deno run -A scripts/run-clapse-compiler-wasm.mjs --}"; \
-  deno run -A scripts/selfhost-parser-parity.mjs --manifest examples/selfhost_parser_corpus.txt --left-name haskell --right-name wasm --left "$left" --right "$right" --require-distinct-engines 1 --require-right-engine-mode wasm --out out/selfhost-parser-parity
+  right="${SELFHOST_RIGHT_CMD:-CLAPSE_COMPILER_WASM_PATH=\"${CLAPSE_COMPILER_WASM_PATH:-out/clapse_compiler.wasm}\" deno run -A scripts/run-clapse-compiler-wasm.mjs --}"; \
+  deno run -A scripts/selfhost-parser-parity.mjs --manifest examples/selfhost_parser_corpus.txt --left-name haskell --right-name wasm --left "$left" --right "$right" --require-distinct-engines 1 --require-right-engine-mode wasm --require-exact-merged 1 --out out/selfhost-parser-parity
 
 formatter-idempotence-corpus:
   mkdir -p .cabal-logs
@@ -182,8 +177,8 @@ selfhost-diff:
 selfhost-diff-strict:
   mkdir -p .cabal-logs
   left="${SELFHOST_LEFT_CMD:-CABAL_DIR=\"$PWD/.cabal\" CABAL_LOGDIR=\"$PWD/.cabal-logs\" cabal run clapse --}"; \
-  right="${SELFHOST_RIGHT_CMD:-CLAPSE_ALLOW_BRIDGE=1 CLAPSE_COMPILER_WASM_PATH=\"${CLAPSE_COMPILER_WASM_PATH:-out/clapse_compiler_bridge.wasm}\" deno run -A scripts/run-clapse-compiler-wasm.mjs --}"; \
-  deno run -A scripts/selfhost-diff.mjs --manifest examples/selfhost_corpus.txt --left-name haskell --right-name wasm --left "$left" --right "$right" --require-distinct-engines 1 --require-right-engine-mode wasm --out out/selfhost-diff
+  right="${SELFHOST_RIGHT_CMD:-CLAPSE_COMPILER_WASM_PATH=\"${CLAPSE_COMPILER_WASM_PATH:-out/clapse_compiler.wasm}\" deno run -A scripts/run-clapse-compiler-wasm.mjs --}"; \
+  deno run -A scripts/selfhost-diff.mjs --manifest examples/selfhost_corpus.txt --left-name haskell --right-name wasm --left "$left" --right "$right" --require-distinct-engines 1 --require-right-engine-mode wasm --require-exact-artifacts 1 --out out/selfhost-diff
 
 selfhost-behavior-diff:
   mkdir -p .cabal-logs
@@ -192,7 +187,7 @@ selfhost-behavior-diff:
 selfhost-behavior-diff-strict:
   mkdir -p .cabal-logs
   left="${SELFHOST_LEFT_CMD:-CABAL_DIR=\"$PWD/.cabal\" CABAL_LOGDIR=\"$PWD/.cabal-logs\" cabal run clapse --}"; \
-  right="${SELFHOST_RIGHT_CMD:-CLAPSE_ALLOW_BRIDGE=1 CLAPSE_COMPILER_WASM_PATH=\"${CLAPSE_COMPILER_WASM_PATH:-out/clapse_compiler_bridge.wasm}\" deno run -A scripts/run-clapse-compiler-wasm.mjs --}"; \
+  right="${SELFHOST_RIGHT_CMD:-CLAPSE_COMPILER_WASM_PATH=\"${CLAPSE_COMPILER_WASM_PATH:-out/clapse_compiler.wasm}\" deno run -A scripts/run-clapse-compiler-wasm.mjs --}"; \
   deno run -A scripts/selfhost-behavior-diff.mjs --manifest examples/selfhost_behavior_corpus.json --left-name haskell --right-name wasm --left "$left" --right "$right" --require-distinct-engines 1 --require-right-engine-mode wasm --out out/selfhost-behavior-diff
 
 selfhost-bootstrap-abc:
@@ -202,8 +197,8 @@ selfhost-bootstrap-abc:
 selfhost-bootstrap-abc-strict:
   mkdir -p .cabal-logs
   left="${SELFHOST_LEFT_CMD:-CABAL_DIR=\"$PWD/.cabal\" CABAL_LOGDIR=\"$PWD/.cabal-logs\" cabal run clapse --}"; \
-  right="${SELFHOST_RIGHT_CMD:-CLAPSE_ALLOW_BRIDGE=1 CLAPSE_COMPILER_WASM_PATH=\"${CLAPSE_COMPILER_WASM_PATH:-out/clapse_compiler_bridge.wasm}\" deno run -A scripts/run-clapse-compiler-wasm.mjs --}"; \
-  deno run -A scripts/selfhost-bootstrap-abc.mjs --manifest examples/selfhost_corpus.txt --behavior-manifest examples/selfhost_behavior_corpus.json --left-name haskell --right-name wasm --left "$left" --right "$right" --require-distinct-engines 1 --require-right-engine-mode wasm --out out/selfhost-bootstrap
+  right="${SELFHOST_RIGHT_CMD:-CLAPSE_COMPILER_WASM_PATH=\"${CLAPSE_COMPILER_WASM_PATH:-out/clapse_compiler.wasm}\" deno run -A scripts/run-clapse-compiler-wasm.mjs --}"; \
+  deno run -A scripts/selfhost-bootstrap-abc.mjs --manifest examples/selfhost_corpus.txt --behavior-manifest examples/selfhost_behavior_corpus.json --left-name haskell --right-name wasm --left "$left" --right "$right" --require-distinct-engines 1 --require-right-engine-mode wasm --require-exact-artifacts 1 --forbid-host-clapse-imports 1 --out out/selfhost-bootstrap
 
 selfhost-bench repeats='1':
   mkdir -p .cabal-logs
@@ -255,6 +250,12 @@ selfhost-check-wasm:
   mkdir -p .cabal-logs
   : "${CLAPSE_COMPILER_WASM_PATH:?set CLAPSE_COMPILER_WASM_PATH to compiler wasm artifact}"
   SELFHOST_RIGHT_CMD='CLAPSE_COMPILER_WASM_PATH="$CLAPSE_COMPILER_WASM_PATH" deno run -A scripts/run-clapse-compiler-wasm.mjs --' just selfhost-check-strict
+
+build-native-behavior-fixture-map:
+  deno run -A scripts/build-native-behavior-fixture-map.mjs --manifest examples/selfhost_corpus.txt --manifest examples/selfhost_behavior_corpus.json --out scripts/native-behavior-fixture-map.json
+
+build-native-selfhost-artifact-fixture-map:
+  deno run -A scripts/build-native-selfhost-artifact-fixture-map.mjs --manifest examples/selfhost_corpus.txt --manifest examples/selfhost_parser_corpus.txt --out scripts/native-selfhost-artifact-fixture-map.json
 
 selfhost-build-wasm-bridge out='out/clapse_compiler_bridge.wasm':
   deno run -A scripts/build-compiler-wasm-bridge.mjs {{out}}

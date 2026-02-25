@@ -49,4 +49,3 @@ examples/wasm_struct_has_tag.clapse
 examples/wasm_struct_has_tag_false.clapse
 examples/game_of_life.clapse
 examples/mario_ecs.clapse
-examples/util/prelude.clapse

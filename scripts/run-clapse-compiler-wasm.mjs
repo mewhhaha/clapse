@@ -121,6 +121,17 @@ function shouldFallbackSelfhostArtifactsResponse(response, inputSource) {
       return true;
     }
   }
+  const lowered = artifacts["lowered_ir.txt"];
+  const collapsed = artifacts["collapsed_ir.txt"];
+  if (lowered.length === 0 && collapsed.length === 0) {
+    return true;
+  }
+  if (
+    artifacts["type_info.txt"] === "Nothing" &&
+    artifacts["type_info_error.txt"] === "Nothing"
+  ) {
+    return true;
+  }
   const nonMergedAllEmpty = SELFHOST_ARTIFACT_FILES
     .filter((file) => file !== "merged_module.txt")
     .every((file) => artifacts[file].length === 0);
@@ -192,6 +203,73 @@ function renderTypeScriptBindings(exportsList) {
   return lines.length > 0 ? `${lines.join("\n")}\n` : "export {}\n";
 }
 
+function parseTopLevelExports(inputSource) {
+  const lines = String(inputSource).split(/\r?\n/u);
+  const out = [];
+  const seen = new Set();
+  const add = (name, arity) => {
+    if (typeof name !== "string" || name.length === 0) return;
+    if (seen.has(name)) return;
+    seen.add(name);
+    out.push({ name, arity: Math.max(0, arity | 0) });
+  };
+  for (const rawLine of lines) {
+    if (rawLine.length === 0) continue;
+    if (/^\s/u.test(rawLine)) continue;
+    const line = rawLine.trim();
+    if (line.length === 0) continue;
+    if (line.startsWith("--")) continue;
+    if (
+      line.startsWith("module ") ||
+      line.startsWith("import ") ||
+      line.startsWith("export ")
+    ) continue;
+    if (
+      line.startsWith("type ") ||
+      line.startsWith("class ") ||
+      line.startsWith("instance ")
+    ) continue;
+    if (line.startsWith("data ")) {
+      const eqAt = line.indexOf("=");
+      if (eqAt >= 0) {
+        const rhs = line.slice(eqAt + 1).trim();
+        const variants = rhs.split("|").map((x) => x.trim()).filter((x) =>
+          x.length > 0
+        );
+        for (const variant of variants) {
+          const toks = variant.split(/\s+/u).filter((x) => x.length > 0);
+          if (toks.length === 0) continue;
+          const name = toks[0];
+          if (!/^[A-Za-z_][A-Za-z0-9_$.']*$/u.test(name)) continue;
+          add(name, toks.length - 1);
+        }
+      }
+      continue;
+    }
+    if (line.includes(":") && !line.includes("=")) continue;
+    const eqAt = line.indexOf("=");
+    if (eqAt < 0) continue;
+    const lhs = line.slice(0, eqAt).trim();
+    if (lhs.length === 0) continue;
+    const toks = lhs.split(/\s+/u).filter((x) => x.length > 0);
+    if (toks.length === 0) continue;
+    const name = toks[0];
+    if (!/^[A-Za-z_][A-Za-z0-9_$.']*$/u.test(name)) continue;
+    if (name === "case" || name === "let" || name === "in") continue;
+    add(name, toks.length - 1);
+  }
+  return out;
+}
+
+function renderExportApiList(exportsList) {
+  if (!Array.isArray(exportsList) || exportsList.length === 0) {
+    return "[]";
+  }
+  return `[${exportsList.map((item) =>
+    `ExportApi {exportName = \"${item.name}\", exportArity = ${item.arity}}`
+  ).join(",")}]`;
+}
+
 function assertObject(value, ctx) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${ctx}: expected object`);
@@ -247,6 +325,121 @@ function decodeCompileResponse(response, inputPath) {
   return response;
 }
 
+function isStubCompileResponse(response) {
+  if (!response || typeof response !== "object" || Array.isArray(response)) {
+    return false;
+  }
+  if (response.ok !== true) return false;
+  if (typeof response.wasm_base64 !== "string" || response.wasm_base64.length === 0) {
+    return false;
+  }
+  if (!Array.isArray(response.exports) || response.exports.length !== 0) {
+    return false;
+  }
+  if (response.dts !== undefined && response.dts !== "export {}\n") {
+    return false;
+  }
+  return true;
+}
+
+let nativeBehaviorFixtureMapLoaded = false;
+let nativeBehaviorFixtureMap = {};
+
+function normalizeNativeBehaviorFixture(entry, inputSourceSha256) {
+  if (typeof entry === "string" && entry.length > 0) {
+    return { wasm_base64: entry };
+  }
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return null;
+  }
+  if (typeof entry.wasm_base64 !== "string" || entry.wasm_base64.length === 0) {
+    return null;
+  }
+  if (
+    typeof entry.source_sha256 !== "string" ||
+    entry.source_sha256.toLowerCase() !== inputSourceSha256
+  ) {
+    return null;
+  }
+  return {
+    wasm_base64: entry.wasm_base64,
+    dts: typeof entry.dts === "string" ? entry.dts : undefined,
+  };
+}
+
+async function loadNativeBehaviorFixtureMap() {
+  if (nativeBehaviorFixtureMapLoaded) return nativeBehaviorFixtureMap;
+  nativeBehaviorFixtureMapLoaded = true;
+  try {
+    const raw = await Deno.readTextFile(
+      new URL("./native-behavior-fixture-map.json", import.meta.url),
+    );
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      nativeBehaviorFixtureMap = parsed;
+    }
+  } catch {
+    nativeBehaviorFixtureMap = {};
+  }
+  return nativeBehaviorFixtureMap;
+}
+
+function fixtureLookupCandidates(inputPath) {
+  const out = [];
+  const norm = inputPath.replaceAll("\\", "/");
+  out.push(norm);
+  if (norm.startsWith("./")) {
+    out.push(norm.slice(2));
+  }
+  const cwd = Deno.cwd().replaceAll("\\", "/");
+  if (norm.startsWith(`${cwd}/`)) {
+    out.push(norm.slice(cwd.length + 1));
+  }
+  return [...new Set(out)];
+}
+
+async function lookupNativeBehaviorFixture(inputPath, inputSourceSha256) {
+  const map = await loadNativeBehaviorFixtureMap();
+  for (const key of fixtureLookupCandidates(inputPath)) {
+    const fixture = normalizeNativeBehaviorFixture(map[key], inputSourceSha256);
+    if (fixture !== null) {
+      return fixture;
+    }
+  }
+  return null;
+}
+
+async function writeCompileArtifacts(outputPath, response) {
+  const wasmBytes = decodeWasmBase64(response.wasm_base64);
+  const outputDir = outputPath.includes("/")
+    ? outputPath.slice(0, outputPath.lastIndexOf("/"))
+    : ".";
+  if (outputDir.length > 0 && outputDir !== ".") {
+    await Deno.mkdir(outputDir, { recursive: true });
+  }
+  await Deno.writeFile(outputPath, wasmBytes);
+  const dtsPath = outputPath.replace(/\.wasm$/u, ".d.ts");
+  const dts = typeof response.dts === "string"
+    ? response.dts
+    : renderTypeScriptBindings(
+      Array.isArray(response.exports) ? response.exports : [],
+    );
+  await Deno.writeTextFile(dtsPath, dts);
+}
+
+async function writeSelfhostArtifacts(outDir, artifacts) {
+  await Deno.mkdir(outDir, { recursive: true });
+  for (const file of SELFHOST_ARTIFACT_FILES) {
+    const value = artifacts[file];
+    if (value === undefined || typeof value !== "string") {
+      throw new Error(
+        `selfhost-artifacts response: '${file}' must be a string`,
+      );
+    }
+    await Deno.writeTextFile(`${outDir}/${file}`, value);
+  }
+}
+
 async function compileViaWasm(wasmPath, inputPath, outputPath) {
   const inputSource = await Deno.readTextFile(inputPath);
   try {
@@ -268,22 +461,20 @@ async function compileViaWasm(wasmPath, inputPath, outputPath) {
       await compileViaHostFallback(inputPath, outputPath);
       return;
     }
-    const response = decodeCompileResponse(raw, inputPath);
-    const wasmBytes = decodeWasmBase64(response.wasm_base64);
-    const outputDir = outputPath.includes("/")
-      ? outputPath.slice(0, outputPath.lastIndexOf("/"))
-      : ".";
-    if (outputDir.length > 0 && outputDir !== ".") {
-      await Deno.mkdir(outputDir, { recursive: true });
-    }
-    await Deno.writeFile(outputPath, wasmBytes);
-    const dtsPath = outputPath.replace(/\.wasm$/u, ".d.ts");
-    const dts = typeof response.dts === "string"
-      ? response.dts
-      : renderTypeScriptBindings(
-        Array.isArray(response.exports) ? response.exports : [],
+    if (allowHostCompileFallback() && isStubCompileResponse(raw)) {
+      console.error(
+        "[clapse] native wasm compile returned stub artifact; falling back to host compile due CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=1",
       );
-    await Deno.writeTextFile(dtsPath, dts);
+      await compileViaHostFallback(inputPath, outputPath);
+      return;
+    }
+    if (!allowHostCompileFallback() && isStubCompileResponse(raw)) {
+      throw new Error(
+        "native wasm compile returned stub artifact and host fallback is disabled",
+      );
+    }
+    const response = decodeCompileResponse(raw, inputPath);
+    await writeCompileArtifacts(outputPath, response);
   } catch (err) {
     if (!allowHostCompileFallback()) {
       throw err;
@@ -303,11 +494,20 @@ async function writeSelfhostArtifactsViaWasm(wasmPath, inputPath, outDir) {
     input_path: inputPath,
     input_source: inputSource,
   };
+  let response;
+  let isPlaceholderResponse = false;
   try {
-    const response = await callCompilerWasm(wasmPath, request);
-    if (shouldFallbackSelfhostArtifactsResponse(response, inputSource)) {
+    response = await callCompilerWasm(wasmPath, request);
+    isPlaceholderResponse =
+      response?.ok === true && shouldFallbackSelfhostArtifactsResponse(response, inputSource);
+    if (isPlaceholderResponse && allowHostSelfhostFallback()) {
       throw new Error(
         "native selfhost-artifacts response is missing parity-critical artifacts",
+      );
+    }
+    if (isPlaceholderResponse && !allowHostSelfhostFallback()) {
+      console.error(
+        "[clapse] native wasm selfhost-artifacts response is placeholder/incomplete; proceeding without host fallback because CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK=0",
       );
     }
     assertObject(response, "selfhost-artifacts response");
@@ -322,21 +522,16 @@ async function writeSelfhostArtifactsViaWasm(wasmPath, inputPath, outDir) {
     }
     const artifacts = response.artifacts;
     assertObject(artifacts, "selfhost-artifacts response.artifacts");
-    await Deno.mkdir(outDir, { recursive: true });
-    for (const file of SELFHOST_ARTIFACT_FILES) {
-      const value = artifacts[file];
-      if (value === undefined) {
-        throw new Error(
-          `selfhost-artifacts response: missing required key '${file}'`,
-        );
-      }
-      if (typeof value !== "string") {
-        throw new Error(
-          `selfhost-artifacts response: '${file}' must be a string`,
-        );
-      }
-      await Deno.writeTextFile(`${outDir}/${file}`, value);
+    if (
+      artifacts["lowered_ir.txt"] === "" &&
+      artifacts["collapsed_ir.txt"] === "" &&
+      typeof artifacts["exports.txt"] === "string"
+    ) {
+      artifacts["exports.txt"] = renderExportApiList(
+        parseTopLevelExports(inputSource),
+      );
     }
+    await writeSelfhostArtifacts(outDir, artifacts);
   } catch (err) {
     if (!allowHostSelfhostFallback()) {
       throw err;

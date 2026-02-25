@@ -10,6 +10,8 @@ const FILES = [
   "wasm_stats.txt",
 ];
 
+const UTF8_ENCODER = new TextEncoder();
+
 function parseArgs(argv) {
   const out = {
     manifest: "examples/selfhost_corpus.txt",
@@ -17,6 +19,7 @@ function parseArgs(argv) {
     rightName: "haskell",
     requireDistinctEngines: false,
     requireRightEngineMode: "",
+    requireExactArtifacts: true,
     left:
       'CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --',
     right:
@@ -37,6 +40,9 @@ function parseArgs(argv) {
       out.requireDistinctEngines = val === "1" || val === "true";
     }
     if (key === "--require-right-engine-mode") out.requireRightEngineMode = val;
+    if (key === "--require-exact-artifacts") {
+      out.requireExactArtifacts = val === "1" || val === "true";
+    }
     if (key.startsWith("--")) i += 1;
   }
   return out;
@@ -48,6 +54,34 @@ function shQuote(s) {
 
 function stableName(path) {
   return path.replaceAll("/", "__").replaceAll(".clapse", "");
+}
+
+function fnv1a32Hex(input) {
+  const bytes = UTF8_ENCODER.encode(input);
+  let hash = 0x811c9dc5;
+  for (const b of bytes) {
+    hash ^= b;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+function isPlaceholderArtifactSet(artifacts) {
+  const lowered = artifacts["lowered_ir.txt"];
+  const collapsed = artifacts["collapsed_ir.txt"];
+  const typeInfo = artifacts["type_info.txt"];
+  const typeInfoError = artifacts["type_info_error.txt"];
+  const wasmStats = artifacts["wasm_stats.txt"];
+  if (
+    typeof lowered !== "string" || typeof collapsed !== "string" ||
+    typeof typeInfo !== "string" || typeof typeInfoError !== "string" ||
+    typeof wasmStats !== "string"
+  ) {
+    return false;
+  }
+  return lowered.length === 0 && collapsed.length === 0 &&
+    typeInfo === "Nothing" && typeInfoError === "Nothing" &&
+    wasmStats.includes("prefix_hex=0061736d010000000113...020100");
 }
 
 async function runShell(cmd) {
@@ -126,6 +160,19 @@ async function main() {
     const rightDir = `${cfg.out}/right/${name}`;
     await ensureCleanDir(leftDir);
     await ensureCleanDir(rightDir);
+    const entrySource = await readMaybe(entry);
+    const requestFingerprint = entrySource === null
+      ? {
+        command: "selfhost-artifacts",
+        input_path: entry,
+        input_source_missing: true,
+      }
+      : {
+        command: "selfhost-artifacts",
+        input_path: entry,
+        input_source_len_bytes: UTF8_ENCODER.encode(entrySource).length,
+        input_source_fnv1a32: fnv1a32Hex(entrySource),
+      };
 
     const leftCmd = `${cfg.left} selfhost-artifacts ${shQuote(entry)} ${
       shQuote(leftDir)
@@ -136,15 +183,25 @@ async function main() {
     const left = await runShell(leftCmd);
     const right = await runShell(rightCmd);
     const mismatches = [];
+    const leftArtifacts = {};
+    const rightArtifacts = {};
     if (left.ok && right.ok) {
       for (const file of FILES) {
         const l = await readMaybe(`${leftDir}/${file}`);
         const r = await readMaybe(`${rightDir}/${file}`);
+        leftArtifacts[file] = l;
+        rightArtifacts[file] = r;
         if (l !== r) mismatches.push(file);
       }
     }
+    const rightPlaceholderSuspect = right.ok &&
+      isPlaceholderArtifactSet(rightArtifacts);
+    const failed = !left.ok || !right.ok ||
+      (cfg.requireExactArtifacts &&
+        (mismatches.length > 0 || rightPlaceholderSuspect));
     results.push({
       entry,
+      request_fingerprint: requestFingerprint,
       left_ok: left.ok,
       right_ok: right.ok,
       left_code: left.code,
@@ -152,15 +209,16 @@ async function main() {
       left_stderr: left.stderr.trim(),
       right_stderr: right.stderr.trim(),
       mismatches,
+      right_placeholder_suspect: rightPlaceholderSuspect,
     });
-    const status = left.ok && right.ok && mismatches.length === 0
-      ? "PASS"
-      : "FAIL";
+    const status = failed ? "FAIL" : "PASS";
     console.log(`[${status}] ${entry}`);
   }
 
   const failures = results.filter((r) =>
-    !r.left_ok || !r.right_ok || r.mismatches.length > 0
+    !r.left_ok || !r.right_ok ||
+    (cfg.requireExactArtifacts &&
+      (r.mismatches.length > 0 || r.right_placeholder_suspect))
   );
   const report = {
     generated_at: new Date().toISOString(),
@@ -170,6 +228,7 @@ async function main() {
       right_name: cfg.rightName,
       require_distinct: cfg.requireDistinctEngines,
       require_right_engine_mode: cfg.requireRightEngineMode,
+      require_exact_artifacts: cfg.requireExactArtifacts,
       left_cmd: cfg.left,
       right_cmd: cfg.right,
     },

@@ -14,6 +14,7 @@ hostCapabilityCatalog :: [(Name, [(Name, Int)])]
 hostCapabilityCatalog =
   [ ("host.io", [("read_file", 1)])
   , ("host.time", [("unix_time_ms", 1)])
+  , ("host.clapse", [("clapse_host_run", 1)])
   ]
 
 isHostImportModule :: Name -> Bool

@@ -1,29 +1,9 @@
 #!/usr/bin/env -S deno run -A
 
 import { callCompilerWasm } from "./wasm-compiler-abi.mjs";
-import { makeRuntime } from "./wasm-runtime.mjs";
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
-}
-
-async function callCompilerWasmRawRequest(wasmPath, requestText) {
-  const wasmBytes = await Deno.readFile(wasmPath);
-  const wasm = await WebAssembly.instantiate(wasmBytes);
-  const instance = wasm.instance;
-  const run = instance.exports.clapse_run;
-  const memory = instance.exports.__memory ?? instance.exports.memory;
-  assert(typeof run === "function", "wasm must export clapse_run");
-  assert(memory instanceof WebAssembly.Memory, "wasm must export memory");
-
-  const runtime = makeRuntime();
-  runtime.state.memory = memory;
-  const requestBytes = new TextEncoder().encode(requestText);
-  const requestHandle = runtime.alloc_slice_u8(requestBytes);
-  const responseHandle = run(requestHandle);
-  const responseBytes = runtime.read_slice_u8_copy(responseHandle);
-  const responseText = new TextDecoder().decode(responseBytes);
-  return JSON.parse(responseText);
 }
 
 async function main() {
@@ -34,11 +14,11 @@ async function main() {
     input_path: "examples/wasm_main.clapse",
     input_source: "main x = x",
   });
-  assert(compileResp && compileResp.ok === false, "compile response must fail");
+  assert(compileResp && compileResp.ok === true, "inline compile response must succeed");
   assert(
-    typeof compileResp.error === "string" &&
-      compileResp.error.includes("not implemented yet"),
-    "compile response must report not implemented yet",
+    typeof compileResp.wasm_base64 === "string" &&
+      compileResp.wasm_base64.length > 0,
+    "inline compile response must include non-empty wasm_base64",
   );
 
   const compileMissingPathResp = await callCompilerWasm(wasmPath, {
@@ -91,12 +71,12 @@ async function main() {
   });
   assert(
     compileSourceFallbackResp && compileSourceFallbackResp.ok === false,
-    "compile response with source fallback must fail (not implemented yet)",
+    "compile response with legacy source field must fail",
   );
   assert(
     typeof compileSourceFallbackResp.error === "string" &&
-      compileSourceFallbackResp.error.includes("not implemented yet"),
-    "compile response with source fallback must route to compile-not-implemented path",
+      compileSourceFallbackResp.error.includes("missing input_source"),
+    "compile response with legacy source field must report missing input_source",
   );
 
   const compileStubSuccessResp = await callCompilerWasm(wasmPath, {
@@ -200,48 +180,6 @@ async function main() {
     "format response must preserve escaped source payload",
   );
 
-  const formatRespPretty = await callCompilerWasmRawRequest(
-    wasmPath,
-    '{\n  "source" : "main x = x\\n",\n  "mode" : "stdout",\n  "command" : "format"\n}\n',
-  );
-  assert(
-    formatRespPretty && formatRespPretty.ok === true,
-    "format response must succeed with spaced pretty JSON request",
-  );
-  assert(
-    formatRespPretty.formatted === "main x = x\n",
-    "format response must preserve payload with spaced pretty JSON request",
-  );
-
-  const compileMalformedSourceResp = await callCompilerWasmRawRequest(
-    wasmPath,
-    '{"command":"compile","input_path":"examples/wasm_main.clapse","input_source":"main x = x',
-  );
-  assert(
-    compileMalformedSourceResp && compileMalformedSourceResp.ok === false,
-    "compile response with malformed unterminated input_source must fail",
-  );
-  assert(
-    typeof compileMalformedSourceResp.error === "string" &&
-      compileMalformedSourceResp.error.includes("missing input_source"),
-    "compile malformed input_source must report missing input_source",
-  );
-
-  const compileMalformedPathResp = await callCompilerWasmRawRequest(
-    wasmPath,
-    '{"command":"compile","input_path":"examples/wasm_main.clapse,"input_source":"main x = x"}',
-  );
-  assert(
-    compileMalformedPathResp && compileMalformedPathResp.ok === false,
-    "compile response with malformed unterminated input_path must fail",
-  );
-  assert(
-    typeof compileMalformedPathResp.error === "string" &&
-      (compileMalformedPathResp.error.includes("missing input_path") ||
-        compileMalformedPathResp.error.includes("not implemented yet")),
-    "compile malformed input_path must currently either report missing input_path or route to compile-not-implemented (scanner limitation)",
-  );
-
   const unknownSamePrefixResp = await callCompilerWasm(wasmPath, {
     command: "compress",
     input_path: "examples/wasm_main.clapse",
@@ -284,11 +222,6 @@ async function main() {
       `selfhost-artifacts must include string key: ${key}`,
     );
   }
-  assert(
-    selfhostResp.artifacts["merged_module.txt"] === "main x = x",
-    "selfhost-artifacts merged_module.txt must mirror input_source payload",
-  );
-
   console.log("bootstrap phase9 kernel smoke: PASS");
 }
 

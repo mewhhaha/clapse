@@ -135,6 +135,7 @@ tests =
   , testParseCollectionLiteral
   , testParseRejectsDoNotation
   , testParseRejectsAdoNotation
+  , testParseRejectsIfThenElseSyntax
   , testParseClassInstanceDeclarationsRewriteFunctions
   , testParseClassDeclarationRequiresLaws
   , testParseHKTInstanceArityMismatchFails
@@ -1885,6 +1886,17 @@ testParseRejectsAdoNotation = do
       assertTrue "parse rejects ado notation" ("line 1" `isInfixOf` err)
     Right parsed ->
       failTest "parse rejects ado notation" ("unexpected parse success: " <> show parsed)
+
+testParseRejectsIfThenElseSyntax :: IO Bool
+testParseRejectsIfThenElseSyntax = do
+  let src = "main x = if x then 1 else 0"
+  case parseModule src of
+    Left err ->
+      assertTrue
+        "parse rejects if/then/else syntax"
+        ("line 1" `isInfixOf` err && "use case" `isInfixOf` err)
+    Right parsed ->
+      failTest "parse rejects if/then/else syntax" ("unexpected parse success: " <> show parsed)
 
 testParseClassInstanceDeclarationsRewriteFunctions :: IO Bool
 testParseClassInstanceDeclarationsRewriteFunctions = do

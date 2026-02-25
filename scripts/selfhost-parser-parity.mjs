@@ -7,6 +7,7 @@ function parseArgs(argv) {
     rightName: "right",
     requireDistinctEngines: false,
     requireRightEngineMode: "",
+    requireExactMerged: true,
     left:
       'CABAL_DIR="$PWD/.cabal" CABAL_LOGDIR="$PWD/.cabal-logs" cabal run clapse --',
     right:
@@ -28,6 +29,9 @@ function parseArgs(argv) {
       out.requireDistinctEngines = val === "1" || val === "true";
     }
     if (key === "--require-right-engine-mode") out.requireRightEngineMode = val;
+    if (key === "--require-exact-merged") {
+      out.requireExactMerged = val === "1" || val === "true";
+    }
     if (key.startsWith("--")) i += 1;
   }
 
@@ -181,7 +185,9 @@ async function main() {
       }
     }
 
-    const pass = left.ok && right.ok && mismatches.length === 0;
+    const pass = left.ok &&
+      right.ok &&
+      (!cfg.requireExactMerged || mismatches.length === 0);
 
     const result = {
       entry,
@@ -196,6 +202,7 @@ async function main() {
       pass,
       require_distinct_engines: cfg.requireDistinctEngines,
       require_right_engine_mode: cfg.requireRightEngineMode,
+      require_exact_merged: cfg.requireExactMerged,
       left_name: cfg.leftName,
       right_name: cfg.rightName,
       left_cmd: cfg.left,
@@ -222,6 +229,7 @@ async function main() {
       right_cmd: cfg.right,
       require_distinct_engines: cfg.requireDistinctEngines,
       require_right_engine_mode: cfg.requireRightEngineMode,
+      require_exact_merged: cfg.requireExactMerged,
     },
     results,
   };

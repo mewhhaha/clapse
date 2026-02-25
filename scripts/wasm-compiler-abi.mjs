@@ -1,7 +1,9 @@
-import { makeRuntime } from "./wasm-runtime.mjs";
+import { decodeInt, encodeInt, makeRuntime } from "./wasm-runtime.mjs";
 
 const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder();
+const MAX_TAGGED_INT = 1073741823;
+const MIN_TAGGED_INT = -1073741824;
 const SELFHOST_ARTIFACT_FILES = [
   "merged_module.txt",
   "type_info.txt",
@@ -205,6 +207,81 @@ function runHostClapseRequest(request) {
   return { ok: false, error: `unsupported command: ${command}` };
 }
 
+function createHostImportObject(runtime, getInstanceRef) {
+  const emptySlice = () => runtime.alloc_slice_u8(new Uint8Array(0));
+
+  const runHostRequest = (requestHandle) => {
+    const instanceRef = getInstanceRef();
+    if (instanceRef === null) {
+      throw new Error(
+        "compiler wasm host bridge called before instance initialization",
+      );
+    }
+    const memory = instanceRef.exports.__memory ?? instanceRef.exports.memory;
+    if (!(memory instanceof WebAssembly.Memory)) {
+      throw new Error(
+        "compiler wasm missing memory export during host bridge call",
+      );
+    }
+    const requestBytes = decodeSliceBytes(memory, requestHandle | 0);
+    const requestText = UTF8_DECODER.decode(requestBytes);
+    let requestObj;
+    try {
+      requestObj = JSON.parse(requestText);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      requestObj = { command: "invalid", parse_error: message };
+    }
+    const responseObj = runHostClapseRequest(requestObj);
+    const responseBytes = UTF8_ENCODER.encode(JSON.stringify(responseObj));
+    return runtime.alloc_slice_u8(responseBytes);
+  };
+
+  const hostReadFile = (pathHandle) => {
+    const instanceRef = getInstanceRef();
+    if (instanceRef === null) {
+      return emptySlice();
+    }
+    const memory = instanceRef.exports.__memory ?? instanceRef.exports.memory;
+    if (!(memory instanceof WebAssembly.Memory)) {
+      return emptySlice();
+    }
+    let path = "";
+    try {
+      const pathBytes = decodeSliceBytes(memory, pathHandle | 0);
+      path = UTF8_DECODER.decode(pathBytes);
+    } catch {
+      return emptySlice();
+    }
+    try {
+      const fileBytes = Deno.readFileSync(path);
+      return runtime.alloc_slice_u8(fileBytes);
+    } catch {
+      return emptySlice();
+    }
+  };
+
+  const hostUnixTimeMs = (seedTagged) => {
+    let seed = 0;
+    try {
+      seed = decodeInt(seedTagged | 0);
+    } catch {
+      seed = 0;
+    }
+    const span = MAX_TAGGED_INT - MIN_TAGGED_INT + 1;
+    const now = Date.now();
+    const payload = ((((now + seed) % span) + span) % span) + MIN_TAGGED_INT;
+    return encodeInt(payload);
+  };
+
+  return {
+    clapse_run: runHostRequest,
+    clapse_host_run: runHostRequest,
+    read_file: hostReadFile,
+    unix_time_ms: hostUnixTimeMs,
+  };
+}
+
 function allowBridgeFallback() {
   const raw = (Deno.env.get("CLAPSE_ALLOW_BRIDGE") ?? "").toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes";
@@ -224,40 +301,9 @@ async function loadCompilerWasm(path) {
   }
   const runtime = makeRuntime();
   let instanceRef = null;
-  const hostImports = isBridge
-    ? {
-      host: {
-        clapse_run: (requestHandle) => {
-          if (instanceRef === null) {
-            throw new Error(
-              "compiler wasm host bridge called before instance initialization",
-            );
-          }
-          const memory = instanceRef.exports.__memory ??
-            instanceRef.exports.memory;
-          if (!(memory instanceof WebAssembly.Memory)) {
-            throw new Error(
-              "compiler wasm missing memory export during host bridge call",
-            );
-          }
-          const requestBytes = decodeSliceBytes(memory, requestHandle | 0);
-          const requestText = UTF8_DECODER.decode(requestBytes);
-          let requestObj;
-          try {
-            requestObj = JSON.parse(requestText);
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            requestObj = { command: "invalid", parse_error: message };
-          }
-          const responseObj = runHostClapseRequest(requestObj);
-          const responseBytes = UTF8_ENCODER.encode(
-            JSON.stringify(responseObj),
-          );
-          return runtime.alloc_slice_u8(responseBytes);
-        },
-      },
-    }
-    : {};
+  const hostImports = {
+    host: createHostImportObject(runtime, () => instanceRef),
+  };
   const instance = await WebAssembly.instantiate(module, hostImports);
   instanceRef = instance;
   assertCompilerExports(instance);
@@ -305,6 +351,9 @@ export async function inspectCompilerWasmAbi(path) {
   const instance = await WebAssembly.instantiate(module, {
     host: {
       clapse_run: (handle) => handle | 0,
+      clapse_host_run: (handle) => handle | 0,
+      read_file: () => 0,
+      unix_time_ms: (seed) => seed | 0,
     },
   });
   assertCompilerExports(instance);

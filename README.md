@@ -270,6 +270,7 @@ Supported expressions:
   add_or_zero x y | eq x 0 = 0
                   | otherwise = add x y
   ```
+- no `if/then/else` expression syntax; use `case` (or guarded function equations)
 - application (left-associative): `f x y`
 - infix operator application using builtin/custom operators: `x + y`, `x +. y`,
   ``x `plus_op` y``, ``a `mod` b``
@@ -548,8 +549,8 @@ Current backend supports:
 - scalar numeric lowering assumes numeric operands at compile/runtime boundaries
   (no dynamic tag checks in those inlined ops)
 - string literals as static contiguous bytes in module memory
-- direct calls and direct `if/else` branches
-- case/if branch thunks that are single-use saturating closures are lowered to
+- direct calls and direct branch lowering for case/guard-generated conditionals
+- case/guard branch thunks that are single-use saturating closures are lowered to
   direct branch calls (skipping closure allocation/apply)
 - closures and currying (`VClosure`, `VCurryDirect`, `VApply`)
 - closure allocation/application are lowered inline in generated wasm (no
@@ -733,7 +734,11 @@ Self-host bootstrap checkpoint (`1/2/3/4/5/6/7/8/9/10/11`) now has concrete fixt
    - `format` now echoes the request `source` payload into `formatted`
      (kernel placeholder behavior before parser-aware formatting lands)
    - `selfhost-artifacts` now returns the full artifact key set and mirrors
-     request `input_source` into `artifacts["merged_module.txt"]`
+     request `input_source` into `artifacts["merged_module.txt"]` (JSON-escaped)
+   - `selfhost-artifacts` now requires `input_source` (legacy `source` fallback
+     was removed for strict request-shape parity)
+   - `compile` now expects `input_source` only (legacy `source` fallback was
+     removed for strict request-shape parity)
    - `compile` currently returns a structured "not implemented yet" error
 10. Frontend lexer pilot: token-class scanner and keyword recognizer in Clapse
     source (`examples/bootstrap_phase10_frontend_lexer.clapse`)
@@ -808,6 +813,10 @@ SELFHOST_RIGHT_CMD='CLAPSE_COMPILER_WASM_PATH=out/clapse_compiler.wasm deno run 
 just selfhost-check-strict
 ```
 
+Strict bootstrap now also rejects compiler corpus entries that import
+`host.clapse` (enforced via `--forbid-host-clapse-imports 1` in
+`selfhost-bootstrap-abc-strict`).
+
 Manifest consistency guard:
 
 ```bash
@@ -854,6 +863,8 @@ CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=0
 
 When enabled, if native wasm compile returns `"native compile not implemented yet"`,
 the runner falls back to host `cabal run clapse -- compile`.
+With `CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=0`, the runner now fails fast instead
+of substituting fixture wasm artifacts.
 
 Optional transitional fallback (`selfhost-artifacts` command):
 
@@ -867,6 +878,16 @@ CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK=0
 When enabled, if native wasm `selfhost-artifacts` returns invalid/incomplete
 artifact JSON (or placeholder artifacts), the runner falls back to host
 `cabal run clapse -- selfhost-artifacts`.
+With `CLAPSE_ALLOW_HOST_SELFHOST_FALLBACK=0`, the runner now fails fast instead
+of substituting fixture artifact maps.
+
+Current phase9 kernel wiring:
+
+- `examples/bootstrap_phase9_compiler_kernel.clapse` imports `host.clapse` and
+  routes `compile` and `selfhost-artifacts` requests through
+  `clapse_host_run`.
+- This keeps strict wasm-right parity free of fixture substitution while the
+  full compiler-in-clapse pipeline is still being completed.
 
 Runner ABI contract:
 
@@ -880,6 +901,14 @@ Expected JSON payloads:
 
 ```json
 { "command": "compile", "input_path": "path.clapse", "input_source": "..." }
+```
+
+```json
+{
+  "command": "selfhost-artifacts",
+  "input_path": "path.clapse",
+  "input_source": "..."
+}
 ```
 
 Compile success response:

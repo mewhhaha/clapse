@@ -148,6 +148,8 @@ When we hit a new blocker while self-hosting:
 - Surprises observed:
   - `if2` is strict, so recursive branches that look short-circuiting can still
     blow stack unless rewritten as `case`.
+  - `if/then/else` is intentionally unsupported in source; parser now directs
+    users to `case`.
   - some nested `case`/`let` multiline forms are still formatting-sensitive.
   - operator syntax like `||` is not universally available unless declared or
     imported via prelude.
