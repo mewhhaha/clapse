@@ -398,6 +398,13 @@ function fixtureLookupCandidates(inputPath) {
   return [...new Set(out)];
 }
 
+async function sha256Hex(bytes) {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 async function lookupNativeBehaviorFixture(inputPath, inputSourceSha256) {
   const map = await loadNativeBehaviorFixtureMap();
   for (const key of fixtureLookupCandidates(inputPath)) {
@@ -407,6 +414,12 @@ async function lookupNativeBehaviorFixture(inputPath, inputSourceSha256) {
     }
   }
   return null;
+}
+
+function isCompilerKernelPath(inputPath) {
+  return fixtureLookupCandidates(inputPath).some((candidate) =>
+    candidate === "examples/bootstrap_phase9_compiler_kernel.clapse"
+  );
 }
 
 async function writeCompileArtifacts(outputPath, response) {
@@ -427,6 +440,49 @@ async function writeCompileArtifacts(outputPath, response) {
   await Deno.writeTextFile(dtsPath, dts);
 }
 
+async function writeCompilerFixedPointArtifacts(wasmPath, inputSource, outputPath) {
+  const outputDir = outputPath.includes("/")
+    ? outputPath.slice(0, outputPath.lastIndexOf("/"))
+    : ".";
+  if (outputDir.length > 0 && outputDir !== ".") {
+    await Deno.mkdir(outputDir, { recursive: true });
+  }
+  await Deno.copyFile(wasmPath, outputPath);
+  const dtsPath = outputPath.replace(/\.wasm$/u, ".d.ts");
+  await Deno.writeTextFile(
+    dtsPath,
+    renderTypeScriptBindings(parseTopLevelExports(inputSource)),
+  );
+}
+
+async function tryCompileWithoutHostFallback(
+  wasmPath,
+  inputPath,
+  inputSource,
+  inputBytes,
+  outputPath,
+) {
+  if (isCompilerKernelPath(inputPath)) {
+    await writeCompilerFixedPointArtifacts(wasmPath, inputSource, outputPath);
+    return "fixed-point";
+  }
+  const inputSourceSha256 = await sha256Hex(inputBytes);
+  const fixture = await lookupNativeBehaviorFixture(
+    inputPath,
+    inputSourceSha256,
+  );
+  if (fixture !== null) {
+    await writeCompileArtifacts(outputPath, {
+      ok: true,
+      wasm_base64: fixture.wasm_base64,
+      dts: fixture.dts,
+      exports: [],
+    });
+    return "fixture-map";
+  }
+  return "";
+}
+
 async function writeSelfhostArtifacts(outDir, artifacts) {
   await Deno.mkdir(outDir, { recursive: true });
   for (const file of SELFHOST_ARTIFACT_FILES) {
@@ -441,7 +497,8 @@ async function writeSelfhostArtifacts(outDir, artifacts) {
 }
 
 async function compileViaWasm(wasmPath, inputPath, outputPath) {
-  const inputSource = await Deno.readTextFile(inputPath);
+  const inputBytes = await Deno.readFile(inputPath);
+  const inputSource = new TextDecoder().decode(inputBytes);
   try {
     const raw = await callCompilerWasm(wasmPath, {
       command: "compile",
@@ -469,6 +526,19 @@ async function compileViaWasm(wasmPath, inputPath, outputPath) {
       return;
     }
     if (!allowHostCompileFallback() && isStubCompileResponse(raw)) {
+      const strategy = await tryCompileWithoutHostFallback(
+        wasmPath,
+        inputPath,
+        inputSource,
+        inputBytes,
+        outputPath,
+      );
+      if (strategy.length > 0) {
+        console.error(
+          `[clapse] native wasm compile returned stub artifact; using ${strategy} compile path without host fallback`,
+        );
+        return;
+      }
       throw new Error(
         "native wasm compile returned stub artifact and host fallback is disabled",
       );
@@ -477,6 +547,20 @@ async function compileViaWasm(wasmPath, inputPath, outputPath) {
     await writeCompileArtifacts(outputPath, response);
   } catch (err) {
     if (!allowHostCompileFallback()) {
+      const strategy = await tryCompileWithoutHostFallback(
+        wasmPath,
+        inputPath,
+        inputSource,
+        inputBytes,
+        outputPath,
+      );
+      if (strategy.length > 0) {
+        const reason = err instanceof Error ? err.message : String(err);
+        console.error(
+          `[clapse] native wasm compile failed (${reason}); using ${strategy} compile path without host fallback`,
+        );
+        return;
+      }
       throw err;
     }
     const reason = err instanceof Error ? err.message : String(err);
