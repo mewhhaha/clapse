@@ -114,8 +114,8 @@ async function main() {
         /^deno\s+/u,
         "",
       ) ?? "",
-      ghc: await runOutput("ghc", ["--numeric-version"]),
-      cabal: await runOutput("cabal", ["--numeric-version"]),
+      ghc: (await runOutput("ghc", ["--numeric-version"])) || "not-installed",
+      cabal: (await runOutput("cabal", ["--numeric-version"])) || "not-installed",
     },
     git: {
       commit: await runOutput("git", ["rev-parse", "HEAD"]),
