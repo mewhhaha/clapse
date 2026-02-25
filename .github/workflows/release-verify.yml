@@ -51,6 +51,7 @@ jobs:
           for path in \
             artifacts/latest/clapse_compiler.wasm \
             artifacts/latest/clapse_compiler_bridge.wasm \
+            artifacts/latest/seed-lock.json \
             scripts/native-behavior-fixture-map.json \
             scripts/native-selfhost-artifact-fixture-map.json
           do
@@ -59,6 +60,30 @@ jobs:
               exit 1
             fi
           done
+
+          seed_release_id="$(deno eval 'const lock = JSON.parse(await Deno.readTextFile("artifacts/latest/seed-lock.json")); console.log(lock.seed_release_id ?? "");')"
+          seed_compiler_sha_expected="$(deno eval 'const lock = JSON.parse(await Deno.readTextFile("artifacts/latest/seed-lock.json")); console.log(lock.compiler_wasm_sha256 ?? "");')"
+          seed_bridge_sha_expected="$(deno eval 'const lock = JSON.parse(await Deno.readTextFile("artifacts/latest/seed-lock.json")); console.log(lock.compiler_bridge_wasm_sha256 ?? "");')"
+          seed_manifest_release_id="$(deno eval 'const m = JSON.parse(await Deno.readTextFile("artifacts/latest/release-manifest.json")); console.log(m.release_id ?? "");')"
+          seed_compiler_sha_actual="$(sha256sum artifacts/latest/clapse_compiler.wasm | awk '{print $1}')"
+          seed_bridge_sha_actual="$(sha256sum artifacts/latest/clapse_compiler_bridge.wasm | awk '{print $1}')"
+          if [ -z "${seed_release_id}" ] || [ -z "${seed_compiler_sha_expected}" ] || [ -z "${seed_bridge_sha_expected}" ]; then
+            echo "invalid seed lock file: artifacts/latest/seed-lock.json" >&2
+            exit 1
+          fi
+          if [ "${seed_release_id}" != "${seed_manifest_release_id}" ]; then
+            echo "seed lock release id mismatch: lock=${seed_release_id} manifest=${seed_manifest_release_id}" >&2
+            exit 1
+          fi
+          if [ "${seed_compiler_sha_actual}" != "${seed_compiler_sha_expected}" ]; then
+            echo "seed compiler checksum mismatch: expected=${seed_compiler_sha_expected} actual=${seed_compiler_sha_actual}" >&2
+            exit 1
+          fi
+          if [ "${seed_bridge_sha_actual}" != "${seed_bridge_sha_expected}" ]; then
+            echo "seed bridge checksum mismatch: expected=${seed_bridge_sha_expected} actual=${seed_bridge_sha_actual}" >&2
+            exit 1
+          fi
+          echo "seed lock verified (${seed_release_id})"
 
           mkdir -p "${RELEASE_DIR}"
           CLAPSE_ALLOW_HOST_COMPILE_FALLBACK=0 \
@@ -123,6 +148,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           RELEASE_DIR: ${{ steps.release_context.outputs.release_dir }}
+          RELEASE_ID: ${{ steps.release_context.outputs.release_id }}
         run: |
           set -euo pipefail
           git lfs install --local
@@ -135,6 +161,16 @@ jobs:
           cp "${RELEASE_DIR}/release-manifest.json" artifacts/latest/release-manifest.json
           cp "${RELEASE_DIR}/checksums.sha256" artifacts/latest/checksums.sha256
           chmod +x artifacts/latest/clapse
+          compiler_sha="$(sha256sum artifacts/latest/clapse_compiler.wasm | awk '{print $1}')"
+          bridge_sha="$(sha256sum artifacts/latest/clapse_compiler_bridge.wasm | awk '{print $1}')"
+          cat > artifacts/latest/seed-lock.json <<EOF
+          {
+            "schema_version": 1,
+            "seed_release_id": "${RELEASE_ID}",
+            "compiler_wasm_sha256": "${compiler_sha}",
+            "compiler_bridge_wasm_sha256": "${bridge_sha}"
+          }
+          EOF
           if [ -z "$(git status --porcelain -- artifacts/latest)" ]; then
             echo "artifacts/latest unchanged"
             exit 0
