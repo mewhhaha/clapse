@@ -32,7 +32,7 @@ jobs:
           deno-version: v2.x
 
       - name: Build release candidate
-        run: just release-candidate out=out/releases-ci
+        run: just release-candidate out/releases-ci
 
       - name: Upload release candidate artifacts
         uses: actions/upload-artifact@v4

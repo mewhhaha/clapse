@@ -278,11 +278,15 @@ bootstrap-chain-proof out='out/bootstrap-chain':
   echo "bootstrap-chain-proof: PASS ($(sha256sum '{{out}}/clapse_compiler_stageA.wasm' | awk '{print $1}'))"
 
 release-candidate out='out/releases':
+  #!/usr/bin/env bash
+  set -euo pipefail
   mkdir -p .cabal-logs
   version="$(awk '/^version:/ {print $2; exit}' clapse.cabal)"
   commit="$(git rev-parse --short=12 HEAD)"
   release_id="v${version}-${commit}"
-  release_dir="{{out}}/${release_id}"
+  out_root="{{out}}"
+  out_root="${out_root#out=}"
+  release_dir="${out_root}/${release_id}"
   compiler_wasm="${release_dir}/clapse_compiler.wasm"
   bridge_wasm="${release_dir}/clapse_compiler_bridge.wasm"
   behavior_map="${release_dir}/native-behavior-fixture-map.json"
