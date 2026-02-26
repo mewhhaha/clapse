@@ -581,7 +581,7 @@ class functor f where
   <$> : (a -> b) -> f a -> f b
   <$> = fmap
 
-instance parser_functor : functor parser where
+instance ParserFunctor : Functor parser where
   fmap = parser_map
   <$> = fmap
 
@@ -606,8 +606,8 @@ instance parser_functor : functor parser where
           target_name: (identifier)))))
   (declaration
     (instance_declaration
-      name: (identifier)
-      class_name: (identifier)
+      name: (capitalized_identifier)
+      class_name: (capitalized_identifier)
       class_type_argument: (identifier)
       binding: (instance_binding
         method_name: (identifier)

@@ -42,9 +42,10 @@ Queries shipped in `queries/`:
 
 - Declarations are newline-delimited.
 - Application requires whitespace separation; `f(x)` is rejected.
-- Only decimal non-negative integers are accepted.
+- Decimal integer tokens are non-negative; unary minus is parsed as an operator (for example `-42`).
 - Value identifiers are snake_case: `[a-z_][a-z0-9_']*`.
-- Type/constructor names are capitalized identifiers: `[A-Z][A-Za-z0-9_']*` (for example `Pair`).
+- Type names are capitalized identifiers: `[A-Z][A-Za-z0-9_']*` (for example `Pair`).
+- Constructors are usually capitalized, but literal-backed lowercase constructors are also valid (for example `true` and `false`).
 
 ## Development
 

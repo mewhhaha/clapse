@@ -854,17 +854,14 @@ parser_map_with_base f p src i len =
 
 parser_map f p src i len = parser_map_with parser_dispatch_default f p src i len
 
-parser_ap_static_with dispatch p q src i len =
-  parser_keep_right_with dispatch p q src i len
-
-parser_ap_dynamic_with dispatch p q src i len =
+parser_ap_dispatch_with dispatch p q src i len =
   parser_keep_right_with dispatch p q src i len
 
 ap_with dispatch evidence_a evidence_b fundep_info p q src i len =
   let class_dispatch = infer_class_dispatch_applicative class_dispatch_static evidence_a evidence_b fundep_info
   in case class_dispatch_mode class_dispatch of
-    ClassDispatchStatic -> parser_ap_static_with dispatch p q src i len
-    ClassDispatchDynamic -> parser_ap_dynamic_with dispatch p q src i len
+    ClassDispatchStatic -> parser_ap_dispatch_with dispatch p q src i len
+    ClassDispatchDynamic -> parser_ap_dispatch_with dispatch p q src i len
 
 ap p q =
   ap_with parser_dispatch_default ClassEvidenceResolved ClassEvidenceResolved class_fundep_metadata_default p q
