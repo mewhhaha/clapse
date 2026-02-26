@@ -1127,7 +1127,9 @@ parse_law_payload src i len =
         _ -> p1
 
 parse_instance_payload src i len =
-  let p = parse_ident *> parse_colon *> parse_ident *> parser_some parse_ident_or_operator *> parse_tail_has_eq
+  let p_named = parse_ident *> parse_colon *> parse_ident *> parser_some parse_ident_or_operator *> parse_tail_has_eq
+      p_unnamed = parse_ident *> parser_some parse_ident_or_operator *> parse_keyword_where
+      p = p_named <|> p_unnamed
       m0 = to_maybe_pos (p src i len)
   in case m0 of
     Nothing -> -1

@@ -1,5 +1,5 @@
 module compiler.prelude
-export id, compose, map_replace_default, ap_default, then_m_default, keep_left_default, keep_right_default, alt_default, map_replace, then_m, keep_left, keep_right, alt, bool_not, bool_and, bool_or, not, and, or, Functor, Applicative, Monad, Alternative, Boolean
+export id, compose, map_replace_default, ap_default, then_m_default, keep_left_default, keep_right_default, alt_default, map_replace, then_m, keep_left, keep_right, alt, not, and, or, xor, implies, Functor, Applicative, Monad, Alternative, Boolean
 
 infixl 1 >>=
 infixl 1 >>
@@ -75,33 +75,28 @@ data bool = true<1> | false<0>
 
 infixr 3 &&
 infixr 2 ||
-bool_not b = case b of
-  true -> false
-  false -> true
-
-bool_and a b = case a b of
-  true true -> true
-  _ _ -> false
-
-bool_or a b = case a b of
-  false false -> false
-  _ _ -> true
-
-not = bool_not
-and = bool_and
-or = bool_or
 
 class Boolean b where
   not : b -> b
   and : b -> b -> b
   or : b -> b -> b
+  xor : b -> b -> b
+  implies : b -> b -> b
+  && : b -> b -> b
+  || : b -> b -> b
+  && = and
+  || = or
+  xor a b = or (and a (not b)) (and (not a) b)
+  implies a b = or (not a) b
 law Boolean and_identity = and true x => x
 law Boolean and_annihilation = and false x => false
 law Boolean or_identity = or x false => x
 law Boolean or_annihilation = or x true => true
 law Boolean double_negation = not (not x) => x
 
-instance BooleanBool : Boolean bool where
-  not = bool_not
-  and = bool_and
-  or = bool_or
+instance Boolean bool where
+  not b = case b of true -> false; false -> true
+  and a b = case a b of true true -> true; _ _ -> false
+  or a b = case a b of false false -> false; _ _ -> true
+  xor a b = case a b of true false -> true; false true -> true; _ _ -> false
+  implies a b = case a b of true false -> false; _ _ -> true

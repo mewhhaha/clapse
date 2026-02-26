@@ -104,7 +104,7 @@ combine x y = append x y
 class plus_rules i where
   add : i -> i -> i
 law plus_rules right_identity = add x 0 => x
-instance plus_on_i64 : plus_rules i where
+instance plus_rules i where
   add = plus
 ```
 
@@ -153,21 +153,21 @@ class Alternative f where
   <|> : f a -> f a -> f a
   <|> = alt
 
-instance ParserFunctor : Functor parser where
+instance Functor parser where
   fmap = parser_map
 
-instance ParserApplicative : Applicative parser where
+instance Applicative parser where
   pure = parser_pure
   ap = parser_ap
   keep_left = keep_left_default
   keep_right = keep_right_default
 
-instance ParserMonad : Monad parser where
+instance Monad parser where
   pure = parser_pure
   bind = parser_bind
   then_m = then_m_default
 
-instance ParserAlternative : Alternative parser where
+instance Alternative parser where
   empty = parser_empty
   append = parser_or
   alt = alt_default
@@ -257,17 +257,38 @@ class Boolean b where
   not : b -> b
   and : b -> b -> b
   or : b -> b -> b
+  xor : b -> b -> b
+  implies : b -> b -> b
+  && : b -> b -> b
+  || : b -> b -> b
+  && = and
+  || = or
+  xor a b = or (and a (not b)) (and (not a) b)
+  implies a b = or (not a) b
 
-instance BooleanBool : Boolean bool where
-  not = bool_not
-  and = bool_and
-  or = bool_or
+instance Boolean bool where
+  not b = case b of
+    true -> false
+    false -> true
+  and a b = case a b of
+    true true -> true
+    _ _ -> false
+  or a b = case a b of
+    false false -> false
+    _ _ -> true
+  xor a b = case a b of
+    true false -> true
+    false true -> true
+    _ _ -> false
+  implies a b = case a b of
+    true false -> false
+    _ _ -> true
 
 infixr 3 &&
 infixr 2 ||
 ```
 
-`Boolean` supplies the `bool` laws (identity, annihilation, and double-negation) with the default `bool` instance.
+`Boolean` supplies the `bool` laws (identity, annihilation, and double-negation) with the default `bool` instance. `&&` and `||` are class methods (defaulting to `and`/`or`), and `xor`/`implies` are available as boolean methods.
 
 Custom declarations override builtins for matching operator tokens.
 

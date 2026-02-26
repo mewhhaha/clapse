@@ -462,7 +462,8 @@ class and instance heads with type args
 ==================
 
 class applicative_rules f : applicative
-instance map_functor : applicative_rules Maybe map=map
+instance applicative_rules Maybe where
+  map = map
 
 ---
 
@@ -474,7 +475,6 @@ instance map_functor : applicative_rules Maybe map=map
       kind: (class_kind)))
   (declaration
     (instance_declaration
-      name: (identifier)
       class_name: (identifier)
       class_type_argument: (capitalized_identifier)
       binding: (instance_binding
@@ -581,8 +581,8 @@ class functor f where
   <$> : (a -> b) -> f a -> f b
   <$> = fmap
 
-instance ParserFunctor : Functor parser where
-  fmap = parser_map
+instance functor parser where
+  fmap p = parser_map p
   <$> = fmap
 
 ---
@@ -606,12 +606,16 @@ instance ParserFunctor : Functor parser where
           target_name: (identifier)))))
   (declaration
     (instance_declaration
-      name: (capitalized_identifier)
-      class_name: (capitalized_identifier)
+      class_name: (identifier)
       class_type_argument: (identifier)
       binding: (instance_binding
         method_name: (identifier)
-        target_name: (identifier))
+        argument: (binder_name
+          (identifier))
+        value: (expression
+          (application_expression
+            function: (identifier)
+            argument: (identifier))))
       binding: (instance_binding
         method_name: (operator_symbol)
         target_name: (identifier)))))

@@ -414,8 +414,9 @@ law <class_name> <law_name> = <lhs_expr> => <rhs_expr>
 - Instance declaration:
 
 ```haskell
-instance <instance_name> : <class_name> <type_ctor> where
+instance <class_name> <type_ctor> where
   <method> = <target>
+  <method> <arg>... = <expr>
   ...
 ```
 
@@ -426,7 +427,7 @@ class monad_rules m where
   pure : a -> m a
   bind : m a -> (a -> m b) -> m b
 
-instance monad_on_maybe : monad_rules Maybe where
+instance monad_rules Maybe where
   pure = maybe_pure
   bind = maybe_bind
 ```
@@ -1107,7 +1108,7 @@ Implemented now:
   `#[test ...]`, `#[bench ...]`) and clause-group propagation
 - parser support for Haskell-style class/instance declarations with `where`
   blocks (`class <name> <type_ctor> where ...`,
-  `instance <name> : <class> <type_ctor> where ...`)
+  `instance <class> <type_ctor> where ...`)
 - parser support for collection literals (`[]`, `[a, b, ...]`)
 - parser tolerance for `module/import/export` directives in syntax
   validation/format/lsp paths

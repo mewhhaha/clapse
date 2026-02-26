@@ -37,6 +37,9 @@
 (instance_declaration
   class_name: (identifier) @name) @reference.type
 
+(instance_declaration
+  class_name: (capitalized_identifier) @name) @reference.type
+
 (instance_binding
   target_name: (identifier) @name) @reference.call
 

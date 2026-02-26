@@ -354,10 +354,21 @@ module.exports = grammar({
     class_method_binding: ($) =>
       seq(
         field("method_name", choice($.identifier, $.operator_symbol)),
-        optional($._ws1),
-        "=",
-        optional($._ws1),
-        field("target_name", $.identifier),
+        choice(
+          seq(
+            optional($._ws1),
+            "=",
+            optional($._ws1),
+            field("target_name", $.identifier),
+          ),
+          seq(
+            repeat1(seq($._ws1, field("argument", $.binder_name))),
+            optional($._ws1),
+            "=",
+            optional($._ws1),
+            field("value", $.expression),
+          ),
+        ),
       ),
 
     instance_declaration: ($) =>
@@ -365,17 +376,7 @@ module.exports = grammar({
         seq(
           $._kw_instance,
           $._ws1,
-          field("name", choice($.identifier, $.capitalized_identifier)),
-          $._ws1,
-          ":",
-          $._ws1,
-          field("class_name", choice($.identifier, $.capitalized_identifier)),
-          repeat(
-            seq(
-              $._ws1,
-              field("class_type_argument", choice($.identifier, $.capitalized_identifier)),
-            ),
-          ),
+          choice($._instance_named_head, $._instance_unnamed_head),
           choice(
             repeat1(seq($._ws1, field("binding", $.instance_binding))),
             seq(
@@ -408,13 +409,50 @@ module.exports = grammar({
         ),
       ),
 
+    _instance_named_head: ($) =>
+      prec.right(
+        seq(
+          field("name", choice($.identifier, $.capitalized_identifier)),
+          $._ws1,
+          ":",
+          $._ws1,
+          field("class_name", choice($.identifier, $.capitalized_identifier)),
+        ),
+      ),
+
+    _instance_unnamed_head: ($) =>
+      prec.left(
+        seq(
+          field("class_name", choice($.identifier, $.capitalized_identifier)),
+          $._ws1,
+          field("class_type_argument", choice($.identifier, $.capitalized_identifier)),
+          repeat(
+            seq(
+              $._ws1,
+              field("class_type_argument", choice($.identifier, $.capitalized_identifier)),
+            ),
+          ),
+        ),
+      ),
+
     instance_binding: ($) =>
       seq(
         field("method_name", choice($.identifier, $.operator_symbol)),
-        optional($._ws1),
-        "=",
-        optional($._ws1),
-        field("target_name", $.identifier),
+        choice(
+          seq(
+            optional($._ws1),
+            "=",
+            optional($._ws1),
+            field("target_name", $.identifier),
+          ),
+          seq(
+            repeat1(seq($._ws1, field("argument", $.binder_name))),
+            optional($._ws1),
+            "=",
+            optional($._ws1),
+            field("value", $.expression),
+          ),
+        ),
       ),
 
     _class_method_separator: ($) =>

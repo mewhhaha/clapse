@@ -1,199 +1,202 @@
 test/highlight-fixtures/prelude_regression.clapse
-    pattern: 46, capture: 17 - keyword, start: (0, 0), end: (0, 6), text: `infixl`
-    pattern: 74, capture: 17 - keyword, start: (0, 0), end: (0, 6), text: `infixl`
+    pattern: 52, capture: 17 - keyword, start: (0, 0), end: (0, 6), text: `infixl`
+    pattern: 80, capture: 17 - keyword, start: (0, 0), end: (0, 6), text: `infixl`
     pattern:  2, capture: 2 - constant.numeric.integer, start: (0, 7), end: (0, 8), text: `1`
-    pattern: 47, capture: 2 - constant.numeric.integer, start: (0, 7), end: (0, 8), text: `1`
-    pattern: 49, capture: 18 - keyword.operator, start: (0, 9), end: (0, 11), text: `>>`
-    pattern: 69, capture: 18 - keyword.operator, start: (0, 9), end: (0, 11), text: `>>`
-    pattern: 46, capture: 17 - keyword, start: (1, 0), end: (1, 6), text: `infixl`
-    pattern: 74, capture: 17 - keyword, start: (1, 0), end: (1, 6), text: `infixl`
+    pattern: 53, capture: 2 - constant.numeric.integer, start: (0, 7), end: (0, 8), text: `1`
+    pattern: 55, capture: 18 - keyword.operator, start: (0, 9), end: (0, 11), text: `>>`
+    pattern: 75, capture: 18 - keyword.operator, start: (0, 9), end: (0, 11), text: `>>`
+    pattern: 52, capture: 17 - keyword, start: (1, 0), end: (1, 6), text: `infixl`
+    pattern: 80, capture: 17 - keyword, start: (1, 0), end: (1, 6), text: `infixl`
     pattern:  2, capture: 2 - constant.numeric.integer, start: (1, 7), end: (1, 8), text: `3`
-    pattern: 47, capture: 2 - constant.numeric.integer, start: (1, 7), end: (1, 8), text: `3`
-    pattern: 49, capture: 18 - keyword.operator, start: (1, 9), end: (1, 12), text: `<|>`
-    pattern: 69, capture: 18 - keyword.operator, start: (1, 9), end: (1, 12), text: `<|>`
-    pattern: 46, capture: 17 - keyword, start: (2, 0), end: (2, 6), text: `infixl`
-    pattern: 74, capture: 17 - keyword, start: (2, 0), end: (2, 6), text: `infixl`
+    pattern: 53, capture: 2 - constant.numeric.integer, start: (1, 7), end: (1, 8), text: `3`
+    pattern: 55, capture: 18 - keyword.operator, start: (1, 9), end: (1, 12), text: `<|>`
+    pattern: 75, capture: 18 - keyword.operator, start: (1, 9), end: (1, 12), text: `<|>`
+    pattern: 52, capture: 17 - keyword, start: (2, 0), end: (2, 6), text: `infixl`
+    pattern: 80, capture: 17 - keyword, start: (2, 0), end: (2, 6), text: `infixl`
     pattern:  2, capture: 2 - constant.numeric.integer, start: (2, 7), end: (2, 8), text: `4`
-    pattern: 47, capture: 2 - constant.numeric.integer, start: (2, 7), end: (2, 8), text: `4`
-    pattern: 49, capture: 18 - keyword.operator, start: (2, 9), end: (2, 12), text: `<$>`
-    pattern: 69, capture: 18 - keyword.operator, start: (2, 9), end: (2, 12), text: `<$>`
-    pattern: 46, capture: 17 - keyword, start: (3, 0), end: (3, 6), text: `infixl`
-    pattern: 74, capture: 17 - keyword, start: (3, 0), end: (3, 6), text: `infixl`
+    pattern: 53, capture: 2 - constant.numeric.integer, start: (2, 7), end: (2, 8), text: `4`
+    pattern: 55, capture: 18 - keyword.operator, start: (2, 9), end: (2, 12), text: `<$>`
+    pattern: 75, capture: 18 - keyword.operator, start: (2, 9), end: (2, 12), text: `<$>`
+    pattern: 52, capture: 17 - keyword, start: (3, 0), end: (3, 6), text: `infixl`
+    pattern: 80, capture: 17 - keyword, start: (3, 0), end: (3, 6), text: `infixl`
     pattern:  2, capture: 2 - constant.numeric.integer, start: (3, 7), end: (3, 8), text: `4`
-    pattern: 47, capture: 2 - constant.numeric.integer, start: (3, 7), end: (3, 8), text: `4`
-    pattern: 49, capture: 18 - keyword.operator, start: (3, 9), end: (3, 12), text: `<*>`
-    pattern: 69, capture: 18 - keyword.operator, start: (3, 9), end: (3, 12), text: `<*>`
-    pattern: 46, capture: 17 - keyword, start: (4, 0), end: (4, 6), text: `infixl`
-    pattern: 74, capture: 17 - keyword, start: (4, 0), end: (4, 6), text: `infixl`
+    pattern: 53, capture: 2 - constant.numeric.integer, start: (3, 7), end: (3, 8), text: `4`
+    pattern: 55, capture: 18 - keyword.operator, start: (3, 9), end: (3, 12), text: `<*>`
+    pattern: 75, capture: 18 - keyword.operator, start: (3, 9), end: (3, 12), text: `<*>`
+    pattern: 52, capture: 17 - keyword, start: (4, 0), end: (4, 6), text: `infixl`
+    pattern: 80, capture: 17 - keyword, start: (4, 0), end: (4, 6), text: `infixl`
     pattern:  2, capture: 2 - constant.numeric.integer, start: (4, 7), end: (4, 8), text: `4`
-    pattern: 47, capture: 2 - constant.numeric.integer, start: (4, 7), end: (4, 8), text: `4`
-    pattern: 49, capture: 18 - keyword.operator, start: (4, 9), end: (4, 11), text: `<*`
-    pattern: 69, capture: 18 - keyword.operator, start: (4, 9), end: (4, 11), text: `<*`
-    pattern: 46, capture: 17 - keyword, start: (5, 0), end: (5, 6), text: `infixl`
-    pattern: 74, capture: 17 - keyword, start: (5, 0), end: (5, 6), text: `infixl`
+    pattern: 53, capture: 2 - constant.numeric.integer, start: (4, 7), end: (4, 8), text: `4`
+    pattern: 55, capture: 18 - keyword.operator, start: (4, 9), end: (4, 11), text: `<*`
+    pattern: 75, capture: 18 - keyword.operator, start: (4, 9), end: (4, 11), text: `<*`
+    pattern: 52, capture: 17 - keyword, start: (5, 0), end: (5, 6), text: `infixl`
+    pattern: 80, capture: 17 - keyword, start: (5, 0), end: (5, 6), text: `infixl`
     pattern:  2, capture: 2 - constant.numeric.integer, start: (5, 7), end: (5, 8), text: `4`
-    pattern: 47, capture: 2 - constant.numeric.integer, start: (5, 7), end: (5, 8), text: `4`
-    pattern: 49, capture: 18 - keyword.operator, start: (5, 9), end: (5, 11), text: `*>`
-    pattern: 69, capture: 18 - keyword.operator, start: (5, 9), end: (5, 11), text: `*>`
+    pattern: 53, capture: 2 - constant.numeric.integer, start: (5, 7), end: (5, 8), text: `4`
+    pattern: 55, capture: 18 - keyword.operator, start: (5, 9), end: (5, 11), text: `*>`
+    pattern: 75, capture: 18 - keyword.operator, start: (5, 9), end: (5, 11), text: `*>`
     pattern:  7, capture: 4 - function, start: (6, 0), end: (6, 2), text: `id`
     pattern:  8, capture: 6 - variable.parameter, start: (6, 3), end: (6, 4), text: `x`
-    pattern: 73, capture: 18 - keyword.operator, start: (6, 5), end: (6, 6), text: `=`
+    pattern: 79, capture: 18 - keyword.operator, start: (6, 5), end: (6, 6), text: `=`
     pattern:  7, capture: 4 - function, start: (7, 0), end: (7, 7), text: `compose`
     pattern:  8, capture: 6 - variable.parameter, start: (7, 8), end: (7, 9), text: `f`
     pattern:  8, capture: 6 - variable.parameter, start: (7, 10), end: (7, 11), text: `g`
     pattern:  8, capture: 6 - variable.parameter, start: (7, 12), end: (7, 13), text: `x`
-    pattern: 73, capture: 18 - keyword.operator, start: (7, 14), end: (7, 15), text: `=`
-    pattern: 50, capture: 4 - function, start: (7, 16), end: (7, 17), text: `f`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (7, 18), end: (7, 19), text: `(`
-    pattern: 50, capture: 4 - function, start: (7, 19), end: (7, 20), text: `g`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (7, 22), end: (7, 23), text: `)`
+    pattern: 79, capture: 18 - keyword.operator, start: (7, 14), end: (7, 15), text: `=`
+    pattern: 56, capture: 4 - function, start: (7, 16), end: (7, 17), text: `f`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (7, 18), end: (7, 19), text: `(`
+    pattern: 56, capture: 4 - function, start: (7, 19), end: (7, 20), text: `g`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (7, 22), end: (7, 23), text: `)`
     pattern:  7, capture: 4 - function, start: (8, 0), end: (8, 6), text: `then_m`
     pattern:  8, capture: 6 - variable.parameter, start: (8, 7), end: (8, 8), text: `m`
     pattern:  8, capture: 6 - variable.parameter, start: (8, 9), end: (8, 10), text: `n`
-    pattern: 73, capture: 18 - keyword.operator, start: (8, 11), end: (8, 12), text: `=`
-    pattern: 50, capture: 4 - function, start: (8, 13), end: (8, 17), text: `bind`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (8, 20), end: (8, 21), text: `(`
-    pattern: 73, capture: 18 - keyword.operator, start: (8, 21), end: (8, 22), text: `\`
-    pattern: 54, capture: 6 - variable.parameter, start: (8, 22), end: (8, 23), text: `_`
-    pattern: 67, capture: 6 - variable.parameter, start: (8, 22), end: (8, 23), text: `_`
-    pattern: 73, capture: 18 - keyword.operator, start: (8, 24), end: (8, 26), text: `->`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (8, 28), end: (8, 29), text: `)`
+    pattern: 79, capture: 18 - keyword.operator, start: (8, 11), end: (8, 12), text: `=`
+    pattern: 56, capture: 4 - function, start: (8, 13), end: (8, 17), text: `bind`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (8, 20), end: (8, 21), text: `(`
+    pattern: 79, capture: 18 - keyword.operator, start: (8, 21), end: (8, 22), text: `\`
+    pattern: 60, capture: 6 - variable.parameter, start: (8, 22), end: (8, 23), text: `_`
+    pattern: 73, capture: 6 - variable.parameter, start: (8, 22), end: (8, 23), text: `_`
+    pattern: 79, capture: 18 - keyword.operator, start: (8, 24), end: (8, 26), text: `->`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (8, 28), end: (8, 29), text: `)`
     pattern:  7, capture: 4 - function, start: (9, 0), end: (9, 9), text: `keep_left`
     pattern:  8, capture: 6 - variable.parameter, start: (9, 10), end: (9, 11), text: `u`
     pattern:  8, capture: 6 - variable.parameter, start: (9, 12), end: (9, 13), text: `v`
-    pattern: 73, capture: 18 - keyword.operator, start: (9, 14), end: (9, 15), text: `=`
-    pattern: 50, capture: 4 - function, start: (9, 16), end: (9, 18), text: `ap`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (9, 19), end: (9, 20), text: `(`
-    pattern: 50, capture: 4 - function, start: (9, 20), end: (9, 24), text: `fmap`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (9, 25), end: (9, 26), text: `(`
-    pattern: 73, capture: 18 - keyword.operator, start: (9, 26), end: (9, 27), text: `\`
-    pattern: 53, capture: 6 - variable.parameter, start: (9, 27), end: (9, 28), text: `x`
-    pattern: 73, capture: 18 - keyword.operator, start: (9, 29), end: (9, 31), text: `->`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (9, 32), end: (9, 33), text: `(`
-    pattern: 73, capture: 18 - keyword.operator, start: (9, 33), end: (9, 34), text: `\`
-    pattern: 54, capture: 6 - variable.parameter, start: (9, 34), end: (9, 35), text: `_`
-    pattern: 67, capture: 6 - variable.parameter, start: (9, 34), end: (9, 35), text: `_`
-    pattern: 73, capture: 18 - keyword.operator, start: (9, 36), end: (9, 38), text: `->`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (9, 40), end: (9, 41), text: `)`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (9, 41), end: (9, 42), text: `)`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (9, 44), end: (9, 45), text: `)`
+    pattern: 79, capture: 18 - keyword.operator, start: (9, 14), end: (9, 15), text: `=`
+    pattern: 56, capture: 4 - function, start: (9, 16), end: (9, 18), text: `ap`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (9, 19), end: (9, 20), text: `(`
+    pattern: 56, capture: 4 - function, start: (9, 20), end: (9, 24), text: `fmap`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (9, 25), end: (9, 26), text: `(`
+    pattern: 79, capture: 18 - keyword.operator, start: (9, 26), end: (9, 27), text: `\`
+    pattern: 59, capture: 6 - variable.parameter, start: (9, 27), end: (9, 28), text: `x`
+    pattern: 79, capture: 18 - keyword.operator, start: (9, 29), end: (9, 31), text: `->`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (9, 32), end: (9, 33), text: `(`
+    pattern: 79, capture: 18 - keyword.operator, start: (9, 33), end: (9, 34), text: `\`
+    pattern: 60, capture: 6 - variable.parameter, start: (9, 34), end: (9, 35), text: `_`
+    pattern: 73, capture: 6 - variable.parameter, start: (9, 34), end: (9, 35), text: `_`
+    pattern: 79, capture: 18 - keyword.operator, start: (9, 36), end: (9, 38), text: `->`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (9, 40), end: (9, 41), text: `)`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (9, 41), end: (9, 42), text: `)`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (9, 44), end: (9, 45), text: `)`
     pattern:  7, capture: 4 - function, start: (10, 0), end: (10, 10), text: `keep_right`
     pattern:  8, capture: 6 - variable.parameter, start: (10, 11), end: (10, 12), text: `u`
     pattern:  8, capture: 6 - variable.parameter, start: (10, 13), end: (10, 14), text: `v`
-    pattern: 73, capture: 18 - keyword.operator, start: (10, 15), end: (10, 16), text: `=`
-    pattern: 50, capture: 4 - function, start: (10, 17), end: (10, 19), text: `ap`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (10, 20), end: (10, 21), text: `(`
-    pattern: 50, capture: 4 - function, start: (10, 21), end: (10, 25), text: `fmap`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (10, 26), end: (10, 27), text: `(`
-    pattern: 73, capture: 18 - keyword.operator, start: (10, 27), end: (10, 28), text: `\`
-    pattern: 54, capture: 6 - variable.parameter, start: (10, 28), end: (10, 29), text: `_`
-    pattern: 67, capture: 6 - variable.parameter, start: (10, 28), end: (10, 29), text: `_`
-    pattern: 73, capture: 18 - keyword.operator, start: (10, 30), end: (10, 32), text: `->`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (10, 35), end: (10, 36), text: `)`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (10, 38), end: (10, 39), text: `)`
+    pattern: 79, capture: 18 - keyword.operator, start: (10, 15), end: (10, 16), text: `=`
+    pattern: 56, capture: 4 - function, start: (10, 17), end: (10, 19), text: `ap`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (10, 20), end: (10, 21), text: `(`
+    pattern: 56, capture: 4 - function, start: (10, 21), end: (10, 25), text: `fmap`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (10, 26), end: (10, 27), text: `(`
+    pattern: 79, capture: 18 - keyword.operator, start: (10, 27), end: (10, 28), text: `\`
+    pattern: 60, capture: 6 - variable.parameter, start: (10, 28), end: (10, 29), text: `_`
+    pattern: 73, capture: 6 - variable.parameter, start: (10, 28), end: (10, 29), text: `_`
+    pattern: 79, capture: 18 - keyword.operator, start: (10, 30), end: (10, 32), text: `->`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (10, 35), end: (10, 36), text: `)`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (10, 38), end: (10, 39), text: `)`
     pattern:  7, capture: 4 - function, start: (11, 0), end: (11, 3), text: `alt`
     pattern:  8, capture: 6 - variable.parameter, start: (11, 4), end: (11, 5), text: `a`
     pattern:  8, capture: 6 - variable.parameter, start: (11, 6), end: (11, 7), text: `b`
-    pattern: 73, capture: 18 - keyword.operator, start: (11, 8), end: (11, 9), text: `=`
-    pattern: 50, capture: 4 - function, start: (11, 10), end: (11, 16), text: `append`
-    pattern: 74, capture: 17 - keyword, start: (13, 0), end: (13, 5), text: `class`
+    pattern: 79, capture: 18 - keyword.operator, start: (11, 8), end: (11, 9), text: `=`
+    pattern: 56, capture: 4 - function, start: (11, 10), end: (11, 16), text: `append`
+    pattern: 80, capture: 17 - keyword, start: (13, 0), end: (13, 5), text: `class`
     pattern: 28, capture: 11 - type.definition, start: (13, 6), end: (13, 13), text: `Functor`
-    pattern: 74, capture: 17 - keyword, start: (13, 16), end: (13, 21), text: `where`
+    pattern: 80, capture: 17 - keyword, start: (13, 16), end: (13, 21), text: `where`
     pattern: 30, capture: 15 - function.method, start: (14, 2), end: (14, 6), text: `fmap`
-    pattern: 73, capture: 18 - keyword.operator, start: (14, 7), end: (14, 8), text: `:`
+    pattern: 30, capture: 4 - function, start: (14, 2), end: (14, 6), text: `fmap`
+    pattern: 79, capture: 18 - keyword.operator, start: (14, 7), end: (14, 8), text: `:`
     pattern: 32, capture: 7 - type, start: (14, 8), end: (14, 31), text: ` (a -> b) -> f a -> f b`
-    pattern: 74, capture: 17 - keyword, start: (15, 0), end: (15, 3), text: `law`
-    pattern: 37, capture: 7 - type, start: (15, 4), end: (15, 11), text: `Functor`
-    pattern: 38, capture: 16 - property, start: (15, 12), end: (15, 20), text: `identity`
-    pattern: 73, capture: 18 - keyword.operator, start: (15, 21), end: (15, 22), text: `=`
-    pattern: 50, capture: 4 - function, start: (15, 23), end: (15, 27), text: `fmap`
-    pattern: 74, capture: 17 - keyword, start: (16, 0), end: (16, 3), text: `law`
-    pattern: 37, capture: 7 - type, start: (16, 4), end: (16, 11), text: `Functor`
-    pattern: 38, capture: 16 - property, start: (16, 12), end: (16, 23), text: `composition`
-    pattern: 73, capture: 18 - keyword.operator, start: (16, 24), end: (16, 25), text: `=`
-    pattern: 50, capture: 4 - function, start: (16, 26), end: (16, 30), text: `fmap`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (16, 33), end: (16, 34), text: `(`
-    pattern: 50, capture: 4 - function, start: (16, 34), end: (16, 38), text: `fmap`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (16, 42), end: (16, 43), text: `)`
-    pattern: 50, capture: 4 - function, start: (16, 47), end: (16, 51), text: `fmap`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (16, 52), end: (16, 53), text: `(`
-    pattern: 50, capture: 4 - function, start: (16, 53), end: (16, 60), text: `compose`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (16, 64), end: (16, 65), text: `)`
-    pattern: 74, capture: 17 - keyword, start: (18, 0), end: (18, 5), text: `class`
+    pattern: 80, capture: 17 - keyword, start: (15, 0), end: (15, 3), text: `law`
+    pattern: 39, capture: 7 - type, start: (15, 4), end: (15, 11), text: `Functor`
+    pattern: 40, capture: 16 - property, start: (15, 12), end: (15, 20), text: `identity`
+    pattern: 79, capture: 18 - keyword.operator, start: (15, 21), end: (15, 22), text: `=`
+    pattern: 56, capture: 4 - function, start: (15, 23), end: (15, 27), text: `fmap`
+    pattern: 80, capture: 17 - keyword, start: (16, 0), end: (16, 3), text: `law`
+    pattern: 39, capture: 7 - type, start: (16, 4), end: (16, 11), text: `Functor`
+    pattern: 40, capture: 16 - property, start: (16, 12), end: (16, 23), text: `composition`
+    pattern: 79, capture: 18 - keyword.operator, start: (16, 24), end: (16, 25), text: `=`
+    pattern: 56, capture: 4 - function, start: (16, 26), end: (16, 30), text: `fmap`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (16, 33), end: (16, 34), text: `(`
+    pattern: 56, capture: 4 - function, start: (16, 34), end: (16, 38), text: `fmap`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (16, 42), end: (16, 43), text: `)`
+    pattern: 56, capture: 4 - function, start: (16, 47), end: (16, 51), text: `fmap`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (16, 52), end: (16, 53), text: `(`
+    pattern: 56, capture: 4 - function, start: (16, 53), end: (16, 60), text: `compose`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (16, 64), end: (16, 65), text: `)`
+    pattern: 80, capture: 17 - keyword, start: (18, 0), end: (18, 5), text: `class`
     pattern: 28, capture: 11 - type.definition, start: (18, 6), end: (18, 17), text: `Applicative`
-    pattern: 74, capture: 17 - keyword, start: (18, 20), end: (18, 25), text: `where`
+    pattern: 80, capture: 17 - keyword, start: (18, 20), end: (18, 25), text: `where`
     pattern: 30, capture: 15 - function.method, start: (19, 2), end: (19, 6), text: `pure`
-    pattern: 73, capture: 18 - keyword.operator, start: (19, 7), end: (19, 8), text: `:`
+    pattern: 30, capture: 4 - function, start: (19, 2), end: (19, 6), text: `pure`
+    pattern: 79, capture: 18 - keyword.operator, start: (19, 7), end: (19, 8), text: `:`
     pattern: 32, capture: 7 - type, start: (19, 8), end: (19, 17), text: ` a -> f a`
     pattern: 30, capture: 15 - function.method, start: (20, 2), end: (20, 4), text: `ap`
-    pattern: 73, capture: 18 - keyword.operator, start: (20, 5), end: (20, 6), text: `:`
+    pattern: 30, capture: 4 - function, start: (20, 2), end: (20, 4), text: `ap`
+    pattern: 79, capture: 18 - keyword.operator, start: (20, 5), end: (20, 6), text: `:`
     pattern: 32, capture: 7 - type, start: (20, 6), end: (20, 31), text: ` f (a -> b) -> f a -> f b`
-    pattern: 74, capture: 17 - keyword, start: (21, 0), end: (21, 3), text: `law`
-    pattern: 37, capture: 7 - type, start: (21, 4), end: (21, 15), text: `Applicative`
-    pattern: 38, capture: 16 - property, start: (21, 16), end: (21, 24), text: `identity`
-    pattern: 73, capture: 18 - keyword.operator, start: (21, 25), end: (21, 26), text: `=`
-    pattern: 50, capture: 4 - function, start: (21, 27), end: (21, 29), text: `ap`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (21, 30), end: (21, 31), text: `(`
-    pattern: 50, capture: 4 - function, start: (21, 31), end: (21, 35), text: `pure`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (21, 38), end: (21, 39), text: `)`
-    pattern: 74, capture: 17 - keyword, start: (22, 0), end: (22, 3), text: `law`
-    pattern: 37, capture: 7 - type, start: (22, 4), end: (22, 15), text: `Applicative`
-    pattern: 38, capture: 16 - property, start: (22, 16), end: (22, 28), text: `homomorphism`
-    pattern: 73, capture: 18 - keyword.operator, start: (22, 29), end: (22, 30), text: `=`
-    pattern: 50, capture: 4 - function, start: (22, 31), end: (22, 33), text: `ap`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (22, 34), end: (22, 35), text: `(`
-    pattern: 50, capture: 4 - function, start: (22, 35), end: (22, 39), text: `pure`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (22, 41), end: (22, 42), text: `)`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (22, 43), end: (22, 44), text: `(`
-    pattern: 50, capture: 4 - function, start: (22, 44), end: (22, 48), text: `pure`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (22, 50), end: (22, 51), text: `)`
-    pattern: 50, capture: 4 - function, start: (22, 55), end: (22, 59), text: `pure`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (22, 60), end: (22, 61), text: `(`
-    pattern: 50, capture: 4 - function, start: (22, 61), end: (22, 62), text: `f`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (22, 64), end: (22, 65), text: `)`
-    pattern: 74, capture: 17 - keyword, start: (23, 0), end: (23, 3), text: `law`
-    pattern: 37, capture: 7 - type, start: (23, 4), end: (23, 15), text: `Applicative`
-    pattern: 38, capture: 16 - property, start: (23, 16), end: (23, 27), text: `interchange`
-    pattern: 73, capture: 18 - keyword.operator, start: (23, 28), end: (23, 29), text: `=`
-    pattern: 50, capture: 4 - function, start: (23, 30), end: (23, 32), text: `ap`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (23, 35), end: (23, 36), text: `(`
-    pattern: 50, capture: 4 - function, start: (23, 36), end: (23, 40), text: `pure`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (23, 42), end: (23, 43), text: `)`
-    pattern: 50, capture: 4 - function, start: (23, 47), end: (23, 49), text: `ap`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (23, 50), end: (23, 51), text: `(`
-    pattern: 50, capture: 4 - function, start: (23, 51), end: (23, 55), text: `pure`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (23, 56), end: (23, 57), text: `(`
-    pattern: 73, capture: 18 - keyword.operator, start: (23, 57), end: (23, 58), text: `\`
-    pattern: 53, capture: 6 - variable.parameter, start: (23, 58), end: (23, 59), text: `f`
-    pattern: 73, capture: 18 - keyword.operator, start: (23, 60), end: (23, 62), text: `->`
-    pattern: 50, capture: 4 - function, start: (23, 63), end: (23, 64), text: `f`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (23, 66), end: (23, 67), text: `)`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (23, 67), end: (23, 68), text: `)`
-    pattern: 74, capture: 17 - keyword, start: (24, 0), end: (24, 3), text: `law`
-    pattern: 37, capture: 7 - type, start: (24, 4), end: (24, 15), text: `Applicative`
-    pattern: 38, capture: 16 - property, start: (24, 16), end: (24, 27), text: `composition`
-    pattern: 73, capture: 18 - keyword.operator, start: (24, 28), end: (24, 29), text: `=`
-    pattern: 50, capture: 4 - function, start: (24, 30), end: (24, 32), text: `ap`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (24, 33), end: (24, 34), text: `(`
-    pattern: 50, capture: 4 - function, start: (24, 34), end: (24, 36), text: `ap`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (24, 37), end: (24, 38), text: `(`
-    pattern: 50, capture: 4 - function, start: (24, 38), end: (24, 40), text: `ap`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (24, 41), end: (24, 42), text: `(`
-    pattern: 50, capture: 4 - function, start: (24, 42), end: (24, 46), text: `pure`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (24, 54), end: (24, 55), text: `)`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (24, 57), end: (24, 58), text: `)`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (24, 60), end: (24, 61), text: `)`
-    pattern: 50, capture: 4 - function, start: (24, 67), end: (24, 69), text: `ap`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (24, 72), end: (24, 73), text: `(`
-    pattern: 50, capture: 4 - function, start: (24, 73), end: (24, 75), text: `ap`
-    pattern: 72, capture: 9 - punctuation.bracket, start: (24, 79), end: (24, 80), text: `)`
-    pattern: 74, capture: 17 - keyword, start: (26, 0), end: (26, 4), text: `data`
+    pattern: 80, capture: 17 - keyword, start: (21, 0), end: (21, 3), text: `law`
+    pattern: 39, capture: 7 - type, start: (21, 4), end: (21, 15), text: `Applicative`
+    pattern: 40, capture: 16 - property, start: (21, 16), end: (21, 24), text: `identity`
+    pattern: 79, capture: 18 - keyword.operator, start: (21, 25), end: (21, 26), text: `=`
+    pattern: 56, capture: 4 - function, start: (21, 27), end: (21, 29), text: `ap`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (21, 30), end: (21, 31), text: `(`
+    pattern: 56, capture: 4 - function, start: (21, 31), end: (21, 35), text: `pure`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (21, 38), end: (21, 39), text: `)`
+    pattern: 80, capture: 17 - keyword, start: (22, 0), end: (22, 3), text: `law`
+    pattern: 39, capture: 7 - type, start: (22, 4), end: (22, 15), text: `Applicative`
+    pattern: 40, capture: 16 - property, start: (22, 16), end: (22, 28), text: `homomorphism`
+    pattern: 79, capture: 18 - keyword.operator, start: (22, 29), end: (22, 30), text: `=`
+    pattern: 56, capture: 4 - function, start: (22, 31), end: (22, 33), text: `ap`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (22, 34), end: (22, 35), text: `(`
+    pattern: 56, capture: 4 - function, start: (22, 35), end: (22, 39), text: `pure`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (22, 41), end: (22, 42), text: `)`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (22, 43), end: (22, 44), text: `(`
+    pattern: 56, capture: 4 - function, start: (22, 44), end: (22, 48), text: `pure`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (22, 50), end: (22, 51), text: `)`
+    pattern: 56, capture: 4 - function, start: (22, 55), end: (22, 59), text: `pure`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (22, 60), end: (22, 61), text: `(`
+    pattern: 56, capture: 4 - function, start: (22, 61), end: (22, 62), text: `f`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (22, 64), end: (22, 65), text: `)`
+    pattern: 80, capture: 17 - keyword, start: (23, 0), end: (23, 3), text: `law`
+    pattern: 39, capture: 7 - type, start: (23, 4), end: (23, 15), text: `Applicative`
+    pattern: 40, capture: 16 - property, start: (23, 16), end: (23, 27), text: `interchange`
+    pattern: 79, capture: 18 - keyword.operator, start: (23, 28), end: (23, 29), text: `=`
+    pattern: 56, capture: 4 - function, start: (23, 30), end: (23, 32), text: `ap`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (23, 35), end: (23, 36), text: `(`
+    pattern: 56, capture: 4 - function, start: (23, 36), end: (23, 40), text: `pure`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (23, 42), end: (23, 43), text: `)`
+    pattern: 56, capture: 4 - function, start: (23, 47), end: (23, 49), text: `ap`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (23, 50), end: (23, 51), text: `(`
+    pattern: 56, capture: 4 - function, start: (23, 51), end: (23, 55), text: `pure`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (23, 56), end: (23, 57), text: `(`
+    pattern: 79, capture: 18 - keyword.operator, start: (23, 57), end: (23, 58), text: `\`
+    pattern: 59, capture: 6 - variable.parameter, start: (23, 58), end: (23, 59), text: `f`
+    pattern: 79, capture: 18 - keyword.operator, start: (23, 60), end: (23, 62), text: `->`
+    pattern: 56, capture: 4 - function, start: (23, 63), end: (23, 64), text: `f`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (23, 66), end: (23, 67), text: `)`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (23, 67), end: (23, 68), text: `)`
+    pattern: 80, capture: 17 - keyword, start: (24, 0), end: (24, 3), text: `law`
+    pattern: 39, capture: 7 - type, start: (24, 4), end: (24, 15), text: `Applicative`
+    pattern: 40, capture: 16 - property, start: (24, 16), end: (24, 27), text: `composition`
+    pattern: 79, capture: 18 - keyword.operator, start: (24, 28), end: (24, 29), text: `=`
+    pattern: 56, capture: 4 - function, start: (24, 30), end: (24, 32), text: `ap`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (24, 33), end: (24, 34), text: `(`
+    pattern: 56, capture: 4 - function, start: (24, 34), end: (24, 36), text: `ap`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (24, 37), end: (24, 38), text: `(`
+    pattern: 56, capture: 4 - function, start: (24, 38), end: (24, 40), text: `ap`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (24, 41), end: (24, 42), text: `(`
+    pattern: 56, capture: 4 - function, start: (24, 42), end: (24, 46), text: `pure`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (24, 54), end: (24, 55), text: `)`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (24, 57), end: (24, 58), text: `)`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (24, 60), end: (24, 61), text: `)`
+    pattern: 56, capture: 4 - function, start: (24, 67), end: (24, 69), text: `ap`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (24, 72), end: (24, 73), text: `(`
+    pattern: 56, capture: 4 - function, start: (24, 73), end: (24, 75), text: `ap`
+    pattern: 78, capture: 9 - punctuation.bracket, start: (24, 79), end: (24, 80), text: `)`
+    pattern: 80, capture: 17 - keyword, start: (26, 0), end: (26, 4), text: `data`
     pattern: 18, capture: 11 - type.definition, start: (26, 5), end: (26, 9), text: `bool`
-    pattern: 73, capture: 18 - keyword.operator, start: (26, 10), end: (26, 11), text: `=`
+    pattern: 79, capture: 18 - keyword.operator, start: (26, 10), end: (26, 11), text: `=`
     pattern: 21, capture: 5 - constructor, start: (26, 12), end: (26, 16), text: `true`
-    pattern: 76, capture: 19 - constant.builtin.boolean, start: (26, 12), end: (26, 16), text: `true`
+    pattern: 82, capture: 19 - constant.builtin.boolean, start: (26, 12), end: (26, 16), text: `true`
     pattern:  2, capture: 2 - constant.numeric.integer, start: (26, 17), end: (26, 18), text: `1`
-    pattern: 73, capture: 18 - keyword.operator, start: (26, 20), end: (26, 21), text: `|`
+    pattern: 79, capture: 18 - keyword.operator, start: (26, 20), end: (26, 21), text: `|`
     pattern: 21, capture: 5 - constructor, start: (26, 22), end: (26, 27), text: `false`
-    pattern: 76, capture: 19 - constant.builtin.boolean, start: (26, 22), end: (26, 27), text: `false`
+    pattern: 82, capture: 19 - constant.builtin.boolean, start: (26, 22), end: (26, 27), text: `false`
     pattern:  2, capture: 2 - constant.numeric.integer, start: (26, 28), end: (26, 29), text: `0`

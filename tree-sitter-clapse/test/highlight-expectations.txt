@@ -1,4 +1,4 @@
 # path|token=>scope assertions (comma-separated)
-lib/compiler/prelude.clapse|bind=>function,pure=>function,ap=>function,true=>constant.builtin.boolean,false=>constant.builtin.boolean,1=>constant.numeric.integer,0=>constant.numeric.integer
+lib/compiler/prelude.clapse|bind=>function,pure=>function,ap=>function,not=>function.method,and=>function.method,or=>function.method,xor=>function.method,implies=>function.method,true=>constant.builtin.boolean,false=>constant.builtin.boolean,(=>punctuation.bracket,1=>constant.numeric.integer,0=>constant.numeric.integer
 lib/compiler/parser.clapse|parser_bind=>function,parser_ap=>function,ClassDispatchStatic=>constructor,ClassEvidenceResolved=>constructor,1=>constant.numeric.integer
 examples/game_of_life.clapse|is_alive_next=>function,3=>constant.numeric.integer,2=>constant.numeric.integer

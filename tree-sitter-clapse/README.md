@@ -10,7 +10,7 @@ Tree-sitter grammar scaffold for current Clapse syntax.
 - Data declarations with multiple constructors: `data Type = Ctor args | GadtCtor : type_expr`
 - Class declarations: `class class_name : kind`
 - Law declarations: `law class_name law_name = lhs => rhs`
-- Instance declarations: `instance instance_name : class_name method=target ...`
+- Instance declarations: `instance class_name type_arg... where method=target ...`
 - Class/instance heads can include optional type arguments: `class ClassName TypeArg ... : kind`, `instance inst : ClassName TypeArg ... method=target`
 - Expressions:
   - variables (`x`)

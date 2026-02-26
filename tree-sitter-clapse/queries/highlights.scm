@@ -93,19 +93,27 @@
   kind: (class_kind) @type.builtin)
 
 (class_method_signature
-  method_name: (identifier) @function.method)
+  method_name: (identifier) @function.method @function)
 
 (class_method_signature
-  method_name: (operator_symbol) @function.method)
+  method_name: (operator_symbol) @function.method @function)
 
 (class_method_signature
   signature: (signature_text) @type)
 
 (class_method_binding
-  method_name: (identifier) @function.method)
+  method_name: (identifier) @function.method @function)
 
 (class_method_binding
-  method_name: (operator_symbol) @function.method)
+  method_name: (operator_symbol) @function.method @function)
+
+(class_method_binding
+  argument: (binder_name
+    (identifier) @variable.parameter))
+
+(class_method_binding
+  argument: (binder_name
+    (wildcard) @variable.parameter))
 
 (class_method_binding
   target_name: (identifier) @function)
@@ -131,11 +139,25 @@
 (instance_declaration
   class_name: (capitalized_identifier) @type)
 
-(instance_binding
-  method_name: (identifier) @function.method)
+(instance_declaration
+  name: (identifier) @type)
+
+(instance_declaration
+  name: (capitalized_identifier) @type)
 
 (instance_binding
-  method_name: (operator_symbol) @function.method)
+  method_name: (identifier) @function.method @function)
+
+(instance_binding
+  method_name: (operator_symbol) @function.method @function)
+
+(instance_binding
+  argument: (binder_name
+    (identifier) @variable.parameter))
+
+(instance_binding
+  argument: (binder_name
+    (wildcard) @variable.parameter))
 
 (instance_binding
   target_name: (identifier) @function)

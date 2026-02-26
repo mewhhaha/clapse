@@ -361,6 +361,16 @@
     "type": "class_method_binding",
     "named": true,
     "fields": {
+      "argument": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "binder_name",
+            "named": true
+          }
+        ]
+      },
       "method_name": {
         "multiple": false,
         "required": true,
@@ -377,10 +387,20 @@
       },
       "target_name": {
         "multiple": false,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
             "named": true
           }
         ]
@@ -909,6 +929,16 @@
     "type": "instance_binding",
     "named": true,
     "fields": {
+      "argument": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "binder_name",
+            "named": true
+          }
+        ]
+      },
       "method_name": {
         "multiple": false,
         "required": true,
@@ -925,10 +955,20 @@
       },
       "target_name": {
         "multiple": false,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression",
             "named": true
           }
         ]
@@ -979,7 +1019,7 @@
       },
       "name": {
         "multiple": false,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": "capitalized_identifier",

@@ -707,9 +707,9 @@ compile_request_tag request_handle req_len =
       input_path_missing = (input_path_start == req_len)
       input_path_end_missing = (input_path_end == req_len)
       input_path_empty = (input_path_end == input_path_start)
-      has_path = bool_not (bool_or input_path_missing (bool_or input_path_end_missing input_path_empty))
-      has_source = bool_not (bool_or (source_start == req_len) (source_end == req_len))
-  in case (bool_and has_path has_source) of
+      has_path = not (input_path_missing || (input_path_end_missing || input_path_empty))
+      has_source = not ((source_start == req_len) || (source_end == req_len))
+  in case (has_path && has_source) of
     true -> CompileRequestReady
     _ -> case has_path of
       true -> CompileRequestMissingSource
@@ -755,7 +755,7 @@ is_compile_mode_literal request_handle mode_start req_len mode_txt =
   let lit = str_to_slice mode_txt
       lit_len = slice_len lit
       in_bounds = mode_start + lit_len < req_len
-  in bool_and in_bounds (is_compile_mode_literal_match request_handle mode_start lit lit_len)
+  in in_bounds && is_compile_mode_literal_match request_handle mode_start lit lit_len
 
 is_compile_mode_literal_match request_handle mode_start lit lit_len =
   case (matches_literal_at request_handle mode_start lit 0 lit_len) of
@@ -764,8 +764,8 @@ is_compile_mode_literal_match request_handle mode_start lit lit_len =
 
 is_compile_mode_stub_success request_handle req_len =
   let mode_start = find_compile_mode_start request_handle req_len
-      has_mode = bool_not (mode_start == req_len)
-  in bool_and has_mode (is_compile_mode_literal request_handle mode_start req_len "stub-success")
+      has_mode = not (mode_start == req_len)
+  in has_mode && is_compile_mode_literal request_handle mode_start req_len "stub-success"
 
 compile_response request_handle =
   let req_len = slice_len request_handle
@@ -786,7 +786,7 @@ is_space_byte b =
       is_space_9 = (b == 9)
       is_space_10 = (b == 10)
       is_space_13 = (b == 13)
-  in bool_or is_space_32 (bool_or is_space_9 (bool_or is_space_10 is_space_13))
+  in is_space_32 || is_space_9 || is_space_10 || is_space_13
 
 skip_ws request_handle i req_len = case (i < req_len) of
   true -> skip_ws_step request_handle i req_len

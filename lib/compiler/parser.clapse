@@ -11,12 +11,12 @@ data ClassEvidence = ClassEvidenceResolved | ClassEvidenceUnknown | ClassEvidenc
 parser_pure _ i _ = i
 parser_empty _ _ _ = -1
 
-instance ParserFunctor : Functor parser where
+instance Functor parser where
   fmap = parser_map
   <$> = fmap
   <$ = map_replace
 
-instance ParserApplicative : Applicative parser where
+instance Applicative parser where
   pure = parser_pure
   ap = parser_ap
   <*> = ap
@@ -25,14 +25,14 @@ instance ParserApplicative : Applicative parser where
   <* = keep_left
   *> = keep_right
 
-instance ParserMonad : Monad parser where
+instance Monad parser where
   pure = parser_pure
   bind = parser_bind
   >>= = bind
   then_m = then_m_default
   >> = then_m
 
-instance ParserAlternative : Alternative parser where
+instance Alternative parser where
   empty = parser_empty
   append = parser_or
   alt = alt_default
