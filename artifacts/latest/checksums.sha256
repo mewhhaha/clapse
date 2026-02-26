@@ -1,4 +1,4 @@
-0d2ca5718bbcd791b46241e642038dbe9d5065c940e151367b4a161d37d0dd52  out/releases-ci/v0.1.0.5-550b93df71e4/clapse_compiler.wasm
-70dcf229b32b592c4f46849c3ffca4c84f83b3ca722802d2283ffa1080353714  out/releases-ci/v0.1.0.5-550b93df71e4/clapse_compiler_bridge.wasm
-08a997fa5fbe906e536d0eca821a96a3bfe053fdd010a59ea2d063a928db044a  out/releases-ci/v0.1.0.5-550b93df71e4/wasm-behavior-fixture-map.json
-5580cf00dcf6c36a17b8867ae3a2f75d169a3664d6e2511a399306ee22424398  out/releases-ci/v0.1.0.5-550b93df71e4/wasm-selfhost-artifact-fixture-map.json
+0d2ca5718bbcd791b46241e642038dbe9d5065c940e151367b4a161d37d0dd52  out/releases-ci/v0.1.0.6-7f07bd37495c/clapse_compiler.wasm
+70dcf229b32b592c4f46849c3ffca4c84f83b3ca722802d2283ffa1080353714  out/releases-ci/v0.1.0.6-7f07bd37495c/clapse_compiler_bridge.wasm
+08a997fa5fbe906e536d0eca821a96a3bfe053fdd010a59ea2d063a928db044a  out/releases-ci/v0.1.0.6-7f07bd37495c/wasm-behavior-fixture-map.json
+5580cf00dcf6c36a17b8867ae3a2f75d169a3664d6e2511a399306ee22424398  out/releases-ci/v0.1.0.6-7f07bd37495c/wasm-selfhost-artifact-fixture-map.json
