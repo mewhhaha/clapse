@@ -46,6 +46,74 @@ The struct field/tag operations are now emitted in-module:
     load/store ops.
   - allocation and bulk memory operations are lowered inline in generated Wasm (no standalone `rt_slice_*`, `rt_region_*`, `rt_memcpy`, or `rt_memset` helper bodies).
 
+## Memory Model (Current)
+
+### Allocation model
+
+- Slice writes and copies are materialized in linear memory. The live object types are:
+  - immutable string descriptors to embedded literal bytes
+  - mutable byte-slice descriptors with a pointer+length pair and owned payload bytes
+  - linear records for struct/closure data.
+- `slice_new_u8 n` allocates `n` bytes in linear memory and returns a fresh descriptor.
+- `runtime.alloc_slice_u8` is the JS-side path used for foreign-owned input buffers; it produces a slice descriptor that points into wasm memory so subsequent Clapse slice operations can use direct loads/stores.
+- In the collapse rewrite path, COW also uses fresh `slice_new_u8` allocations to allocate replacement descriptors.
+- `struct`/`closure` creation emits descriptor+payload inline and uses fixed-size headers for validation/runtime checks.
+- Runtime ownership at this layer is represented by descriptor replacement on COW and descriptor reuse on linear chains; there is no host-side allocator ownership bookkeeping for rewrite decisions.
+
+### Deallocation / reclaim model
+
+- No general free list and no per-object `free` operation exist today.
+- Memory regions can be reset only via the explicit region API (`region_mark`, `region_reset`) where a backend chooses to allocate from region-managed memory.
+- `region_reset` is kept as an effectful primitive and is not elided by DCE even when its descriptor result is dead, because it participates in deterministic lifetime fencing.
+- `memcpy_u8`/`memset_u8` are pure transformations from byte-level memory access perspective only in IR form; at runtime they still lower to memory side-effecting operations and must remain ordered.
+- There is no host-side GC or sweeping hook for Clapse values; ownership and lifetime are enforced by compile-time rewrite decisions plus explicit region resets.
+- Reclamation in practice means replacing uses of a descriptor with a fresh one in COW
+  paths and allowing normal function-scope lifetime drop when chains end.
+- Reclaim does not include per-object deallocation; only explicit region fences can shrink allocator scope.
+
+### Reuse model
+
+- Reuse is currently driven by Collapse IR memory passes, not by a runtime allocator:
+  - `collapse_pipeline_slice_ownership_rewrite` controls whether a `slice_set_u8` call is emitted as an in-place store or a copy-on-write path.
+  - For linear reuse, the backend emits direct overwrite semantics through `slice_set_u8`.
+  - For copied reuse, rewrite expands to:
+    1. `slice_new_u8` with same length as target
+    2. byte-copy from source payload to fresh destination (`slice_len_raw`, `slice_data_ptr`, `memcpy_u8`)
+    3. write into the fresh destination.
+  - Reuse requires that the write result is provably confined to a non-escaping local chain; if not provable, the conservative COW path is used.
+- Reuse is deterministic and happens only in the kernel-level `slice_set_u8_rewrite` decision:
+  - `OwnershipRewriteLinear` keeps the same descriptor if the chain is single-use local.
+  - `OwnershipRewriteCopyOnWrite` allocates then copies then writes into a fresh descriptor.
+
+### Alias / freeze / COW rule (current)
+
+- Current rule implemented in the kernel:
+  - Start from request-chain hint + in-bounds check.
+  - Compute escape/lifetime, alias class, and freeze signal through chain-context helpers.
+  - Use COW for any non-local, non-single-use, unknown-alias, freeze, or OOB signal.
+- A slice is treated as **aliased** when its context classifier reports shared/escaped usage.
+- A slice is treated as **linear-only** only when context is local, single-use, non-frozen, and non-OOB.
+- There is no IR freeze bit today; freeze is represented by conservative classification in `slice_set_u8_context_with_freeze`.
+- COW preserves original bytes for external observers and is mandatory for aliased/escaping/frozen/uncertain targets.
+- Ownership selection is derived once per request by
+  `collapse_pipeline_slice_write_policy` and then threaded through request response
+  builders so `slice_set_u8` rewrites in copy/escape helpers use a consistent
+  policy per dispatch.
+
+### Scope and lifetime behavior
+
+- Lifetimes are expressed functionally in the IR as temporary ownership chains over `slice_set_u8`.
+- `EscapeLifetimeLocal`, `EscapeLifetimeEscaped`, and `EscapeLifetimeUnknown` are active in kernel policy classification:
+  - `Local` permits linear reuse when alias/freeze checks stay clean.
+  - `Escaped` forces copy-on-write.
+  - `Unknown` stays conservative unless request-chain context and local checks both prove local single-use.
+- The first pass slot (`collapse_pipeline_escape_lifetime`) is intentionally present and identity:
+  - it is the designated point for escape/lifetime labeling
+  - it currently does not change behavior to keep determinism while staging the contract.
+- Function-local only chains are the only currently guaranteed reuse candidates:
+  - writes that are consumed only by later temporaries in the same expression/function scope and not returned/externally passed can be kept linear.
+  - once a slice value crosses expression/function boundaries, reuse is conservatively disallowed.
+
 ## Interop Boundaries (Current)
 
 - JS can call exported wasm functions with tagged `i32` values in the payload range `[-1073741824, 1073741823]`.

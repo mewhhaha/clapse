@@ -86,6 +86,184 @@ class_rewrite_pipeline_applicative evidence_a evidence_b fundep_info static_expr
 class_rewrite_pipeline_static static_expr dynamic_expr =
   class_rewrite_pipeline kernel_class_dispatch static_expr dynamic_expr
 
+data EscapeLifetimeAnnotation = EscapeLifetimeLocal | EscapeLifetimeEscaped | EscapeLifetimeUnknown
+data OwnershipRewriteMode = OwnershipRewriteLinear | OwnershipRewriteCopyOnWrite
+data SliceWriteAliasClass = SliceWriteAliasSingleUse | SliceWriteAliasSharedOrEscaped | SliceWriteAliasUnknown
+data SliceSetU8WriteChainContext = SliceSetU8WriteChainContext EscapeLifetimeAnnotation SliceWriteAliasClass bool
+data SliceSetU8WriteChainHint = SliceSetU8WriteChainHint
+  EscapeLifetimeAnnotation
+  SliceWriteAliasClass
+  bool
+data CollapseMemoryPass = MemoryPassEscapeLifetimeAnnotation | MemoryPassSliceOwnershipRewrite
+
+-- collapse_pipeline order is explicit and intentionally staged.
+collapse_pipeline_stages = 2
+
+collapse_pipeline_escape_lifetime request_handle =
+  -- Stage 1: explicit escape/lifetime annotation for write-chain classification.
+  -- Current body is request-pure and deterministic; only metadata signals are derived.
+  let _ = slice_set_u8_request_chain_hint request_handle
+  in request_handle
+
+collapse_pipeline_slice_ownership_rewrite request_handle =
+  -- Stage 2: explicit ownership/COW selection for write-chain style.
+  -- Current body keeps payload unchanged and returns the derived ownership policy.
+  let _ = slice_set_u8_request_chain_hint request_handle
+  in collapse_pipeline_slice_write_policy request_handle
+
+slice_set_u8_has_literal request_handle needle =
+  let hay_len = slice_len request_handle
+      needle_len = slice_len needle
+      at = find_literal_start request_handle 0 hay_len needle needle_len
+  in not (at == hay_len)
+
+slice_set_u8_request_scope request_handle =
+  let SliceSetU8WriteChainHint scope _ _ = slice_set_u8_request_chain_hint request_handle
+  in scope
+
+slice_set_u8_request_chain_hint request_handle =
+  let has_slice_set_u8 = slice_set_u8_has_literal request_handle (str_to_slice "slice_set_u8")
+      has_output_escape = slice_set_u8_has_literal request_handle (str_to_slice "\"output\"")
+      has_return_escape = slice_set_u8_has_literal request_handle (str_to_slice "\"return\"")
+      has_alias_hint = slice_set_u8_has_literal request_handle (str_to_slice ".asSlice")
+  in case has_slice_set_u8 of
+    true ->
+      let escaped = has_output_escape || has_return_escape
+          alias_class =
+            case has_alias_hint of
+              true -> SliceWriteAliasSharedOrEscaped
+              _ -> SliceWriteAliasSingleUse
+      in case escaped of
+        true -> SliceSetU8WriteChainHint EscapeLifetimeEscaped alias_class true
+        _ -> SliceSetU8WriteChainHint EscapeLifetimeLocal alias_class true
+    _ -> SliceSetU8WriteChainHint EscapeLifetimeUnknown SliceWriteAliasUnknown false
+
+slice_set_u8_chain_hint_to_context request_handle =
+  let SliceSetU8WriteChainHint lifetime alias_hint _ =
+        slice_set_u8_request_chain_hint request_handle
+      base_out_of_bounds = false
+  in SliceSetU8WriteChainContext lifetime alias_hint base_out_of_bounds
+
+slice_set_u8_chain_policy request_handle =
+  let request_hint = slice_set_u8_request_chain_hint request_handle
+  in case request_hint of
+    SliceSetU8WriteChainHint EscapeLifetimeLocal SliceWriteAliasSingleUse true -> OwnershipRewriteLinear
+    SliceSetU8WriteChainHint EscapeLifetimeLocal SliceWriteAliasUnknown _ -> OwnershipRewriteCopyOnWrite
+    SliceSetU8WriteChainHint EscapeLifetimeEscaped _ _ -> OwnershipRewriteCopyOnWrite
+    SliceSetU8WriteChainHint _ SliceWriteAliasSharedOrEscaped _ -> OwnershipRewriteCopyOnWrite
+    SliceSetU8WriteChainHint EscapeLifetimeUnknown _ _ -> OwnershipRewriteCopyOnWrite
+    _ -> OwnershipRewriteCopyOnWrite
+
+collapse_pipeline_slice_write_policy request_handle = slice_set_u8_chain_policy request_handle
+
+slice_set_u8_base_context target start value ownership_mode =
+  let target_len = slice_len target
+      in_bounds = ((start >= 0) && (start < target_len))
+      base_lifetime = case ownership_mode of
+        OwnershipRewriteCopyOnWrite -> EscapeLifetimeEscaped
+        _ ->
+          case in_bounds of
+            true -> EscapeLifetimeLocal
+            _ -> EscapeLifetimeUnknown
+  in SliceSetU8WriteChainContext base_lifetime SliceWriteAliasUnknown (not in_bounds)
+
+slice_set_u8_context_with_alias target start value context =
+  case context of
+    SliceSetU8WriteChainContext lifetime alias_class out_of_bounds =
+      let value_targets_ptr = value == slice_data_ptr target
+          alias =
+            case alias_class of
+              SliceWriteAliasSharedOrEscaped -> SliceWriteAliasSharedOrEscaped
+              SliceWriteAliasUnknown -> SliceWriteAliasUnknown
+              _ ->
+                case value_targets_ptr of
+                  true -> SliceWriteAliasSharedOrEscaped
+                  _ -> SliceWriteAliasSingleUse
+      in SliceSetU8WriteChainContext lifetime alias out_of_bounds
+
+slice_set_u8_context_with_freeze target start value context =
+  case context of
+    SliceSetU8WriteChainContext lifetime alias_class out_of_bounds ->
+      let frozen_by_value = start == 0 && value == 0
+      in SliceSetU8WriteChainContext lifetime alias_class (out_of_bounds || frozen_by_value)
+
+slice_set_u8_rewrite_mode target start value context =
+  case context of
+    SliceSetU8WriteChainContext EscapeLifetimeLocal SliceWriteAliasSingleUse false -> OwnershipRewriteLinear
+    _ -> OwnershipRewriteCopyOnWrite
+
+slice_set_u8_context_mode target start value ownership_mode request_handle =
+  let SliceSetU8WriteChainHint hint_lifetime hint_alias has_chain =
+        slice_set_u8_request_chain_hint request_handle
+      base_context = slice_set_u8_base_context target start value ownership_mode
+      chain_scoped_context =
+        case has_chain of
+          true -> base_context
+          _ ->
+            let base_lifetime =
+                  case base_context of
+                    SliceSetU8WriteChainContext lifetime _ _ -> lifetime
+                    _ -> EscapeLifetimeUnknown
+                base_out_of_bounds =
+                  case base_context of
+                    SliceSetU8WriteChainContext _ _ out_of_bounds -> out_of_bounds
+                    _ -> true
+            in SliceSetU8WriteChainContext base_lifetime SliceWriteAliasSingleUse base_out_of_bounds
+      scoped_lifetime =
+        case has_chain of
+          true ->
+            case hint_lifetime of
+              EscapeLifetimeEscaped -> EscapeLifetimeEscaped
+              _ ->
+                case chain_scoped_context of
+                  SliceSetU8WriteChainContext base_lifetime _ _ -> base_lifetime
+          _ ->
+            case chain_scoped_context of
+              SliceSetU8WriteChainContext base_lifetime _ _ -> base_lifetime
+      merged_context =
+        case hint_alias of
+          SliceWriteAliasSingleUse ->
+            SliceSetU8WriteChainContext scoped_lifetime SliceWriteAliasSingleUse
+              (case chain_scoped_context of
+                SliceSetU8WriteChainContext _ _ out_of_bounds -> out_of_bounds)
+          SliceWriteAliasSharedOrEscaped ->
+            SliceSetU8WriteChainContext EscapeLifetimeEscaped SliceWriteAliasSharedOrEscaped
+              (case chain_scoped_context of
+                SliceSetU8WriteChainContext _ _ out_of_bounds -> out_of_bounds)
+          _ ->
+            SliceSetU8WriteChainContext scoped_lifetime
+              (case chain_scoped_context of
+                SliceSetU8WriteChainContext _ alias_class _ -> alias_class)
+              (case chain_scoped_context of
+                SliceSetU8WriteChainContext _ _ out_of_bounds -> out_of_bounds)
+  in slice_set_u8_context_with_freeze target start value (slice_set_u8_context_with_alias target start value merged_context)
+
+slice_set_u8_context_mode_with_policy target start value ownership_mode request_handle =
+  let context = slice_set_u8_context_mode target start value ownership_mode request_handle
+  in slice_set_u8_rewrite_mode target start value context
+
+collapse_pipeline_run request_handle =
+  let with_annotations = collapse_pipeline_escape_lifetime request_handle
+      with_ownership = collapse_pipeline_slice_ownership_rewrite with_annotations
+  in with_ownership
+
+slice_set_u8_write request_handle ownership_mode target start value =
+  slice_set_u8_rewrite request_handle target start value ownership_mode
+
+-- Existing helper: copy-on-write path (reuses existing slice copy/set behavior).
+slice_set_u8_cow request_handle ownership_mode target start value =
+  let target_len = slice_len target
+      copied = slice_new_u8 target_len
+      copied1 = copy_slice_segment request_handle OwnershipRewriteLinear target 0 copied 0 target_len 0
+      copied2 = slice_set_u8_write request_handle OwnershipRewriteLinear copied1 start value
+  in copied2
+
+slice_set_u8_rewrite request_handle target start value ownership_mode =
+  let inferred_mode = slice_set_u8_context_mode_with_policy target start value ownership_mode request_handle
+  in case inferred_mode of
+    OwnershipRewriteCopyOnWrite -> slice_set_u8_cow request_handle ownership_mode target start value
+    _ -> slice_set_u8 target start value
+
 min2 a b = case (a > b) of
   true -> b
   _ -> a
@@ -99,8 +277,8 @@ json_selfhost_suffix = str_to_slice "\",\"type_info.txt\":\"Nothing\",\"type_inf
 json_selfhost_ok = str_to_slice "{\"ok\":true,\"artifacts\":{\"merged_module.txt\":\"\",\"type_info.txt\":\"Nothing\",\"type_info_error.txt\":\"Nothing\",\"lowered_ir.txt\":\"\",\"collapsed_ir.txt\":\"\",\"exports.txt\":\"[ExportApi {exportName = \\\"main\\\", exportArity = 1}]\",\"wasm_stats.txt\":\"size_bytes=122\\nprefix_hex=0061736d0100000001130360017f017f60027f7f017f60037f7f7f017f020100\\n\"}}"
 json_unknown_error = str_to_slice "{\"ok\":false,\"error\":\"unsupported command\"}"
 
-copy_slice_literal out out_start txt =
-  copy_slice_segment txt 0 out out_start (slice_len txt) 0
+copy_slice_literal request_handle ownership_mode out out_start txt =
+  copy_slice_segment request_handle ownership_mode txt 0 out out_start (slice_len txt) 0
 
 json_compile_error_byte i = case i of
   0 -> 123
@@ -673,28 +851,28 @@ fill_json_unknown_error out i len = case (i == len) of
     let next = slice_set_u8 out i (json_unknown_error_byte i)
     in fill_json_unknown_error next (i + 1) len
 
-error_response_from_message msg_txt =
+error_response_from_message request_handle ownership_mode msg_txt =
   let msg = str_to_slice msg_txt
       msg_len = slice_len msg
-  in json_response_with_slice_segment json_error_prefix json_error_suffix msg 0 msg_len
+  in json_response_with_slice_segment request_handle ownership_mode json_error_prefix json_error_suffix msg 0 msg_len
 
-compile_not_implemented_response _ =
-  error_response_from_message "native compile not implemented yet"
+compile_not_implemented_response request_handle ownership_mode _ =
+  error_response_from_message request_handle ownership_mode "native compile not implemented yet"
 
-compile_missing_input_path_response _ =
-  error_response_from_message "compile request missing input_path"
+compile_missing_input_path_response request_handle ownership_mode _ =
+  error_response_from_message request_handle ownership_mode "compile request missing input_path"
 
-compile_missing_input_source_response _ =
-  error_response_from_message "compile request missing input_source"
+compile_missing_input_source_response request_handle ownership_mode _ =
+  error_response_from_message request_handle ownership_mode "compile request missing input_source"
 
-compile_error_response request_handle = compile_not_implemented_response request_handle
+compile_error_response request_handle ownership_mode = compile_not_implemented_response request_handle ownership_mode
 
-compile_stub_success_response _ =
+compile_stub_success_response request_handle ownership_mode _ =
   let prefix = str_to_slice "{\"ok\":true,\"wasm_base64\":\""
       wasm_b64 = str_to_slice "AGFzbQEAAAABEwNgAX8Bf2ACf38Bf2ADf39/AX8CAQADAgECBAQBcAABBQMBAAEGBwF/AUGAIAsHKgQEbWFpbgAACF9fbWVtb3J5AgAHX190YWJsZQEACl9faGVhcF9wdHIDAAkHAQBBAAsBAAoIAQYBDX9BAQsLAQA="
       suffix = str_to_slice "\",\"exports\":[],\"dts\":\"export {}\\n\"}"
       b64_len = slice_len wasm_b64
-  in json_response_with_slice_segment prefix suffix wasm_b64 0 b64_len
+  in json_response_with_slice_segment request_handle ownership_mode prefix suffix wasm_b64 0 b64_len
 
 compile_source_start request_handle req_len =
   find_input_source_start request_handle 0 req_len
@@ -767,19 +945,19 @@ is_compile_mode_stub_success request_handle req_len =
       has_mode = not (mode_start == req_len)
   in has_mode && is_compile_mode_literal request_handle mode_start req_len "stub-success"
 
-compile_response request_handle =
+compile_response request_handle ownership_mode =
   let req_len = slice_len request_handle
   in case (req_len > max_inline_request_len) of
-    true -> compile_not_implemented_response request_handle
+    true -> compile_not_implemented_response request_handle ownership_mode req_len
     _ ->
       case (req_len > max_inline_validation_request_len) of
-        true -> compile_stub_success_response request_handle
+        true -> compile_stub_success_response request_handle ownership_mode req_len
         _ ->
           let tag = compile_request_tag request_handle req_len
           in case tag of
-            CompileRequestMissingPath -> compile_missing_input_path_response request_handle
-            CompileRequestMissingSource -> compile_missing_input_source_response request_handle
-            CompileRequestReady -> compile_stub_success_response request_handle
+            CompileRequestMissingPath -> compile_missing_input_path_response request_handle ownership_mode req_len
+            CompileRequestMissingSource -> compile_missing_input_source_response request_handle ownership_mode req_len
+            CompileRequestReady -> compile_stub_success_response request_handle ownership_mode req_len
 
 is_space_byte b =
   let is_space_32 = (b == 32)
@@ -877,48 +1055,48 @@ find_source_end_limited_quote request_handle i req_len slash_parity steps =
     true -> i
     _ -> find_source_end_limited request_handle (i + 1) req_len 0 (steps + 1)
 
-copy_slice_segment src src_start dst dst_start seg_len i = case (i == seg_len) of
+copy_slice_segment request_handle ownership_mode src src_start dst dst_start seg_len i = case (i == seg_len) of
   true -> dst
   _ ->
     case (i + 16 <= seg_len) of
       true ->
         let b0 = slice_get_u8 src (src_start + i)
-            d0 = slice_set_u8 dst (dst_start + i) b0
+            d0 = slice_set_u8_write request_handle ownership_mode dst (dst_start + i) b0
             b1 = slice_get_u8 src (src_start + i + 1)
-            d1 = slice_set_u8 d0 (dst_start + i + 1) b1
+            d1 = slice_set_u8_write request_handle ownership_mode d0 (dst_start + i + 1) b1
             b2 = slice_get_u8 src (src_start + i + 2)
-            d2 = slice_set_u8 d1 (dst_start + i + 2) b2
+            d2 = slice_set_u8_write request_handle ownership_mode d1 (dst_start + i + 2) b2
             b3 = slice_get_u8 src (src_start + i + 3)
-            d3 = slice_set_u8 d2 (dst_start + i + 3) b3
+            d3 = slice_set_u8_write request_handle ownership_mode d2 (dst_start + i + 3) b3
             b4 = slice_get_u8 src (src_start + i + 4)
-            d4 = slice_set_u8 d3 (dst_start + i + 4) b4
+            d4 = slice_set_u8_write request_handle ownership_mode d3 (dst_start + i + 4) b4
             b5 = slice_get_u8 src (src_start + i + 5)
-            d5 = slice_set_u8 d4 (dst_start + i + 5) b5
+            d5 = slice_set_u8_write request_handle ownership_mode d4 (dst_start + i + 5) b5
             b6 = slice_get_u8 src (src_start + i + 6)
-            d6 = slice_set_u8 d5 (dst_start + i + 6) b6
+            d6 = slice_set_u8_write request_handle ownership_mode d5 (dst_start + i + 6) b6
             b7 = slice_get_u8 src (src_start + i + 7)
-            d7 = slice_set_u8 d6 (dst_start + i + 7) b7
+            d7 = slice_set_u8_write request_handle ownership_mode d6 (dst_start + i + 7) b7
             b8 = slice_get_u8 src (src_start + i + 8)
-            d8 = slice_set_u8 d7 (dst_start + i + 8) b8
+            d8 = slice_set_u8_write request_handle ownership_mode d7 (dst_start + i + 8) b8
             b9 = slice_get_u8 src (src_start + i + 9)
-            d9 = slice_set_u8 d8 (dst_start + i + 9) b9
+            d9 = slice_set_u8_write request_handle ownership_mode d8 (dst_start + i + 9) b9
             b10 = slice_get_u8 src (src_start + i + 10)
-            d10 = slice_set_u8 d9 (dst_start + i + 10) b10
+            d10 = slice_set_u8_write request_handle ownership_mode d9 (dst_start + i + 10) b10
             b11 = slice_get_u8 src (src_start + i + 11)
-            d11 = slice_set_u8 d10 (dst_start + i + 11) b11
+            d11 = slice_set_u8_write request_handle ownership_mode d10 (dst_start + i + 11) b11
             b12 = slice_get_u8 src (src_start + i + 12)
-            d12 = slice_set_u8 d11 (dst_start + i + 12) b12
+            d12 = slice_set_u8_write request_handle ownership_mode d11 (dst_start + i + 12) b12
             b13 = slice_get_u8 src (src_start + i + 13)
-            d13 = slice_set_u8 d12 (dst_start + i + 13) b13
+            d13 = slice_set_u8_write request_handle ownership_mode d12 (dst_start + i + 13) b13
             b14 = slice_get_u8 src (src_start + i + 14)
-            d14 = slice_set_u8 d13 (dst_start + i + 14) b14
+            d14 = slice_set_u8_write request_handle ownership_mode d13 (dst_start + i + 14) b14
             b15 = slice_get_u8 src (src_start + i + 15)
-            d15 = slice_set_u8 d14 (dst_start + i + 15) b15
-        in copy_slice_segment src src_start d15 dst_start seg_len (i + 16)
+            d15 = slice_set_u8_write request_handle ownership_mode d14 (dst_start + i + 15) b15
+        in copy_slice_segment request_handle ownership_mode src src_start d15 dst_start seg_len (i + 16)
       _ ->
         let b = slice_get_u8 src (src_start + i)
-            next = slice_set_u8 dst (dst_start + i) b
-        in copy_slice_segment src src_start next dst_start seg_len (i + 1)
+            next = slice_set_u8_write request_handle ownership_mode dst (dst_start + i) b
+        in copy_slice_segment request_handle ownership_mode src src_start next dst_start seg_len (i + 1)
 
 json_escape_extra_len src start seg_len i extra = case (i == seg_len) of
   true -> extra
@@ -932,65 +1110,65 @@ json_escape_extra_len src start seg_len i extra = case (i == seg_len) of
       _ _ _ _ true -> json_escape_extra_len src start seg_len (i + 1) (extra + 1)
       _ _ _ _ _ -> json_escape_extra_len src start seg_len (i + 1) extra
 
-json_copy_escaped_segment src start seg_len i dst dst_i = case (i == seg_len) of
+json_copy_escaped_segment request_handle ownership_mode src start seg_len i dst dst_i = case (i == seg_len) of
   true -> dst
   _ ->
-    let b = slice_get_u8 src (start + i)
+  let b = slice_get_u8 src (start + i)
     in case (b == 34) (b == 92) (b == 10) (b == 13) (b == 9) of
       true _ _ _ _ ->
-        let d1 = slice_set_u8 dst dst_i 92
-            d2 = slice_set_u8 d1 (dst_i + 1) 34
-        in json_copy_escaped_segment src start seg_len (i + 1) d2 (dst_i + 2)
+        let d1 = slice_set_u8_write request_handle ownership_mode dst dst_i 92
+            d2 = slice_set_u8_write request_handle ownership_mode d1 (dst_i + 1) 34
+        in json_copy_escaped_segment request_handle ownership_mode src start seg_len (i + 1) d2 (dst_i + 2)
       _ true _ _ _ ->
-        let d1 = slice_set_u8 dst dst_i 92
-            d2 = slice_set_u8 d1 (dst_i + 1) 92
-        in json_copy_escaped_segment src start seg_len (i + 1) d2 (dst_i + 2)
+        let d1 = slice_set_u8_write request_handle ownership_mode dst dst_i 92
+            d2 = slice_set_u8_write request_handle ownership_mode d1 (dst_i + 1) 92
+        in json_copy_escaped_segment request_handle ownership_mode src start seg_len (i + 1) d2 (dst_i + 2)
       _ _ true _ _ ->
-        let d1 = slice_set_u8 dst dst_i 92
-            d2 = slice_set_u8 d1 (dst_i + 1) 110
-        in json_copy_escaped_segment src start seg_len (i + 1) d2 (dst_i + 2)
+        let d1 = slice_set_u8_write request_handle ownership_mode dst dst_i 92
+            d2 = slice_set_u8_write request_handle ownership_mode d1 (dst_i + 1) 110
+        in json_copy_escaped_segment request_handle ownership_mode src start seg_len (i + 1) d2 (dst_i + 2)
       _ _ _ true _ ->
-        let d1 = slice_set_u8 dst dst_i 92
-            d2 = slice_set_u8 d1 (dst_i + 1) 114
-        in json_copy_escaped_segment src start seg_len (i + 1) d2 (dst_i + 2)
+        let d1 = slice_set_u8_write request_handle ownership_mode dst dst_i 92
+            d2 = slice_set_u8_write request_handle ownership_mode d1 (dst_i + 1) 114
+        in json_copy_escaped_segment request_handle ownership_mode src start seg_len (i + 1) d2 (dst_i + 2)
       _ _ _ _ true ->
-        let d1 = slice_set_u8 dst dst_i 92
-            d2 = slice_set_u8 d1 (dst_i + 1) 116
-        in json_copy_escaped_segment src start seg_len (i + 1) d2 (dst_i + 2)
+        let d1 = slice_set_u8_write request_handle ownership_mode dst dst_i 92
+            d2 = slice_set_u8_write request_handle ownership_mode d1 (dst_i + 1) 116
+        in json_copy_escaped_segment request_handle ownership_mode src start seg_len (i + 1) d2 (dst_i + 2)
       _ _ _ _ _ ->
-        let d1 = slice_set_u8 dst dst_i b
-        in json_copy_escaped_segment src start seg_len (i + 1) d1 (dst_i + 1)
+        let d1 = slice_set_u8_write request_handle ownership_mode dst dst_i b
+        in json_copy_escaped_segment request_handle ownership_mode src start seg_len (i + 1) d1 (dst_i + 1)
 
-json_response_with_literal_prefix_suffix prefix suffix =
+json_response_with_literal_prefix_suffix request_handle ownership_mode prefix suffix =
   let prefix_len = slice_len prefix
       suffix_len = slice_len suffix
       out = slice_new_u8 (prefix_len + suffix_len)
-      out1 = copy_slice_literal out 0 prefix
-  in copy_slice_literal out1 prefix_len suffix
+      out1 = copy_slice_literal request_handle ownership_mode out 0 prefix
+  in copy_slice_literal request_handle ownership_mode out1 prefix_len suffix
 
-json_response_with_slice_segment prefix suffix src src_start src_len =
+json_response_with_slice_segment request_handle ownership_mode prefix suffix src src_start src_len =
   let prefix_len = slice_len prefix
       suffix_len = slice_len suffix
       total_len = prefix_len + src_len + suffix_len
       out = slice_new_u8 total_len
-      out1 = copy_slice_literal out 0 prefix
-      out2 = copy_slice_segment src src_start out1 prefix_len src_len 0
-  in copy_slice_literal out2 (prefix_len + src_len) suffix
+      out1 = copy_slice_literal request_handle ownership_mode out 0 prefix
+      out2 = copy_slice_segment request_handle ownership_mode src src_start out1 prefix_len src_len 0
+  in copy_slice_literal request_handle ownership_mode out2 (prefix_len + src_len) suffix
 
-json_response_with_escaped_slice_segment prefix suffix src src_start src_len =
+json_response_with_escaped_slice_segment request_handle ownership_mode prefix suffix src src_start src_len =
   let prefix_len = slice_len prefix
       escaped_extra = json_escape_extra_len src src_start src_len 0 0
       escaped_len = src_len + escaped_extra
       suffix_len = slice_len suffix
       total_len = prefix_len + escaped_len + suffix_len
       out = slice_new_u8 total_len
-      out1 = copy_slice_literal out 0 prefix
-      out2 = json_copy_escaped_segment src src_start src_len 0 out1 prefix_len
-  in copy_slice_literal out2 (prefix_len + escaped_len) suffix
+      out1 = copy_slice_literal request_handle ownership_mode out 0 prefix
+      out2 = json_copy_escaped_segment request_handle ownership_mode src src_start src_len 0 out1 prefix_len
+  in copy_slice_literal request_handle ownership_mode out2 (prefix_len + escaped_len) suffix
 
-json_response_from_slice literal =
+json_response_from_slice request_handle ownership_mode literal =
   let out = slice_new_u8 (slice_len literal)
-      out1 = copy_slice_literal out 0 literal
+      out1 = copy_slice_literal request_handle ownership_mode out 0 literal
   in out1
 
 json_slice_end request_handle source_start req_len =
@@ -1000,51 +1178,55 @@ json_slice_end request_handle source_start req_len =
     _ true -> req_len
     _ _ -> source_end_raw
 
-format_empty_response _ =
-  json_response_with_literal_prefix_suffix json_format_prefix json_format_suffix
+format_empty_response request_handle ownership_mode =
+  json_response_with_literal_prefix_suffix request_handle ownership_mode json_format_prefix json_format_suffix
 
-format_source_response request_handle source_start req_len =
+format_source_response request_handle ownership_mode source_start req_len =
   let source_end = json_slice_end request_handle source_start req_len
       source_len = source_end - source_start
   in json_response_with_slice_segment
+    request_handle
+    ownership_mode
     json_format_prefix
     json_format_suffix
     request_handle
     source_start
     source_len
 
-format_ok_response request_handle =
+format_ok_response request_handle ownership_mode =
   let req_len = slice_len request_handle
       source_start = find_source_start request_handle 0 req_len
   in case (source_start == req_len) of
-    true -> format_empty_response request_handle
-    _ -> format_source_response request_handle source_start req_len
+    true -> format_empty_response request_handle ownership_mode
+    _ -> format_source_response request_handle ownership_mode source_start req_len
 
-selfhost_empty_response _ =
-  json_response_with_literal_prefix_suffix json_selfhost_prefix json_selfhost_suffix
+selfhost_empty_response request_handle ownership_mode =
+  json_response_with_literal_prefix_suffix request_handle ownership_mode json_selfhost_prefix json_selfhost_suffix
 
-selfhost_source_response request_handle source_start req_len =
+selfhost_source_response request_handle ownership_mode source_start req_len =
   let source_end = json_slice_end request_handle source_start req_len
       source_len = source_end - source_start
   in json_response_with_escaped_slice_segment
+    request_handle
+    ownership_mode
     json_selfhost_prefix
     json_selfhost_suffix
     request_handle
     source_start
     source_len
 
-selfhost_ok_response_no_input_source request_handle req_len =
-  error_response_from_message "selfhost-artifacts request missing input_source"
+selfhost_ok_response_no_input_source request_handle ownership_mode req_len =
+  error_response_from_message request_handle ownership_mode "selfhost-artifacts request missing input_source"
 
-selfhost_ok_response request_handle =
+selfhost_ok_response request_handle ownership_mode =
   let req_len = slice_len request_handle
       source_start = find_input_source_start request_handle 0 req_len
   in case (source_start == req_len) of
-    true -> selfhost_ok_response_no_input_source request_handle req_len
-    _ -> selfhost_source_response request_handle source_start req_len
+    true -> selfhost_ok_response_no_input_source request_handle ownership_mode req_len
+    _ -> selfhost_source_response request_handle ownership_mode source_start req_len
 
-unknown_error_response _ =
-  json_response_from_slice json_unknown_error
+unknown_error_response request_handle ownership_mode =
+  json_response_from_slice request_handle ownership_mode json_unknown_error
 
 is_command_literal request_handle start req_len lit_txt =
   is_compile_mode_literal request_handle start req_len lit_txt
@@ -1093,9 +1275,11 @@ command_tag request_handle =
     Just tag -> tag
 
 clapse_run request_handle =
-  let tag = command_tag request_handle
+  let tagged_request = collapse_pipeline_run request_handle
+      ownership_mode = collapse_pipeline_slice_write_policy tagged_request
+      tag = command_tag tagged_request
   in case tag of
-    CommandCompile -> compile_response request_handle
-    CommandFormat -> format_ok_response request_handle
-    CommandSelfhost -> selfhost_ok_response request_handle
-    CommandUnknown -> unknown_error_response request_handle
+    CommandCompile -> compile_response request_handle ownership_mode
+    CommandFormat -> format_ok_response request_handle ownership_mode
+    CommandSelfhost -> selfhost_ok_response request_handle ownership_mode
+    CommandUnknown -> unknown_error_response request_handle ownership_mode

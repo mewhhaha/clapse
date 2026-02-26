@@ -47,3 +47,15 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
 - Keep class/instance docs aligned with the compiler target syntax: Haskell-style `where` blocks are canonical for new docs and examples.
 - Keep prelude operator mapping docs aligned with code (`<$`, `<$>`, `<*>`, `<*`, `*>`, `>>=`, `>>`, `<|>`) and reflect any helper-default changes in the syntax reference.
 - Keep Boolean class docs aligned with prelude method surface (`not`, `and`, `or`, `xor`, `implies`, `&&`, `||`) and method-default behavior.
+- Record memory-model pass changes in `docs/clapse-language/references/optimization-and-collapse-ir.md` when kernel collapse pipeline stages change (escape/lifetime annotations, ownership/COW rewrite ordering), and mirror behavior notes in `docs/SKILL.md` with concise pass-level comments.
+- Record allocation/reuse/COW scope contract updates in both
+  `docs/clapse-language/references/optimization-and-collapse-ir.md` and
+  `docs/clapse-language/references/wasm-runtime-and-interop.md` when kernel rewrite policy changes.
+- Keep `docs/clapse-language/references/optimization-and-collapse-ir.md` and
+  `docs/clapse-language/references/wasm-runtime-and-interop.md` aligned on
+  memory-model semantics whenever allocation, reclaim, alias/freeze, or scope/lifetime behavior changes.
+
+## Memory model checkpoint
+
+- `clapse_run` now executes `collapse_pipeline_run` once per request and threads the derived `OwnershipRewriteMode` through request-scoped response builders and `slice_set_u8` rewrite helpers.
+- `slice_set_u8` rewrite now uses explicit linear writes on the copied descriptor in the COW path (`slice_set_u8_cow`) so copy-on-write remains descriptor-local and does not accidentally recurse into COW policy.
