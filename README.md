@@ -47,7 +47,7 @@ Module directives:
 - `export <name>[, <name> ...]` sets explicit wasm exports for the entry module.
 - When `export` is omitted in the entry module, all entry-module functions are
   exported.
-- `deno run -A scripts/clapse.mjs compile <entry.clapse> [output.wasm]` resolves
+- `just clapse-bin && ./artifacts/bin/clapse compile <entry.clapse> [output.wasm]` resolves
   dotted imports relative to the entry file directory (`util.math` ->
   `util/math.clapse`), merges modules, rewrites imported names to qualified
   internal symbols, then compiles a single optimized wasm module.
@@ -55,13 +55,14 @@ Module directives:
   derived from collapsed IR exports (`name` + `arity`) so JS/TS interop can type
   exported API calls.
 
-Unified deno CLI frontend:
+Unified CLI frontend:
 
 ```bash
-deno run -A scripts/clapse.mjs compile examples/wasm_main.clapse out/wasm_main.wasm
-deno run -A scripts/clapse.mjs format --write examples/wasm_main.clapse
-deno run -A scripts/clapse.mjs format --stdin
-deno run -A scripts/clapse.mjs lsp --stdio
+just clapse-bin
+./artifacts/bin/clapse compile examples/wasm_main.clapse out/wasm_main.wasm
+./artifacts/bin/clapse format --write examples/wasm_main.clapse
+./artifacts/bin/clapse format --stdin
+./artifacts/bin/clapse lsp --stdio
 ```
 
 - `compile`/`selfhost-artifacts`/`format`/`lsp` route through compiler-wasm mode
@@ -85,7 +86,7 @@ just release-candidate out=out/releases-ci
 
 `release-candidate` does all release gates in one pass:
 
-- builds `clapse_compiler.wasm` + bridge artifact in a versioned directory
+- builds `clapse_compiler.wasm` + bridge artifact + compiled CLI binary (`clapse-bin`) in a versioned directory
 - runs strict wasm selfhost parity (`selfhost-check-wasm`)
 - regenerates fixture maps and requires byte-for-byte parity against:
   - `scripts/wasm-behavior-fixture-map.json`
@@ -486,12 +487,12 @@ normalization (`VSelfTailCall`).
 Single executable provides compiler + formatter + LSP:
 
 ```bash
-deno run -A scripts/clapse.mjs format <file>
-deno run -A scripts/clapse.mjs format --write <file>
-deno run -A scripts/clapse.mjs format --stdin
-deno run -A scripts/clapse.mjs compile <input.clapse> [output.wasm]
-deno run -A scripts/clapse.mjs bench [iterations]
-deno run -A scripts/clapse.mjs lsp --stdio
+just clapse-bin
+./artifacts/bin/clapse format <file>
+./artifacts/bin/clapse format --write <file>
+./artifacts/bin/clapse format --stdin
+./artifacts/bin/clapse compile <input.clapse> [output.wasm]
+./artifacts/bin/clapse lsp --stdio
 ```
 
 `compile` writes the wasm file at the requested output path and a `.d.ts`
@@ -599,7 +600,7 @@ Current backend supports:
 Deno runtime smoke:
 
 ```bash
-deno run -A scripts/clapse.mjs compile examples/wasm_main.clapse out/wasm_main.wasm
+./artifacts/bin/clapse compile examples/wasm_main.clapse out/wasm_main.wasm
 deno run -A scripts/run-wasm.mjs out/wasm_main.wasm main 7
 ```
 

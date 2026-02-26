@@ -14,7 +14,7 @@ deno run -A scripts/clapse.mjs bench [iterations]
 ```
 
 - `compile`/`selfhost-artifacts`/`format`/`lsp` use compiler-wasm mode by
-  default.
+default.
   - compiler wasm is resolved from `CLAPSE_COMPILER_WASM_PATH`, then
     `out/clapse_compiler.wasm`.
   - transitional bridge artifact (`out/clapse_compiler_bridge.wasm`) requires
@@ -31,6 +31,8 @@ Core:
 - `just wasm-closure-smoke`
 - `just wasm-string-smoke`
 - `just bench`
+- `just formatter-golden-fixtures`
+- `just lsp-wasm-fixtures`
 
 WASM runtime perf:
 
@@ -41,8 +43,8 @@ WASM runtime perf:
 Browser Game of Life demo:
 
 - `just life-build`
-- `just life-smoke`
 - `just life-serve 8080`
+- `just life-smoke`
 
 Self-host parity:
 
@@ -72,9 +74,15 @@ Self-host parity:
 
 ## LSP and Formatter
 
-- LSP currently provides compile diagnostics from wasm compiler responses and
-  hover for `--|` doc comments attached to declarations (including
-  class/instance `where` method lines).
+- LSP currently provides:
+  - compile diagnostics from wasm compiler responses
+  - hover for `--|` doc comments, falling back to declaration line text when docs are missing
+  - definitions
+  - references
+  - document symbols
+  - prepare rename + rename edits
+  - rename
+  - quick-fix code actions (rename/doc-comment suggestions)
 - Formatter is conservative and source-preserving:
   - validate syntax
   - normalize trailing/inner whitespace rules
@@ -82,6 +90,26 @@ Self-host parity:
     bindings + `in` line)
   - preserve class/instance `where` block declarations without semantic rewrite
   - avoid semantic rewrites in formatter pass
+
+## Project Configuration (`clapse.json`)
+
+- LSP reads `clapse.json` from the current file directory, then walks parent
+  directories until it finds one.
+- Supported config key:
+  - `include`
+- Example:
+
+```json
+{
+  "include": ["src", "examples"]
+}
+```
+
+- `include` is the only supported module-search key in `clapse.json`.
+- If `include` is empty or missing, imports are unrestricted.
+
+- `include` contains directory names. `import` targets are resolved by checking
+  `<dir>/<dotted_module_name>.clapse` for each configured directory.
 
 ## Tree-sitter and Helix
 

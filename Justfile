@@ -3,20 +3,27 @@ set positional-arguments := true
 default:
   @just --list
 
-compiler-path:
-  @echo "${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}"
+clapse-bin:
+  mkdir -p artifacts/bin
+  deno compile -A --output artifacts/bin/clapse scripts/clapse.mjs
 
-compile input output='out/module.wasm':
-  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/run-clapse-compiler-wasm.mjs compile {{input}} {{output}}
+compile input output='out/module.wasm': clapse-bin
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" ./artifacts/bin/clapse compile {{input}} {{output}}
 
-format file:
-  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/run-clapse-compiler-wasm.mjs format {{file}}
+format file: clapse-bin
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" ./artifacts/bin/clapse format {{file}}
 
-format-write file:
-  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/run-clapse-compiler-wasm.mjs format --write {{file}}
+format-write file: clapse-bin
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" ./artifacts/bin/clapse format --write {{file}}
 
-lsp:
-  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/clapse.mjs lsp --stdio
+lsp: clapse-bin
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" ./artifacts/bin/clapse lsp --stdio
+
+formatter-golden-fixtures fixtures='examples/formatter_golden_fixtures.json':
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/formatter-golden-fixtures.mjs --fixtures {{fixtures}} --out out/formatter-golden-fixtures
+
+lsp-wasm-fixtures:
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/lsp-wasm-fixtures.mjs
 
 docs-validate:
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/validate-docs.mjs
@@ -39,7 +46,7 @@ highlights-helix:
 install:
   #!/usr/bin/env bash
   set -euo pipefail
-  mkdir -p artifacts/latest
+  mkdir -p artifacts/latest artifacts/bin
   compiler_path="${CLAPSE_COMPILER_WASM_PATH:-}"
   if [[ -z "$compiler_path" ]]; then
     if [[ -s artifacts/latest/clapse_compiler.wasm ]]; then
@@ -58,6 +65,7 @@ install:
   tmp_compiler="artifacts/latest/clapse_compiler.next.wasm"
   CLAPSE_COMPILER_WASM_PATH="$compiler_path" deno run -A scripts/run-clapse-compiler-wasm.mjs compile lib/compiler/kernel.clapse "$tmp_compiler"
   mv "$tmp_compiler" artifacts/latest/clapse_compiler.wasm
+  deno compile -A --output artifacts/bin/clapse scripts/clapse.mjs
   RUN_HIGHLIGHT_SNAPSHOT_TESTS=1 scripts/setup-helix-local.sh
 
 release-candidate out='out/releases':
@@ -69,11 +77,14 @@ release-candidate out='out/releases':
   release_dir="{{out}}/${release_id}"
   compiler_wasm="${release_dir}/clapse_compiler.wasm"
   bridge_wasm="${release_dir}/clapse_compiler_bridge.wasm"
+  cli_bin="${release_dir}/clapse-bin"
   behavior_map="${release_dir}/wasm-behavior-fixture-map.json"
   artifact_map="${release_dir}/wasm-selfhost-artifact-fixture-map.json"
   mkdir -p "${release_dir}"
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/run-clapse-compiler-wasm.mjs compile lib/compiler/kernel.clapse "${compiler_wasm}"
   cp artifacts/latest/clapse_compiler_bridge.wasm "${bridge_wasm}"
+  deno compile -A --output "${cli_bin}" scripts/clapse.mjs
+  chmod +x "${cli_bin}"
   cp scripts/wasm-behavior-fixture-map.json "${behavior_map}"
   cp scripts/wasm-selfhost-artifact-fixture-map.json "${artifact_map}"
   printf '%s\n' \
@@ -81,8 +92,8 @@ release-candidate out='out/releases':
     'set -euo pipefail' \
     'SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"' \
     'export CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-${SELF_DIR}/clapse_compiler.wasm}"' \
-    'exec deno run -A "https://raw.githubusercontent.com/mewhhaha/clapse/${CLAPSE_SCRIPT_REF:-main}/scripts/clapse.mjs" --wasm "$@"' \
+    'exec deno run -A "https://raw.githubusercontent.com/mewhhaha/clapse/${CLAPSE_SCRIPT_REF:-main}/scripts/clapse.mjs" -- "$@"' \
     > "${release_dir}/clapse"
   chmod +x "${release_dir}/clapse"
-  deno run -A scripts/release-metadata.mjs --release-id "${release_id}" --clapse-version "${version}" --compiler-wasm "${compiler_wasm}" --bridge-wasm "${bridge_wasm}" --behavior-map "${behavior_map}" --artifact-map "${artifact_map}" --out "${release_dir}/release-manifest.json" --checksums "${release_dir}/checksums.sha256"
+  deno run -A scripts/release-metadata.mjs --release-id "${release_id}" --clapse-version "${version}" --compiler-wasm "${compiler_wasm}" --bridge-wasm "${bridge_wasm}" --cli-bin "${cli_bin}" --behavior-map "${behavior_map}" --artifact-map "${artifact_map}" --out "${release_dir}/release-manifest.json" --checksums "${release_dir}/checksums.sha256"
   echo "release-candidate: PASS (${release_dir})"

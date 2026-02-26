@@ -1,12 +1,19 @@
 #!/usr/bin/env -S deno run -A
 
 import { cliArgs, failWithError } from "./runtime-env.mjs";
+import { runLspServer } from "./lsp-wasm.mjs";
 import {
   callCompilerWasm,
   decodeWasmBase64,
   inspectCompilerWasmAbi,
   validateCompilerWasmAbi,
 } from "./wasm-compiler-abi.mjs";
+
+const REPO_ROOT_URL = new URL("../", import.meta.url);
+
+function toPath(url) {
+  return decodeURIComponent(url.pathname);
+}
 
 async function fileExists(path) {
   try {
@@ -27,12 +34,15 @@ async function resolveCompilerWasmPath() {
     ((Deno.env.get("CLAPSE_ALLOW_BRIDGE") ?? "").toLowerCase() === "true");
   const candidates = allowBridge
     ? [
-      "artifacts/latest/clapse_compiler.wasm",
-      "artifacts/latest/clapse_compiler_bridge.wasm",
-      "out/clapse_compiler.wasm",
-      "out/clapse_compiler_bridge.wasm",
+      toPath(new URL("artifacts/latest/clapse_compiler.wasm", REPO_ROOT_URL)),
+      toPath(new URL("artifacts/latest/clapse_compiler_bridge.wasm", REPO_ROOT_URL)),
+      toPath(new URL("out/clapse_compiler.wasm", REPO_ROOT_URL)),
+      toPath(new URL("out/clapse_compiler_bridge.wasm", REPO_ROOT_URL)),
     ]
-    : ["artifacts/latest/clapse_compiler.wasm", "out/clapse_compiler.wasm"];
+    : [
+      toPath(new URL("artifacts/latest/clapse_compiler.wasm", REPO_ROOT_URL)),
+      toPath(new URL("out/clapse_compiler.wasm", REPO_ROOT_URL)),
+    ];
   for (const candidate of candidates) {
     if (await fileExists(candidate)) {
       return candidate;
@@ -723,22 +733,8 @@ async function formatViaWasm(wasmPath, args) {
   );
 }
 
-async function runLspBridge() {
-  const proc = new Deno.Command("deno", {
-    args: ["run", "-A", "scripts/lsp-wasm.mjs"],
-    env: Deno.env.toObject(),
-    stdin: "inherit",
-    stdout: "inherit",
-    stderr: "inherit",
-  }).spawn();
-  const status = await proc.status;
-  if (!status.success) {
-    Deno.exit(status.code || 1);
-  }
-}
-
-async function main() {
-  let args = cliArgs();
+export async function runWithArgs(rawArgs = cliArgs()) {
+  let args = [...rawArgs];
   if (args.length > 0 && args[0] === "--") {
     args = args.slice(1);
   }
@@ -790,7 +786,7 @@ async function main() {
     if (args.length > 2 || (args.length === 2 && args[1] !== "--stdio")) {
       throw new Error("usage: lsp [--stdio]");
     }
-    await runLspBridge();
+    await runLspServer();
     return;
   }
   if (args[0] === "selfhost-artifacts") {
@@ -805,4 +801,6 @@ async function main() {
   );
 }
 
-await main().catch(failWithError);
+if (import.meta.main) {
+  await runWithArgs().catch(failWithError);
+}

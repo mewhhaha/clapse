@@ -109,6 +109,162 @@ function hoverExpectationPass(actual, expectation) {
   return false;
 }
 
+function definitionExpectationPass(actual, expectation, uri) {
+  if (expectation === undefined) {
+    return true;
+  }
+  if (expectation === null) {
+    return !Array.isArray(actual) || actual.length === 0;
+  }
+  if (!Array.isArray(actual) || actual.length === 0) {
+    return false;
+  }
+  const item = actual[0];
+  const expectedLine = Number(expectation.line ?? NaN);
+  const expectedCharacter = Number(expectation.character ?? NaN);
+  const actualStart = item?.range?.start ?? {};
+  const expectedUri = expectation.uri;
+  if (
+    typeof expectedUri === "string" && typeof item?.uri === "string" &&
+    item.uri !== expectedUri && item.uri !== uri
+  ) {
+    return false;
+  }
+  return (
+    Number.isFinite(expectedLine) &&
+    Number.isFinite(expectedCharacter) &&
+    actualStart.line === expectedLine &&
+    actualStart.character === expectedCharacter
+  );
+}
+
+function renameExpectationPass(actual, expectation, uri) {
+  if (expectation === undefined) {
+    return true;
+  }
+  if (expectation === null) {
+    return actual === null;
+  }
+  if (actual === null || typeof actual !== "object") {
+    return false;
+  }
+  const edits = actual?.changes?.[uri];
+  if (!Array.isArray(edits)) {
+    return false;
+  }
+  const expectedCount = Number(expectation.expectedEditCount);
+  if (Number.isFinite(expectedCount) && edits.length !== expectedCount) {
+    return false;
+  }
+  if (typeof expectation.newName === "string" && expectation.newName.length > 0) {
+    return edits.every((edit) => String(edit?.newText ?? "") === expectation.newName);
+  }
+  return true;
+}
+
+function codeActionExpectationPass(actual, expectation) {
+  if (expectation === undefined) {
+    return true;
+  }
+  if (!Array.isArray(actual)) {
+    return false;
+  }
+  if (expectation === null) {
+    return actual.length === 0;
+  }
+  if (
+    typeof expectation.exactCount === "number" &&
+    actual.length !== expectation.exactCount
+  ) {
+    return false;
+  }
+  if (
+    typeof expectation.minCount === "number" &&
+    actual.length < expectation.minCount
+  ) {
+    return false;
+  }
+  if (typeof expectation.titleContains === "string") {
+    return actual.some((action) =>
+      String(action?.title ?? "").includes(expectation.titleContains)
+    );
+  }
+  if (typeof expectation.title === "string") {
+    return actual.some((action) => String(action?.title ?? "") === expectation.title);
+  }
+  return true;
+}
+
+function prepareRenameExpectationPass(actual, expectation) {
+  if (expectation === undefined) {
+    return true;
+  }
+  if (expectation === null) {
+    return actual === null;
+  }
+  if (actual === null || typeof actual !== "object") {
+    return false;
+  }
+  const start = actual?.range?.start ?? {};
+  const expectedLine = Number(expectation.line ?? NaN);
+  const expectedCharacter = Number(expectation.character ?? NaN);
+  if (
+    Number.isFinite(expectedLine) &&
+    Number.isFinite(expectedCharacter) &&
+    (start.line !== expectedLine || start.character !== expectedCharacter)
+  ) {
+    return false;
+  }
+  if (typeof expectation.placeholder === "string") {
+    return String(actual?.placeholder ?? "") === expectation.placeholder;
+  }
+  return true;
+}
+
+function referencesExpectationPass(actual, expectation, uri) {
+  if (expectation === undefined) {
+    return true;
+  }
+  if (!Array.isArray(actual)) {
+    return false;
+  }
+  if (expectation === null) {
+    return actual.length === 0;
+  }
+  if (typeof expectation.expectedCount === "number" && actual.length !== expectation.expectedCount) {
+    return false;
+  }
+  if (typeof expectation.minCount === "number" && actual.length < expectation.minCount) {
+    return false;
+  }
+  if (expectation.sameUri === true) {
+    return actual.every((location) => String(location?.uri ?? "") === uri);
+  }
+  return true;
+}
+
+function documentSymbolsExpectationPass(actual, expectation) {
+  if (expectation === undefined) {
+    return true;
+  }
+  if (!Array.isArray(actual)) {
+    return false;
+  }
+  if (expectation === null) {
+    return actual.length === 0;
+  }
+  if (typeof expectation.exactCount === "number" && actual.length !== expectation.exactCount) {
+    return false;
+  }
+  if (typeof expectation.minCount === "number" && actual.length < expectation.minCount) {
+    return false;
+  }
+  if (typeof expectation.containsName === "string") {
+    return actual.some((item) => String(item?.name ?? "") === expectation.containsName);
+  }
+  return true;
+}
+
 async function run() {
   const fixturePath = "examples/lsp_wasm_fixtures.json";
   const fixtureText = await Deno.readTextFile(fixturePath);
@@ -313,12 +469,50 @@ async function run() {
       const hoverExpectation = scenario?.hoverExpectation ?? null;
 
       const { expected, exact } = diagnosticsExpectation(scenario);
-
-      const uri = await Deno.makeTempFile({
+      const definitionReq = scenario?.definition;
+      const definitionExpectation = scenario?.definitionExpectation;
+      const prepareRenameReq = scenario?.prepareRename;
+      const prepareRenameExpectation = scenario?.prepareRenameExpectation;
+      const renameReq = scenario?.rename;
+      const renameExpectation = scenario?.renameExpectation;
+      const referencesReq = scenario?.references;
+      const referencesExpectation = scenario?.referencesExpectation;
+      const documentSymbolsReq = scenario?.documentSymbols;
+      const documentSymbolsExpectation = scenario?.documentSymbolsExpectation;
+      const codeActionReq = scenario?.codeAction;
+      const codeActionExpectation = scenario?.codeActionExpectation;
+      const sourceFile = String(scenario?.sourceFile ?? `main.clapse`);
+      const projectConfig = scenario?.projectConfig ?? null;
+      const projectFiles = scenario?.projectFiles;
+      const projectDir = await Deno.makeTempDir({
         dir: sourceDir,
         prefix: `fixture-${i + 1}-`,
-        suffix: ".clapse",
       });
+      const uri = `${projectDir}/${sourceFile}`;
+      const parentEnd = uri.lastIndexOf("/");
+      if (parentEnd >= 0) {
+        await Deno.mkdir(uri.slice(0, parentEnd), { recursive: true });
+      }
+      if (projectConfig !== null) {
+        await Deno.writeTextFile(
+          `${projectDir}/clapse.json`,
+          JSON.stringify(projectConfig, null, 2),
+        );
+      }
+      if (
+        projectFiles !== null &&
+        typeof projectFiles === "object" &&
+        !Array.isArray(projectFiles)
+      ) {
+        for (const [name, content] of Object.entries(projectFiles)) {
+          const filePath = `${projectDir}/${String(name)}`;
+          const parentEnd = filePath.lastIndexOf("/");
+          if (parentEnd >= 0) {
+            await Deno.mkdir(filePath.slice(0, parentEnd), { recursive: true });
+          }
+          await Deno.writeTextFile(filePath, String(content ?? ""));
+        }
+      }
       await Deno.writeTextFile(uri, source);
       diagnosticsByUri.delete(uri);
 
@@ -343,7 +537,109 @@ async function run() {
         ? actualDiagnosticCount === expected
         : actualDiagnosticCount >= expected;
       const hoverPass = hoverExpectationPass(hoverResp, hoverExpectation);
-      const pass = diagnosticsPass && hoverPass;
+
+      let definitionResp = null;
+      let definitionPass = true;
+      if (definitionReq && typeof definitionReq === "object") {
+        const defLine = Number(definitionReq?.line ?? 0);
+        const defCharacter = Number(definitionReq?.character ?? 0);
+        definitionResp = await sendRequest("textDocument/definition", {
+          textDocument: { uri },
+          position: { line: defLine, character: defCharacter },
+        });
+        definitionPass = definitionExpectationPass(
+          definitionResp,
+          definitionExpectation,
+          uri,
+        );
+      }
+
+      let renameResp = null;
+      let renamePass = true;
+      let prepareRenameResp = null;
+      let prepareRenamePass = true;
+      if (prepareRenameReq && typeof prepareRenameReq === "object") {
+        const renameLine = Number(prepareRenameReq?.line ?? 0);
+        const renameCharacter = Number(prepareRenameReq?.character ?? 0);
+        prepareRenameResp = await sendRequest("textDocument/prepareRename", {
+          textDocument: { uri },
+          position: { line: renameLine, character: renameCharacter },
+        });
+        prepareRenamePass = prepareRenameExpectationPass(
+          prepareRenameResp,
+          prepareRenameExpectation,
+        );
+      }
+
+      if (renameReq && typeof renameReq === "object") {
+        const renameLine = Number(renameReq?.line ?? 0);
+        const renameCharacter = Number(renameReq?.character ?? 0);
+        const newName = String(renameReq?.newName ?? "");
+        renameResp = await sendRequest("textDocument/rename", {
+          textDocument: { uri },
+          position: { line: renameLine, character: renameCharacter },
+          newName,
+        });
+        renamePass = renameExpectationPass(renameResp, renameExpectation, uri);
+      }
+
+      let referencesResp = null;
+      let referencesPass = true;
+      if (referencesReq && typeof referencesReq === "object") {
+        const referencesLine = Number(referencesReq?.line ?? 0);
+        const referencesCharacter = Number(referencesReq?.character ?? 0);
+        const includeDeclaration = referencesReq?.includeDeclaration !== false;
+        referencesResp = await sendRequest("textDocument/references", {
+          textDocument: { uri },
+          position: { line: referencesLine, character: referencesCharacter },
+          context: { includeDeclaration },
+        });
+        referencesPass = referencesExpectationPass(
+          referencesResp,
+          referencesExpectation,
+          uri,
+        );
+      }
+
+      let documentSymbolsResp = null;
+      let documentSymbolsPass = true;
+      if (documentSymbolsReq === true || documentSymbolsExpectation !== undefined) {
+        documentSymbolsResp = await sendRequest("textDocument/documentSymbol", {
+          textDocument: { uri },
+        });
+        documentSymbolsPass = documentSymbolsExpectationPass(
+          documentSymbolsResp,
+          documentSymbolsExpectation,
+        );
+      }
+
+      let codeActionResp = null;
+      let codeActionPass = true;
+      if (codeActionReq && typeof codeActionReq === "object") {
+        const codeActionLine = Number(codeActionReq?.line ?? 0);
+        const codeActionCharacter = Number(codeActionReq?.character ?? 0);
+        codeActionResp = await sendRequest("textDocument/codeAction", {
+          textDocument: { uri },
+          range: {
+            start: { line: codeActionLine, character: codeActionCharacter },
+            end: { line: codeActionLine, character: codeActionCharacter },
+          },
+          context: {
+            diagnostics,
+            only: ["quickfix"],
+          },
+        });
+        codeActionPass = codeActionExpectationPass(codeActionResp, codeActionExpectation);
+      }
+
+      const pass = diagnosticsPass &&
+        hoverPass &&
+        definitionPass &&
+        prepareRenamePass &&
+        renamePass &&
+        referencesPass &&
+        documentSymbolsPass &&
+        codeActionPass;
 
       const result = {
         name,
@@ -360,16 +656,77 @@ async function run() {
           actual: hoverResp,
           passed: hoverPass,
         },
+        definition: {
+          request: definitionReq ?? null,
+          expectation: definitionExpectation ?? null,
+          actual: definitionResp,
+          passed: definitionPass,
+        },
+        rename: {
+          request: prepareRenameReq ?? null,
+          expectation: prepareRenameExpectation ?? null,
+          actual: prepareRenameResp,
+          passed: prepareRenamePass,
+        },
+        renameEdits: {
+          request: renameReq ?? null,
+          expectation: renameExpectation ?? null,
+          actual: renameResp,
+          passed: renamePass,
+        },
+        references: {
+          request: referencesReq ?? null,
+          expectation: referencesExpectation ?? null,
+          actual: referencesResp,
+          passed: referencesPass,
+        },
+        documentSymbols: {
+          request: documentSymbolsReq ?? null,
+          expectation: documentSymbolsExpectation ?? null,
+          actual: documentSymbolsResp,
+          passed: documentSymbolsPass,
+        },
+        codeAction: {
+          request: codeActionReq ?? null,
+          expectation: codeActionExpectation ?? null,
+          actual: codeActionResp,
+          passed: codeActionPass,
+        },
         pass,
       };
 
       if (!pass) {
-        result.failure = {
-          message: !diagnosticsPass
-            ? exact
+        const failures = [];
+        if (!diagnosticsPass) {
+          failures.push(
+            exact
               ? `diagnostics count mismatch: expected ${expected}, got ${actualDiagnosticCount}`
-              : `diagnostics count mismatch: expected >= ${expected}, got ${actualDiagnosticCount}`
-            : "hover expectation mismatch",
+              : `diagnostics count mismatch: expected >= ${expected}, got ${actualDiagnosticCount}`,
+          );
+        }
+        if (!hoverPass) {
+          failures.push("hover expectation mismatch");
+        }
+        if (!definitionPass) {
+          failures.push("definition expectation mismatch");
+        }
+        if (!renamePass) {
+          failures.push("rename expectation mismatch");
+        }
+        if (!prepareRenamePass) {
+          failures.push("prepare rename expectation mismatch");
+        }
+        if (!referencesPass) {
+          failures.push("references expectation mismatch");
+        }
+        if (!documentSymbolsPass) {
+          failures.push("document symbol expectation mismatch");
+        }
+        if (!codeActionPass) {
+          failures.push("code action expectation mismatch");
+        }
+        result.failure = {
+          message: failures.join("; "),
         };
       }
 

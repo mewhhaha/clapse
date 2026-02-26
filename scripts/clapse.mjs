@@ -1,12 +1,14 @@
 #!/usr/bin/env -S deno run -A
 
 import { cliArgs, failWithError } from "./runtime-env.mjs";
+import { runWithArgs } from "./run-clapse-compiler-wasm.mjs";
 
 function usage() {
   return [
     "clapse (wasm-first frontend)",
     "",
     "Usage:",
+    "  clapse [--wasm] <command> [args...]",
     "  deno run -A scripts/clapse.mjs [--wasm] <command> [args...]",
     "",
     "Commands:",
@@ -24,21 +26,6 @@ function usage() {
     "Notes:",
     "  Non-wasm execution is deprecated and removed. Use wasm compiler artifacts.",
   ].join("\n");
-}
-
-async function run(cmd, args, env) {
-  const proc = new Deno.Command(cmd, {
-    args,
-    env,
-    stdin: "inherit",
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  const child = proc.spawn();
-  const status = await child.status;
-  if (!status.success) {
-    Deno.exit(status.code || 1);
-  }
 }
 
 function normalizeArgs(args) {
@@ -66,11 +53,9 @@ async function main() {
   if (args[0] === "bench") {
     throw new Error("bench command moved out of clapse frontend; run wasm-specific benches directly");
   }
-  await run(
-    "deno",
-    ["run", "-A", "scripts/run-clapse-compiler-wasm.mjs", "--", ...args],
-    Deno.env.toObject(),
-  );
+  await runWithArgs(args);
 }
 
-await main().catch(failWithError);
+if (import.meta.main) {
+  await main().catch(failWithError);
+}

@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 grammar_source_dir="$repo_root/tree-sitter-clapse"
+clapse_binary="$repo_root/artifacts/bin/clapse"
 languages_toml="$repo_root/.helix/languages.toml"
 helix_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/helix"
 runtime_dir="$helix_config_dir/runtime"
@@ -68,11 +69,11 @@ file-types = ["clapse"]
 comment-token = "--"
 language-servers = ["clapse"]
 grammar = "clapse"
-formatter = { command = "deno", args = ["run", "-A", "$repo_root/scripts/clapse.mjs", "format", "--stdin"] }
+formatter = { command = "$clapse_binary", args = ["format", "--stdin"] }
 
 [language-server.clapse]
-command = "deno"
-args = ["run", "-A", "$repo_root/scripts/clapse.mjs", "lsp", "--stdio"]
+command = "$clapse_binary"
+args = ["lsp", "--stdio"]
 
 [[grammar]]
 name = "clapse"
@@ -180,6 +181,11 @@ strip_global_clapse_sections() {
 
 require_cmd tree-sitter
 require_cmd hx
+
+if [[ ! -x "$clapse_binary" ]]; then
+  echo "missing clapse binary: $clapse_binary (run 'just clapse-bin' or 'just install')" >&2
+  exit 1
+fi
 
 sync_grammar_source_path
 ensure_global_clapse_language

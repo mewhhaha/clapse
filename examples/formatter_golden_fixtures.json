@@ -1,0 +1,19 @@
+{
+  "fixtures": [
+    {
+      "name": "simple-preserve",
+      "input": "examples/formatter-golden-fixtures/simple-preserve.input.clapse",
+      "expected": "examples/formatter-golden-fixtures/simple-preserve.expected.clapse"
+    },
+    {
+      "name": "escaped-literal",
+      "input": "examples/formatter-golden-fixtures/escaped-literal.input.clapse",
+      "expected": "examples/formatter-golden-fixtures/escaped-literal.expected.clapse"
+    },
+    {
+      "name": "monadic-chain-style",
+      "input": "examples/formatter-golden-fixtures/monadic-chain.input.clapse",
+      "expected": "examples/formatter-golden-fixtures/monadic-chain.expected.clapse"
+    }
+  ]
+}

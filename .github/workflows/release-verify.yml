@@ -48,7 +48,7 @@ jobs:
           echo "release_id=${release_id}" >> "$GITHUB_OUTPUT"
           echo "release_dir=${release_dir}" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare wasm-only release bundle
+      - name: Prepare wasm + CLI release bundle
         id: release_bundle
         if: startsWith(github.ref, 'refs/tags/v')
         env:
@@ -100,6 +100,8 @@ jobs:
               compile lib/compiler/kernel.clapse \
               "${RELEASE_DIR}/clapse_compiler.wasm"
           cp artifacts/latest/clapse_compiler_bridge.wasm "${RELEASE_DIR}/clapse_compiler_bridge.wasm"
+          deno compile -A --output "${RELEASE_DIR}/clapse-bin" scripts/clapse.mjs
+          chmod +x "${RELEASE_DIR}/clapse-bin"
           cp scripts/wasm-behavior-fixture-map.json "${RELEASE_DIR}/wasm-behavior-fixture-map.json"
           cp scripts/wasm-selfhost-artifact-fixture-map.json "${RELEASE_DIR}/wasm-selfhost-artifact-fixture-map.json"
 
@@ -117,6 +119,7 @@ jobs:
             --clapse-version "${CLAPSE_VERSION}" \
             --compiler-wasm "${RELEASE_DIR}/clapse_compiler.wasm" \
             --bridge-wasm "${RELEASE_DIR}/clapse_compiler_bridge.wasm" \
+            --cli-bin "${RELEASE_DIR}/clapse-bin" \
             --behavior-map "${RELEASE_DIR}/wasm-behavior-fixture-map.json" \
             --artifact-map "${RELEASE_DIR}/wasm-selfhost-artifact-fixture-map.json" \
             --out "${RELEASE_DIR}/release-manifest.json" \
@@ -139,10 +142,11 @@ jobs:
           fail_on_unmatched_files: true
           generate_release_notes: true
           body: |
-            Verified wasm-only release artifacts for `${{ steps.release_context.outputs.release_id }}`.
+            Verified wasm + CLI release artifacts for `${{ steps.release_context.outputs.release_id }}`.
             Check `checksums.sha256` for artifact integrity.
           files: |
             ${{ steps.release_context.outputs.release_dir }}/clapse
+            ${{ steps.release_context.outputs.release_dir }}/clapse-bin
             ${{ steps.release_context.outputs.release_dir }}/clapse_compiler.wasm
             ${{ steps.release_context.outputs.release_dir }}/clapse_compiler_bridge.wasm
             ${{ steps.release_context.outputs.release_dir }}/wasm-behavior-fixture-map.json

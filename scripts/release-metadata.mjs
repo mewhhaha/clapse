@@ -10,6 +10,7 @@ function parseArgs(argv) {
     clapseVersion: "",
     compilerWasm: "",
     bridgeWasm: "",
+    cliBin: "",
     behaviorMap: "",
     artifactMap: "",
     outPath: "out/releases/release-manifest.json",
@@ -23,6 +24,7 @@ function parseArgs(argv) {
     if (key === "--clapse-version") out.clapseVersion = val;
     if (key === "--compiler-wasm") out.compilerWasm = val;
     if (key === "--bridge-wasm") out.bridgeWasm = val;
+    if (key === "--cli-bin") out.cliBin = val;
     if (key === "--behavior-map") out.behaviorMap = val;
     if (key === "--artifact-map") out.artifactMap = val;
     if (key === "--out") out.outPath = val;
@@ -137,6 +139,7 @@ async function main() {
     artifacts: {
       compiler_wasm: await artifact(cfg.compilerWasm),
       compiler_bridge_wasm: await artifact(cfg.bridgeWasm),
+      ...(cfg.cliBin.length > 0 ? { cli_binary: await artifact(cfg.cliBin) } : {}),
       native_behavior_fixture_map: await artifact(cfg.behaviorMap),
       native_selfhost_artifact_fixture_map: await artifact(cfg.artifactMap),
     },
@@ -146,6 +149,9 @@ async function main() {
   const checksums = [
     `${manifest.artifacts.compiler_wasm.sha256}  ${cfg.compilerWasm}`,
     `${manifest.artifacts.compiler_bridge_wasm.sha256}  ${cfg.bridgeWasm}`,
+    ...(cfg.cliBin.length > 0 && manifest.artifacts.cli_binary
+      ? [`${manifest.artifacts.cli_binary.sha256}  ${cfg.cliBin}`]
+      : []),
     `${manifest.artifacts.native_behavior_fixture_map.sha256}  ${cfg.behaviorMap}`,
     `${manifest.artifacts.native_selfhost_artifact_fixture_map.sha256}  ${cfg.artifactMap}`,
   ].join("\n") + "\n";

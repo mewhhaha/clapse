@@ -8,6 +8,267 @@ import {
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+const REPO_ROOT_URL = new URL("../", import.meta.url);
+
+function toPath(url) {
+  return decodeURIComponent(url.pathname);
+}
+
+const PROJECT_CONFIG_FILE = "clapse.json";
+const projectConfigCache = new Map();
+
+function uriToPath(uri) {
+  if (typeof uri !== "string" || uri.length === 0) {
+    return "";
+  }
+  if (!uri.startsWith("file:")) {
+    return uri;
+  }
+  try {
+    return decodeURIComponent(new URL(uri).pathname);
+  } catch {
+    return uri.replace(/^file:\/\//, "");
+  }
+}
+
+function pathDir(path) {
+  if (typeof path !== "string" || path.length === 0) {
+    return "";
+  }
+  const normalized = path.replace(/\\/g, "/");
+  const idx = normalized.lastIndexOf("/");
+  if (idx <= 0) {
+    return "/";
+  }
+  return normalized.slice(0, idx);
+}
+
+function normalizeIncludeValue(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => String(item).trim())
+    .filter((name) => name.length > 0);
+}
+
+function normalizePath(path) {
+  const normalized = String(path).replace(/\\/g, "/");
+  if (normalized.length === 0) {
+    return "";
+  }
+  const hasLeadingSlash = normalized.startsWith("/");
+  const parts = normalized.split("/");
+  const stack = [];
+  for (const part of parts) {
+    if (part.length === 0 || part === ".") {
+      continue;
+    }
+    if (part === "..") {
+      if (stack.length > 0) {
+        stack.pop();
+      }
+      continue;
+    }
+    stack.push(part);
+  }
+  if (hasLeadingSlash) {
+    return `/${stack.join("/")}`;
+  }
+  return stack.join("/");
+}
+
+function resolveModuleDir(rawDir, configPathDir) {
+  const normalized = String(rawDir).replace(/\\/g, "/").trim();
+  if (normalized.length === 0) {
+    return "";
+  }
+  if (normalized.startsWith("/")) {
+    return normalizePath(normalized);
+  }
+  const base = normalizePath(configPathDir || "");
+  if (base.length === 0 || base === "/") {
+    return normalizePath(normalized);
+  }
+  return normalizePath(`${base}/${normalized}`);
+}
+
+function candidateModulePath(moduleName, dir) {
+  const relativePath = `${moduleName.replace(/[.$]/g, "/")}.clapse`;
+  if (typeof dir !== "string" || dir.length === 0) {
+    return relativePath;
+  }
+  return `${dir}/${relativePath}`;
+}
+
+function parseProjectConfigText(raw, sourcePath) {
+  if (typeof raw !== "string" || raw.length === 0) {
+    return {
+      moduleSearchDirs: new Set(),
+      moduleResolutionCache: new Map(),
+      sourcePath,
+    };
+  }
+
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return {
+      moduleSearchDirs: new Set(),
+      moduleResolutionCache: new Map(),
+      sourcePath,
+    };
+  }
+
+  if (data === null || typeof data !== "object") {
+    return {
+      moduleSearchDirs: new Set(),
+      moduleResolutionCache: new Map(),
+      sourcePath,
+    };
+  }
+
+  const configDir = pathDir(sourcePath);
+  const moduleSearchDirs = normalizeIncludeValue(data.include)
+    .map((path) => resolveModuleDir(path, configDir))
+    .filter((path) => path.length > 0);
+
+  return {
+    moduleSearchDirs: new Set(moduleSearchDirs),
+    moduleResolutionCache: new Map(),
+    sourcePath,
+    raw: data,
+  };
+}
+
+async function resolveProjectConfig(uri, rootHint) {
+  const sourcePath = uriToPath(uri);
+  const startDir = sourcePath.length > 0 ? pathDir(sourcePath) : pathDir(rootHint ?? "");
+
+  if (startDir.length === 0) {
+    return {
+      moduleSearchDirs: new Set(),
+      moduleResolutionCache: new Map(),
+      sourcePath,
+    };
+  }
+
+  const tryDirs = [];
+  let dir = startDir;
+  while (dir.length > 0) {
+    tryDirs.push(dir);
+    const parent = pathDir(dir);
+    if (parent === dir) {
+      break;
+    }
+    dir = parent;
+  }
+
+  for (const candidateDir of tryDirs) {
+    const configPath = `${candidateDir}/${PROJECT_CONFIG_FILE}`;
+    if (projectConfigCache.has(configPath)) {
+      return projectConfigCache.get(configPath);
+    }
+    try {
+      const raw = await Deno.readTextFile(configPath);
+      const parsed = parseProjectConfigText(raw, configPath);
+      projectConfigCache.set(configPath, parsed);
+      return parsed;
+    } catch {
+      // no config in this directory; keep searching
+    }
+  }
+
+  if (typeof rootHint === "string" && rootHint.length > 0 && !rootHint.startsWith(startDir)) {
+    const rootDir = pathDir(uriToPath(rootHint));
+    if (rootDir.length > 0 && rootDir !== startDir) {
+      const fallback = `${rootDir}/${PROJECT_CONFIG_FILE}`;
+      if (projectConfigCache.has(fallback)) {
+        return projectConfigCache.get(fallback);
+      }
+      try {
+        const raw = await Deno.readTextFile(fallback);
+        const parsed = parseProjectConfigText(raw, fallback);
+        projectConfigCache.set(fallback, parsed);
+        return parsed;
+      } catch {
+        // no fallback config
+      }
+    }
+  }
+
+  return {
+    moduleSearchDirs: new Set(),
+    moduleResolutionCache: new Map(),
+    sourcePath,
+  };
+}
+
+function importFromLine(line) {
+  const match = String(line).match(/^\s*import\s+([A-Za-z_][A-Za-z0-9_$.']*)/u);
+  if (!match) {
+    return null;
+  }
+  return match[1];
+}
+
+async function isModuleAllowed(moduleName, config) {
+  if (typeof moduleName !== "string" || moduleName.length === 0) {
+    return true;
+  }
+  if (moduleName.startsWith("host.")) {
+    return true;
+  }
+  const searchDirs = config?.moduleSearchDirs;
+  if (!(searchDirs instanceof Set) || searchDirs.size === 0) {
+    return true;
+  }
+
+  const cache = config?.moduleResolutionCache;
+  if (cache instanceof Map && cache.has(moduleName)) {
+    return cache.get(moduleName) === true;
+  }
+
+  for (const dir of searchDirs) {
+    const candidate = candidateModulePath(moduleName, dir);
+    try {
+      const stat = await Deno.stat(candidate);
+      if (stat.isFile) {
+        if (cache instanceof Map) cache.set(moduleName, true);
+        return true;
+      }
+    } catch {
+      // keep searching
+    }
+  }
+  if (cache instanceof Map) cache.set(moduleName, false);
+  return false;
+}
+
+async function scopeDiagnosticsForSource(source, config) {
+  const diagnostics = [];
+  const lines = String(source).split("\n");
+  for (let i = 0; i < lines.length; i += 1) {
+    const moduleName = importFromLine(lines[i]);
+    if (moduleName === null) {
+      continue;
+    }
+    const allowed = await isModuleAllowed(moduleName, config);
+    if (!allowed) {
+      diagnostics.push({
+        range: {
+          start: { line: i, character: 0 },
+          end: { line: i, character: lines[i].length },
+        },
+        severity: 1,
+        source: "clapse",
+        message: `module '${moduleName}' was not found in clapse.json include`,
+      });
+    }
+  }
+  return diagnostics;
+}
 
 function getWasmPath() {
   const allowBridge =
@@ -15,10 +276,14 @@ function getWasmPath() {
     ((Deno.env.get("CLAPSE_ALLOW_BRIDGE") ?? "").toLowerCase() === "true");
   const candidates = [
     Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "",
-    "artifacts/latest/clapse_compiler.wasm",
-    ...(allowBridge ? ["artifacts/latest/clapse_compiler_bridge.wasm"] : []),
-    "out/clapse_compiler.wasm",
-    ...(allowBridge ? ["out/clapse_compiler_bridge.wasm"] : []),
+    toPath(new URL("artifacts/latest/clapse_compiler.wasm", REPO_ROOT_URL)),
+    ...(allowBridge
+      ? [toPath(new URL("artifacts/latest/clapse_compiler_bridge.wasm", REPO_ROOT_URL))]
+      : []),
+    toPath(new URL("out/clapse_compiler.wasm", REPO_ROOT_URL)),
+    ...(allowBridge
+      ? [toPath(new URL("out/clapse_compiler_bridge.wasm", REPO_ROOT_URL))]
+      : []),
   ];
   for (const wasmPath of candidates) {
     if (wasmPath.length === 0) continue;
@@ -57,6 +322,20 @@ function stripDocPrefix(line) {
   if (trimmed.startsWith("--|")) return trimmed.slice(3).trimStart();
   if (trimmed.startsWith("///")) return trimmed.slice(3).trimStart();
   return null;
+}
+
+const IDENT_RE = /[A-Za-z_][A-Za-z0-9_$.']*/gu;
+
+function isKeywordToken(token) {
+  const keyword = token.toLowerCase();
+  return (
+    keyword === "module" || keyword === "import" || keyword === "type" ||
+    keyword === "data" || keyword === "class" || keyword === "instance" ||
+    keyword === "law" || keyword === "infix" || keyword === "infixl" ||
+    keyword === "infixr" || keyword === "where" || keyword === "let" ||
+    keyword === "in" || keyword === "of" || keyword === "case" ||
+    keyword === "if" || keyword === "then" || keyword === "else"
+  );
 }
 
 function isFunctionDeclLine(rawLine) {
@@ -98,37 +377,61 @@ function isFunctionDeclLine(rawLine) {
 }
 
 function buildFunctionDocIndex(text) {
-  const lines = String(text).split("\n");
+  const sourceText = String(text);
+  const lines = sourceText.split("\n");
   const out = new Map();
+  const occurrences = new Map();
   let pending = [];
   for (let i = 0; i < lines.length; i += 1) {
     const raw = lines[i];
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) {
+      if (pending.length > 0) pending.push("");
+      continue;
+    }
+    IDENT_RE.lastIndex = 0;
+    let match;
+    while ((match = IDENT_RE.exec(raw)) !== null) {
+      const token = match[0];
+      if (isKeywordToken(token)) {
+        continue;
+      }
+      const entry = occurrences.get(token);
+      const item = { line: i, start: match.index, end: match.index + token.length };
+      if (entry === undefined) {
+        occurrences.set(token, [item]);
+      } else {
+        entry.push(item);
+      }
+    }
+
     const docLine = stripDocPrefix(raw);
     if (docLine !== null) {
       pending.push(docLine);
       continue;
     }
-    if (raw.trim().length === 0) {
-      if (pending.length > 0) pending.push("");
+    if (trimmed.startsWith("--") || trimmed.startsWith("#[")) {
       continue;
     }
     const fnName = isFunctionDeclLine(raw);
     if (fnName !== null) {
-      if (pending.length > 0) {
-        const start = raw.indexOf(fnName);
-        out.set(fnName, {
-          doc: pending.join("\n").trim(),
-          line: i,
-          start: Math.max(0, start),
-          end: Math.max(0, start) + fnName.length,
-        });
-      }
+      const start = raw.indexOf(fnName);
+      out.set(fnName, {
+        doc: pending.length > 0 ? pending.join("\n").trim() : "",
+        line: i,
+        start: Math.max(0, start),
+        end: Math.max(0, start) + fnName.length,
+      });
       pending = [];
       continue;
     }
     pending = [];
   }
-  return out;
+  return {
+    declarations: out,
+    occurrences: occurrences,
+    sourceText,
+  };
 }
 
 function isIdentChar(ch) {
@@ -168,21 +471,23 @@ async function formatSource(wasmPath, uri, source) {
   return response.formatted;
 }
 
-async function compileDiagnostics(wasmPath, uri, source) {
+async function compileDiagnostics(wasmPath, uri, source, config) {
   const response = await callCompilerWasm(wasmPath, {
     command: "compile",
     input_path: uri,
     input_source: source,
   });
+  const scopeDiagnostics = await scopeDiagnosticsForSource(source, config);
   if (response && typeof response === "object" && response.ok === true) {
-    return [];
+    return scopeDiagnostics;
   }
   const message = response && typeof response.error === "string"
     ? response.error
     : "compile failed";
   const parsed = parseLineError(message);
+  const diagnostics = [...scopeDiagnostics];
   if (parsed) {
-    return [{
+    diagnostics.push({
       range: {
         start: { line: parsed.line, character: 0 },
         end: { line: parsed.line, character: 1 },
@@ -190,9 +495,10 @@ async function compileDiagnostics(wasmPath, uri, source) {
       severity: 1,
       source: "clapse",
       message: parsed.msg,
-    }];
+    });
+    return diagnostics;
   }
-  return [{
+  diagnostics.push({
     range: {
       start: { line: 0, character: 0 },
       end: { line: 0, character: 1 },
@@ -200,7 +506,8 @@ async function compileDiagnostics(wasmPath, uri, source) {
     severity: 1,
     source: "clapse",
     message,
-  }];
+  });
+  return diagnostics;
 }
 
 function encodeMessage(payload) {
@@ -282,11 +589,70 @@ function parseContentLength(header) {
   return -1;
 }
 
-async function main() {
+function getSymbolPosition(index, line, character) {
+  const source = index.sourceText ?? "";
+  const lines = source.split("\n");
+  const lineText = lines[Math.max(0, Math.min(line, lines.length - 1))] ?? "";
+  const symbol = wordAtPosition(lineText, character);
+  return { symbol, lineText };
+}
+
+function buildRange(line, start, end) {
+  return {
+    start: { line, character: Math.max(0, start) },
+    end: { line, character: Math.max(0, end) },
+  };
+}
+
+function safeTextForLine(lineText) {
+  return typeof lineText === "string" ? lineText : "";
+}
+
+function symbolAtPosition(index, line, character) {
+  const source = index.sourceText ?? "";
+  const lines = source.split("\n");
+  const lineNumber = Math.max(0, Math.min(line, Math.max(0, lines.length - 1)));
+  const lineText = lines[lineNumber] ?? "";
+  const symbol = wordAtPosition(lineText, character);
+  if (symbol.length === 0) {
+    return { symbol: "", occurrence: null, declaration: null, occurrences: [] };
+  }
+  const occurrences = Array.isArray(index.occurrences.get(symbol))
+    ? index.occurrences.get(symbol)
+    : [];
+  const occurrence = occurrences.find((entry) =>
+    entry.line === lineNumber &&
+    character >= entry.start &&
+    character <= entry.end
+  ) ?? null;
+  const declaration = index.declarations.get(symbol) ?? null;
+  return { symbol, occurrence, declaration, occurrences };
+}
+
+function toDocumentSymbols(index) {
+  const entries = Array.from(index.declarations.entries())
+    .sort((a, b) => (a[1].line - b[1].line) || (a[1].start - b[1].start));
+  return entries.map(([name, decl]) => {
+    const lineText = safeTextForLine(index.sourceText?.split("\n")[decl.line]).trim();
+    const range = buildRange(decl.line, 0, Math.max(lineText.length, decl.end));
+    return {
+      name,
+      detail: lineText,
+      kind: 12,
+      range,
+      selectionRange: buildRange(decl.line, decl.start, decl.end),
+      children: [],
+    };
+  });
+}
+
+export async function runLspServer() {
   const wasmPath = getWasmPath();
   await validateCompilerWasmAbi(wasmPath);
   const docs = new Map();
   const docIndex = new Map();
+  const docConfigs = new Map();
+  let workspaceRootPath = "";
   let shutdownRequested = false;
 
   await readMessages(async (msg) => {
@@ -295,11 +661,19 @@ async function main() {
 
     try {
       if (method === "initialize") {
+        const rootUri = String(msg.params?.rootUri ?? "");
+        const workspacePath = uriToPath(rootUri);
+        workspaceRootPath = workspacePath.length > 0 ? workspacePath : "";
         await sendResponse(id, {
           capabilities: {
             textDocumentSync: 1,
             documentFormattingProvider: true,
             hoverProvider: true,
+            definitionProvider: true,
+            referencesProvider: true,
+            documentSymbolProvider: true,
+            renameProvider: { prepareProvider: true },
+            codeActionProvider: { codeActionKinds: ["quickfix"] },
             inlayHintProvider: false,
           },
           serverInfo: { name: "clapse-wasm-lsp", version: "0.1.0" },
@@ -324,10 +698,13 @@ async function main() {
         if (typeof uri === "string") {
           docs.set(uri, String(text));
           docIndex.set(uri, buildFunctionDocIndex(String(text)));
+          const config = await resolveProjectConfig(uri, workspaceRootPath);
+          docConfigs.set(uri, config);
           const diagnostics = await compileDiagnostics(
             wasmPath,
             uri,
             String(text),
+            config,
           );
           await sendNotification("textDocument/publishDiagnostics", {
             uri,
@@ -346,7 +723,8 @@ async function main() {
           const text = String(changes[changes.length - 1].text ?? "");
           docs.set(uri, text);
           docIndex.set(uri, buildFunctionDocIndex(text));
-          const diagnostics = await compileDiagnostics(wasmPath, uri, text);
+          const config = docConfigs.get(uri) ?? await resolveProjectConfig(uri, workspaceRootPath);
+          const diagnostics = await compileDiagnostics(wasmPath, uri, text, config);
           await sendNotification("textDocument/publishDiagnostics", {
             uri,
             diagnostics,
@@ -358,7 +736,8 @@ async function main() {
         const uri = msg.params?.textDocument?.uri;
         if (typeof uri === "string") {
           const text = docs.get(uri) ?? "";
-          const diagnostics = await compileDiagnostics(wasmPath, uri, text);
+          const config = docConfigs.get(uri) ?? await resolveProjectConfig(uri, workspaceRootPath);
+          const diagnostics = await compileDiagnostics(wasmPath, uri, text, config);
           await sendNotification("textDocument/publishDiagnostics", {
             uri,
             diagnostics,
@@ -371,6 +750,7 @@ async function main() {
         if (typeof uri === "string") {
           docs.delete(uri);
           docIndex.delete(uri);
+          docConfigs.delete(uri);
           await sendNotification("textDocument/publishDiagnostics", {
             uri,
             diagnostics: [],
@@ -402,30 +782,221 @@ async function main() {
           await sendResponse(id, null);
           return;
         }
-        const text = docs.get(uri) ?? "";
-        const index = docIndex.get(uri) ?? new Map();
-        const lines = text.split("\n");
-        const lineText = lines[Math.max(0, Math.min(line, lines.length - 1))] ?? "";
-        const symbol = wordAtPosition(lineText, character);
+        const index = docIndex.get(uri) ?? null;
+        if (index === null) {
+          await sendResponse(id, null);
+          return;
+        }
+        const { symbol } = getSymbolPosition(index, line, character);
         if (symbol.length === 0) {
           await sendResponse(id, null);
           return;
         }
-        const entry = index.get(symbol);
-        if (!entry || typeof entry.doc !== "string" || entry.doc.length === 0) {
+        const entry = index.declarations.get(symbol);
+        if (!entry || typeof symbol !== "string") {
+          await sendResponse(id, null);
+          return;
+        }
+        const signatureLine = safeTextForLine(index.sourceText?.split("\n")[entry.line]);
+        const signature = signatureLine.trim().length > 0 ? signatureLine.trim() : `${symbol}`;
+        const contents = entry.doc.length > 0
+          ? `### ${symbol}\n\n${entry.doc}`
+          : `### ${symbol}\n\n\`\`\`clapse\n${signature}\n\`\`\``;
+        const range = buildRange(entry.line, entry.start, entry.end);
+        await sendResponse(id, {
+          contents: { kind: "markdown", value: contents },
+          range,
+        });
+        return;
+      }
+
+      if (method === "textDocument/definition") {
+        const uri = msg.params?.textDocument?.uri;
+        const line = Number(msg.params?.position?.line ?? 0);
+        const character = Number(msg.params?.position?.character ?? 0);
+        if (typeof uri !== "string") {
+          await sendResponse(id, null);
+          return;
+        }
+        const index = docIndex.get(uri) ?? null;
+        if (index === null) {
+          await sendResponse(id, []);
+          return;
+        }
+        const token = symbolAtPosition(index, line, character);
+        if (token.symbol.length === 0 || token.occurrence === null) {
+          await sendResponse(id, []);
+          return;
+        }
+        const declaration = token.declaration;
+        if (declaration === undefined) {
+          await sendResponse(id, []);
+          return;
+        }
+        await sendResponse(id, [{
+          uri,
+          range: buildRange(declaration.line, declaration.start, declaration.end),
+        }]);
+        return;
+      }
+
+      if (method === "textDocument/prepareRename") {
+        const uri = msg.params?.textDocument?.uri;
+        const line = Number(msg.params?.position?.line ?? 0);
+        const character = Number(msg.params?.position?.character ?? 0);
+        if (typeof uri !== "string") {
+          await sendResponse(id, null);
+          return;
+        }
+        const index = docIndex.get(uri) ?? null;
+        if (index === null) {
+          await sendResponse(id, null);
+          return;
+        }
+        const token = symbolAtPosition(index, line, character);
+        if (token.symbol.length === 0 || token.occurrence === null) {
           await sendResponse(id, null);
           return;
         }
         await sendResponse(id, {
-          contents: {
-            kind: "markdown",
-            value: `### ${symbol}\n\n${entry.doc}`,
-          },
-          range: {
-            start: { line: entry.line, character: entry.start },
-            end: { line: entry.line, character: entry.end },
+          range: buildRange(token.occurrence.line, token.occurrence.start, token.occurrence.end),
+          placeholder: token.symbol,
+        });
+        return;
+      }
+
+      if (method === "textDocument/rename") {
+        const uri = msg.params?.textDocument?.uri;
+        const line = Number(msg.params?.position?.line ?? 0);
+        const character = Number(msg.params?.position?.character ?? 0);
+        const newName = String(msg.params?.newName ?? "");
+        if (typeof uri !== "string" || newName.length === 0 || !/^[A-Za-z_][A-Za-z0-9_$.']*$/u.test(newName)) {
+          await sendResponse(id, null);
+          return;
+        }
+        const index = docIndex.get(uri) ?? null;
+        if (index === null) {
+          await sendResponse(id, null);
+          return;
+        }
+        const token = symbolAtPosition(index, line, character);
+        const positions = token.occurrences;
+        if (token.symbol.length === 0 || token.occurrence === null || positions.length === 0) {
+          await sendResponse(id, null);
+          return;
+        }
+        const edits = positions
+          .slice()
+          .sort((a, b) => (a.line - b.line) || (a.start - b.start))
+          .map((pos) => ({
+            range: buildRange(pos.line, pos.start, pos.end),
+            newText: newName,
+          }));
+        await sendResponse(id, { changes: { [uri]: edits } });
+        return;
+      }
+
+      if (method === "textDocument/references") {
+        const uri = msg.params?.textDocument?.uri;
+        const line = Number(msg.params?.position?.line ?? 0);
+        const character = Number(msg.params?.position?.character ?? 0);
+        const includeDeclaration = msg.params?.context?.includeDeclaration !== false;
+        if (typeof uri !== "string") {
+          await sendResponse(id, []);
+          return;
+        }
+        const index = docIndex.get(uri) ?? null;
+        if (index === null) {
+          await sendResponse(id, []);
+          return;
+        }
+        const token = symbolAtPosition(index, line, character);
+        if (token.symbol.length === 0 || token.occurrence === null || token.occurrences.length === 0) {
+          await sendResponse(id, []);
+          return;
+        }
+        const locations = token.occurrences
+          .filter((entry) => {
+            if (includeDeclaration) {
+              return true;
+            }
+            return !(
+              token.declaration !== null &&
+              entry.line === token.declaration.line &&
+              entry.start === token.declaration.start &&
+              entry.end === token.declaration.end
+            );
+          })
+          .sort((a, b) => (a.line - b.line) || (a.start - b.start))
+          .map((entry) => ({
+            uri,
+            range: buildRange(entry.line, entry.start, entry.end),
+          }));
+        await sendResponse(id, locations);
+        return;
+      }
+
+      if (method === "textDocument/documentSymbol") {
+        const uri = msg.params?.textDocument?.uri;
+        if (typeof uri !== "string") {
+          await sendResponse(id, []);
+          return;
+        }
+        const index = docIndex.get(uri) ?? null;
+        if (index === null) {
+          await sendResponse(id, []);
+          return;
+        }
+        await sendResponse(id, toDocumentSymbols(index));
+        return;
+      }
+
+      if (method === "textDocument/codeAction") {
+        const uri = msg.params?.textDocument?.uri;
+        const range = msg.params?.range ?? {};
+        const line = Number(range.start?.line ?? 0);
+        const character = Number(range.start?.character ?? 0);
+        if (typeof uri !== "string") {
+          await sendResponse(id, []);
+          return;
+        }
+        const index = docIndex.get(uri) ?? null;
+        if (index === null) {
+          await sendResponse(id, []);
+          return;
+        }
+        const { symbol } = getSymbolPosition(index, line, character);
+        if (symbol.length === 0) {
+          await sendResponse(id, []);
+          return;
+        }
+        const declaration = index.declarations.get(symbol);
+        const actions = [];
+        actions.push({
+          title: `Rename '${symbol}'`,
+          kind: "quickfix",
+          command: {
+            title: "Rename Symbol",
+            command: "editor.action.rename",
+            arguments: [uri, { line, character }],
           },
         });
+        if (declaration && declaration.doc.length === 0) {
+          const insertionRange = buildRange(declaration.line, 0, 0);
+          actions.push({
+            title: `Add doc comment for '${symbol}'`,
+            kind: "quickfix",
+            edit: {
+              changes: {
+                [uri]: [{
+                  range: insertionRange,
+                  newText: `--| ${symbol} ...\n`,
+                }],
+              },
+            },
+          });
+        }
+        await sendResponse(id, actions);
         return;
       }
 
@@ -441,4 +1012,6 @@ async function main() {
   });
 }
 
-await main().catch(failWithError);
+if (import.meta.main) {
+  await runLspServer().catch(failWithError);
+}

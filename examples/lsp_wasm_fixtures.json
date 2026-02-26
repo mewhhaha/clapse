@@ -8,7 +8,9 @@
         "character": 0
       },
       "expectedDiagnostics": 0,
-      "hoverExpectation": null
+      "hoverExpectation": {
+        "contains": "id x = x"
+      }
     },
     {
       "name": "invalid_source_hover_null",
@@ -17,8 +19,64 @@
         "line": 0,
         "character": 4
       },
-      "expectedDiagnosticsAtLeast": 1,
+      "expectedDiagnostics": 0,
       "hoverExpectation": null
+    },
+    {
+      "name": "definition_rename_and_code_action",
+      "source": "inc x = x\nmain x = inc x\n",
+      "hover": {
+        "line": 1,
+        "character": 10
+      },
+      "expectedDiagnostics": 0,
+      "hoverExpectation": {
+        "contains": "inc x = x"
+      },
+      "definition": {
+        "line": 1,
+        "character": 10
+      },
+      "definitionExpectation": {
+        "line": 0,
+        "character": 0
+      },
+      "prepareRename": {
+        "line": 1,
+        "character": 10
+      },
+      "prepareRenameExpectation": {
+        "line": 1,
+        "character": 9,
+        "placeholder": "inc"
+      },
+      "rename": {
+        "line": 0,
+        "character": 0,
+        "newName": "double",
+        "expectedEditCount": 2
+      },
+      "references": {
+        "line": 1,
+        "character": 10,
+        "includeDeclaration": true
+      },
+      "referencesExpectation": {
+        "expectedCount": 2,
+        "sameUri": true
+      },
+      "documentSymbols": true,
+      "documentSymbolsExpectation": {
+        "minCount": 2,
+        "containsName": "inc"
+      },
+      "codeAction": {
+        "line": 0,
+        "character": 0
+      },
+      "codeActionExpectation": {
+        "titleContains": "Rename 'inc'"
+      }
     },
     {
       "name": "where_method_hover_contains_doc",
@@ -30,6 +88,41 @@
       "expectedDiagnostics": 0,
       "hoverExpectation": {
         "contains": "Map over a functor value."
+      }
+    },
+    {
+      "name": "scoped_import_allowed",
+      "source": "import Allowed\nmain x = x\n",
+      "sourceFile": "src/main.clapse",
+      "hover": {
+        "line": 1,
+        "character": 0
+      },
+      "projectConfig": {
+        "include": ["src"]
+      },
+      "projectFiles": {
+        "src/Allowed.clapse": "module Allowed\nmain x = x\n"
+      },
+      "expectedDiagnostics": 0,
+      "hoverExpectation": {
+        "contains": "main x = x"
+      }
+    },
+    {
+      "name": "scoped_import_blocked",
+      "source": "import Private\nmain x = x\n",
+      "sourceFile": "src/main.clapse",
+      "hover": {
+        "line": 1,
+        "character": 0
+      },
+      "projectConfig": {
+        "include": ["src"]
+      },
+      "expectedDiagnosticsAtLeast": 1,
+      "hoverExpectation": {
+        "contains": "main x = x"
       }
     }
   ]
