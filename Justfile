@@ -28,6 +28,9 @@ lsp-wasm-fixtures:
 docs-validate:
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/validate-docs.mjs
 
+fib-memo-plugin-smoke:
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/fib-memo-plugin-smoke.mjs
+
 highlights:
   ./tree-sitter-clapse/scripts/highlight-snapshot.sh
 

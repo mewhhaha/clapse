@@ -10,9 +10,211 @@ import {
 } from "./wasm-compiler-abi.mjs";
 
 const REPO_ROOT_URL = new URL("../", import.meta.url);
+const PROJECT_CONFIG_FILE = "clapse.json";
 
 function toPath(url) {
   return decodeURIComponent(url.pathname);
+}
+
+function normalizePath(path) {
+  const normalized = String(path).replace(/\\/g, "/");
+  if (normalized.length === 0) {
+    return "";
+  }
+  const hasLeadingSlash = normalized.startsWith("/");
+  const parts = normalized.split("/");
+  const stack = [];
+  for (const part of parts) {
+    if (part.length === 0 || part === ".") {
+      continue;
+    }
+    if (part === "..") {
+      if (stack.length > 0) {
+        stack.pop();
+      }
+      continue;
+    }
+    stack.push(part);
+  }
+  if (stack.length === 0) {
+    return hasLeadingSlash ? "/" : "";
+  }
+  return hasLeadingSlash ? `/${stack.join("/")}` : stack.join("/");
+}
+
+function pathDir(path) {
+  const normalized = normalizePath(path);
+  if (normalized.length === 0 || normalized === ".") {
+    return "";
+  }
+  if (normalized === "/") {
+    return "/";
+  }
+  const idx = normalized.lastIndexOf("/");
+  if (idx <= 0) {
+    return normalized.startsWith("/") ? "/" : "";
+  }
+  return normalized.slice(0, idx);
+}
+
+function joinPath(base, leaf) {
+  const normalizedBase = normalizePath(base);
+  if (normalizedBase.length === 0 || normalizedBase === ".") {
+    return normalizePath(leaf);
+  }
+  const normalizedLeaf = normalizePath(leaf);
+  if (normalizedLeaf.length === 0) {
+    return normalizedBase;
+  }
+  if (normalizedBase === "/") {
+    return `/${normalizedLeaf}`;
+  }
+  return `${normalizedBase}/${normalizedLeaf}`;
+}
+
+function toAbsolutePath(path) {
+  const normalized = normalizePath(path);
+  if (normalized.startsWith("/")) {
+    return normalized;
+  }
+  return joinPath(Deno.cwd(), normalized);
+}
+
+function normalizePluginDirs(value, configDir) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const dirs = [];
+  const seen = new Set();
+  for (const item of value) {
+    const raw = String(item).trim();
+    if (raw.length === 0) {
+      continue;
+    }
+    const normalizedRaw = raw.replace(/\\/g, "/").trim();
+    if (normalizedRaw.length === 0) {
+      continue;
+    }
+    let resolved = normalizedRaw;
+    if (!normalizedRaw.startsWith("/")) {
+      const base = normalizePath(configDir);
+      resolved = base.length > 0
+        ? normalizePath(`${base}/${normalizedRaw}`)
+        : normalizedRaw;
+    }
+    if (resolved.length === 0 || seen.has(resolved)) {
+      continue;
+    }
+    seen.add(resolved);
+    dirs.push(resolved);
+  }
+  return dirs;
+}
+
+function parseClapseProjectConfig(rawText, configDir) {
+  if (typeof rawText !== "string" || rawText.length === 0) {
+    return { pluginDirs: [] };
+  }
+  let data;
+  try {
+    data = JSON.parse(rawText);
+  } catch {
+    return { pluginDirs: [] };
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return { pluginDirs: [] };
+  }
+  return {
+    pluginDirs: normalizePluginDirs(data.plugins, configDir),
+  };
+}
+
+async function readClapseProjectConfig(startPath = "") {
+  const start = normalizePath(startPath || Deno.cwd());
+  let dir = pathDir(start);
+  if (dir.length === 0 || !start.includes("/")) {
+    dir = normalizePath(Deno.cwd());
+  }
+  if (dir.length === 0) {
+    return { pluginDirs: [] };
+  }
+
+  const visited = new Set();
+  while (true) {
+    const candidate = dir;
+    if (visited.has(candidate)) {
+      break;
+    }
+    visited.add(candidate);
+    const configPath = joinPath(candidate, PROJECT_CONFIG_FILE);
+    try {
+      const rawText = await Deno.readTextFile(configPath);
+      const parsed = parseClapseProjectConfig(rawText, candidate);
+      return { pluginDirs: parsed.pluginDirs };
+    } catch {
+      // no project config in this directory
+    }
+    const parent = pathDir(candidate);
+    if (parent === candidate) {
+      break;
+    }
+    dir = parent;
+  }
+  return { pluginDirs: [] };
+}
+
+async function collectClapseFilesRecursively(rootDir, out = [], seen = new Set()) {
+  const normalized = normalizePath(rootDir);
+  if (normalized.length === 0 || seen.has(normalized)) {
+    return out;
+  }
+  seen.add(normalized);
+  let entries;
+  try {
+    entries = [];
+    for await (const entry of Deno.readDir(normalized)) {
+      entries.push(entry);
+    }
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
+    const child = `${normalized}/${entry.name}`;
+    if (entry.isDirectory) {
+      await collectClapseFilesRecursively(child, out, seen);
+      continue;
+    }
+    if (entry.isFile && child.endsWith(".clapse")) {
+      out.push(child);
+    }
+  }
+  return out;
+}
+
+async function compilePluginsWasm(wasmPath, inputPath) {
+  const { pluginDirs } = await readClapseProjectConfig(inputPath);
+  if (pluginDirs.length === 0) {
+    return [];
+  }
+  const pluginSources = [];
+  const seen = new Set();
+  for (const pluginDir of pluginDirs) {
+    await collectClapseFilesRecursively(pluginDir, pluginSources, seen);
+  }
+  const uniqueSources = [...new Set(pluginSources)]
+    .sort((a, b) => a.localeCompare(b, "en"));
+  const pluginWasmPaths = [];
+  for (const sourcePath of uniqueSources) {
+    const outputPath = sourcePath.endsWith(".clapse")
+      ? sourcePath.replace(/\.clapse$/u, ".wasm")
+      : `${sourcePath}.wasm`;
+    await compileViaWasm(wasmPath, sourcePath, outputPath, {
+      pluginWasmPaths: [],
+      skipPluginCompilation: true,
+    });
+    pluginWasmPaths.push(toAbsolutePath(outputPath));
+  }
+  return pluginWasmPaths;
 }
 
 async function fileExists(path) {
@@ -437,14 +639,20 @@ async function writeSelfhostArtifacts(outDir, artifacts) {
   }
 }
 
-async function compileViaWasm(wasmPath, inputPath, outputPath) {
+async function compileViaWasm(wasmPath, inputPath, outputPath, options = {}) {
   const inputBytes = await Deno.readFile(inputPath);
   const inputSource = new TextDecoder().decode(inputBytes);
+  const pluginWasmPaths = Array.isArray(options.pluginWasmPaths)
+    ? options.pluginWasmPaths
+    : (!options.skipPluginCompilation
+      ? await compilePluginsWasm(wasmPath, inputPath)
+      : []);
   try {
     const raw = await callCompilerWasm(wasmPath, {
       command: "compile",
       input_path: inputPath,
       input_source: inputSource,
+      plugin_wasm_paths: pluginWasmPaths,
     });
     if (isStubCompileResponse(raw)) {
       const strategy = await tryCompileFallbackStrategies(

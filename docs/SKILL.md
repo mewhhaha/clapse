@@ -16,7 +16,7 @@ Maintain docs as executable specs. Every Clapse code fence should compile with t
 3. Use `--|` doc comments above public functions in examples where intent matters.
 4. Mark non-compilable examples as ` ```clapse skip `.
 5. Keep `clapse.json` examples in sync with LSP behavior when module-scope rules change.
-6. Treat `include` as the only supported module-search key in `clapse.json`.
+6. Keep `clapse.json` plugin fields in sync with plugin directory conventions and LSP/CLI behavior.
 
 ## Validation
 
@@ -59,3 +59,10 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
 
 - `clapse_run` now executes `collapse_pipeline_run` once per request and threads the derived `OwnershipRewriteMode` through request-scoped response builders and `slice_set_u8` rewrite helpers.
 - `slice_set_u8` rewrite now uses explicit linear writes on the copied descriptor in the COW path (`slice_set_u8_cow`) so copy-on-write remains descriptor-local and does not accidentally recurse into COW policy.
+
+### plugin precompile contract
+
+- `clapse.json` may include `"plugins"` as an array of directories.
+- `scripts/run-clapse-compiler-wasm.mjs` now walks upward from the input directory (or cwd), compiles discovered plugin `.clapse` files to `.wasm`, and sends their paths as `plugin_wasm_paths` in the compile request.
+- Canonical plugin + memo fixture smoke path: `scripts/fib-memo-plugin-smoke.mjs` with
+  `examples/plugins/memo_fib_plugin.clapse` and `examples/fib_memo.clapse`.

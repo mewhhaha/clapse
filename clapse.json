@@ -1,3 +1,4 @@
 {
-  "include": ["lib", "examples", "."]
+  "include": ["lib", "examples", "."],
+  "plugins": ["examples/plugins"]
 }

@@ -9,6 +9,8 @@ dist-newstyle/
 out/
 .ts-cache/
 tree-sitter-clapse/.ts-cache/
+**/plugins/*.wasm
+**/plugins/*.d.ts
 
 # Node/tooling caches
 node_modules/

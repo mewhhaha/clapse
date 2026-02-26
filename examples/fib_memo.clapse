@@ -1,0 +1,11 @@
+module fib_memo_example
+export fib, main
+
+#[memo 128]
+fib n = case eq n 0 of
+  true -> 0
+  _ -> case eq n 1 of
+    true -> 1
+    _ -> add (fib (sub n 1)) (fib (sub n 2))
+
+main n = fib n

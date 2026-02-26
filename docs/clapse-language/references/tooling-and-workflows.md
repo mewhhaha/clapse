@@ -33,6 +33,7 @@ Core:
 - `just bench`
 - `just formatter-golden-fixtures`
 - `just lsp-wasm-fixtures`
+- `just fib-memo-plugin-smoke`
 
 WASM runtime perf:
 
@@ -95,18 +96,26 @@ Self-host parity:
 
 - LSP reads `clapse.json` from the current file directory, then walks parent
   directories until it finds one.
-- Supported config key:
+- Supported config keys:
   - `include`
+  - `plugins`
 - Example:
 
 ```json
 {
-  "include": ["src", "examples"]
+  "include": ["src", "examples"],
+  "plugins": ["examples/plugins"]
 }
 ```
 
 - `include` is the only supported module-search key in `clapse.json`.
 - If `include` is empty or missing, imports are unrestricted.
+- `plugins` is a list of plugin source directories. Each directory is recursively
+  scanned for `*.clapse` files, and each plugin source is compiled to a sibling
+  `.wasm` artifact before compiling the requested input.
+- Plugin compilation artifacts are written with a `.wasm` extension beside their
+  source file, and compiled program requests pass those artifact paths to the
+  compiler as `plugin_wasm_paths`.
 
 - `include` contains directory names. `import` targets are resolved by checking
   `<dir>/<dotted_module_name>.clapse` for each configured directory.
