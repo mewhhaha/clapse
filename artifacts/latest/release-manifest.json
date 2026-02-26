@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "release_id": "v0.1.0.7-d90417746b07",
+  "release_id": "v0.1.0.7-a314656bb1ef",
   "clapse_version": "0.1.0.6",
   "source_version": "0.1.0.6",
-  "built_at_utc": "2026-02-26T17:56:12.143Z",
+  "built_at_utc": "2026-02-26T17:57:26.036Z",
   "platform": "linux-x86_64",
   "tool_versions": {
     "deno": "2.7.1 (stable, release, x86_64-unknown-linux-gnu)",
@@ -11,32 +11,32 @@
     "clapse_compiler_wasm_exists": true
   },
   "git": {
-    "commit": "d90417746b07d2d527b5b58e6a604d105a0b6852",
-    "short_commit": "d90417746b07"
+    "commit": "a314656bb1efaa808c30b7d3293b9ef975280ead",
+    "short_commit": "a314656bb1ef"
   },
   "artifacts": {
     "compiler_wasm": {
-      "path": "out/releases-ci/v0.1.0.7-d90417746b07/clapse_compiler.wasm",
+      "path": "out/releases-ci/v0.1.0.7-a314656bb1ef/clapse_compiler.wasm",
       "bytes": 79297,
       "sha256": "0d2ca5718bbcd791b46241e642038dbe9d5065c940e151367b4a161d37d0dd52"
     },
     "compiler_bridge_wasm": {
-      "path": "out/releases-ci/v0.1.0.7-d90417746b07/clapse_compiler_bridge.wasm",
+      "path": "out/releases-ci/v0.1.0.7-a314656bb1ef/clapse_compiler_bridge.wasm",
       "bytes": 67,
       "sha256": "70dcf229b32b592c4f46849c3ffca4c84f83b3ca722802d2283ffa1080353714"
     },
     "cli_binary": {
-      "path": "out/releases-ci/v0.1.0.7-d90417746b07/clapse-bin",
+      "path": "out/releases-ci/v0.1.0.7-a314656bb1ef/clapse-bin",
       "bytes": 92409584,
-      "sha256": "14e22d44385f37bf0afcbd271df99c7034e793dcd4eb75cda06f4034aebf830b"
+      "sha256": "6803e262250b9667d7e84ecb45615877110832086278d286adcc05ff6663d468"
     },
     "native_behavior_fixture_map": {
-      "path": "out/releases-ci/v0.1.0.7-d90417746b07/wasm-behavior-fixture-map.json",
+      "path": "out/releases-ci/v0.1.0.7-a314656bb1ef/wasm-behavior-fixture-map.json",
       "bytes": 457991,
       "sha256": "08a997fa5fbe906e536d0eca821a96a3bfe053fdd010a59ea2d063a928db044a"
     },
     "native_selfhost_artifact_fixture_map": {
-      "path": "out/releases-ci/v0.1.0.7-d90417746b07/wasm-selfhost-artifact-fixture-map.json",
+      "path": "out/releases-ci/v0.1.0.7-a314656bb1ef/wasm-selfhost-artifact-fixture-map.json",
       "bytes": 4020698,
       "sha256": "5580cf00dcf6c36a17b8867ae3a2f75d169a3664d6e2511a399306ee22424398"
     }
