@@ -1507,10 +1507,10 @@
                           },
                           {
                             "type": "FIELD",
-                            "name": "method_signature",
+                            "name": "method",
                             "content": {
                               "type": "SYMBOL",
-                              "name": "class_method_signature"
+                              "name": "class_method_entry"
                             }
                           },
                           {
@@ -1524,10 +1524,10 @@
                                 },
                                 {
                                   "type": "FIELD",
-                                  "name": "method_signature",
+                                  "name": "method",
                                   "content": {
                                     "type": "SYMBOL",
-                                    "name": "class_method_signature"
+                                    "name": "class_method_entry"
                                   }
                                 }
                               ]
@@ -1544,10 +1544,10 @@
                           },
                           {
                             "type": "FIELD",
-                            "name": "method_signature",
+                            "name": "method",
                             "content": {
                               "type": "SYMBOL",
-                              "name": "class_method_signature"
+                              "name": "class_method_entry"
                             }
                           },
                           {
@@ -1561,10 +1561,10 @@
                                 },
                                 {
                                   "type": "FIELD",
-                                  "name": "method_signature",
+                                  "name": "method",
                                   "content": {
                                     "type": "SYMBOL",
-                                    "name": "class_method_signature"
+                                    "name": "class_method_entry"
                                   }
                                 }
                               ]
@@ -1581,6 +1581,19 @@
         ]
       }
     },
+    "class_method_entry": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "class_method_signature"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "class_method_binding"
+        }
+      ]
+    },
     "class_method_signature": {
       "type": "SEQ",
       "members": [
@@ -1588,8 +1601,17 @@
           "type": "FIELD",
           "name": "method_name",
           "content": {
-            "type": "SYMBOL",
-            "name": "identifier"
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "identifier"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "operator_symbol"
+              }
+            ]
           }
         },
         {
@@ -1626,6 +1648,64 @@
           "content": {
             "type": "SYMBOL",
             "name": "signature_text"
+          }
+        }
+      ]
+    },
+    "class_method_binding": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "FIELD",
+          "name": "method_name",
+          "content": {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "identifier"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "operator_symbol"
+              }
+            ]
+          }
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "_ws1"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": "="
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "_ws1"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "FIELD",
+          "name": "target_name",
+          "content": {
+            "type": "SYMBOL",
+            "name": "identifier"
           }
         }
       ]
@@ -1846,8 +1926,17 @@
           "type": "FIELD",
           "name": "method_name",
           "content": {
-            "type": "SYMBOL",
-            "name": "identifier"
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "identifier"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "operator_symbol"
+              }
+            ]
           }
         },
         {

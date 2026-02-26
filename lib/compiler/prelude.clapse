@@ -1,9 +1,10 @@
 module compiler.prelude
-export id, compose, then_m, keep_left, keep_right, alt, bool_not, bool_and, bool_or, not, and, or, Functor, Applicative, Monad, Alternative, Boolean
+export id, compose, map_replace_default, ap_default, then_m_default, keep_left_default, keep_right_default, alt_default, map_replace, then_m, keep_left, keep_right, alt, bool_not, bool_and, bool_or, not, and, or, Functor, Applicative, Monad, Alternative, Boolean
 
 infixl 1 >>= = bind
 infixl 1 >> = then_m
 infixl 3 <|> = alt
+infixl 4 <$ = map_replace
 infixl 4 <$> = fmap
 infixl 4 <*> = ap
 infixl 4 <* = keep_left
@@ -11,45 +12,64 @@ infixl 4 *> = keep_right
 
 id x = x
 compose f g x = f (g x)
-ap mf mx = bind mf (\f -> bind mx (\x -> pure (f x)))
-then_m m n = bind m (\_ -> n)
-keep_left u v = ap (fmap (\x -> (\_ -> x)) u) v
-keep_right u v = ap (fmap (\_ -> id) u) v
-alt a b = append a b
+map_replace_default x fa = fmap (\_ -> x) fa
+ap_default mf mx = bind mf (\f -> bind mx (\x -> pure (f x)))
+then_m_default m n = bind m (\_ -> n)
+keep_left_default u v = ap (fmap (\x -> (\_ -> x)) u) v
+keep_right_default u v = ap (fmap (\_ -> id) u) v
+alt_default a b = append a b
+map_replace x fa = map_replace_default x fa
 
 class Functor f where
   fmap : (a -> b) -> f a -> f b
+  <$> : (a -> b) -> f a -> f b
+  <$ : a -> f b -> f a
+  <$> = fmap
+  <$ = map_replace
 law Functor identity = fmap id x => x
 law Functor composition = fmap f (fmap g x) => fmap (compose f g) x
+law Functor map_replace_default = map_replace x fx => map_replace_default x fx
 
 class Applicative f where
   pure : a -> f a
   ap : f (a -> b) -> f a -> f b
+  <*> : f (a -> b) -> f a -> f b
   keep_left : f a -> f b -> f a
   keep_right : f a -> f b -> f b
+  <* : f a -> f b -> f a
+  *> : f a -> f b -> f b
+  <*> = ap
+  <* = keep_left
+  *> = keep_right
 law Applicative identity = ap (pure id) x => x
 law Applicative homomorphism = ap (pure f) (pure x) => pure (f x)
 law Applicative interchange = ap u (pure y) => ap (pure (\f -> f y)) u
 law Applicative composition = ap (ap (ap (pure compose) u) v) w => ap u (ap v w)
-law Applicative keep_left_default = keep_left u v => ap (fmap (\x -> (\_ -> x)) u) v
-law Applicative keep_right_default = keep_right u v => ap (fmap (\_ -> id) u) v
+law Applicative keep_left_default = keep_left u v => keep_left_default u v
+law Applicative keep_right_default = keep_right u v => keep_right_default u v
 
 class Monad m where
   bind : m a -> (a -> m b) -> m b
   then_m : m a -> m b -> m b
+  >>= : m a -> (a -> m b) -> m b
+  >> : m a -> m b -> m b
+  >>= = bind
+  >> = then_m
 law Monad left_identity = bind (pure x) f => f x
 law Monad right_identity = bind m pure => m
 law Monad associativity = bind (bind m f) g => bind m (\x -> bind (f x) g)
-law Monad then_default = then_m m n => bind m (\_ -> n)
+law Monad then_default = then_m m n => then_m_default m n
 
 class Alternative f where
   empty : f a
   append : f a -> f a -> f a
   alt : f a -> f a -> f a
+  <|> : f a -> f a -> f a
+  <|> = alt
 law Alternative left_identity = append empty x => x
 law Alternative right_identity = append x empty => x
 law Alternative associativity = append (append x y) z => append x (append y z)
-law Alternative alt_default = alt x y => append x y
+law Alternative alt_default = alt x y => alt_default x y
 
 data bool = true<1> | false<0>
 

@@ -276,7 +276,7 @@ is_op_char b = case (b == 43) (b == 45) (b == 42) of
           true _ _ -> true
           _ true _ -> true
           _ _ true -> true
-          _ _ _ -> false
+          _ _ _ -> (b == 36)
 
 skip_spaces src i len = case (i < len) of
   true -> skip_spaces_present src i len
@@ -1087,11 +1087,11 @@ parse_class_payload_parse src i len =
               in case m2 of
                 Nothing -> ClassPayloadFail
                 Just p3 ->
-                  let m3 = to_maybe_pos (parse_ident src p3 len)
+                  let m3 = to_maybe_pos (parse_ident_or_operator src p3 len)
                   in case m3 of
                     Nothing -> ClassPayloadFail
                     Just p4 ->
-                      ClassPayloadResult (parser_many parse_ident src p4 len) fundep_info
+                      ClassPayloadResult (parser_many parse_ident_or_operator src p4 len) fundep_info
 
 parse_class_fundep src i len =
   let m0 = to_maybe_pos (parse_token_literal src i len "|")
@@ -1135,7 +1135,7 @@ parse_law_payload src i len =
         _ -> p1
 
 parse_instance_payload src i len =
-  let p = parse_ident *> parse_colon *> parse_ident *> parser_some parse_ident *> parse_tail_has_eq
+  let p = parse_ident *> parse_colon *> parse_ident *> parser_some parse_ident_or_operator *> parse_tail_has_eq
       m0 = to_maybe_pos (p src i len)
   in case m0 of
     Nothing -> -1

@@ -586,9 +586,12 @@ class/instance where blocks
 
 class functor f where
   fmap : (a -> b) -> f a -> f b
+  <$> : (a -> b) -> f a -> f b
+  <$> = fmap
 
 instance parser_functor : functor parser where
   fmap = parser_map
+  <$> = fmap
 
 ---
 
@@ -597,9 +600,18 @@ instance parser_functor : functor parser where
     (class_declaration
       name: (identifier)
       type_parameter: (identifier)
-      method_signature: (class_method_signature
-        method_name: (identifier)
-        signature: (signature_text))))
+      method: (class_method_entry
+        (class_method_signature
+          method_name: (identifier)
+          signature: (signature_text)))
+      method: (class_method_entry
+        (class_method_signature
+          method_name: (operator_symbol)
+          signature: (signature_text)))
+      method: (class_method_entry
+        (class_method_binding
+          method_name: (operator_symbol)
+          target_name: (identifier)))))
   (declaration
     (instance_declaration
       name: (identifier)
@@ -607,6 +619,9 @@ instance parser_functor : functor parser where
       class_type_argument: (identifier)
       binding: (instance_binding
         method_name: (identifier)
+        target_name: (identifier))
+      binding: (instance_binding
+        method_name: (operator_symbol)
         target_name: (identifier)))))
 
 ==================

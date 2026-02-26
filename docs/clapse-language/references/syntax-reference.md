@@ -121,21 +121,37 @@ Compiler prelude classes now follow Haskell-style `where` blocks:
 ```haskell
 class Functor f where
   fmap : (a -> b) -> f a -> f b
+  <$> : (a -> b) -> f a -> f b
+  <$ : a -> f b -> f a
+  <$> = fmap
+  <$ = map_replace
 
 class Applicative f where
   pure : a -> f a
   ap : f (a -> b) -> f a -> f b
+  <*> : f (a -> b) -> f a -> f b
   keep_left : f a -> f b -> f a
   keep_right : f a -> f b -> f b
+  <* : f a -> f b -> f a
+  *> : f a -> f b -> f b
+  <*> = ap
+  <* = keep_left
+  *> = keep_right
 
 class Monad m where
   bind : m a -> (a -> m b) -> m b
   then_m : m a -> m b -> m b
+  >>= : m a -> (a -> m b) -> m b
+  >> : m a -> m b -> m b
+  >>= = bind
+  >> = then_m
 
 class Alternative f where
   empty : f a
   append : f a -> f a -> f a
   alt : f a -> f a -> f a
+  <|> : f a -> f a -> f a
+  <|> = alt
 
 instance ParserFunctor : Functor parser where
   fmap = parser_map
@@ -143,18 +159,18 @@ instance ParserFunctor : Functor parser where
 instance ParserApplicative : Applicative parser where
   pure = parser_pure
   ap = parser_ap
-  keep_left = parser_keep_left
-  keep_right = parser_keep_right
+  keep_left = keep_left_default
+  keep_right = keep_right_default
 
 instance ParserMonad : Monad parser where
   pure = parser_pure
   bind = parser_bind
-  then_m = parser_then
+  then_m = then_m_default
 
 instance ParserAlternative : Alternative parser where
   empty = parser_empty
   append = parser_or
-  alt = parser_or
+  alt = alt_default
 ```
 
 The compiler now uses a local evidence model for dispatch:
@@ -170,6 +186,9 @@ ambiguous.
 In the compiler prelude, operator-facing methods (`ap`, `then_m`, `keep_left`,
 `keep_right`, `alt`) are class members, and their default equations are expressed in
 terms of `bind`/`pure`/`append` so custom instances can override while preserving law shape.
+`<$` is mapped to `map_replace`, which defaults to `fmap (\_ -> x)`.
+Default helper functions are `map_replace_default`, `ap_default`, `then_m_default`,
+`keep_left_default`, `keep_right_default`, and `alt_default`.
 
 ## Class Dispatch Witness (Kernel)
 
@@ -292,6 +311,14 @@ m >>= \x ->
     >>= \a ->
       finish a
   ```
+
+Applicative/Functor shorthand operators map to named functions from the prelude:
+
+- `<$` => `map_replace` (`infixl 4`)
+- `<$>` => `fmap` (`infixl 4`)
+- `<*>` => `ap` (`infixl 4`)
+- `<*` => `keep_left` (`infixl 4`)
+- `*>` => `keep_right` (`infixl 4`)
 
 ## Collection Literals
 

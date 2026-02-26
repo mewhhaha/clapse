@@ -320,21 +320,21 @@ module.exports = grammar({
               choice(
                 seq(
                   $._ws1,
-                  field("method_signature", $.class_method_signature),
+                  field("method", $.class_method_entry),
                   repeat(
                     seq(
                       $._class_method_separator,
-                      field("method_signature", $.class_method_signature),
+                      field("method", $.class_method_entry),
                     ),
                   ),
                 ),
                 seq(
                   $._newline_indent,
-                  field("method_signature", $.class_method_signature),
+                  field("method", $.class_method_entry),
                   repeat(
                     seq(
                       $._newline_indent,
-                      field("method_signature", $.class_method_signature),
+                      field("method", $.class_method_entry),
                     ),
                   ),
                 ),
@@ -344,13 +344,24 @@ module.exports = grammar({
         ),
       ),
 
+    class_method_entry: ($) => choice($.class_method_signature, $.class_method_binding),
+
     class_method_signature: ($) =>
       seq(
-        field("method_name", $.identifier),
+        field("method_name", choice($.identifier, $.operator_symbol)),
         optional($._ws1),
         ":",
         optional($._ws1),
         field("signature", $.signature_text),
+      ),
+
+    class_method_binding: ($) =>
+      seq(
+        field("method_name", choice($.identifier, $.operator_symbol)),
+        optional($._ws1),
+        "=",
+        optional($._ws1),
+        field("target_name", $.identifier),
       ),
 
     instance_declaration: ($) =>
@@ -403,7 +414,7 @@ module.exports = grammar({
 
     instance_binding: ($) =>
       seq(
-        field("method_name", $.identifier),
+        field("method_name", choice($.identifier, $.operator_symbol)),
         optional($._ws1),
         "=",
         optional($._ws1),

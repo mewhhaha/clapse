@@ -1,29 +1,29 @@
 test/highlight-fixtures/basic.clapse
-    pattern: 70, capture: 17 - keyword, start: (0, 0), end: (0, 4), text: `data`
+    pattern: 75, capture: 17 - keyword, start: (0, 0), end: (0, 4), text: `data`
     pattern: 19, capture: 11 - type.definition, start: (0, 5), end: (0, 10), text: `Token`
     pattern: 20, capture: 12 - type.parameter, start: (0, 11), end: (0, 17), text: `method`
     pattern: 20, capture: 12 - type.parameter, start: (0, 18), end: (0, 22), text: `path`
-    pattern: 69, capture: 18 - keyword.operator, start: (0, 23), end: (0, 24), text: `=`
+    pattern: 74, capture: 18 - keyword.operator, start: (0, 23), end: (0, 24), text: `=`
     pattern: 22, capture: 5 - constructor, start: (0, 25), end: (0, 28), text: `Tok`
     pattern: 26, capture: 6 - variable.parameter, start: (0, 29), end: (0, 35), text: `method`
     pattern: 26, capture: 6 - variable.parameter, start: (0, 36), end: (0, 40), text: `path`
-    pattern: 70, capture: 17 - keyword, start: (1, 0), end: (1, 6), text: `module`
+    pattern: 75, capture: 17 - keyword, start: (1, 0), end: (1, 6), text: `module`
     pattern:  3, capture: 3 - namespace, start: (1, 7), end: (1, 11), text: `Core`
-    pattern: 70, capture: 17 - keyword, start: (2, 0), end: (2, 6), text: `import`
+    pattern: 75, capture: 17 - keyword, start: (2, 0), end: (2, 6), text: `import`
     pattern:  4, capture: 3 - namespace, start: (2, 7), end: (2, 13), text: `Parser`
-    pattern: 70, capture: 17 - keyword, start: (3, 0), end: (3, 6), text: `export`
+    pattern: 75, capture: 17 - keyword, start: (3, 0), end: (3, 6), text: `export`
     pattern:  5, capture: 4 - function, start: (3, 7), end: (3, 11), text: `main`
     pattern:  6, capture: 5 - constructor, start: (3, 13), end: (3, 18), text: `Token`
     pattern:  7, capture: 4 - function, start: (4, 0), end: (4, 4), text: `main`
     pattern:  8, capture: 6 - variable.parameter, start: (4, 5), end: (4, 6), text: `t`
-    pattern: 69, capture: 18 - keyword.operator, start: (4, 7), end: (4, 8), text: `=`
-    pattern: 70, capture: 17 - keyword, start: (4, 9), end: (4, 13), text: `case`
-    pattern: 70, capture: 17 - keyword, start: (4, 16), end: (4, 18), text: `of`
+    pattern: 74, capture: 18 - keyword.operator, start: (4, 7), end: (4, 8), text: `=`
+    pattern: 75, capture: 17 - keyword, start: (4, 9), end: (4, 13), text: `case`
+    pattern: 75, capture: 17 - keyword, start: (4, 16), end: (4, 18), text: `of`
     pattern:  1, capture: 1 - string, start: (5, 2), end: (5, 7), text: `"GET"`
-    pattern: 58, capture: 1 - string, start: (5, 2), end: (5, 7), text: `"GET"`
-    pattern: 69, capture: 18 - keyword.operator, start: (5, 8), end: (5, 10), text: `->`
+    pattern: 63, capture: 1 - string, start: (5, 2), end: (5, 7), text: `"GET"`
+    pattern: 74, capture: 18 - keyword.operator, start: (5, 8), end: (5, 10), text: `->`
     pattern:  2, capture: 2 - constant.numeric.integer, start: (5, 11), end: (5, 12), text: `1`
-    pattern: 62, capture: 6 - variable.parameter, start: (6, 2), end: (6, 3), text: `_`
-    pattern: 63, capture: 6 - variable.parameter, start: (6, 2), end: (6, 3), text: `_`
-    pattern: 69, capture: 18 - keyword.operator, start: (6, 4), end: (6, 6), text: `->`
+    pattern: 67, capture: 6 - variable.parameter, start: (6, 2), end: (6, 3), text: `_`
+    pattern: 68, capture: 6 - variable.parameter, start: (6, 2), end: (6, 3), text: `_`
+    pattern: 74, capture: 18 - keyword.operator, start: (6, 4), end: (6, 6), text: `->`
     pattern:  2, capture: 2 - constant.numeric.integer, start: (6, 7), end: (6, 8), text: `0`

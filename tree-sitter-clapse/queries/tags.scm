@@ -10,6 +10,15 @@
 (class_method_signature
   method_name: (identifier) @name) @definition.function
 
+(class_method_signature
+  method_name: (operator_symbol) @name) @definition.function
+
+(class_method_binding
+  method_name: (identifier) @name) @definition.function
+
+(class_method_binding
+  method_name: (operator_symbol) @name) @definition.function
+
 (data_declaration
   type_name: (capitalized_identifier) @name) @definition.type
 

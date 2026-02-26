@@ -32,5 +32,8 @@
 (instance_binding
   method_name: (identifier) @parameter.inside @parameter.around)
 
+(instance_binding
+  method_name: (operator_symbol) @parameter.inside @parameter.around)
+
 (comment) @comment.inside
 (comment)+ @comment.around

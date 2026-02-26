@@ -96,7 +96,19 @@
   method_name: (identifier) @function.method)
 
 (class_method_signature
+  method_name: (operator_symbol) @function.method)
+
+(class_method_signature
   signature: (signature_text) @type)
+
+(class_method_binding
+  method_name: (identifier) @function.method)
+
+(class_method_binding
+  method_name: (operator_symbol) @function.method)
+
+(class_method_binding
+  target_name: (identifier) @function)
 
 (law_declaration
   class_name: (identifier) @type)
@@ -121,6 +133,9 @@
 
 (instance_binding
   method_name: (identifier) @function.method)
+
+(instance_binding
+  method_name: (operator_symbol) @function.method)
 
 (instance_binding
   target_name: (identifier) @function)

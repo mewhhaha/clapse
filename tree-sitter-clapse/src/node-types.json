@@ -316,12 +316,12 @@
           }
         ]
       },
-      "method_signature": {
+      "method": {
         "multiple": true,
         "required": false,
         "types": [
           {
-            "type": "class_method_signature",
+            "type": "class_method_entry",
             "named": true
           }
         ]
@@ -358,6 +358,55 @@
     "fields": {}
   },
   {
+    "type": "class_method_binding",
+    "named": true,
+    "fields": {
+      "method_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "operator_symbol",
+            "named": true
+          }
+        ]
+      },
+      "target_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "class_method_entry",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "class_method_binding",
+          "named": true
+        },
+        {
+          "type": "class_method_signature",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "class_method_signature",
     "named": true,
     "fields": {
@@ -367,6 +416,10 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "operator_symbol",
             "named": true
           }
         ]
@@ -862,6 +915,10 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "operator_symbol",
             "named": true
           }
         ]
