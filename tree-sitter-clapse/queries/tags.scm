@@ -43,8 +43,5 @@
 (application_expression
   function: (identifier) @name) @reference.call
 
-(operator_declaration
-  target: (identifier) @name) @reference.call
-
 (case_pattern_atom
   (identifier) @name) @reference.call

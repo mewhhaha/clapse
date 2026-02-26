@@ -238,15 +238,15 @@ not x && y || z
 - `>=` => `ge` (infix 4)
 - `not` => `bool_not` via the compiler-prelude alias `not`
 - `&&` => `and` (infixr 3)
-- `||` => `or` (infixr 2, declaration usually `infixr 2 || = or` in prelude/custom modules)
+- `||` => `or` (infixr 2, declaration usually `infixr 2 ||` in prelude/custom modules)
 
 Custom operators:
 
 ```haskell
-infixl 6 +. = add
-infixr 2 || = or
-infixr 5 <> = append
-infixl 6 plus_op = add
+infixl 6 +.
+infixr 2 ||
+infixr 5 <>
+infixl 6 plus_op
 ```
 
 The compiler prelude also defines the shared boolean class in Haskell-like naming:
@@ -263,8 +263,8 @@ instance BooleanBool : Boolean bool where
   and = bool_and
   or = bool_or
 
-infixr 3 && = and
-infixr 2 || = or
+infixr 3 &&
+infixr 2 ||
 ```
 
 `Boolean` supplies the `bool` laws (identity, annihilation, and double-negation) with the default `bool` instance.
@@ -290,9 +290,8 @@ These operators are typically available with low precedence and left associativi
 `>>=` and `>>` are `infixl 1`, so they parse left-to-right.
 
 ```haskell
-infixl 1 >>= = bind
-infixl 1 >> = then_m
-
+infixl 1 >>=
+infixl 1 >>
 m >>= \x ->
   stepA x >>
   stepB x

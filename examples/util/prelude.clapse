@@ -8,9 +8,8 @@ data Ordering = LT | EQ | GT
 data Unit = Unit
 data Pair a b = Pair a b
 
-infixr 3 && = bool_and
-infixr 2 || = bool_or
-
+infixr 3 &&
+infixr 2 ||
 to_bool x = case x of
   0 -> false
   _ -> true

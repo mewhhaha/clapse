@@ -15,14 +15,13 @@ data ClassEvidence = ClassEvidenceResolved | ClassEvidenceUnknown | ClassEvidenc
 data ClassPayloadParse = ClassPayloadFail | ClassPayloadResult i64 ClassFundepInfo
 data ClassFundepParse = ClassFundepParseFail | ClassFundepParseResult i64 ClassFundepInfo
 
-infixl 1 >>= = bind
-infixl 1 >> = then_m
-infixl 3 <|> = parser_or
-infixl 4 <$> = fmap
-infixl 4 <*> = ap
-infixl 4 <* = keep_left
-infixl 4 *> = keep_right
-
+infixl 1 >>=
+infixl 1 >>
+infixl 3 <|>
+infixl 4 <$>
+infixl 4 <*>
+infixl 4 <*
+infixl 4 *>
 id x = x
 compose f g x = f (g x)
 fmap f p = parser_map f p
@@ -952,11 +951,7 @@ parse_infix_payload src i len =
       let m1 = to_maybe_pos (parse_ident_or_operator src p0 len)
       in case m1 of
         Nothing -> -1
-        Just p1 ->
-          let m2 = to_maybe_pos (parse_eq src p1 len)
-          in case m2 of
-            Nothing -> -1
-            Just p2 -> parse_ident src p2 len
+        Just p1 -> p1
 
 parse_infix_line src i len =
   let p0 = parse_decl_line "infixl" parse_infix_payload src i len

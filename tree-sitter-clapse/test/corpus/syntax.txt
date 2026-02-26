@@ -91,10 +91,7 @@ wrap x = f (g x)
 operator declarations and infix expressions
 ==================
 
-infixl 6 +. = add
-infixr 5 <> = append
-infixl 6 plus_op = add
-main x y z = x +. y <> z
+infixl 6 +.infixr 5 <>infixl 6 plus_opmain x y z = x +. y <> z
 other x y = x `plus_op` y
 
 ---
@@ -105,27 +102,22 @@ other x y = x `plus_op` y
       assoc: (operator_assoc)
       precedence: (integer)
       operator: (operator_token
-        (operator_symbol))
-      target: (identifier)))
+        (operator_symbol))))
   (declaration
     (operator_declaration
       assoc: (operator_assoc)
       precedence: (integer)
       operator: (operator_token
-        (operator_symbol))
-      target: (identifier)))
+        (operator_symbol))))
   (declaration
     (operator_declaration
       assoc: (operator_assoc)
       precedence: (integer)
       operator: (operator_token
-        (identifier))
-      target: (identifier)))
+        (identifier))))
   (declaration
     (function_declaration
       name: (identifier)
-      argument: (binder_name
-        (identifier))
       argument: (binder_name
         (identifier))
       argument: (binder_name

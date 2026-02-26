@@ -1,35 +1,27 @@
 test/highlight-fixtures/operators.clapse
     pattern: 46, capture: 17 - keyword, start: (0, 0), end: (0, 6), text: `infixl`
-    pattern: 75, capture: 17 - keyword, start: (0, 0), end: (0, 6), text: `infixl`
+    pattern: 74, capture: 17 - keyword, start: (0, 0), end: (0, 6), text: `infixl`
     pattern:  2, capture: 2 - constant.numeric.integer, start: (0, 7), end: (0, 8), text: `6`
     pattern: 47, capture: 2 - constant.numeric.integer, start: (0, 7), end: (0, 8), text: `6`
-    pattern: 50, capture: 18 - keyword.operator, start: (0, 9), end: (0, 11), text: `+.`
-    pattern: 70, capture: 18 - keyword.operator, start: (0, 9), end: (0, 11), text: `+.`
-    pattern: 74, capture: 18 - keyword.operator, start: (0, 12), end: (0, 13), text: `=`
-    pattern: 48, capture: 4 - function, start: (0, 14), end: (0, 17), text: `add`
-    pattern: 78, capture: 20 - function.builtin, start: (0, 14), end: (0, 17), text: `add`
+    pattern: 49, capture: 18 - keyword.operator, start: (0, 9), end: (0, 12), text: `+.#`
+    pattern: 69, capture: 18 - keyword.operator, start: (0, 9), end: (0, 12), text: `+.#`
+    pattern:  2, capture: 2 - constant.numeric.integer, start: (0, 18), end: (0, 21), text: `100`
     pattern: 12, capture: 9 - punctuation.bracket, start: (1, 0), end: (1, 1), text: `#`
     pattern: 12, capture: 9 - punctuation.bracket, start: (1, 1), end: (1, 2), text: `[`
-    pattern: 11, capture: 8 - attribute, start: (1, 2), end: (1, 6), text: `memo`
-    pattern:  2, capture: 2 - constant.numeric.integer, start: (1, 7), end: (1, 10), text: `100`
-    pattern: 13, capture: 2 - constant.numeric.integer, start: (1, 7), end: (1, 10), text: `100`
-    pattern: 12, capture: 9 - punctuation.bracket, start: (1, 10), end: (1, 11), text: `]`
-    pattern: 12, capture: 9 - punctuation.bracket, start: (2, 0), end: (2, 1), text: `#`
-    pattern: 12, capture: 9 - punctuation.bracket, start: (2, 1), end: (2, 2), text: `[`
-    pattern: 11, capture: 8 - attribute, start: (2, 2), end: (2, 6), text: `test`
-    pattern:  1, capture: 1 - string, start: (2, 7), end: (2, 14), text: `"bench"`
-    pattern: 14, capture: 1 - string, start: (2, 7), end: (2, 14), text: `"bench"`
-    pattern: 12, capture: 9 - punctuation.bracket, start: (2, 14), end: (2, 15), text: `]`
-    pattern:  7, capture: 4 - function, start: (3, 0), end: (3, 11), text: `add_or_zero`
-    pattern:  8, capture: 6 - variable.parameter, start: (3, 12), end: (3, 13), text: `x`
-    pattern:  8, capture: 6 - variable.parameter, start: (3, 14), end: (3, 15), text: `y`
-    pattern: 74, capture: 18 - keyword.operator, start: (4, 2), end: (4, 3), text: `|`
-    pattern: 51, capture: 4 - function, start: (4, 4), end: (4, 6), text: `eq`
-    pattern:  2, capture: 2 - constant.numeric.integer, start: (4, 9), end: (4, 10), text: `0`
-    pattern: 71, capture: 18 - keyword.operator, start: (4, 10), end: (4, 13), text: ` = `
-    pattern:  2, capture: 2 - constant.numeric.integer, start: (4, 13), end: (4, 14), text: `0`
-    pattern: 74, capture: 18 - keyword.operator, start: (5, 2), end: (5, 3), text: `|`
-    pattern: 79, capture: 17 - keyword, start: (5, 4), end: (5, 13), text: `otherwise`
-    pattern: 71, capture: 18 - keyword.operator, start: (5, 13), end: (5, 16), text: ` = `
-    pattern: 53, capture: 18 - keyword.operator, start: (5, 18), end: (5, 20), text: `+.`
-    pattern: 70, capture: 18 - keyword.operator, start: (5, 18), end: (5, 20), text: `+.`
+    pattern: 11, capture: 8 - attribute, start: (1, 2), end: (1, 6), text: `test`
+    pattern:  1, capture: 1 - string, start: (1, 7), end: (1, 14), text: `"bench"`
+    pattern: 14, capture: 1 - string, start: (1, 7), end: (1, 14), text: `"bench"`
+    pattern: 12, capture: 9 - punctuation.bracket, start: (1, 14), end: (1, 15), text: `]`
+    pattern:  7, capture: 4 - function, start: (2, 0), end: (2, 11), text: `add_or_zero`
+    pattern:  8, capture: 6 - variable.parameter, start: (2, 12), end: (2, 13), text: `x`
+    pattern:  8, capture: 6 - variable.parameter, start: (2, 14), end: (2, 15), text: `y`
+    pattern: 73, capture: 18 - keyword.operator, start: (3, 2), end: (3, 3), text: `|`
+    pattern: 50, capture: 4 - function, start: (3, 4), end: (3, 6), text: `eq`
+    pattern:  2, capture: 2 - constant.numeric.integer, start: (3, 9), end: (3, 10), text: `0`
+    pattern: 70, capture: 18 - keyword.operator, start: (3, 10), end: (3, 13), text: ` = `
+    pattern:  2, capture: 2 - constant.numeric.integer, start: (3, 13), end: (3, 14), text: `0`
+    pattern: 73, capture: 18 - keyword.operator, start: (4, 2), end: (4, 3), text: `|`
+    pattern: 78, capture: 17 - keyword, start: (4, 4), end: (4, 13), text: `otherwise`
+    pattern: 70, capture: 18 - keyword.operator, start: (4, 13), end: (4, 16), text: ` = `
+    pattern: 52, capture: 18 - keyword.operator, start: (4, 18), end: (4, 20), text: `+.`
+    pattern: 69, capture: 18 - keyword.operator, start: (4, 18), end: (4, 20), text: `+.`

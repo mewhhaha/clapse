@@ -26,8 +26,7 @@ data Pair a b = Pair a b
 class plus_rules i : add
 law plus_rules right_identity = add x 0 => x
 instance plus_on_i64 : plus_rules i add=plus
-infixl 6 +. = add
-
+infixl 6 +.
 id : a -> a
 eq_id : (eq_witness : eq a) => a -> a
 id x = x
@@ -98,13 +97,13 @@ just release-candidate out=out/releases-ci
 Custom operator declarations:
 
 ```haskell
-infixl 6 +. = add
-infixr 5 <> = append
-infix 4 ==. = eq
-infixl 6 plus_op = add
+infixl 6 +.
+infixr 5 <>
+infix 4 ==.
+infixl 6 plus_op
 ```
 
-- Form: `infixl|infixr|infix <precedence> <operator_token> = <target_name>`
+- Form: `infixl|infixr|infix <precedence> <operator_token>`
 - Precedence range: `0..9` (`9` binds tightest).
 - `<operator_token>` can be symbolic (`+.` `<>`) or an identifier (`plus_op`).
 - Identifier operators are used with backticks in expressions:
@@ -112,7 +111,7 @@ infixl 6 plus_op = add
 - Any function identifier can be used in backticks without a declaration:
   ``a `mod` b`` (default fixity: `infixl 9`, target function: same identifier).
 - Add an explicit declaration only when you need custom precedence/associativity
-  or a different target function.
+  on that operator token.
 - Operators are pure source-level sugar that rewrite to normal function calls
   during parse.
 

@@ -1,7 +1,6 @@
-infixl 6 +. = add
-infixl 7 *. = mul
-infixl 6 plus_op = add
-
+infixl 6 +.
+infixl 7 *.
+infixl 6 plus_op
 mod a b = a - (a / b) * b
 
 main x = x +. 1 *. 2

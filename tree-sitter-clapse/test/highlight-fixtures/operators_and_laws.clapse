@@ -1,7 +1,6 @@
-infixl 1 >>= = bind
-infixl 4 <$> = fmap
-infixl 4 <*> = ap
-
+infixl 1 >>=
+infixl 4 <$>
+infixl 4 <*>
 class Functor f where
   fmap : (a -> b) -> f a -> f b
 law Functor identity = fmap id x => x

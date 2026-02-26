@@ -1,15 +1,14 @@
 module compiler.prelude
 export id, compose, map_replace_default, ap_default, then_m_default, keep_left_default, keep_right_default, alt_default, map_replace, then_m, keep_left, keep_right, alt, bool_not, bool_and, bool_or, not, and, or, Functor, Applicative, Monad, Alternative, Boolean
 
-infixl 1 >>= = bind
-infixl 1 >> = then_m
-infixl 3 <|> = alt
-infixl 4 <$ = map_replace
-infixl 4 <$> = fmap
-infixl 4 <*> = ap
-infixl 4 <* = keep_left
-infixl 4 *> = keep_right
-
+infixl 1 >>=
+infixl 1 >>
+infixl 3 <|>
+infixl 4 <$
+infixl 4 <$>
+infixl 4 <*>
+infixl 4 <*
+infixl 4 *>
 id x = x
 compose f g x = f (g x)
 map_replace_default x fa = fmap (\_ -> x) fa
@@ -73,9 +72,8 @@ law Alternative alt_default = alt x y => alt_default x y
 
 data bool = true<1> | false<0>
 
-infixr 3 && = and
-infixr 2 || = or
-
+infixr 3 &&
+infixr 2 ||
 bool_not b = case b of
   true -> false
   false -> true

@@ -147,9 +147,6 @@
   precedence: (integer) @constant.numeric.integer)
 
 (operator_declaration
-  target: (identifier) @function)
-
-(operator_declaration
   operator: (operator_token
     (identifier) @keyword.operator))
 

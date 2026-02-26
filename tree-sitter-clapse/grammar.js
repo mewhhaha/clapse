@@ -73,10 +73,6 @@ module.exports = grammar({
         field("precedence", $.integer),
         $._ws1,
         field("operator", $.operator_token),
-        optional($._ws1),
-        "=",
-        optional($._ws1),
-        field("target", $.identifier),
       ),
 
     function_declaration: ($) =>

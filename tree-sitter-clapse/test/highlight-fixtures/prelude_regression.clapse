@@ -1,10 +1,9 @@
-infixl 1 >> = then_m
-infixl 3 <|> = alt
-infixl 4 <$> = fmap
-infixl 4 <*> = ap
-infixl 4 <* = keep_left
-infixl 4 *> = keep_right
-
+infixl 1 >>
+infixl 3 <|>
+infixl 4 <$>
+infixl 4 <*>
+infixl 4 <*
+infixl 4 *>
 id x = x
 compose f g x = f (g x)
 then_m m n = bind m (\_ -> n)
