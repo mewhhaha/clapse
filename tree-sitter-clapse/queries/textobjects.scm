@@ -14,10 +14,20 @@
 (operator_declaration) @class.around
 
 (function_declaration
-  argument: (identifier) @parameter.inside @parameter.around)
+  argument: (binder_name
+    (identifier) @parameter.inside @parameter.around))
+
+(function_declaration
+  argument: (binder_name
+    (wildcard) @parameter.inside @parameter.around))
 
 (lambda_expression
-  parameter: (identifier) @parameter.inside @parameter.around)
+  parameter: (binder_name
+    (identifier) @parameter.inside @parameter.around))
+
+(lambda_expression
+  parameter: (binder_name
+    (wildcard) @parameter.inside @parameter.around))
 
 (instance_binding
   method_name: (identifier) @parameter.inside @parameter.around)

@@ -1,0 +1,28 @@
+infixl 1 >> = then_m
+infixl 3 <|> = alt
+infixl 4 <$> = fmap
+infixl 4 <*> = ap
+infixl 4 <* = keep_left
+infixl 4 *> = keep_right
+
+id x = x
+compose f g x = f (g x)
+then_m m n = bind m (\_ -> n)
+keep_left u v = ap (fmap (\x -> (\_ -> x)) u) v
+keep_right u v = ap (fmap (\_ -> id) u) v
+alt a b = append a b
+
+class Functor f where
+  fmap : (a -> b) -> f a -> f b
+law Functor identity = fmap id x => x
+law Functor composition = fmap f (fmap g x) => fmap (compose f g) x
+
+class Applicative f where
+  pure : a -> f a
+  ap : f (a -> b) -> f a -> f b
+law Applicative identity = ap (pure id) x => x
+law Applicative homomorphism = ap (pure f) (pure x) => pure (f x)
+law Applicative interchange = ap u (pure y) => ap (pure (\f -> f y)) u
+law Applicative composition = ap (ap (ap (pure compose) u) v) w => ap u (ap v w)
+
+data bool = true<1> | false<0>

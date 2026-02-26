@@ -15,7 +15,8 @@ plus a b = add a b
   (declaration
     (function_declaration
       name: (identifier)
-      argument: (identifier)
+      argument: (binder_name
+        (identifier))
       body: (expression
         (identifier))))
   (declaration
@@ -52,8 +53,10 @@ plus a b = add a b
   (declaration
     (function_declaration
       name: (identifier)
-      argument: (identifier)
-      argument: (identifier)
+      argument: (binder_name
+        (identifier))
+      argument: (binder_name
+        (identifier))
       body: (expression
         (application_expression
           function: (application_expression
@@ -73,7 +76,8 @@ wrap x = f (g x)
   (declaration
     (function_declaration
       name: (identifier)
-      argument: (identifier)
+      argument: (binder_name
+        (identifier))
       body: (expression
         (application_expression
           function: (identifier)
@@ -120,9 +124,12 @@ other x y = x `plus_op` y
   (declaration
     (function_declaration
       name: (identifier)
-      argument: (identifier)
-      argument: (identifier)
-      argument: (identifier)
+      argument: (binder_name
+        (identifier))
+      argument: (binder_name
+        (identifier))
+      argument: (binder_name
+        (identifier))
       body: (expression
         (infix_expression
           left: (infix_expression
@@ -136,8 +143,10 @@ other x y = x `plus_op` y
   (declaration
     (function_declaration
       name: (identifier)
-      argument: (identifier)
-      argument: (identifier)
+      argument: (binder_name
+        (identifier))
+      argument: (binder_name
+        (identifier))
       body: (expression
         (infix_expression
           left: (identifier)
@@ -230,7 +239,8 @@ empty = []
   (declaration
     (function_declaration
       name: (identifier)
-      argument: (identifier)
+      argument: (binder_name
+        (identifier))
       body: (expression
         (identifier))))
   (declaration
@@ -264,8 +274,10 @@ case_expr x y =
   (declaration
     (function_declaration
       name: (identifier)
-      argument: (identifier)
-      argument: (identifier)
+      argument: (binder_name
+        (identifier))
+      argument: (binder_name
+        (identifier))
       body: (expression
         (case_expression
           scrutinee: (case_scrutinee_atom
@@ -323,9 +335,12 @@ sum_slice cells start span = case (span == 0) (span == 1) of
   (declaration
     (function_declaration
       (identifier)
-      (identifier)
-      (identifier)
-      (identifier)
+      (binder_name
+        (identifier))
+      (binder_name
+        (identifier))
+      (binder_name
+        (identifier))
       (expression
         (case_expression
           (case_scrutinee_atom
@@ -432,7 +447,7 @@ sum_slice cells start span = case (span == 0) (span == 1) of
 data alternatives and GADT constructors
 ==================
 
-data Pair a b = Pair a b | Left : a | Right : b
+data Pair a b = Pair a b | Left:a | Right:b
 
 ---
 
@@ -490,7 +505,8 @@ let_multiline x = let y = add x 1;
   (declaration
     (function_declaration
       name: (identifier)
-      argument: (identifier)
+      argument: (binder_name
+        (identifier))
       body: (expression
         (let_expression
           binding: (let_binding
@@ -505,7 +521,8 @@ let_multiline x = let y = add x 1;
           binding: (let_binding
             (let_function_binding
               name: (identifier)
-              argument: (identifier)
+              argument: (binder_name
+                (identifier))
               value: (expression
                 (application_expression
                   function: (application_expression
@@ -516,40 +533,12 @@ let_multiline x = let y = add x 1;
           body: (expression
             (application_expression
               function: (identifier)
-          argument: (identifier)))))))
-
-==================
-class/instance where blocks
-==================
-
-class Functor f where
-  fmap : (a -> b) -> f a -> f b
-
-instance ParserFunctor : Functor parser where
-  fmap = parser_map
-
----
-
-(source_file
-  (declaration
-    (class_declaration
-      name: (identifier)
-      type_parameter: (identifier)
-      method_signature: (class_method_signature
-        method_name: (identifier)
-        signature: (signature_text))))
-  (declaration
-    (instance_declaration
-      name: (identifier)
-      class_name: (identifier)
-      class_type_argument: (identifier)
-      binding: (instance_binding
-        method_name: (identifier)
-        target_name: (identifier)))))
+              argument: (identifier)))))))
   (declaration
     (function_declaration
       name: (identifier)
-      argument: (identifier)
+      argument: (binder_name
+        (identifier))
       body: (expression
         (let_expression
           binding: (let_binding
@@ -565,7 +554,8 @@ instance ParserFunctor : Functor parser where
   (declaration
     (function_declaration
       name: (identifier)
-      argument: (identifier)
+      argument: (binder_name
+        (identifier))
       body: (expression
         (let_expression
           binding: (let_binding
@@ -591,6 +581,35 @@ instance ParserFunctor : Functor parser where
             (identifier)))))))
 
 ==================
+class/instance where blocks
+==================
+
+class functor f where
+  fmap : (a -> b) -> f a -> f b
+
+instance parser_functor : functor parser where
+  fmap = parser_map
+
+---
+
+(source_file
+  (declaration
+    (class_declaration
+      name: (identifier)
+      type_parameter: (identifier)
+      method_signature: (class_method_signature
+        method_name: (identifier)
+        signature: (signature_text))))
+  (declaration
+    (instance_declaration
+      name: (identifier)
+      class_name: (identifier)
+      class_type_argument: (identifier)
+      binding: (instance_binding
+        method_name: (identifier)
+        target_name: (identifier)))))
+
+==================
 guarded function declarations
 ==================
 
@@ -603,8 +622,10 @@ add_or_zero x y | eq x 0 = 0
   (declaration
     (function_declaration
       (identifier)
-      (identifier)
-      (identifier)
+      (binder_name
+        (identifier))
+      (binder_name
+        (identifier))
       (guarded_clause
         (expression
           (application_expression
@@ -640,8 +661,10 @@ is_alive_next alive neighbors | neighbors == 3 = 1
   (declaration
     (function_declaration
       (identifier)
-      (identifier)
-      (identifier)
+      (binder_name
+        (identifier))
+      (binder_name
+        (identifier))
       (guarded_clause
         (expression
           (infix_expression
@@ -694,7 +717,8 @@ fib n = add n 1
         value: (string))
       (function_declaration
         name: (identifier)
-        argument: (identifier)
+        argument: (binder_name
+          (identifier))
         body: (expression
           (application_expression
             function: (application_expression
@@ -716,7 +740,8 @@ route method = case method of
   (declaration
     (function_declaration
       (identifier)
-      (identifier)
+      (binder_name
+        (identifier))
       (expression
         (case_expression
           (case_scrutinee_atom
@@ -732,3 +757,32 @@ route method = case method of
                 (wildcard))
               (expression
                 (integer)))))))))
+
+==================
+wildcard binders in function and lambda params
+==================
+
+drop _ x = x
+ignore = \_ -> 0
+
+---
+
+(source_file
+  (declaration
+    (function_declaration
+      name: (identifier)
+      argument: (binder_name
+        (wildcard))
+      argument: (binder_name
+        (identifier))
+      body: (expression
+        (identifier))))
+  (declaration
+    (function_declaration
+      name: (identifier)
+      body: (expression
+        (lambda_expression
+          parameter: (binder_name
+            (wildcard))
+          body: (expression
+            (integer)))))))

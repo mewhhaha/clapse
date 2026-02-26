@@ -22,6 +22,10 @@ Run:
 
 ```bash
 just docs-validate
+just highlights
+just highlights-expect
+just highlights-real
+just highlights-helix
 ```
 
 Or directly:

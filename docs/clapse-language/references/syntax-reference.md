@@ -125,13 +125,17 @@ class Functor f where
 class Applicative f where
   pure : a -> f a
   ap : f (a -> b) -> f a -> f b
+  keep_left : f a -> f b -> f a
+  keep_right : f a -> f b -> f b
 
 class Monad m where
   bind : m a -> (a -> m b) -> m b
+  then_m : m a -> m b -> m b
 
 class Alternative f where
   empty : f a
   append : f a -> f a -> f a
+  alt : f a -> f a -> f a
 
 instance ParserFunctor : Functor parser where
   fmap = parser_map
@@ -139,14 +143,18 @@ instance ParserFunctor : Functor parser where
 instance ParserApplicative : Applicative parser where
   pure = parser_pure
   ap = parser_ap
+  keep_left = parser_keep_left
+  keep_right = parser_keep_right
 
 instance ParserMonad : Monad parser where
   pure = parser_pure
   bind = parser_bind
+  then_m = parser_then
 
 instance ParserAlternative : Alternative parser where
   empty = parser_empty
   append = parser_or
+  alt = parser_or
 ```
 
 The compiler now uses a local evidence model for dispatch:
@@ -158,6 +166,10 @@ For applicative form `a <*> b`, dispatch is inferred from the combined evidence 
 operands and fundep metadata, so type-directed static dispatch can be chosen without
 explicit signatures. Explicit signatures are only required when that inference remains
 ambiguous.
+
+In the compiler prelude, operator-facing methods (`ap`, `then_m`, `keep_left`,
+`keep_right`, `alt`) are class members, and their default equations are expressed in
+terms of `bind`/`pure`/`append` so custom instances can override while preserving law shape.
 
 ## Class Dispatch Witness (Kernel)
 

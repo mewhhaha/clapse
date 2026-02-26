@@ -1,0 +1,6 @@
+infixl 6 +. = add
+#[memo 100]
+#[test "bench"]
+add_or_zero x y
+  | eq x 0 = 0
+  | otherwise = x +. y

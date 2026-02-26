@@ -1,0 +1,10 @@
+data bool = true<1> | false<0>
+
+drop _ x = x
+keep_right u v = ap (fmap (\_ -> id) u) v
+
+class Boolean b where
+  and : b -> b -> b
+
+instance BooleanBool : Boolean bool where
+  and = bool_and

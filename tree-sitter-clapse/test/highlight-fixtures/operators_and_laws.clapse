@@ -1,0 +1,12 @@
+infixl 1 >>= = bind
+infixl 4 <$> = fmap
+infixl 4 <*> = ap
+
+class Functor f where
+  fmap : (a -> b) -> f a -> f b
+law Functor identity = fmap id x => x
+
+class Applicative f where
+  pure : a -> f a
+  ap : f (a -> b) -> f a -> f b
+law Applicative composition = ap (ap (ap (pure compose) u) v) w => ap u (ap v w)

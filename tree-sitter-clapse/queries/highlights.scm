@@ -1,12 +1,34 @@
 (comment) @comment
 
-(identifier) @variable
-(capitalized_identifier) @constructor
-(integer) @constant.numeric.integer
 (string) @string
+(integer) @constant.numeric.integer
+
+(module_declaration
+  name: (module_name) @namespace)
+
+(import_declaration
+  module: (module_name) @namespace)
+
+(export_declaration
+  name: (identifier) @function)
+
+(export_declaration
+  name: (capitalized_identifier) @constructor)
 
 (function_declaration
   name: (identifier) @function)
+
+(function_declaration
+  argument: (binder_name
+    (identifier) @variable.parameter))
+
+(function_declaration
+  argument: (binder_name
+    (wildcard) @variable.parameter))
+
+(function_signature
+  name: (identifier) @function
+  signature: (signature_text) @type)
 
 (attributed_function_declaration
   (function_attribute
@@ -26,42 +48,61 @@
 (function_attribute
   value: (identifier) @variable)
 
-(function_declaration
-  argument: (identifier) @variable.parameter)
+(type_declaration
+  type_name: (capitalized_identifier) @type.definition)
 
-(function_signature
-  name: (identifier) @function
-  signature: (signature_text) @type)
-
-(data_declaration
-  type_name: (capitalized_identifier) @type)
+(type_declaration
+  (type_union) @type)
 
 (data_declaration
-  type_parameter: (identifier) @type)
+  type_name: (identifier) @type.definition)
 
 (data_declaration
-  constructor_type: (type_expr_text) @type)
+  type_name: (capitalized_identifier) @type.definition)
+
+(data_declaration
+  type_parameter: (identifier) @type.parameter)
+
+(data_declaration
+  constructor_name: (identifier) @constructor)
 
 (data_declaration
   constructor_name: (capitalized_identifier) @constructor)
 
 (data_declaration
+  constructor_name: (identifier) @constant.builtin
+  literal_backing: (integer) @constant.numeric.integer)
+
+(data_declaration
+  constructor_name: (identifier) @constant.builtin
+  literal_backing: (string) @string)
+
+(data_declaration
+  constructor_type: (type_expr_text) @type)
+
+(data_declaration
   field_name: (identifier) @variable.parameter)
 
 (class_declaration
-  name: (identifier) @type)
+  name: (identifier) @type.definition)
+
+(class_declaration
+  name: (capitalized_identifier) @type.definition)
 
 (class_declaration
   kind: (class_kind) @type.builtin)
 
 (class_method_signature
-  method_name: (identifier) @property)
+  method_name: (identifier) @function.method)
 
 (class_method_signature
   signature: (signature_text) @type)
 
 (law_declaration
   class_name: (identifier) @type)
+
+(law_declaration
+  class_name: (capitalized_identifier) @type)
 
 (law_declaration
   name: (identifier) @property)
@@ -70,25 +111,19 @@
   name: (identifier) @type)
 
 (instance_declaration
+  name: (capitalized_identifier) @type)
+
+(instance_declaration
   class_name: (identifier) @type)
 
+(instance_declaration
+  class_name: (capitalized_identifier) @type)
+
 (instance_binding
-  method_name: (identifier) @property)
+  method_name: (identifier) @function.method)
 
 (instance_binding
   target_name: (identifier) @function)
-
-(module_declaration
-  name: (module_name) @namespace)
-
-(import_declaration
-  module: (module_name) @namespace)
-
-(export_declaration
-  name: (identifier) @function)
-
-(export_declaration
-  name: (capitalized_identifier) @constructor)
 
 (operator_declaration
   assoc: (operator_assoc) @keyword)
@@ -107,12 +142,22 @@
   operator: (operator_token
     (operator_symbol) @keyword.operator))
 
-(operator_symbol) @keyword.operator
-(backtick_operator) @keyword.operator
-(guard_equals) @keyword.operator
+(application_expression
+  function: (identifier) @function)
+
+(application_expression
+  function: (capitalized_identifier) @constructor)
+
+(infix_expression
+  operator: (infix_operator) @keyword.operator)
 
 (lambda_expression
-  parameter: (identifier) @variable.parameter)
+  parameter: (binder_name
+    (identifier) @variable.parameter))
+
+(lambda_expression
+  parameter: (binder_name
+    (wildcard) @variable.parameter))
 
 (let_value_binding
   name: (identifier) @variable)
@@ -121,70 +166,18 @@
   name: (identifier) @function)
 
 (let_function_binding
-  argument: (identifier) @variable.parameter)
+  argument: (binder_name
+    (identifier) @variable.parameter))
+
+(let_function_binding
+  argument: (binder_name
+    (wildcard) @variable.parameter))
 
 (let_pattern_binding
   constructor: (capitalized_identifier) @constructor)
 
 (let_pattern_binding
   field: (identifier) @variable.parameter)
-
-(list_expression
-  "[" @punctuation.bracket
-  "]" @punctuation.bracket)
-
-(application_expression
-  function: (identifier) @function.call)
-
-(application_expression
-  function: (capitalized_identifier) @constructor)
-
-(infix_expression
-  operator: (infix_operator) @keyword.operator)
-
-(list_expression
-  "," @punctuation.bracket)
-
-((identifier) @function.builtin
-  (#match? @function.builtin "^(add|sub|mul|div|append|empty|fmap|pure|bind|ap|compose|id|slice_len|slice_get_u8|slice_set_u8|collection_empty|collection_extend)$"))
-
-((identifier) @constant.builtin.boolean
-  (#match? @constant.builtin.boolean "^(true|false)$"))
-
-((identifier) @keyword
-  (#eq? @keyword "otherwise"))
-
-[
-  "class"
-  "law"
-  "instance"
-  "where"
-  "data"
-  "infix"
-  "infixl"
-  "infixr"
-  "module"
-  "import"
-  "export"
-  "case"
-  "of"
-  "let"
-] @keyword
-
-(in_keyword) @keyword
-
-[
-  "\\"
-  "|"
-  "->"
-  "="
-  ":"
-] @keyword.operator
-
-[
-  "("
-  ")"
-] @punctuation.bracket
 
 (case_pattern_atom
   (integer) @constant.numeric.integer)
@@ -198,4 +191,61 @@
 (case_pattern_atom
   (identifier) @variable.parameter)
 
-(wildcard) @variable.builtin
+(case_pattern_atom
+  (identifier) @constant.builtin.boolean
+  (#match? @constant.builtin.boolean "^(true|false)$"))
+
+(case_pattern_atom
+  (wildcard) @variable.parameter)
+
+(wildcard) @variable.parameter
+
+(backtick_operator) @keyword.operator
+(operator_symbol) @keyword.operator
+(guard_equals) @keyword.operator
+
+(list_expression
+  "[" @punctuation.bracket
+  "]" @punctuation.bracket)
+
+[
+  "("
+  ")"
+] @punctuation.bracket
+
+[
+  "\\"
+  "|"
+  "->"
+  "="
+  ":"
+] @keyword.operator
+
+[
+  "module"
+  "import"
+  "export"
+  "class"
+  "law"
+  "instance"
+  "where"
+  "data"
+  "type"
+  "infix"
+  "infixl"
+  "infixr"
+  "case"
+  "of"
+  "let"
+] @keyword
+
+(in_keyword) @keyword
+
+((identifier) @constant.builtin.boolean
+  (#match? @constant.builtin.boolean "^(true|false)$"))
+
+((identifier) @function.builtin
+  (#match? @function.builtin "^(add|sub|mul|div|slice_len|slice_get_u8|slice_set_u8|collection_empty|collection_extend|slice_eq_u8|str_eq)$"))
+
+((identifier) @keyword
+  (#eq? @keyword "otherwise"))

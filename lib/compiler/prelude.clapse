@@ -11,6 +11,7 @@ infixl 4 *> = keep_right
 
 id x = x
 compose f g x = f (g x)
+ap mf mx = bind mf (\f -> bind mx (\x -> pure (f x)))
 then_m m n = bind m (\_ -> n)
 keep_left u v = ap (fmap (\x -> (\_ -> x)) u) v
 keep_right u v = ap (fmap (\_ -> id) u) v
@@ -24,23 +25,31 @@ law Functor composition = fmap f (fmap g x) => fmap (compose f g) x
 class Applicative f where
   pure : a -> f a
   ap : f (a -> b) -> f a -> f b
+  keep_left : f a -> f b -> f a
+  keep_right : f a -> f b -> f b
 law Applicative identity = ap (pure id) x => x
 law Applicative homomorphism = ap (pure f) (pure x) => pure (f x)
 law Applicative interchange = ap u (pure y) => ap (pure (\f -> f y)) u
 law Applicative composition = ap (ap (ap (pure compose) u) v) w => ap u (ap v w)
+law Applicative keep_left_default = keep_left u v => ap (fmap (\x -> (\_ -> x)) u) v
+law Applicative keep_right_default = keep_right u v => ap (fmap (\_ -> id) u) v
 
 class Monad m where
   bind : m a -> (a -> m b) -> m b
+  then_m : m a -> m b -> m b
 law Monad left_identity = bind (pure x) f => f x
 law Monad right_identity = bind m pure => m
 law Monad associativity = bind (bind m f) g => bind m (\x -> bind (f x) g)
+law Monad then_default = then_m m n => bind m (\_ -> n)
 
 class Alternative f where
   empty : f a
   append : f a -> f a -> f a
+  alt : f a -> f a -> f a
 law Alternative left_identity = append empty x => x
 law Alternative right_identity = append x empty => x
 law Alternative associativity = append (append x y) z => append x (append y z)
+law Alternative alt_default = alt x y => append x y
 
 data bool = true<1> | false<0>
 

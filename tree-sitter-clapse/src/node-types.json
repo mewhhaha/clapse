@@ -100,6 +100,25 @@
     }
   },
   {
+    "type": "binder_name",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "wildcard",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "case_branch",
     "named": true,
     "fields": {
@@ -312,6 +331,10 @@
         "required": true,
         "types": [
           {
+            "type": "capitalized_identifier",
+            "named": true
+          },
+          {
             "type": "identifier",
             "named": true
           }
@@ -371,6 +394,10 @@
           {
             "type": "capitalized_identifier",
             "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
           }
         ]
       },
@@ -394,12 +421,26 @@
           }
         ]
       },
+      "literal_backing": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "type_union_literal",
+            "named": true
+          }
+        ]
+      },
       "type_name": {
         "multiple": false,
         "required": true,
         "types": [
           {
             "type": "capitalized_identifier",
+            "named": true
+          },
+          {
+            "type": "identifier",
             "named": true
           }
         ]
@@ -593,7 +634,7 @@
         "required": false,
         "types": [
           {
-            "type": "identifier",
+            "type": "binder_name",
             "named": true
           }
         ]
@@ -856,6 +897,10 @@
         "required": true,
         "types": [
           {
+            "type": "capitalized_identifier",
+            "named": true
+          },
+          {
             "type": "identifier",
             "named": true
           }
@@ -879,6 +924,10 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "capitalized_identifier",
+            "named": true
+          },
           {
             "type": "identifier",
             "named": true
@@ -906,7 +955,7 @@
         "required": true,
         "types": [
           {
-            "type": "identifier",
+            "type": "binder_name",
             "named": true
           }
         ]
@@ -921,6 +970,10 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "capitalized_identifier",
+            "named": true
+          },
           {
             "type": "identifier",
             "named": true
@@ -1027,7 +1080,7 @@
         "required": true,
         "types": [
           {
-            "type": "identifier",
+            "type": "binder_name",
             "named": true
           }
         ]

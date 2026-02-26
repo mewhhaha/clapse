@@ -83,7 +83,7 @@ module.exports = grammar({
       prec.right(
         seq(
           field("name", $.identifier),
-          repeat(seq($._ws1, field("argument", $.identifier))),
+          repeat(seq($._ws1, field("argument", $.binder_name))),
           choice(
             seq(
               optional($._ws1),
@@ -141,45 +141,93 @@ module.exports = grammar({
         seq(
           $._kw_data,
           $._ws1,
-          field("type_name", $.capitalized_identifier),
+          field("type_name", choice($.capitalized_identifier, $.identifier)),
           repeat(seq($._ws1, field("type_parameter", $.identifier))),
           $._ws1,
           "=",
           $._ws1,
           choice(
-            seq(
-              field("constructor_name", $.capitalized_identifier),
-              optional($._ws1),
-              ":",
-              optional($._ws1),
-              field("constructor_type", $.type_expr_text),
+            prec.dynamic(
+              4,
+              seq(
+                field("constructor_name", choice($.capitalized_identifier, $.identifier)),
+                optional($._ws1),
+                ":",
+                optional($._ws1),
+                field("constructor_type", $.type_expr_text),
+              ),
             ),
-            seq(
-              field("constructor_name", $.capitalized_identifier),
-              repeat1(seq($._ws1, field("field_name", $.identifier))),
+            prec.dynamic(
+              3,
+              seq(
+                field("constructor_name", choice($.capitalized_identifier, $.identifier)),
+                optional($._ws1),
+                "<",
+                optional($._ws1),
+                field("literal_backing", $.type_union_literal),
+                optional($._ws1),
+                ">",
+              ),
+            ),
+            prec.dynamic(
+              2,
+              seq(
+                field("constructor_name", choice($.capitalized_identifier, $.identifier)),
+                repeat1(seq($._ws1, field("field_name", $.identifier))),
+              ),
+            ),
+            prec.dynamic(
+              -1,
+              seq(
+                field("constructor_name", choice($.capitalized_identifier, $.identifier)),
+              ),
             ),
           ),
           repeat(
             prec.right(
               seq(
                 optional($._ws1),
-                "|",
-                optional($._ws1),
-                choice(
+              "|",
+              optional($._ws1),
+              choice(
+                prec.dynamic(
+                  4,
                   seq(
-                    field("constructor_name", $.capitalized_identifier),
+                    field("constructor_name", choice($.capitalized_identifier, $.identifier)),
                     optional($._ws1),
                     ":",
                     optional($._ws1),
                     field("constructor_type", $.type_expr_text),
                   ),
+                ),
+                prec.dynamic(
+                  3,
                   seq(
-                    field("constructor_name", $.capitalized_identifier),
+                    field("constructor_name", choice($.capitalized_identifier, $.identifier)),
+                    optional($._ws1),
+                    "<",
+                    optional($._ws1),
+                    field("literal_backing", $.type_union_literal),
+                    optional($._ws1),
+                    ">",
+                  ),
+                ),
+                prec.dynamic(
+                  2,
+                  seq(
+                    field("constructor_name", choice($.capitalized_identifier, $.identifier)),
                     repeat1(seq($._ws1, field("field_name", $.identifier))),
+                  ),
+                ),
+                prec.dynamic(
+                  -1,
+                  seq(
+                    field("constructor_name", choice($.capitalized_identifier, $.identifier)),
                   ),
                 ),
               ),
             ),
+          ),
           ),
         ),
       ),
@@ -257,7 +305,7 @@ module.exports = grammar({
         seq(
           $._kw_class,
           $._ws1,
-          field("name", $.identifier),
+          field("name", choice($.identifier, $.capitalized_identifier)),
           repeat(seq($._ws1, field("type_parameter", $.identifier))),
           choice(
             seq(
@@ -310,11 +358,11 @@ module.exports = grammar({
         seq(
           $._kw_instance,
           $._ws1,
-          field("name", $.identifier),
+          field("name", choice($.identifier, $.capitalized_identifier)),
           $._ws1,
           ":",
           $._ws1,
-          field("class_name", $.identifier),
+          field("class_name", choice($.identifier, $.capitalized_identifier)),
           repeat(
             seq(
               $._ws1,
@@ -386,7 +434,7 @@ module.exports = grammar({
       seq(
         $._kw_law,
         $._ws1,
-        field("class_name", $.identifier),
+        field("class_name", choice($.identifier, $.capitalized_identifier)),
         $._ws1,
         field("name", $.identifier),
         $._ws1,
@@ -455,7 +503,7 @@ module.exports = grammar({
     let_function_binding: ($) =>
       seq(
         field("name", $.identifier),
-        repeat1(seq($._ws1, field("argument", $.identifier))),
+        repeat1(seq($._ws1, field("argument", $.binder_name))),
         optional($._ws1),
         "=",
         optional($._ws1),
@@ -564,14 +612,16 @@ module.exports = grammar({
         seq(
           "\\",
           optional($._ws1),
-          field("parameter", $.identifier),
-          repeat(seq($._ws1, field("parameter", $.identifier))),
+          field("parameter", $.binder_name),
+          repeat(seq($._ws1, field("parameter", $.binder_name))),
           optional($._ws1),
           "->",
           optional($._ws1),
           field("body", $.expression),
         ),
       ),
+
+    binder_name: ($) => choice($.identifier, $.wildcard),
 
     application_expression: ($) =>
       prec.left(
@@ -751,7 +801,7 @@ module.exports = grammar({
         prec(
           -1,
           choice(
-            /[!#$%&*+./<?@\\^|~:][!#$%&*+./<=>?@\\^|~:-]*/,
+            /[!#$%&*+./<>?@\\^|~:][!#$%&*+./<=>?@\\^|~:-]*/,
             /=[!#$%&*+./<=?@\\^|~:-][!#$%&*+./<=>?@\\^|~:-]*/,
             /-[!#$%&*+./<=?@\\^|~:-][!#$%&*+./<=>?@\\^|~:-]*/,
             /-/,
@@ -831,7 +881,6 @@ module.exports = grammar({
           ),
         ),
       ),
-
     integer: () => /[0-9]+/,
 
     string: () =>

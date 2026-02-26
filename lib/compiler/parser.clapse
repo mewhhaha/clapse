@@ -17,14 +17,18 @@ instance ParserFunctor : Functor parser where
 instance ParserApplicative : Applicative parser where
   pure = parser_pure
   ap = parser_ap
+  keep_left = parser_keep_left
+  keep_right = parser_keep_right
 
 instance ParserMonad : Monad parser where
   pure = parser_pure
   bind = parser_bind
+  then_m = parser_then
 
 instance ParserAlternative : Alternative parser where
   empty = parser_empty
   append = parser_or
+  alt = parser_or
 
 parser_dispatch_default = ParserDispatchDefault
 class_dispatch_default = ClassDispatchStatic

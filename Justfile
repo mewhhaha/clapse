@@ -21,6 +21,45 @@ lsp:
 docs-validate:
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/validate-docs.mjs
 
+highlights:
+  ./tree-sitter-clapse/scripts/highlight-snapshot.sh
+
+highlights-update:
+  ./tree-sitter-clapse/scripts/highlight-snapshot.sh --update
+
+highlights-expect:
+  ./tree-sitter-clapse/scripts/highlight-expectations.sh
+
+highlights-real:
+  ./tree-sitter-clapse/scripts/highlight-real-sources-smoke.sh
+
+highlights-helix:
+  ./tree-sitter-clapse/scripts/highlight-helix-runtime-smoke.sh
+
+install:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  mkdir -p artifacts/latest
+  compiler_path="${CLAPSE_COMPILER_WASM_PATH:-}"
+  if [[ -z "$compiler_path" ]]; then
+    if [[ -s artifacts/latest/clapse_compiler.wasm ]]; then
+      compiler_path="artifacts/latest/clapse_compiler.wasm"
+    elif [[ -s out/clapse_compiler.wasm ]]; then
+      compiler_path="out/clapse_compiler.wasm"
+    else
+      echo "install: missing non-empty compiler wasm; set CLAPSE_COMPILER_WASM_PATH or build out/clapse_compiler.wasm" >&2
+      exit 1
+    fi
+  fi
+  if [[ ! -s "$compiler_path" ]]; then
+    echo "install: compiler wasm not found or empty: $compiler_path" >&2
+    exit 1
+  fi
+  tmp_compiler="artifacts/latest/clapse_compiler.next.wasm"
+  CLAPSE_COMPILER_WASM_PATH="$compiler_path" deno run -A scripts/run-clapse-compiler-wasm.mjs compile lib/compiler/kernel.clapse "$tmp_compiler"
+  mv "$tmp_compiler" artifacts/latest/clapse_compiler.wasm
+  RUN_HIGHLIGHT_SNAPSHOT_TESTS=1 scripts/setup-helix-local.sh
+
 release-candidate out='out/releases':
   #!/usr/bin/env bash
   set -euo pipefail
