@@ -58,8 +58,16 @@ Current targets in `Justfile`:
 - `just highlights-helix`
 - `just install`
 - `just release-candidate [out=...]`
+  - release artifacts include `clapse_compiler.wasm` and
+    `clapse_compiler.d.ts`
+  - packages the validated seed compiler artifact from
+    `CLAPSE_COMPILER_WASM_PATH` (default `artifacts/latest/clapse_compiler.wasm`)
+    instead of kernel self-recompile in the release bundling step
   - now hard-fails if generated `clapse_compiler.wasm` is not browser-runnable
     (`scripts/check-browser-compiler-wasm.mjs`)
+  - release metadata now tracks one or more CLI binaries passed to
+    `scripts/release-metadata.mjs` via repeated `--cli-bin` flags; each binary
+    is added as a separate manifest entry and checksum line.
 
 ## LSP and Formatter
 
@@ -97,6 +105,17 @@ Current targets in `Justfile`:
 - Formatter logic is decomposed into kernel-side `compiler.formatter`, with
   `bootstrap_phase9_compiler_kernel` acting as command router while further
   kernel module splits are staged.
+
+## Release Metadata and Checksums
+
+- `scripts/release-metadata.mjs` accepts repeated `--cli-bin` arguments.
+- Manifest output writes:
+  - `artifacts.cli_binary`: legacy single-object entry for first `--cli-bin`
+    (kept for compatibility).
+  - `artifacts.cli_binaries`: array of CLI binaries in argument order, each with
+    `path`, `bytes`, and `sha256`.
+- `checksums.sha256` includes one line per CLI binary path, matching the order of
+  all `--cli-bin` occurrences.
 
 ## Project Configuration (`clapse.json`)
 

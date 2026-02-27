@@ -89,13 +89,24 @@ jobs:
           echo "seed lock verified (${seed_release_id})"
 
           mkdir -p "${RELEASE_DIR}"
-          CLAPSE_COMPILER_WASM_PATH="${PWD}/artifacts/latest/clapse_compiler.wasm" \
-            deno run -A scripts/run-clapse-compiler-wasm.mjs \
-              compile lib/compiler/kernel.clapse \
-              "${RELEASE_DIR}/clapse_compiler.wasm"
+          [ -s "artifacts/latest/clapse_compiler.wasm" ] || { echo "missing compiler source wasm: artifacts/latest/clapse_compiler.wasm" >&2; exit 1; }
+          [ -s "artifacts/latest/clapse_compiler.d.ts" ] || { echo "missing compiler source d.ts: artifacts/latest/clapse_compiler.d.ts" >&2; exit 1; }
+          deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "artifacts/latest/clapse_compiler.wasm"
+          cp artifacts/latest/clapse_compiler.wasm "${RELEASE_DIR}/clapse_compiler.wasm"
+          cp artifacts/latest/clapse_compiler.d.ts "${RELEASE_DIR}/clapse_compiler.d.ts"
           deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "${RELEASE_DIR}/clapse_compiler.wasm"
           deno compile -A --output "${RELEASE_DIR}/clapse-bin" scripts/clapse.mjs
           chmod +x "${RELEASE_DIR}/clapse-bin"
+          deno compile -A --target x86_64-unknown-linux-gnu --output "${RELEASE_DIR}/clapse-bin-linux-x64" scripts/clapse.mjs
+          chmod +x "${RELEASE_DIR}/clapse-bin-linux-x64"
+          deno compile -A --target aarch64-unknown-linux-gnu --output "${RELEASE_DIR}/clapse-bin-linux-arm64" scripts/clapse.mjs
+          chmod +x "${RELEASE_DIR}/clapse-bin-linux-arm64"
+          deno compile -A --target x86_64-apple-darwin --output "${RELEASE_DIR}/clapse-bin-macos-x64" scripts/clapse.mjs
+          chmod +x "${RELEASE_DIR}/clapse-bin-macos-x64"
+          deno compile -A --target aarch64-apple-darwin --output "${RELEASE_DIR}/clapse-bin-macos-arm64" scripts/clapse.mjs
+          chmod +x "${RELEASE_DIR}/clapse-bin-macos-arm64"
+          deno compile -A --target x86_64-pc-windows-msvc --output "${RELEASE_DIR}/clapse-bin-win-x64.exe" scripts/clapse.mjs
+          chmod +x "${RELEASE_DIR}/clapse-bin-win-x64.exe"
           cp lib/compiler/prelude.clapse "${RELEASE_DIR}/prelude.clapse"
           cp scripts/wasm-behavior-fixture-map.json "${RELEASE_DIR}/wasm-behavior-fixture-map.json"
           cp scripts/wasm-selfhost-artifact-fixture-map.json "${RELEASE_DIR}/wasm-selfhost-artifact-fixture-map.json"
@@ -113,7 +124,13 @@ jobs:
             --release-id "${RELEASE_ID}" \
             --clapse-version "${CLAPSE_VERSION}" \
             --compiler-wasm "${RELEASE_DIR}/clapse_compiler.wasm" \
+            --compiler-dts "${RELEASE_DIR}/clapse_compiler.d.ts" \
             --cli-bin "${RELEASE_DIR}/clapse-bin" \
+            --cli-bin "${RELEASE_DIR}/clapse-bin-linux-x64" \
+            --cli-bin "${RELEASE_DIR}/clapse-bin-linux-arm64" \
+            --cli-bin "${RELEASE_DIR}/clapse-bin-macos-x64" \
+            --cli-bin "${RELEASE_DIR}/clapse-bin-macos-arm64" \
+            --cli-bin "${RELEASE_DIR}/clapse-bin-win-x64.exe" \
             --behavior-map "${RELEASE_DIR}/wasm-behavior-fixture-map.json" \
             --artifact-map "${RELEASE_DIR}/wasm-selfhost-artifact-fixture-map.json" \
             --prelude-source "${RELEASE_DIR}/prelude.clapse" \
@@ -142,7 +159,13 @@ jobs:
           files: |
             ${{ steps.release_context.outputs.release_dir }}/clapse
             ${{ steps.release_context.outputs.release_dir }}/clapse-bin
+            ${{ steps.release_context.outputs.release_dir }}/clapse-bin-linux-x64
+            ${{ steps.release_context.outputs.release_dir }}/clapse-bin-linux-arm64
+            ${{ steps.release_context.outputs.release_dir }}/clapse-bin-macos-x64
+            ${{ steps.release_context.outputs.release_dir }}/clapse-bin-macos-arm64
+            ${{ steps.release_context.outputs.release_dir }}/clapse-bin-win-x64.exe
             ${{ steps.release_context.outputs.release_dir }}/clapse_compiler.wasm
+            ${{ steps.release_context.outputs.release_dir }}/clapse_compiler.d.ts
             ${{ steps.release_context.outputs.release_dir }}/prelude.clapse
             ${{ steps.release_context.outputs.release_dir }}/wasm-behavior-fixture-map.json
             ${{ steps.release_context.outputs.release_dir }}/wasm-selfhost-artifact-fixture-map.json

@@ -95,16 +95,26 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
   optimization family must include invariant statements, typed/effect guard
   conditions, and at least one primary research citation with direct quote.
 - Keep CLI packaging docs aligned with runtime behavior: `just clapse-bin` and
-  `just install` bundle `artifacts/latest/clapse_compiler.wasm` into
+  `just install` bundle `artifacts/latest/clapse_compiler.wasm` (and
+  `artifacts/latest/clapse_compiler.d.ts` when present) into
   `artifacts/bin/clapse` when available, with `CLAPSE_COMPILER_WASM_PATH` as an
   override.
 - Keep release bundle docs aligned with `just release-candidate` and `.github`
   release verification outputs when release artifact membership changes (for
-  example when adding `prelude.clapse`).
+  example when adding `prelude.clapse` or `clapse_compiler.d.ts`).
+- Keep release bundling behavior aligned with implementation: release packaging
+  now copies the validated seed compiler artifact
+  (`CLAPSE_COMPILER_WASM_PATH`/`artifacts/latest`) rather than performing
+  kernel self-recompile during bundle creation.
+- Keep release metadata/checksum docs aligned with release artifact shape changes:
+  `scripts/release-metadata.mjs` now accepts repeated `--cli-bin` and writes a
+  `artifacts.cli_binaries` array in the manifest plus one checksum entry per
+  binary, while retaining `artifacts.cli_binary` for single/legacy compatibility.
 - Keep browser-runnable compiler contract aligned between `just release-candidate`,
   `.github/workflows/release-verify.yml`, and `scripts/check-browser-compiler-wasm.mjs`:
   released `clapse_compiler.wasm` must be native ABI (`clapse_run` + memory),
-  non-tiny, and pass compile-smoke (`main` export) checks.
+  non-tiny, and pass compile-smoke (`main` export) checks; release bundles must
+  publish `clapse_compiler.d.ts` when produced.
 - Keep formatter behavior aligned with runtime behavior: canonical formatter
   normalization (string/comment-preserving whitespace collapse, 100-character
   max-width wrapping at ` => `, ` = `, ` -> `, ` >>= `, ` >> `, ` && `,
