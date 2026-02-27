@@ -202,6 +202,7 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
 - `apply_class_law_rewrites` now applies boolean class-law rewrites through a bounded structural fixed-point driver (4 iterations or until stabilization) for static dispatch.
 - Boolean associative-idempotence chain reductions now execute in the same class-law fixed-point registry (`ClassLawRule`) and are constrained by bool-typed, pure-effect guards plus non-increasing-cost rewrite orientation.
 - Chain reductions are strictly one-way and one-step: `x && (x && y) -> x && y`, `x && (y && x) -> x && y`, `(x && y) && x -> x && y`, `(y && x) && x -> y && x` plus the four analogous `||` variants.
+- Compose associativity canonicalization is one-way in the registry: `compose f (compose g h) -> compose (compose f g) h` under compose-shape, pure, and compatibility guards; there is no inverse rule to avoid oscillation.
 - Boolean rewrites are now registry-driven consensus fixed-point rewrites in `ClassLawRule` (not a dedicated bool-collapse helper path).
 - The bool simplification set now includes idempotence (`x && x`, `x || x`) and remains gated by bool-type and pure-effect checks in class-law dispatch.
 - Boolean absorption and complement families are also in the same consensus registry-driven fixed-point set (for example `x && (x || y) -> x`, `x || (x && y) -> x`, `x && not x -> false`, `x || not x -> true`) with the same deterministic rule ordering and guard discipline.
@@ -218,3 +219,4 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
 - `scripts/run-clapse-compiler-wasm.mjs` now walks upward from the input directory (or cwd), compiles discovered plugin `.clapse` files to `.wasm`, and sends their paths as `plugin_wasm_paths` in the compile request.
 - Canonical plugin + memo fixture smoke path: `scripts/fib-memo-plugin-smoke.mjs` with
   `examples/plugins/memo_fib_plugin.clapse` and `examples/fib_memo.clapse`.
+- Factoring rewrites are now represented in the `ClassLawRule` registry with bool+pure guards and size-reducing orientation (`x && (x && y) -> x && y`, `x || (x || y) -> x || y`) under static-mode fixed-point scheduling.

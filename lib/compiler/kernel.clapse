@@ -24,7 +24,7 @@ data ParsedLine = ParsedLine MonadicLine Int
 data ChainCollect = ChainCollect MonadicLine Int Int Int Int
 data ClassMethodExpr = CBool bool | CVar i64 | CNot ClassMethodExpr | CAnd ClassMethodExpr ClassMethodExpr | COr ClassMethodExpr ClassMethodExpr
   | CId | CCompose ClassMethodExpr ClassMethodExpr | CMap ClassMethodExpr ClassMethodExpr
-data ClassLawRule = LawComposeLeftIdentity | LawComposeRightIdentity | LawMapIdentity | LawMapFusion | LawBoolDoubleNot | LawBoolAndTrueLeft | LawBoolAndTrueRight | LawBoolAndFalseLeft | LawBoolAndFalseRight | LawBoolOrTrueLeft | LawBoolOrTrueRight | LawBoolOrFalseLeft | LawBoolOrFalseRight | LawBoolAndAbsorbLeft | LawBoolAndAbsorbRight | LawBoolOrAbsorbLeft | LawBoolOrAbsorbRight | LawBoolAndComplementLeft | LawBoolAndComplementRight | LawBoolOrComplementLeft | LawBoolOrComplementRight | LawBoolAndConsensusNotOrLeft | LawBoolAndConsensusNotOrRight | LawBoolAndConsensusOrNotLeft | LawBoolAndConsensusOrNotRight | LawBoolOrConsensusNotAndLeft | LawBoolOrConsensusNotAndRight | LawBoolOrConsensusAndNotLeft | LawBoolOrConsensusAndNotRight | LawBoolAndChainLeftLeft | LawBoolAndChainLeftRight | LawBoolAndChainRightLeft | LawBoolAndChainRightRight | LawBoolOrChainLeftLeft | LawBoolOrChainLeftRight | LawBoolOrChainRightLeft | LawBoolOrChainRightRight | LawBoolIdempotent
+data ClassLawRule = LawComposeLeftIdentity | LawComposeRightIdentity | LawComposeAssociateRight | LawMapIdentity | LawMapFusion | LawBoolDoubleNot | LawBoolAndTrueLeft | LawBoolAndTrueRight | LawBoolAndFalseLeft | LawBoolAndFalseRight | LawBoolOrTrueLeft | LawBoolOrTrueRight | LawBoolOrFalseLeft | LawBoolOrFalseRight | LawBoolAndAbsorbLeft | LawBoolAndAbsorbRight | LawBoolOrAbsorbLeft | LawBoolOrAbsorbRight | LawBoolAndComplementLeft | LawBoolAndComplementRight | LawBoolOrComplementLeft | LawBoolOrComplementRight | LawBoolAndConsensusNotOrLeft | LawBoolAndConsensusNotOrRight | LawBoolAndConsensusOrNotLeft | LawBoolAndConsensusOrNotRight | LawBoolOrConsensusNotAndLeft | LawBoolOrConsensusNotAndRight | LawBoolOrConsensusAndNotLeft | LawBoolOrConsensusAndNotRight | LawBoolAndChainLeftLeft | LawBoolAndChainLeftRight | LawBoolAndChainRightLeft | LawBoolAndChainRightRight | LawBoolOrChainLeftLeft | LawBoolOrChainLeftRight | LawBoolOrChainRightLeft | LawBoolOrChainRightRight | LawBoolIdempotent
 data ClassMethodExprType = ClassMethodExprTypeBool | ClassMethodExprTypeFunctor | ClassMethodExprTypeCompose | ClassMethodExprTypeUnknown
 data ClassMethodExprEffect = ClassMethodExprEffectPure | ClassMethodExprEffectUnknown
 data ClassMethodExprSignature = ClassMethodExprSignature ClassMethodExprType ClassMethodExprEffect
@@ -158,42 +158,43 @@ class_method_expr_map_compatible expr =
 class_law_rules =
   ClassLawRuleListNode LawComposeLeftIdentity
     (ClassLawRuleListNode LawComposeRightIdentity
-      (ClassLawRuleListNode LawMapIdentity
-        (ClassLawRuleListNode LawMapFusion
-          (ClassLawRuleListNode LawBoolDoubleNot
-            (ClassLawRuleListNode LawBoolAndTrueLeft
-              (ClassLawRuleListNode LawBoolAndTrueRight
-                (ClassLawRuleListNode LawBoolAndFalseLeft
-                  (ClassLawRuleListNode LawBoolAndFalseRight
-                    (ClassLawRuleListNode LawBoolOrTrueLeft
-                      (ClassLawRuleListNode LawBoolOrTrueRight
-                        (ClassLawRuleListNode LawBoolOrFalseLeft
-                          (ClassLawRuleListNode LawBoolOrFalseRight
-                            (ClassLawRuleListNode LawBoolAndAbsorbLeft
-                              (ClassLawRuleListNode LawBoolAndAbsorbRight
-                                    (ClassLawRuleListNode LawBoolOrAbsorbLeft
-                                      (ClassLawRuleListNode LawBoolOrAbsorbRight
-                                        (ClassLawRuleListNode LawBoolAndComplementLeft
-                                          (ClassLawRuleListNode LawBoolAndComplementRight
-                                            (ClassLawRuleListNode LawBoolOrComplementLeft
-                                              (ClassLawRuleListNode LawBoolOrComplementRight
-                                                (ClassLawRuleListNode LawBoolAndConsensusNotOrLeft
-                                                  (ClassLawRuleListNode LawBoolAndConsensusNotOrRight
-                                                    (ClassLawRuleListNode LawBoolAndConsensusOrNotLeft
-                                                      (ClassLawRuleListNode LawBoolAndConsensusOrNotRight
-                                                        (ClassLawRuleListNode LawBoolOrConsensusNotAndLeft
-                                                              (ClassLawRuleListNode LawBoolOrConsensusNotAndRight
-                                                            (ClassLawRuleListNode LawBoolOrConsensusAndNotLeft
-                                                              (ClassLawRuleListNode LawBoolOrConsensusAndNotRight
-                                                                (ClassLawRuleListNode LawBoolAndChainLeftLeft
-                                                                  (ClassLawRuleListNode LawBoolAndChainLeftRight
-                                                                    (ClassLawRuleListNode LawBoolAndChainRightLeft
-                                                                      (ClassLawRuleListNode LawBoolAndChainRightRight
-                                                                        (ClassLawRuleListNode LawBoolOrChainLeftLeft
-                                                                          (ClassLawRuleListNode LawBoolOrChainLeftRight
-                                                                            (ClassLawRuleListNode LawBoolOrChainRightLeft
-                                                                              (ClassLawRuleListNode LawBoolOrChainRightRight
-                                                                                (ClassLawRuleListNode LawBoolIdempotent ClassLawRuleListNil)))))))))))))))))))
+      (ClassLawRuleListNode LawComposeAssociateRight
+        (ClassLawRuleListNode LawMapIdentity
+          (ClassLawRuleListNode LawMapFusion
+            (ClassLawRuleListNode LawBoolDoubleNot
+              (ClassLawRuleListNode LawBoolAndTrueLeft
+                (ClassLawRuleListNode LawBoolAndTrueRight
+                  (ClassLawRuleListNode LawBoolAndFalseLeft
+                    (ClassLawRuleListNode LawBoolAndFalseRight
+                      (ClassLawRuleListNode LawBoolOrTrueLeft
+                        (ClassLawRuleListNode LawBoolOrTrueRight
+                          (ClassLawRuleListNode LawBoolOrFalseLeft
+                            (ClassLawRuleListNode LawBoolOrFalseRight
+                              (ClassLawRuleListNode LawBoolAndAbsorbLeft
+                                (ClassLawRuleListNode LawBoolAndAbsorbRight
+                                  (ClassLawRuleListNode LawBoolOrAbsorbLeft
+                                    (ClassLawRuleListNode LawBoolOrAbsorbRight
+                                      (ClassLawRuleListNode LawBoolAndComplementLeft
+                                        (ClassLawRuleListNode LawBoolAndComplementRight
+                                          (ClassLawRuleListNode LawBoolOrComplementLeft
+                                            (ClassLawRuleListNode LawBoolOrComplementRight
+                                              (ClassLawRuleListNode LawBoolAndConsensusNotOrLeft
+                                                (ClassLawRuleListNode LawBoolAndConsensusNotOrRight
+                                                  (ClassLawRuleListNode LawBoolAndConsensusOrNotLeft
+                                                    (ClassLawRuleListNode LawBoolAndConsensusOrNotRight
+                                                      (ClassLawRuleListNode LawBoolOrConsensusNotAndLeft
+                                                        (ClassLawRuleListNode LawBoolOrConsensusNotAndRight
+                                                          (ClassLawRuleListNode LawBoolOrConsensusAndNotLeft
+                                                            (ClassLawRuleListNode LawBoolOrConsensusAndNotRight
+                                                              (ClassLawRuleListNode LawBoolAndChainLeftLeft
+                                                                (ClassLawRuleListNode LawBoolAndChainLeftRight
+                                                                  (ClassLawRuleListNode LawBoolAndChainRightLeft
+                                                                    (ClassLawRuleListNode LawBoolAndChainRightRight
+                                                                      (ClassLawRuleListNode LawBoolOrChainLeftLeft
+                                                                        (ClassLawRuleListNode LawBoolOrChainLeftRight
+                                                                          (ClassLawRuleListNode LawBoolOrChainRightLeft
+                                                                            (ClassLawRuleListNode LawBoolOrChainRightRight
+                                                                              (ClassLawRuleListNode LawBoolIdempotent ClassLawRuleListNil)))))))))))))))))))))
 
 class_law_rule_guard_with_signature rule expr signature =
   let is_bool_pure =
@@ -209,6 +210,13 @@ class_law_rule_guard_with_signature rule expr signature =
     LawComposeRightIdentity ->
       case expr of
         CCompose _ _ -> is_pure && class_method_expr_compose_compatible expr
+        _ -> false
+    LawComposeAssociateRight ->
+      case signature of
+        ClassMethodExprSignature ClassMethodExprTypeCompose ClassMethodExprEffectPure ->
+          case expr of
+            CCompose _ (CCompose _ _) -> true
+            _ -> false
         _ -> false
     LawMapIdentity ->
       case expr of
@@ -417,6 +425,10 @@ rewrite_class_law_rule rule expr =
         LawComposeRightIdentity ->
           case expr of
             CCompose f CId -> f
+            _ -> expr
+        LawComposeAssociateRight ->
+          case expr of
+            CCompose f (CCompose g h) -> CCompose (CCompose f g) h
             _ -> expr
         LawMapIdentity ->
           case expr of

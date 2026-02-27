@@ -163,6 +163,8 @@ Notes:
 - Keep rewrite rules in explicit registries with typed/effect guards.
 - Keep boolean rewrites in registry-consensus fixed-point groups with static dispatch guards and explicit convergence bounds.
 - Prefer law schemas over one-off peephole transforms.
+- Treat factoring rewrites as `ClassLawRule` registry rewrites with boolean-domain and purity guards; enforce one-way size-reducing orientation (`x && (x && y) -> x && y`, `x || (x || y) -> x || y`) to preserve invariants and convergence.
+- Treat compose-associativity similarly as one-way canonicalization in registry with explicit compose-shape/type/purity guards (`compose f (compose g h) -> compose (compose f g) h`); do not add the reverse rewrite to prevent oscillation.
 - Duplicate ad-hoc bool-collapse helper paths were removed in favor of a single, shared class-law registry (`ClassLawRule`) for boolean simplification.
 - Current boolean simplification remains a consensus fixed-point rewrite cluster (`ClassLawRule`) under existing type/effect/shape guard discipline.
 - Associative-idempotence chain reductions are now admitted only through the class-law registry cluster with static-dispatch-only selection, bool-type guards, and pure-effect admissibility; orientation is size-reducing (or cost-neutral in map-fusion cases) under fixed-point iteration.

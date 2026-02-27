@@ -195,6 +195,15 @@ The class rewrite stage sits before lowering and chooses method implementations 
   - if a rewrite step exceeds the budget, iteration halts and keeps the previous expression.
 - `ClassDispatchDynamic` keeps the law method unchanged.
 
+### Compose-associativity canonicalization policy
+
+- Compose associativity is treated as one-way canonicalization in the class-law registry:
+  - `compose f (compose g h) -> compose (compose f g) h` for canonical association.
+  - Registry match requires compose-shape, pure `ClassMethodExprEffect`, and
+    compose-compatible `ClassMethodExprType`.
+  - No reverse rewrite rule is registered, so `compose (compose f g) h` is not
+    expanded back, preventing rewrite oscillation.
+
 Bool fold set is now implemented through the class-law registry fixed-point rewriter (`ClassLawRule`), not through a standalone bool-collapse helper:
 
 - `not (not x) -> x` (double negation)
@@ -217,6 +226,9 @@ Bool fold set is now implemented through the class-law registry fixed-point rewr
 
 ## Registry-driven associative-idempotence chain reductions
 
+- Factoring is implemented through the same `ClassLawRule` registry used by other class-law rewrites.
+- `class_law_rule_guard` applies boolean-type and pure-effect side conditions before these rules fire.
+- Rewrite orientation is fixed to size-reducing shape, e.g. `x && (x && y) -> x && y`, `x || (x || y) -> x || y`.
 - `x && (x && y) -> x && y`
 - `x || (x || y) -> x || y`
 - `x && (y && x) -> x && y`
