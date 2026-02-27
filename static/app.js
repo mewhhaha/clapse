@@ -1,6 +1,7 @@
 import {
+  runArtifactsPipeline,
   runCompilePipeline,
-  tryUnifiedCompileDebug,
+  tryDebugCompile,
 } from "./compile_pipeline.js";
 import { extractWasmInstance } from "./wasm_runtime.js";
 
@@ -154,7 +155,7 @@ Prelude will load from the selected release.
 
       <section class="tab-panel" data-tab-panel="bundle" hidden>
         <pre id="bundle-output" class="result-output">
-(Unified compile+IR command output appears here.)
+(Compile debug mode output appears here.)
         </pre>
       </section>
 
@@ -846,32 +847,46 @@ async function runCompile({ forceFormat = false } = {}) {
 
     const compileSource = combinePreludeAndSource(preludeSource, source);
 
-    const unifiedResult = tryUnifiedCompileDebug(session, compileSource);
+    const debugCompileResult = tryDebugCompile(session, compileSource);
     let compileResponse;
     let artifactsResponse = null;
     let artifactsError = null;
-    let compileMode = "split";
-    let unifiedCommandNote = "(not available)";
+    let compileMode = "compile(debug)";
+    let compileNote = 'command="compile", compile_mode="debug"';
+    let irSource = "none";
 
-    if (unifiedResult.ok) {
-      compileMode = "unified";
-      unifiedCommandNote = unifiedResult.command;
-      compileResponse = unifiedResult.response;
-      artifactsResponse = {
-        ok: true,
-        artifacts: unifiedResult.response.artifacts,
-      };
+    if (debugCompileResult.ok) {
+      compileResponse = debugCompileResult.response;
+      if (
+        compileResponse.artifacts &&
+        typeof compileResponse.artifacts === "object" &&
+        !Array.isArray(compileResponse.artifacts)
+      ) {
+        artifactsResponse = {
+          ok: true,
+          artifacts: compileResponse.artifacts,
+        };
+        irSource = "compile response";
+      } else {
+        const artifactsResult = runArtifactsPipeline(session, compileSource);
+        artifactsResponse = artifactsResult.artifactsResponse;
+        artifactsError = artifactsResult.artifactsError;
+        if (artifactsError) {
+          compileNote = `${compileNote}; selfhost fallback failed`;
+          irSource = "unavailable";
+        } else {
+          compileNote = `${compileNote}; selfhost fallback`;
+          irSource = "selfhost-artifacts";
+        }
+      }
     } else {
       const splitResult = runCompilePipeline(session, compileSource);
       compileResponse = splitResult.compileResponse;
       artifactsResponse = splitResult.artifactsResponse;
       artifactsError = splitResult.artifactsError;
-      const unifiedErrors = unifiedResult.errors.map(
-        (entry) => `${entry.command}: ${entry.error}`,
-      );
-      if (unifiedErrors.length > 0) {
-        unifiedCommandNote = unifiedErrors.join("; ");
-      }
+      compileMode = "compile";
+      compileNote = `debug request failed: ${debugCompileResult.error}`;
+      irSource = artifactsError ? "unavailable" : "selfhost-artifacts";
     }
 
     if (typeof artifactsError === "string" && artifactsError.length > 0) {
@@ -906,8 +921,9 @@ async function runCompile({ forceFormat = false } = {}) {
         : [];
     elements.bundleOutput.textContent = [
       `mode: ${compileMode}`,
-      `unified_command: ${unifiedCommandNote}`,
+      `compile_request: ${compileNote}`,
       `compile_ok: ${compileResponse?.ok === true}`,
+      `ir_source: ${irSource}`,
       `ir_ok: ${artifactsResponse?.ok === true && !artifactsError}`,
       artifactKeys.length > 0
         ? `artifact_keys: ${artifactKeys.join(", ")}`

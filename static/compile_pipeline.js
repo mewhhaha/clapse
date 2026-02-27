@@ -1,19 +1,14 @@
-export function buildCompileRequest(inputSource) {
-  return {
+export function buildCompileRequest(inputSource, compileMode = null) {
+  const request = {
     command: "compile",
     input_path: "repl/input.clapse",
     input_source: inputSource,
     plugin_wasm_paths: [],
   };
-}
-
-export function buildUnifiedCompileRequest(command, inputSource) {
-  return {
-    command,
-    input_path: "repl/input.clapse",
-    input_source: inputSource,
-    plugin_wasm_paths: [],
-  };
+  if (typeof compileMode === "string" && compileMode.length > 0) {
+    request.compile_mode = compileMode;
+  }
+  return request;
 }
 
 export function buildArtifactsRequest(inputSource) {
@@ -24,7 +19,7 @@ export function buildArtifactsRequest(inputSource) {
   };
 }
 
-export function isUnifiedCompileResponse(response) {
+export function isCompileResponse(response) {
   if (!response || typeof response !== "object" || Array.isArray(response)) {
     return false;
   }
@@ -37,37 +32,29 @@ export function isUnifiedCompileResponse(response) {
   ) {
     return false;
   }
-  if (!response.artifacts || typeof response.artifacts !== "object") {
-    return false;
-  }
   return true;
 }
 
-export function tryUnifiedCompileDebug(session, inputSource) {
-  const command = "compile-debug";
+export function tryDebugCompile(session, inputSource) {
   try {
-    const response = session.call(
-      buildUnifiedCompileRequest(command, inputSource),
-    );
-    if (isUnifiedCompileResponse(response)) {
-      return { ok: true, command, response };
+    const response = session.call(buildCompileRequest(inputSource, "debug"));
+    if (isCompileResponse(response)) {
+      return { ok: true, response };
     }
     const error =
       response &&
       typeof response === "object" &&
       typeof response.error === "string"
         ? response.error
-        : "unexpected unified response";
-    return { ok: false, errors: [{ command, error }] };
+        : "unexpected compile response";
+    return { ok: false, error };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
-    return { ok: false, errors: [{ command, error }] };
+    return { ok: false, error };
   }
 }
 
-export function runCompilePipeline(session, inputSource) {
-  const compileResponse = session.call(buildCompileRequest(inputSource));
-
+export function runArtifactsPipeline(session, inputSource) {
   let artifactsResponse = null;
   let artifactsError = null;
   try {
@@ -75,6 +62,14 @@ export function runCompilePipeline(session, inputSource) {
   } catch (err) {
     artifactsError = err instanceof Error ? err.message : String(err);
   }
+  return { artifactsResponse, artifactsError };
+}
 
+export function runCompilePipeline(session, inputSource) {
+  const compileResponse = session.call(buildCompileRequest(inputSource));
+  const { artifactsResponse, artifactsError } = runArtifactsPipeline(
+    session,
+    inputSource,
+  );
   return { compileResponse, artifactsResponse, artifactsError };
 }
