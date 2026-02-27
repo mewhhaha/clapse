@@ -1,6 +1,0 @@
-main x =   let
-  y = x
-  z = y
-in  case z of
-  0 -> y
-  _ -> z

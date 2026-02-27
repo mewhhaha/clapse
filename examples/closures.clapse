@@ -1,3 +1,0 @@
-make_adder x = \y -> x + y
-apply f x = f x
-twice f x = f (f x)

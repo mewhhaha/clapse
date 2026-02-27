@@ -1,2 +1,0 @@
-loop n = loop n
-non_tail n = 1 + non_tail n

@@ -1,1 +1,0 @@
-main x = __is_other (__mk_pair_2 x (x + 1))

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Wasm3 Spec Builder"
-  short_description: "Build Wasm runtimes, compilers, and interop safely."
-  default_prompt: "Use the WebAssembly specifications to design and implement a Wasm-first runtime or language backend, including validation, data layout, module contracts, JS/browser/GPU interop, deterministic parallelism, and proof-guided optimization with feature-gated fallbacks."

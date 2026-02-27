@@ -1,5 +1,0 @@
-module util.math
-import util.base
-export double
-
-double x = (square x) + 1

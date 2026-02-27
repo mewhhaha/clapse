@@ -1,4 +1,0 @@
-# path|min_captures|required_scopes
-lib/compiler/prelude.clapse|430|keyword,type.definition,function,keyword.operator,constant.builtin.boolean
-lib/compiler/parser.clapse|500|keyword,type.definition,function,keyword.operator
-examples/game_of_life.clapse|120|keyword,function,keyword.operator

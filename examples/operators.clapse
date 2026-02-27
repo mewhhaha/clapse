@@ -1,8 +1,0 @@
-infixl 6 +.
-infixl 7 *.
-infixl 6 plus_op
-mod a b = a - (a / b) * b
-
-main x = x +. 1 *. 2
-backtick_main x = x `plus_op` 7
-backtick_function_main a b = a `mod` b

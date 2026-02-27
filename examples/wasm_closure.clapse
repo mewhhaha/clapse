@@ -1,3 +1,0 @@
-plus a b = a + b
-make_inc = plus 1
-main x = make_inc x

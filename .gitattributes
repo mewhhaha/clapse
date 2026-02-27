@@ -1,2 +1,0 @@
-artifacts/latest/*.wasm filter=lfs diff=lfs merge=lfs -text
-artifacts/bin/clapse filter=lfs diff=lfs merge=lfs -text

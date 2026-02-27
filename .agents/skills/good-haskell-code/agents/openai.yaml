@@ -1,4 +1,0 @@
-interface:
-  display_name: "Good Haskell (GHC 9.14)"
-  short_description: "Production Haskell patterns: correctness, performance, and maintainability."
-  default_prompt: "Use $good-haskell-code to review or improve GHC 9.14.1 Haskell with concise GOOD/BAD examples focused on correctness, invariants, API safety, and measurable performance."

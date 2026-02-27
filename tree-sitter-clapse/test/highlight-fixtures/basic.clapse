@@ -1,7 +1,0 @@
-data Token method path = Tok method path
-module Core
-import Parser
-export main, Token
-main t = case t of
-  "GET" -> 1
-  _ -> 0

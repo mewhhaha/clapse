@@ -1,2 +1,0 @@
-make_scale_and_offset scale offset = \x -> x * scale + offset
-main x = (make_scale_and_offset 3 5) x

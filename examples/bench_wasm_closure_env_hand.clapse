@@ -1,2 +1,0 @@
-scale_and_offset x = x * 3 + 5
-main x = scale_and_offset x

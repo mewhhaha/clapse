@@ -1,1 +1,0 @@
-main x = __get_pair_0 (__mk_pair_2 x (x + 1))

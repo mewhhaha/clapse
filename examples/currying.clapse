@@ -1,4 +1,0 @@
-add a b = a
-inc x = add x
-add_one x = add x 1
-over_apply x = add x 1 2

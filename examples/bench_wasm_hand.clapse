@@ -1,2 +1,0 @@
-hand x = x * x + (x * 3 - x / 2)
-main x = hand x

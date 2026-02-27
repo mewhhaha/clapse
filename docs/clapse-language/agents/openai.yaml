@@ -1,4 +1,0 @@
-interface:
-  display_name: "Clapse Language"
-  short_description: "AI-first Clapse syntax, optimizer, and WASM interop reference"
-  default_prompt: "Use this skill to answer and implement Clapse language/compiler/runtime work from current repo behavior; load only needed reference files."

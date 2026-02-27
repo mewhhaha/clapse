@@ -1,2 +1,0 @@
-sum4 a b c d = a + b + c + d
-main x = sum4 x (x + 1) (x + 2) (x + 3) + (sum4 x (x + 4) (x + 5) (x + 6) + sum4 x (x + 7) (x + 8) (x + 9))

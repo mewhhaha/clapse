@@ -1,9 +1,0 @@
-data Token method path = Tok method path
-
-is_method t = case t of
-  Tok method _ -> method
-
-path_value t = case t of
-  Tok _ path -> path
-
-main x = (is_method (Tok 1 x)) + (path_value (Tok 1 x))

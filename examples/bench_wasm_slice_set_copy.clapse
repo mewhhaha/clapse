@@ -1,6 +1,0 @@
-main =
-  let s0 = slice_new_u8 64
-      alias = s0
-      s1 = slice_set_u8 s0 0 1
-      s2 = slice_set_u8 alias 0 2
-  in add (slice_get_u8 alias 0) (slice_get_u8 s2 0)
