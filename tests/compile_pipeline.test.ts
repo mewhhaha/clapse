@@ -1,4 +1,7 @@
-import { runCompilePipeline } from "../static/compile_pipeline.js";
+import {
+  runCompilePipeline,
+  tryUnifiedCompileDebug,
+} from "../static/compile_pipeline.js";
 
 Deno.test(
   "runCompilePipeline keeps compile result when artifacts throw",
@@ -67,3 +70,60 @@ Deno.test(
     }
   },
 );
+
+Deno.test(
+  "tryUnifiedCompileDebug returns unified response when available",
+  () => {
+    const calls: string[] = [];
+    const session = {
+      call(request: { command: string }) {
+        calls.push(request.command);
+        if (request.command === "compile-debug") {
+          return {
+            ok: true,
+            wasm_base64: "AA==",
+            artifacts: {
+              "lowered_ir.txt": "lowered",
+              "collapsed_ir.txt": "collapsed",
+            },
+          };
+        }
+        throw new Error(`Unexpected command: ${request.command}`);
+      },
+    };
+
+    const result = tryUnifiedCompileDebug(session, "main = 1");
+    if (!result.ok) {
+      throw new Error("Expected unified compile command to succeed.");
+    }
+    if (result.command !== "compile-debug") {
+      throw new Error(`Unexpected unified command: ${result.command}`);
+    }
+    if (result.response.ok !== true) {
+      throw new Error("Expected unified response ok=true.");
+    }
+    if (calls.join(",") !== "compile-debug") {
+      throw new Error(`Unexpected command call order: ${calls.join(",")}`);
+    }
+  },
+);
+
+Deno.test("tryUnifiedCompileDebug reports unsupported command", () => {
+  const session = {
+    call(_request: { command: string }) {
+      return { ok: false, error: "unsupported command" };
+    },
+  };
+
+  const result = tryUnifiedCompileDebug(session, "main = 1");
+  if (result.ok) {
+    throw new Error("Expected unified compile command to fail.");
+  }
+  const errors = result.errors ?? [];
+  if (errors.length !== 1) {
+    throw new Error(`Expected one probe error, got ${errors.length}`);
+  }
+  if (errors[0].error !== "unsupported command") {
+    throw new Error(`Unexpected probe error: ${errors[0].error}`);
+  }
+});

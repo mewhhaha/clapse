@@ -1,4 +1,7 @@
-import { runCompilePipeline } from "./compile_pipeline.js";
+import {
+  runCompilePipeline,
+  tryUnifiedCompileDebug,
+} from "./compile_pipeline.js";
 import { extractWasmInstance } from "./wasm_runtime.js";
 
 const ReactGlobal = globalThis.React;
@@ -112,6 +115,14 @@ Prelude will load from the selected release.
       <button
         type="button"
         class="tab-button"
+        data-tab-target="bundle"
+        aria-selected="false"
+      >
+        Bundle
+      </button>
+      <button
+        type="button"
+        class="tab-button"
         data-tab-target="problems"
         aria-selected="false"
       >
@@ -141,6 +152,12 @@ Prelude will load from the selected release.
         </a>
       </section>
 
+      <section class="tab-panel" data-tab-panel="bundle" hidden>
+        <pre id="bundle-output" class="result-output">
+(Unified compile+IR command output appears here.)
+        </pre>
+      </section>
+
       <section class="tab-panel" data-tab-panel="problems" hidden>
         <pre id="problems-output" class="result-output">No problems.</pre>
       </section>
@@ -155,7 +172,7 @@ Prelude will load from the selected release.
           <span>Format before run</span>
         </label>
         <p id="settings-highlight-note" class="settings-note">
-          Release metadata is loaded from GitHub Releases and compiler wasm is fetched from release assets.
+          Release metadata is loaded from GitHub Releases, then resolved to mirrored local artifacts for browser-safe loading.
         </p>
       </section>
     </section>
@@ -197,7 +214,7 @@ const MIN_SUPPORTED_RELEASE_TAG = "v0.1.0.12";
 const MIN_SUPPORTED_RELEASE_VERSION = parseReleaseVersion(
   MIN_SUPPORTED_RELEASE_TAG,
 );
-const MIRRORED_RELEASE_TAGS = new Set(["v0.1.0.17"]);
+const MIRRORED_RELEASE_TAGS = new Set(["v0.1.0.17", "v0.1.0.18", "v0.1.0.19"]);
 const COMPILER_ASSET_NAME = "clapse_compiler.wasm";
 const COMPILER_ASSET_SUFFIX = "/artifacts/latest/clapse_compiler.wasm";
 const PRELUDE_ASSET_NAME = "prelude.clapse";
@@ -314,6 +331,7 @@ const elements = {
   settingsHighlightNote: document.getElementById("settings-highlight-note"),
   irOutput: document.getElementById("ir-output"),
   compileOutput: document.getElementById("compile-output"),
+  bundleOutput: document.getElementById("bundle-output"),
   problemsOutput: document.getElementById("problems-output"),
   wasmDownload: document.getElementById("wasm-download"),
   sourceTabButtons: [...document.querySelectorAll("[data-source-tab-target]")],
@@ -525,7 +543,7 @@ async function loadReleases() {
     const releases = await fetchReleaseMetadata();
     if (releases.length === 0) {
       throw new Error(
-        `No supported mirrored releases were returned by GitHub. Requires tag >= ${MIN_SUPPORTED_RELEASE_TAG} with compiler + prelude assets mirrored in this branch.`,
+        `No supported mirrored builds were found. Requires tag >= ${MIN_SUPPORTED_RELEASE_TAG} with compiler + prelude artifacts mirrored in this branch.`,
       );
     }
     state.releases = releases;
@@ -556,7 +574,10 @@ function renderReleaseSelect(releases) {
   for (const release of releases) {
     const option = document.createElement("option");
     option.value = release.tag;
-    option.textContent = `${release.tag} (${formatDate(release.publishedAt)})`;
+    const dateLabel = release.mirrorOnly
+      ? "tag-only mirror"
+      : formatDate(release.publishedAt);
+    option.textContent = `${release.tag} (${dateLabel})`;
     elements.releaseSelect.append(option);
   }
 
@@ -626,6 +647,31 @@ async function fetchReleaseMetadata() {
       publishedAt: String(entry.published_at ?? entry.created_at ?? ""),
       htmlUrl: String(entry.html_url ?? `${RELEASES_PAGE}/tag/${tag}`),
       assets,
+      mirrorOnly: false,
+    });
+  }
+
+  const existingTags = new Set(releases.map((release) => release.tag));
+  for (const tag of MIRRORED_RELEASE_TAGS) {
+    if (existingTags.has(tag)) {
+      continue;
+    }
+    const releaseVersion = parseReleaseVersion(tag);
+    if (!releaseVersion) {
+      continue;
+    }
+    if (
+      !MIN_SUPPORTED_RELEASE_VERSION ||
+      compareReleaseVersions(releaseVersion, MIN_SUPPORTED_RELEASE_VERSION) < 0
+    ) {
+      continue;
+    }
+    releases.push({
+      tag,
+      publishedAt: "",
+      htmlUrl: `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/tree/${tag}`,
+      assets: [{ name: COMPILER_ASSET_NAME }, { name: PRELUDE_ASSET_NAME }],
+      mirrorOnly: true,
     });
   }
 
@@ -800,8 +846,33 @@ async function runCompile({ forceFormat = false } = {}) {
 
     const compileSource = combinePreludeAndSource(preludeSource, source);
 
-    const { compileResponse, artifactsResponse, artifactsError } =
-      runCompilePipeline(session, compileSource);
+    const unifiedResult = tryUnifiedCompileDebug(session, compileSource);
+    let compileResponse;
+    let artifactsResponse = null;
+    let artifactsError = null;
+    let compileMode = "split";
+    let unifiedCommandNote = "(not available)";
+
+    if (unifiedResult.ok) {
+      compileMode = "unified";
+      unifiedCommandNote = unifiedResult.command;
+      compileResponse = unifiedResult.response;
+      artifactsResponse = {
+        ok: true,
+        artifacts: unifiedResult.response.artifacts,
+      };
+    } else {
+      const splitResult = runCompilePipeline(session, compileSource);
+      compileResponse = splitResult.compileResponse;
+      artifactsResponse = splitResult.artifactsResponse;
+      artifactsError = splitResult.artifactsError;
+      const unifiedErrors = unifiedResult.errors.map(
+        (entry) => `${entry.command}: ${entry.error}`,
+      );
+      if (unifiedErrors.length > 0) {
+        unifiedCommandNote = unifiedErrors.join("; ");
+      }
+    }
 
     if (typeof artifactsError === "string" && artifactsError.length > 0) {
       irIssue = `IR generation failed: ${artifactsError}`;
@@ -827,6 +898,21 @@ async function runCompile({ forceFormat = false } = {}) {
         irIssue = `IR generation failed: ${formatResponseError(artifactsResponse)}`;
       }
     }
+
+    const artifactKeys =
+      artifactsResponse?.artifacts &&
+      typeof artifactsResponse.artifacts === "object"
+        ? Object.keys(artifactsResponse.artifacts)
+        : [];
+    elements.bundleOutput.textContent = [
+      `mode: ${compileMode}`,
+      `unified_command: ${unifiedCommandNote}`,
+      `compile_ok: ${compileResponse?.ok === true}`,
+      `ir_ok: ${artifactsResponse?.ok === true && !artifactsError}`,
+      artifactKeys.length > 0
+        ? `artifact_keys: ${artifactKeys.join(", ")}`
+        : "artifact_keys: (none)",
+    ].join("\n");
 
     if (compileResponse?.ok === true) {
       const wasmBase64 = String(compileResponse.wasm_base64 ?? "");
