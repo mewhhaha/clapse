@@ -91,6 +91,9 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
 - Keep `docs/clapse-language/references/pass-manifest.json` synchronized with
   `docs/clapse-language/references/optimization-and-collapse-ir.md`; status
   labels are machine-checked by `scripts/check-pass-manifest.mjs`.
+- Keep `docs/clapse-language/references/optimization-and-collapse-ir.md` and `RESEARCH.md` synchronized when
+  registry-driven boolean rewrites change (fixed-point mode, strict purity/type guards, or
+  size-reducing orientation).
 - Keep `RESEARCH.md` current as the optimization-theory ledger: every new
   optimization family must include invariant statements, typed/effect guard
   conditions, and at least one primary research citation with direct quote.
@@ -197,8 +200,13 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
 - `clapse_run` now uses the staged request from `collapse_pipeline_run` as a passthrough value, derives `OwnershipRewriteMode` through a dedicated helper (`collapse_pipeline_slice_write_policy`), and threads that mode through request-scoped response builders.
 - `slice_set_u8` rewrite now uses explicit linear writes on the copied descriptor in the COW path (`slice_set_u8_cow`) so copy-on-write remains descriptor-local and does not accidentally recurse into COW policy.
 - `apply_class_law_rewrites` now applies boolean class-law rewrites through a bounded structural fixed-point driver (4 iterations or until stabilization) for static dispatch.
-- Boolean simplification now runs through the class-law rule registry (`ClassLawRule`) rather than a dedicated bool-collapse helper path.
+- Boolean associative-idempotence chain reductions now execute in the same class-law fixed-point registry (`ClassLawRule`) and are constrained by bool-typed, pure-effect guards plus non-increasing-cost rewrite orientation.
+- Chain reductions are strictly one-way and one-step: `x && (x && y) -> x && y`, `x && (y && x) -> x && y`, `(x && y) && x -> x && y`, `(y && x) && x -> y && x` plus the four analogous `||` variants.
+- Boolean rewrites are now registry-driven consensus fixed-point rewrites in `ClassLawRule` (not a dedicated bool-collapse helper path).
 - The bool simplification set now includes idempotence (`x && x`, `x || x`) and remains gated by bool-type and pure-effect checks in class-law dispatch.
+- Boolean absorption and complement families are also in the same consensus registry-driven fixed-point set (for example `x && (x || y) -> x`, `x || (x && y) -> x`, `x && not x -> false`, `x || not x -> true`) with the same deterministic rule ordering and guard discipline.
+- One-way consensus rewrites were added as dedicated registry laws with strict boolean+pure guards and exact structural matches: `x && (not x || y) -> x && y`, `x && (y || not x) -> x && y`, `x || (not x && y) -> x || y`, `x || (y && not x) -> x || y`, plus the outer-operand-swapped equivalents.
+- These complement/absorption rewrites are applied only through `ClassLawRule` registry dispatch; existing guard checks (`class_law_rule_guard`) are still enforced.
 - Class-law fixed-point rewriting is structural-cost guarded (`class_method_expr_cost`) with a bounded growth budget: default zero-growth, with a `+1` budget only when map-fusion candidates are present.
 - Class-law rewriting now uses an explicit rule registry (`ClassLawRule`) with deterministic ordering, and adds lightweight local expression metadata (`ClassMethodExprType`, `ClassMethodExprEffect`) plus per-rule guarded dispatch checks before rewriting (`class_law_rule_guard`): compose laws require a pure `CCompose` shape with non-boolean compatible inputs, and map laws require a pure `CMap` shape with non-boolean compatible inputs.
 

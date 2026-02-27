@@ -161,12 +161,16 @@ Notes:
 ## 6. Practical implications for Clapse optimizer evolution
 
 - Keep rewrite rules in explicit registries with typed/effect guards.
+- Keep boolean rewrites in registry-consensus fixed-point groups with static dispatch guards and explicit convergence bounds.
 - Prefer law schemas over one-off peephole transforms.
 - Duplicate ad-hoc bool-collapse helper paths were removed in favor of a single, shared class-law registry (`ClassLawRule`) for boolean simplification.
+- Current boolean simplification remains a consensus fixed-point rewrite cluster (`ClassLawRule`) under existing type/effect/shape guard discipline.
+- Associative-idempotence chain reductions are now admitted only through the class-law registry cluster with static-dispatch-only selection, bool-type guards, and pure-effect admissibility; orientation is size-reducing (or cost-neutral in map-fusion cases) under fixed-point iteration.
 - Add pass metadata (status + invariant owner + proof/validator hook).
 - Keep fixed-point passes bounded and cost-policy controlled.
 - Couple optimization rollout with differential behavior checks and validator evidence.
 - In this implementation, strict class-law boolean idempotence (`x && x`, `x || x`) is now active and constrained by boolean-type plus purity/effect guards.
+- Boolean absorption and complement families are now admitted to the same law-first optimizer path (`ClassLawRule` fixed-point driver), with side-condition checks for boolean type + purity/strictness/effect metadata (`x && (x || y)`, `x || (x && y)`, `x && not x`, `x || not x`).
 
 ## 7. Open research-backed tasks
 
