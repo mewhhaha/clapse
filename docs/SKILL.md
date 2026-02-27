@@ -227,3 +227,7 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
 - Canonical plugin + memo fixture smoke path: `scripts/fib-memo-plugin-smoke.mjs` with
   `examples/plugins/memo_fib_plugin.clapse` and `examples/fib_memo.clapse`.
 - Factoring rewrites are now represented in the `ClassLawRule` registry with bool+pure guards and size-reducing orientation (`x && (x && y) -> x && y`, `x || (x || y) -> x || y`) under static-mode fixed-point scheduling.
+
+### Root-shape class-law selection (deterministic)
+
+Root-shape class-law dispatch now uses deterministic rule grouping by expression root (`CCompose`, `CMap`, boolean root forms) before fixed-point application. This selection change does not alter any cost/guard policy, strict-decrease check, or static/dynamic dispatch gates.

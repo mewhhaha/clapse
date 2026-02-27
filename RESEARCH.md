@@ -194,3 +194,5 @@ When adding a new optimization family:
 2. Add at least one primary research citation with a short direct quote.
 3. State the concrete Clapse pass-level implication.
 4. Record what check/proof/validator will enforce it.
+
+- Root-shape class-law selection now dispatches deterministically by expression root bucket before fixed-point rule matching; this is an optimization of selection order only and does not change guard predicates, `ClassDispatch*` gating, or strict-decrease/cost policy.

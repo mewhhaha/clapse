@@ -142,6 +142,15 @@ Current rule model used in the kernel rewrite path:
 - Freeze is currently a conservative classification in kernel analysis, not a literal IR flag:
   freeze-like writes keep the operation on COW paths.
 
+### Root-shape class-law dispatch selection (deterministic)
+
+Rule dispatch now first classifies the expression by root shape (for example `CCompose`, `CMap`, or boolean composition/operator shapes), then checks candidate `ClassLawRule`s in stable registry order within that shape bucket. This makes root-shape selection deterministic and reproducible across runs while preserving existing rewrite semantics.
+
+This optimization does **not** change class-law policy behavior:
+- `class_law_rule_guard` checks remain unchanged (shape/type/purity/effect gates).
+- `ClassDispatchStatic`/`ClassDispatchDynamic` eligibility is unchanged.
+- fixed-point control remains bounded by the existing cost policy and strict-decrease governance (`class_method_expr_cost`).
+
 ### Scope and lifetime behavior (function-local vs escaping)
 
 - Function-local write-chain scope for this kernel pass means:

@@ -155,6 +155,77 @@ class_method_expr_map_compatible expr =
       in class_method_expr_type_allows_map f_type && class_method_expr_type_allows_map xs_type
     _ -> false
 
+class_law_rules_for_compose =
+  ClassLawRuleListNode LawComposeLeftIdentity
+    (ClassLawRuleListNode LawComposeRightIdentity
+      (ClassLawRuleListNode LawComposeAssociateRight ClassLawRuleListNil))
+
+class_law_rules_for_map =
+  ClassLawRuleListNode LawMapIdentity
+    (ClassLawRuleListNode LawMapFusion ClassLawRuleListNil)
+
+class_law_rules_for_not =
+  ClassLawRuleListNode LawBoolDoubleNot
+    (ClassLawRuleListNode LawBoolNotTrue
+      (ClassLawRuleListNode LawBoolNotFalse ClassLawRuleListNil))
+
+class_law_rules_for_and =
+  ClassLawRuleListNode LawBoolAndTrueLeft
+    (ClassLawRuleListNode LawBoolAndTrueRight
+      (ClassLawRuleListNode LawBoolAndFalseLeft
+        (ClassLawRuleListNode LawBoolAndFalseRight
+          (ClassLawRuleListNode LawBoolAndAbsorbLeft
+            (ClassLawRuleListNode LawBoolAndAbsorbRight
+              (ClassLawRuleListNode LawBoolAndComplementLeft
+                (ClassLawRuleListNode LawBoolAndComplementRight
+                  (ClassLawRuleListNode LawBoolAndComplementChainLeftLeft
+                    (ClassLawRuleListNode LawBoolAndComplementChainLeftRight
+                      (ClassLawRuleListNode LawBoolAndComplementChainRightLeft
+                        (ClassLawRuleListNode LawBoolAndComplementChainRightRight
+                          (ClassLawRuleListNode LawBoolAndConsensusNotOrLeft
+                            (ClassLawRuleListNode LawBoolAndConsensusNotOrRight
+                              (ClassLawRuleListNode LawBoolAndConsensusOrNotLeft
+                                (ClassLawRuleListNode LawBoolAndConsensusOrNotRight
+                                  (ClassLawRuleListNode LawBoolAndChainLeftLeft
+                                    (ClassLawRuleListNode LawBoolAndChainLeftRight
+                                      (ClassLawRuleListNode LawBoolAndChainRightLeft
+                                        (ClassLawRuleListNode LawBoolAndChainRightRight
+                                          (ClassLawRuleListNode LawBoolIdempotent ClassLawRuleListNil)))))))))))))))))
+
+class_law_rules_for_or =
+  ClassLawRuleListNode LawBoolOrTrueLeft
+    (ClassLawRuleListNode LawBoolOrTrueRight
+      (ClassLawRuleListNode LawBoolOrFalseLeft
+        (ClassLawRuleListNode LawBoolOrFalseRight
+          (ClassLawRuleListNode LawBoolOrAbsorbLeft
+            (ClassLawRuleListNode LawBoolOrAbsorbRight
+              (ClassLawRuleListNode LawBoolOrComplementLeft
+                (ClassLawRuleListNode LawBoolOrComplementRight
+                  (ClassLawRuleListNode LawBoolOrComplementChainLeftLeft
+                    (ClassLawRuleListNode LawBoolOrComplementChainLeftRight
+                      (ClassLawRuleListNode LawBoolOrComplementChainRightLeft
+                        (ClassLawRuleListNode LawBoolOrComplementChainRightRight
+                          (ClassLawRuleListNode LawBoolOrConsensusNotAndLeft
+                            (ClassLawRuleListNode LawBoolOrConsensusNotAndRight
+                              (ClassLawRuleListNode LawBoolOrConsensusAndNotLeft
+                                (ClassLawRuleListNode LawBoolOrConsensusAndNotRight
+                                  (ClassLawRuleListNode LawBoolOrChainLeftLeft
+                                    (ClassLawRuleListNode LawBoolOrChainLeftRight
+                                      (ClassLawRuleListNode LawBoolOrChainRightLeft
+                                        (ClassLawRuleListNode LawBoolOrChainRightRight
+                                          (ClassLawRuleListNode LawBoolIdempotent ClassLawRuleListNil)))))))))))))))))
+
+class_law_rules_for_expr expr =
+  case expr of
+    CNot _ -> class_law_rules_for_not
+    CAnd _ _ -> class_law_rules_for_and
+    COr _ _ -> class_law_rules_for_or
+    CCompose _ _ -> class_law_rules_for_compose
+    CMap _ _ -> class_law_rules_for_map
+    CBool _ -> ClassLawRuleListNil
+    CVar _ -> ClassLawRuleListNil
+    _ -> class_law_rules
+
 class_law_rules =
   ClassLawRuleListNode LawComposeLeftIdentity
     (ClassLawRuleListNode LawComposeRightIdentity
@@ -837,7 +908,8 @@ rewrite_class_law_rules_once_list rules expr =
       in rewrite_class_law_rules_once_list rest expr1
 
 rewrite_class_law_expr_once expr =
-  rewrite_class_law_rules_once_list class_law_rules (rewrite_bool_law_expr expr)
+  let expr1 = rewrite_bool_law_expr expr
+  in rewrite_class_law_rules_once_list (class_law_rules_for_expr expr1) expr1
 
 class_law_rewrite_stages = 4
 
