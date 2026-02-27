@@ -83,9 +83,11 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
   ` || `, and monadic chain normalization for `>>=`/`>>`) now runs in the
   Clapse kernel and is returned by the `format` command response already
   normalized.
-- Keep formatter resilience docs aligned with runtime behavior: CLI/LSP surface
-  formatter errors/overflows directly (including stack-size issues), and return
-  the kernel `formatted` result only from successful `format` responses.
+- Keep formatter resilience docs aligned with runtime behavior:
+  by default, CLI/LSP formatter stack overflows fall back to returning input
+  unchanged with a stderr hint (including wasm stack offsets + map command).
+  Set `CLAPSE_FORMAT_STACK_IDENTITY_FALLBACK=0` to surface stack overflows as
+  hard formatter errors.
 - Add formatter non-progress recursion guard telemetry in the kernel: recursive
   chain walkers now emit `ok:false` with a function-specific message when the
   formatter recursion budget is exhausted, helping isolate exact recursion loops.

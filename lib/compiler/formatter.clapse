@@ -228,23 +228,23 @@ format_find_wrap_token_loop request_handle source start len width i in_string es
     _ ->
       let at = start + i
           b = slice_get_u8 request_handle at
-          max_i = max2 width len
+          max_i = len
           is_quote = b == format_quote_byte
           is_escape = b == format_escape_byte
       in case in_string of
         true ->
           case escaped of
-            true -> format_find_wrap_token_loop request_handle source start len max_i (i + 1) true false best
+            true -> format_find_wrap_token_loop request_handle source start len width (i + 1) true false best
             _ ->
               case is_escape of
-                true -> format_find_wrap_token_loop request_handle source start len max_i (i + 1) true true best
+                true -> format_find_wrap_token_loop request_handle source start len width (i + 1) true true best
                 _ ->
                   case is_quote of
-                    true -> format_find_wrap_token_loop request_handle source start len max_i (i + 1) false false best
-                    _ -> format_find_wrap_token_loop request_handle source start len max_i (i + 1) true false best
+                    true -> format_find_wrap_token_loop request_handle source start len width (i + 1) false false best
+                    _ -> format_find_wrap_token_loop request_handle source start len width (i + 1) true false best
         _ ->
           case is_quote of
-            true -> format_find_wrap_token_loop request_handle source start len max_i (i + 1) true false best
+            true -> format_find_wrap_token_loop request_handle source start len width (i + 1) true false best
             _ ->
               let has_space = (b == format_space_byte)
                   token1 =
@@ -291,15 +291,14 @@ format_find_wrap_token_loop request_handle source start len width i in_string es
                     && (slice_get_u8 request_handle (at + 3) == format_space_byte)
                   has_wrap_token = token1 || token2 || token3 || token4 || token5 || token6 || token7
               in case has_wrap_token of
-                true -> format_find_wrap_token_loop request_handle source start len max_i (i + 1) false false (Just i)
-                _ -> format_find_wrap_token_loop request_handle source start len max_i (i + 1) false false best
+                true -> format_find_wrap_token_loop request_handle source start len width (i + 1) false false (Just i)
+                _ -> format_find_wrap_token_loop request_handle source start len width (i + 1) false false best
 
 format_find_wrap_break request_handle line start len width =
-  let max_i = max2 width len
-      token = format_find_wrap_token_loop request_handle line start len max_i 0 false false Nothing
+  let token = format_find_wrap_token_loop request_handle line start len width 0 false false Nothing
     in case token of
       Just i -> Just i
-      _ -> format_find_wrap_whitespace request_handle line start len max_i
+      _ -> format_find_wrap_whitespace request_handle line start len width
 
 format_find_wrap_whitespace request_handle source start len width =
   case (width <= 0) of
@@ -414,8 +413,11 @@ format_normalize_source_lines request_handle ownership_mode source source_len ou
             true -> line_end - 1
             _ -> line_end
           line_len = content_end - i
+          use_raw_line = line_len > format_long_line_scan_limit
           scratch = slice_new_u8 (line_len + format_default_line_width + 8)
-          scratch_len = format_normalize_line request_handle ownership_mode source i content_end scratch
+          scratch_len = case use_raw_line of
+            true -> format_copy_segment request_handle ownership_mode source i scratch 0 line_len
+            _ -> format_normalize_line request_handle ownership_mode source i content_end scratch
           content_start = format_leading_space_len request_handle 0 scratch_len 0
           has_next_line = line_end < source_len
           is_empty_line = line_len <= 0
@@ -544,38 +546,43 @@ format_monadic_operator_length request_handle source op_start end =
     _ -> 2
 
 format_parse_monadic_line request_handle source line_start line_end =
-  let content_end = format_find_comment_boundary request_handle line_start line_end
-      has_content = format_has_nonspace request_handle line_start content_end
-  in case has_content of
-    false -> ParsedLine MonadicLineNil 0
+  let line_len = line_end - line_start
+      is_line_too_long = line_len > format_long_line_scan_limit
+  in case is_line_too_long of
+    true -> ParsedLine MonadicLineNil 0
     _ ->
-      let indent = format_leading_space_len request_handle line_start line_end 0
-          op_pos = format_find_monadic_operator request_handle source line_start content_end 0 false false
-      in case op_pos of
-        Nothing -> ParsedLine MonadicLineNil 0
-        Just op_pos ->
-          let op_len = format_monadic_operator_length request_handle source op_pos content_end
-              rest_start = format_skip_spaces request_handle (op_pos + op_len) content_end
-              rest_end = format_trim_right request_handle content_end rest_start
-              has_lambda = case (rest_start < rest_end) of
-                true -> format_has_backslash_arrow request_handle rest_start rest_end
-                _ -> false
-              has_rest = rest_start < rest_end
-              is_multiline =
-                has_rest
-                && (rest_end - rest_start > 1)
-                && (slice_get_u8 request_handle rest_start == format_backslash_byte)
-                && (slice_get_u8 request_handle (rest_end - 2) == format_dash_byte)
-                && (slice_get_u8 request_handle (rest_end - 1) == format_gt_byte)
-              has_lambda_flag = case has_lambda of
-                true -> 1
-                _ -> 0
-              is_multiline_flag = case is_multiline of
-                true -> 2
-                _ -> 0
-              flags =
-                has_lambda_flag + is_multiline_flag
-              in ParsedLine (MonadicLineNode line_start line_end indent op_pos op_len rest_start MonadicLineNil) flags
+      let content_end = format_find_comment_boundary request_handle line_start line_end
+      has_content = format_has_nonspace request_handle line_start content_end
+      in case has_content of
+        false -> ParsedLine MonadicLineNil 0
+        _ ->
+          let indent = format_leading_space_len request_handle line_start line_end 0
+              op_pos = format_find_monadic_operator request_handle source line_start content_end 0 false false
+          in case op_pos of
+            Nothing -> ParsedLine MonadicLineNil 0
+            Just op_pos ->
+              let op_len = format_monadic_operator_length request_handle source op_pos content_end
+                  rest_start = format_skip_spaces request_handle (op_pos + op_len) content_end
+                  rest_end = format_trim_right request_handle content_end rest_start
+                  has_lambda = case (rest_start < rest_end) of
+                    true -> format_has_backslash_arrow request_handle rest_start rest_end
+                    _ -> false
+                  has_rest = rest_start < rest_end
+                  is_multiline =
+                    has_rest
+                    && (rest_end - rest_start > 1)
+                    && (slice_get_u8 request_handle rest_start == format_backslash_byte)
+                    && (slice_get_u8 request_handle (rest_end - 2) == format_dash_byte)
+                    && (slice_get_u8 request_handle (rest_end - 1) == format_gt_byte)
+                  has_lambda_flag = case has_lambda of
+                    true -> 1
+                    _ -> 0
+                  is_multiline_flag = case is_multiline of
+                    true -> 2
+                    _ -> 0
+                  flags =
+                    has_lambda_flag + is_multiline_flag
+                  in ParsedLine (MonadicLineNode line_start line_end indent op_pos op_len rest_start MonadicLineNil) flags
 
 format_monadic_indent node =
   case node of
@@ -951,6 +958,7 @@ find_source_start request_handle i req_len =
   scan_find_json_key_value_start request_handle i req_len "\"source\""
 
 format_nonprogress_guard_limit = 1024
+format_long_line_scan_limit = 512
 
 format_nonprogress_error_message error =
   case error of

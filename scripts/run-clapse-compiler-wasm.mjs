@@ -658,7 +658,17 @@ function buildFormatterStackMapHint(wasmPath, err) {
   ].join("\n");
 }
 
-async function formatRequestWithFallback(wasmPath, request, _source, ctx) {
+function isFormatterStackIdentityFallbackEnabled() {
+  const raw = String(Deno.env.get("CLAPSE_FORMAT_STACK_IDENTITY_FALLBACK") ?? "")
+    .trim()
+    .toLowerCase();
+  if (raw === "0" || raw === "false" || raw === "off" || raw === "no") {
+    return false;
+  }
+  return true;
+}
+
+async function formatRequestWithFallback(wasmPath, request, source, ctx) {
   try {
     const response = await callCompilerWasm(wasmPath, request);
     return decodeFormatResponse(response, ctx);
@@ -667,6 +677,14 @@ async function formatRequestWithFallback(wasmPath, request, _source, ctx) {
     const isStackOverflow = message.includes("Maximum call stack size exceeded");
     if (isStackOverflow) {
       const hint = buildFormatterStackMapHint(wasmPath, err);
+      if (isFormatterStackIdentityFallbackEnabled()) {
+        const lines = [
+          `[clapse] formatter stack overflow in ${ctx}; returning input unchanged`,
+          hint.trim(),
+        ].filter((line) => line.length > 0);
+        console.error(lines.join("\n"));
+        return source;
+      }
       if (err instanceof Error) {
         err.message = `format error: ${ctx}: ${message}${hint}`;
         throw err;
