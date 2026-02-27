@@ -472,6 +472,54 @@ class_law_rule_guard_with_signature rule expr signature =
 class_law_rule_guard rule expr =
   class_law_rule_guard_with_signature rule expr (class_method_expr_signature expr)
 
+class_law_rule_requires_strict_decrease rule =
+  case rule of
+    LawBoolDoubleNot -> true
+    LawBoolNotTrue -> true
+    LawBoolNotFalse -> true
+    LawBoolAndTrueLeft -> true
+    LawBoolAndTrueRight -> true
+    LawBoolAndFalseLeft -> true
+    LawBoolAndFalseRight -> true
+    LawBoolOrTrueLeft -> true
+    LawBoolOrTrueRight -> true
+    LawBoolOrFalseLeft -> true
+    LawBoolOrFalseRight -> true
+    LawBoolAndAbsorbLeft -> true
+    LawBoolAndAbsorbRight -> true
+    LawBoolOrAbsorbLeft -> true
+    LawBoolOrAbsorbRight -> true
+    LawBoolAndComplementLeft -> true
+    LawBoolAndComplementRight -> true
+    LawBoolAndComplementChainLeftLeft -> true
+    LawBoolAndComplementChainLeftRight -> true
+    LawBoolAndComplementChainRightLeft -> true
+    LawBoolAndComplementChainRightRight -> true
+    LawBoolOrComplementLeft -> true
+    LawBoolOrComplementRight -> true
+    LawBoolOrComplementChainLeftLeft -> true
+    LawBoolOrComplementChainLeftRight -> true
+    LawBoolOrComplementChainRightLeft -> true
+    LawBoolOrComplementChainRightRight -> true
+    LawBoolAndConsensusNotOrLeft -> true
+    LawBoolAndConsensusNotOrRight -> true
+    LawBoolAndConsensusOrNotLeft -> true
+    LawBoolAndConsensusOrNotRight -> true
+    LawBoolOrConsensusNotAndLeft -> true
+    LawBoolOrConsensusNotAndRight -> true
+    LawBoolOrConsensusAndNotLeft -> true
+    LawBoolOrConsensusAndNotRight -> true
+    LawBoolAndChainLeftLeft -> true
+    LawBoolAndChainLeftRight -> true
+    LawBoolAndChainRightLeft -> true
+    LawBoolAndChainRightRight -> true
+    LawBoolOrChainLeftLeft -> true
+    LawBoolOrChainLeftRight -> true
+    LawBoolOrChainRightLeft -> true
+    LawBoolOrChainRightRight -> true
+    LawBoolIdempotent -> true
+    _ -> false
+
 rewrite_class_law_rule rule expr =
   let signature = class_method_expr_signature expr
   in case class_law_rule_guard_with_signature rule expr signature of
@@ -768,11 +816,24 @@ rewrite_class_law_rule rule expr =
                 _ -> expr
             _ -> expr
 
+apply_class_law_rule_once rule expr =
+  let candidate = rewrite_class_law_rule rule expr
+      before_cost = class_method_expr_cost expr
+      candidate_cost = class_method_expr_cost candidate
+      cost_ok = class_law_expr_cost_ok expr candidate
+      strict_ok =
+        case class_law_rule_requires_strict_decrease rule of
+          true -> candidate_cost < before_cost
+          _ -> true
+  in case cost_ok && strict_ok of
+    true -> candidate
+    _ -> expr
+
 rewrite_class_law_rules_once_list rules expr =
   case rules of
     ClassLawRuleListNil -> expr
     ClassLawRuleListNode rule rest ->
-      let expr1 = rewrite_class_law_rule rule expr
+      let expr1 = apply_class_law_rule_once rule expr
       in rewrite_class_law_rules_once_list rest expr1
 
 rewrite_class_law_expr_once expr =

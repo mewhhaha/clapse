@@ -190,10 +190,10 @@ The class rewrite stage sits before lowering and chooses method implementations 
   - composition rules only match on `CCompose` expressions, require pure method expressions, and require non-boolean compose-compatible inputs.
   - functor/map rules only match on `CMap` expressions, require pure method expressions, and require non-boolean map-compatible inputs.
   - boolean simplification rules additionally require boolean-type metadata and pure-effect metadata for both subject and argument expressions.
-- fixed-point iteration is structural-cost guarded (`class_method_expr_cost`) with a bounded rule-aware growth budget:
-  - default budget is zero growth,
-  - map-fusion-candidate expressions allow a budget of `+1`,
-  - if a rewrite step exceeds the budget, iteration halts and keeps the previous expression.
+- fixed-point iteration is structural-cost guarded (`class_method_expr_cost`) under a rule-level cost policy in the `ClassLawRule` registry:
+  - boolean class-law rewrites must apply only when the rewrite strictly decreases cost,
+  - compose/map rewrites retain bounded growth governance with default `+0` and a `+1` exception only for map-fusion candidates,
+  - if a rewrite step exceeds its allowed budget, iteration halts and keeps the previous expression.
 - `ClassDispatchDynamic` keeps the law method unchanged.
 
 Boolean constant-negation rewrites are class-law registry rewrites subject to bool+pure guard discipline.
@@ -251,7 +251,7 @@ These rules run in the same static `ClassLawRule` fixed-point driver as other bo
 - pure/effect discipline via `class_law_rule_guard`
 - strictness- and shape-compatible subjects
 
-Rewrites use a size-reducing orientation (no growth in `class_method_expr_cost`, with the existing `+1` exception only for map-fusion candidates) and therefore terminate under the same bounded fixed-point convergence rule.
+Boolean rewrites now use strict-cost governance in the fixed-point policy (`class_method_expr_cost` must strictly decrease), while compose/map rewrites keep bounded growth policy (`0` growth, `+1` only for map-fusion candidates) to preserve termination and deterministic convergence.
 
 Boolean simplification, absorption, complement, and nested-complement-chain annihilation now run as the same consensus rewrite cluster:
 - all laws share the same deterministic registry order and fixed-point convergence gate,

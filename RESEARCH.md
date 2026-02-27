@@ -168,8 +168,9 @@ Notes:
 - Treat compose-associativity similarly as one-way canonicalization in registry with explicit compose-shape/type/purity guards (`compose f (compose g h) -> compose (compose f g) h`); do not add the reverse rewrite to prevent oscillation.
 - Duplicate ad-hoc bool-collapse helper paths were removed in favor of a single, shared class-law registry (`ClassLawRule`) for boolean simplification.
 - Current boolean simplification remains a consensus fixed-point rewrite cluster (`ClassLawRule`) under existing type/effect/shape guard discipline.
-- Constant-negation laws are also admitted through the same cluster under bool+pure guards.
+- Constant-negation laws are also admitted through the same cluster under bool+pure guards and strict cost-decrease policy in fixed-point governance.
 - Associative-idempotence chain reductions are now admitted only through the class-law registry cluster with static-dispatch-only selection, bool-type guards, and pure-effect admissibility; orientation is size-reducing (or cost-neutral in map-fusion cases) under fixed-point iteration.
+- Compose and map registry rewrites now use bounded cost governance (`0` default growth, `+1` map-fusion exception); boolean-class-law rewrites in that cluster additionally require strict cost decrease on each rewrite step.
 - Add pass metadata (status + invariant owner + proof/validator hook).
 - Keep fixed-point passes bounded and cost-policy controlled.
 - Couple optimization rollout with differential behavior checks and validator evidence.

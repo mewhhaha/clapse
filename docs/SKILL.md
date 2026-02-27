@@ -206,7 +206,7 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
 
 - `clapse_run` now uses the staged request from `collapse_pipeline_run` as a passthrough value, derives `OwnershipRewriteMode` through a dedicated helper (`collapse_pipeline_slice_write_policy`), and threads that mode through request-scoped response builders.
 - `slice_set_u8` rewrite now uses explicit linear writes on the copied descriptor in the COW path (`slice_set_u8_cow`) so copy-on-write remains descriptor-local and does not accidentally recurse into COW policy.
-- `apply_class_law_rewrites` now applies boolean class-law rewrites through a bounded structural fixed-point driver (4 iterations or until stabilization) for static dispatch.
+- `apply_class_law_rewrites` now applies boolean class-law rewrites through a bounded structural fixed-point driver (4 iterations or until stabilization) for static dispatch, with a strict class-level cost policy: boolean rewrites must strictly decrease `class_method_expr_cost`; compose/map remain bounded (`+0`, with `+1` only for map-fusion candidates).
 - Boolean associative-idempotence chain reductions now execute in the same class-law fixed-point registry (`ClassLawRule`) and are constrained by bool-typed, pure-effect guards plus non-increasing-cost rewrite orientation.
 - Chain reductions are strictly one-way and one-step: `x && (x && y) -> x && y`, `x && (y && x) -> x && y`, `(x && y) && x -> x && y`, `(y && x) && x -> y && x` plus the four analogous `||` variants.
 - Compose associativity canonicalization is one-way in the registry: `compose f (compose g h) -> compose (compose f g) h` under compose-shape, pure, and compatibility guards; there is no inverse rule to avoid oscillation.
