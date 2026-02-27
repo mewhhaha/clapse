@@ -1,16 +1,18 @@
-@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Mono:wght@400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Sora:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap");
 
 :root {
-  --bg: #f5f2e8;
-  --bg-2: #ece4d2;
-  --panel: #fffdf7;
-  --ink: #202020;
-  --ink-soft: #4d4d4d;
-  --line: #d8ccb7;
-  --accent: #0f6f66;
-  --accent-strong: #0a544d;
+  --bg: #f2ede1;
+  --bg-2: #e9e0ce;
+  --panel: #fffdf6;
+  --ink: #1c1a17;
+  --ink-soft: #5c5448;
+  --line: #d6c8af;
+  --accent: #186658;
+  --accent-strong: #0f493f;
+  --accent-glow: #c9ece4;
   --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
-  --sans: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+  --sans: "Sora", "Avenir Next", "Segoe UI", sans-serif;
+  --display: "Fraunces", Georgia, "Times New Roman", serif;
 }
 
 * {
@@ -23,9 +25,9 @@ body {
   color: var(--ink);
   font-family: var(--sans);
   background:
-    radial-gradient(circle at 0% 0%, #fff9ec 0, transparent 30%),
-    radial-gradient(circle at 100% 100%, #dceee7 0, transparent 38%),
-    linear-gradient(140deg, var(--bg), var(--bg-2));
+    radial-gradient(circle at 6% 4%, #fffaf0 0, transparent 30%),
+    radial-gradient(circle at 100% 100%, #d7ece7 0, transparent 38%),
+    linear-gradient(145deg, var(--bg), var(--bg-2));
 }
 
 .page {
@@ -41,8 +43,23 @@ body {
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 1rem;
-  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.05);
-  animation: rise 250ms ease both;
+  box-shadow: 0 12px 26px rgba(36, 27, 18, 0.08);
+  animation: rise 280ms ease both;
+}
+
+.hero {
+  position: relative;
+  overflow: hidden;
+}
+
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 180px;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), #4ba494);
 }
 
 .header-controls {
@@ -55,26 +72,32 @@ body {
 
 .hero h1 {
   margin: 0;
-  font-size: clamp(1.45rem, 3vw, 2.1rem);
+  font-family: var(--display);
+  font-size: clamp(1.65rem, 3.4vw, 2.4rem);
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
 .eyebrow {
   margin: 0 0 0.25rem;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   color: var(--ink-soft);
 }
 
 .lede {
-  margin: 0.5rem 0 0;
-  max-width: 78ch;
+  margin: 0.55rem 0 0;
+  max-width: 64ch;
+  color: #3f392f;
 }
 
 .control {
   display: grid;
   gap: 0.35rem;
-  font-size: 0.9rem;
+  font-size: 0.84rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 select,
@@ -90,7 +113,7 @@ input,
 textarea {
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: #fff;
+  background: #fffefb;
   padding: 0.55rem 0.6rem;
 }
 
@@ -124,6 +147,9 @@ textarea {
 
 .pane h2 {
   margin: 0 0 0.55rem;
+  font-family: var(--display);
+  font-size: 1.15rem;
+  letter-spacing: 0.01em;
 }
 
 .pane-body {
@@ -139,29 +165,34 @@ textarea {
 
 #source-code {
   width: 100%;
-  border: 1px solid var(--line);
+  border: 1px solid #cdbb9f;
   border-radius: 10px;
   padding: 0.7rem;
   resize: none;
   font-family: var(--mono);
   font-size: 0.9rem;
   line-height: 1.45;
+  background:
+    linear-gradient(transparent 31px, rgba(201, 180, 149, 0.14) 32px),
+    #fffdfa;
+  background-size: 100% 32px;
 }
 
 button {
   border: 1px solid var(--accent-strong);
   border-radius: 10px;
   padding: 0.6rem 0.85rem;
-  background: linear-gradient(180deg, #1f8a7f, var(--accent));
+  background: linear-gradient(180deg, #2f8d7e, var(--accent));
   color: #fff;
   font-weight: 700;
   cursor: pointer;
-  transition: transform 120ms ease, filter 120ms ease;
+  transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease;
 }
 
 button:hover:enabled {
   transform: translateY(-1px);
   filter: saturate(1.1);
+  box-shadow: 0 6px 14px rgba(22, 87, 74, 0.25);
 }
 
 button:disabled {
@@ -174,12 +205,18 @@ button:disabled {
   text-decoration-thickness: 1px;
   text-underline-offset: 2px;
   white-space: nowrap;
+  align-self: center;
+  transition: color 120ms ease;
+}
+
+.header-link:hover {
+  color: #1a7262;
 }
 
 .status {
   margin: 0.75rem 0 0;
   color: var(--ink-soft);
-  font-size: 0.9rem;
+  font-size: 0.84rem;
 }
 
 .result-output {
@@ -187,13 +224,13 @@ button:disabled {
   white-space: pre-wrap;
   word-break: break-word;
   overflow: auto;
-  border: 1px solid var(--line);
+  border: 1px solid #d2c3aa;
   border-radius: 10px;
   padding: 0.7rem;
-  background: #fbfaf5;
+  background: #fbf8ef;
   font-family: var(--mono);
   font-size: 0.82rem;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
 a[download] {

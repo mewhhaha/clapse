@@ -1,0 +1,57 @@
+{
+  "nodeModulesDir": "manual",
+  "tasks": {
+    "check": "deno fmt --check README.md docs/SKILL.md deno.json main.ts routes/*.tsx utils.ts vite.config.ts static/app.js static/styles.css && deno lint main.ts routes utils.ts vite.config.ts static/app.js && deno check main.ts routes/*.tsx utils.ts static/app.js",
+    "dev": "vite",
+    "build": "vite build",
+    "start": "deno serve -A _fresh/server.js",
+    "update": "deno run -A -r jsr:@fresh/update ."
+  },
+  "lint": {
+    "rules": {
+      "tags": [
+        "fresh",
+        "recommended"
+      ]
+    }
+  },
+  "exclude": [
+    "**/_fresh/*"
+  ],
+  "imports": {
+    "@/": "./",
+    "fresh": "jsr:@fresh/core@^2.2.0",
+    "preact": "npm:preact@^10.27.2",
+    "@fresh/plugin-vite": "jsr:@fresh/plugin-vite@^1.0.8",
+    "vite": "npm:vite@^7.1.3"
+  },
+  "compilerOptions": {
+    "lib": [
+      "dom",
+      "dom.asynciterable",
+      "dom.iterable",
+      "deno.ns"
+    ],
+    "jsx": "precompile",
+    "jsxImportSource": "preact",
+    "jsxPrecompileSkipElements": [
+      "a",
+      "img",
+      "source",
+      "body",
+      "html",
+      "head",
+      "title",
+      "meta",
+      "script",
+      "link",
+      "style",
+      "base",
+      "noscript",
+      "template"
+    ],
+    "types": [
+      "vite/client"
+    ]
+  }
+}

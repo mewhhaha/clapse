@@ -8,18 +8,21 @@ It provides:
 - a browser pipeline for `code -> IR -> wasm`,
 - a single-header release dropdown,
 - three side-by-side panes where only `Code` is editable.
+- built with Deno Fresh.
 
 ## Files
 
-- `index.html`
-- `app.js`
-- `styles.css`
+- `routes/index.tsx`
+- `static/app.js`
+- `static/styles.css`
+- `main.ts`
+- `deno.json`
 - `docs/SKILL.md`
 
 ## Run Locally
 
 ```bash
-deno serve --allow-read --port 4173 .
+deno task dev
 ```
 
-Open `http://localhost:4173/`.
+Then open the printed local URL.

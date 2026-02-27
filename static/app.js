@@ -2,7 +2,8 @@ const GITHUB_OWNER = "mewhhaha";
 const GITHUB_REPO = "clapse";
 const RELEASES_API =
   `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=50`;
-const RELEASES_PAGE = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
+const RELEASES_PAGE =
+  `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
 const COMPILER_ASSET_NAME = "clapse_compiler.wasm";
 const COMPILER_ASSET_SUFFIX = "/artifacts/latest/clapse_compiler.wasm";
 const UTF8_ENCODER = new TextEncoder();
@@ -64,7 +65,9 @@ async function loadReleases() {
       throw new Error("No non-draft releases were returned by GitHub.");
     }
     state.releases = releases;
-    state.releaseByTag = new Map(releases.map((release) => [release.tag, release]));
+    state.releaseByTag = new Map(
+      releases.map((release) => [release.tag, release]),
+    );
     renderReleaseSelect(releases);
     syncReleaseLink();
     setStatus(`Loaded ${releases.length} release(s) from GitHub.`);
@@ -198,7 +201,10 @@ async function runCompile() {
     });
 
     const loweredIr = extractArtifactText(artifactsResponse, "lowered_ir.txt");
-    const collapsedIr = extractArtifactText(artifactsResponse, "collapsed_ir.txt");
+    const collapsedIr = extractArtifactText(
+      artifactsResponse,
+      "collapsed_ir.txt",
+    );
     elements.irOutput.textContent = [
       "lowered_ir.txt",
       loweredIr,
@@ -210,7 +216,8 @@ async function runCompile() {
     if (compileResponse && compileResponse.ok === true) {
       const wasmBase64 = String(compileResponse.wasm_base64 ?? "");
       if (wasmBase64.length === 0) {
-        elements.wasmOutput.textContent = "Compile succeeded but wasm_base64 was empty.";
+        elements.wasmOutput.textContent =
+          "Compile succeeded but wasm_base64 was empty.";
       } else {
         const wasmBytes = decodeWasmBase64(wasmBase64);
         setDownloadLink(tag, wasmBytes);
@@ -231,7 +238,9 @@ async function runCompile() {
     const compileOk = Boolean(compileResponse?.ok === true);
     const artifactsOk = Boolean(artifactsResponse?.ok === true);
     setStatus(
-      `Done for ${tag} (compile ok: ${String(compileOk)}, artifacts ok: ${String(artifactsOk)}).`,
+      `Done for ${tag} (compile ok: ${String(compileOk)}, artifacts ok: ${
+        String(artifactsOk)
+      }).`,
     );
   } catch (err) {
     setStatus(`Compile failed: ${errorMessage(err)}`);
@@ -246,11 +255,16 @@ function previewText(text, limit) {
   if (text.length <= limit) {
     return text;
   }
-  return `${text.slice(0, limit)}\n... (${text.length - limit} chars truncated)`;
+  return `${text.slice(0, limit)}\n... (${
+    text.length - limit
+  } chars truncated)`;
 }
 
 function extractArtifactText(response, name) {
-  if (response && response.ok === true && response.artifacts && typeof response.artifacts === "object") {
+  if (
+    response && response.ok === true && response.artifacts &&
+    typeof response.artifacts === "object"
+  ) {
     const value = response.artifacts[name];
     if (typeof value === "string" && value.length > 0) {
       return value;
@@ -289,19 +303,23 @@ async function createCompilerSession(tag) {
   runtime.state.memory = memory;
 
   return {
-    async call(requestObject) {
+    call(requestObject) {
       const requestBytes = UTF8_ENCODER.encode(JSON.stringify(requestObject));
       const requestHandle = runtime.allocSliceU8(requestBytes);
       const responseHandle = run(requestHandle | 0);
       if (!Number.isInteger(responseHandle) || (responseHandle & 1) === 1) {
-        throw new Error(`Release ${tag} returned invalid response handle: ${responseHandle}`);
+        throw new Error(
+          `Release ${tag} returned invalid response handle: ${responseHandle}`,
+        );
       }
       const responseBytes = runtime.readSliceU8Copy(responseHandle);
       const responseText = UTF8_DECODER.decode(responseBytes);
       try {
         return JSON.parse(responseText);
       } catch (err) {
-        throw new Error(`Release ${tag} returned invalid JSON: ${errorMessage(err)}`);
+        throw new Error(
+          `Release ${tag} returned invalid JSON: ${errorMessage(err)}`,
+        );
       }
     },
   };
@@ -385,9 +403,11 @@ function resolveCompilerAssetUrl(tag) {
     urls.push(assetUrl);
   }
   urls.push(
-    `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${encodeURIComponent(
-      tag,
-    )}/artifacts/latest/clapse_compiler.wasm`,
+    `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${
+      encodeURIComponent(
+        tag,
+      )
+    }/artifacts/latest/clapse_compiler.wasm`,
   );
   return urls;
 }
