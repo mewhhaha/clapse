@@ -63,8 +63,8 @@ law Monad right_identity = bind m pure => m
 law Monad associativity = bind (bind m f) g => bind m (\x -> bind (f x) g)
 law Monad then_default = then_m m n => then_m_default m n
 
-data ByteIntent
-data CharIntent
+data ByteIntent = ByteIntent
+data CharIntent = CharIntent
 data Pair a b = Pair a b
 data Maybe a = Just a | Nothing
 data List a = ListNil | ListCons a (List a)

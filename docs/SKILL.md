@@ -53,6 +53,8 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
 - Keep declaration-kind naming rules synchronized across docs/examples:
   `data` declarations are Capitalized-only, and lowercase primitive-backed
   declarations use `primitive` (for example `primitive bool = true<1> | false<0>`).
+  `data` declarations must include explicit constructors (`data X = X`), and
+  bare `data X` is invalid.
 - Keep wildcard-demand matching docs aligned with compiler behavior:
   `_` remains a wildcard binder and may reduce argument demand during clause
   matching via deterministic demand ordering; keep this rule synchronized

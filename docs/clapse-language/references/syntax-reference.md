@@ -87,6 +87,8 @@ data Maybe a = Just : a -> Maybe a | Nothing : Maybe a
 ```
 
 `data` declarations are Capitalized-only for both type names and constructor names.
+`data` declarations must include `=` and at least one constructor. Bare
+`data TypeName` declarations are invalid.
 
 ## Primitive Declarations
 
