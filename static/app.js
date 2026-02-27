@@ -1,3 +1,5 @@
+import { extractWasmInstance } from "./wasm_runtime.js";
+
 const ReactGlobal = globalThis.React;
 const ReactDomGlobal = globalThis.ReactDOM;
 
@@ -1217,7 +1219,9 @@ async function refreshPreludeForSelectedRelease() {
 async function createCompilerSession(tag) {
   const record = await loadCompilerRecord(tag);
   const imports = buildStubImports(WebAssembly.Module.imports(record.module));
-  const { instance } = await WebAssembly.instantiate(record.module, imports);
+  const instance = extractWasmInstance(
+    await WebAssembly.instantiate(record.module, imports),
+  );
   const memory = instance.exports.__memory ?? instance.exports.memory;
   if (!(memory instanceof WebAssembly.Memory)) {
     throw new Error(`Release ${tag} is missing memory export.`);
@@ -1349,7 +1353,9 @@ async function loadCompilerRecord(tag) {
   }
 
   const testImports = buildStubImports(imports);
-  const { instance } = await WebAssembly.instantiate(module, testImports);
+  const instance = extractWasmInstance(
+    await WebAssembly.instantiate(module, testImports),
+  );
   const memory = instance.exports.__memory ?? instance.exports.memory;
   if (!(memory instanceof WebAssembly.Memory)) {
     throw new Error(`Release ${tag} compiler wasm missing memory export.`);
