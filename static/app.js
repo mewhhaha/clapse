@@ -1,3 +1,4 @@
+import { runCompilePipeline } from "./compile_pipeline.js";
 import { extractWasmInstance } from "./wasm_runtime.js";
 
 const ReactGlobal = globalThis.React;
@@ -778,6 +779,7 @@ async function runCompile({ forceFormat = false } = {}) {
   setDownloadLink(null, null);
 
   const problems = [];
+  let irIssue = null;
 
   try {
     const session = await createCompilerSession(tag);
@@ -798,35 +800,32 @@ async function runCompile({ forceFormat = false } = {}) {
 
     const compileSource = combinePreludeAndSource(preludeSource, source);
 
-    const artifactsResponse = session.call({
-      command: "selfhost-artifacts",
-      input_path: "repl/input.clapse",
-      input_source: compileSource,
-    });
-    const compileResponse = session.call({
-      command: "compile",
-      input_path: "repl/input.clapse",
-      input_source: compileSource,
-      plugin_wasm_paths: [],
-    });
+    const { compileResponse, artifactsResponse, artifactsError } =
+      runCompilePipeline(session, compileSource);
 
-    const loweredIr = extractArtifactText(artifactsResponse, "lowered_ir.txt");
-    const collapsedIr = extractArtifactText(
-      artifactsResponse,
-      "collapsed_ir.txt",
-    );
-    elements.irOutput.textContent = [
-      "lowered_ir.txt",
-      loweredIr,
-      "",
-      "collapsed_ir.txt",
-      collapsedIr,
-    ].join("\n");
-
-    if (artifactsResponse?.ok !== true) {
-      problems.push(
-        `IR generation failed: ${formatResponseError(artifactsResponse)}`,
+    if (typeof artifactsError === "string" && artifactsError.length > 0) {
+      irIssue = `IR generation failed: ${artifactsError}`;
+      elements.irOutput.textContent = `${irIssue}\n\nCompile output is still available in the Compile tab.`;
+    } else {
+      const loweredIr = extractArtifactText(
+        artifactsResponse,
+        "lowered_ir.txt",
       );
+      const collapsedIr = extractArtifactText(
+        artifactsResponse,
+        "collapsed_ir.txt",
+      );
+      elements.irOutput.textContent = [
+        "lowered_ir.txt",
+        loweredIr,
+        "",
+        "collapsed_ir.txt",
+        collapsedIr,
+      ].join("\n");
+
+      if (artifactsResponse?.ok !== true) {
+        irIssue = `IR generation failed: ${formatResponseError(artifactsResponse)}`;
+      }
     }
 
     if (compileResponse?.ok === true) {
@@ -865,7 +864,11 @@ async function runCompile({ forceFormat = false } = {}) {
 
     if (problems.length === 0) {
       renderProblems(["No problems."]);
-      setStatus(`Compiled ${tag} successfully.`);
+      if (irIssue) {
+        setStatus(`Compiled ${tag} successfully (IR unavailable).`);
+      } else {
+        setStatus(`Compiled ${tag} successfully.`);
+      }
       if (state.activeTab === "problems") {
         setActiveTab("compile");
       }
