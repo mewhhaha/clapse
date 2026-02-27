@@ -328,6 +328,10 @@ textarea:focus {
   flex-direction: column;
 }
 
+.tab-panel[hidden] {
+  display: none !important;
+}
+
 .source-tab-panel {
   flex: 1;
 }
