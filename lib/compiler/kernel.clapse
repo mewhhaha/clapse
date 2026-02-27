@@ -229,19 +229,49 @@ class_method_expr_root_kind expr =
     CVar _ -> ClassMethodExprRootKindVar
     _ -> ClassMethodExprRootKindOther
 
-class_law_rules_for_root_kind root_kind =
+class_method_expr_signature_is_bool_pure signature =
+  case signature of
+    ClassMethodExprSignature ClassMethodExprTypeBool ClassMethodExprEffectPure -> true
+    _ -> false
+
+class_method_expr_signature_is_compose_pure signature =
+  case signature of
+    ClassMethodExprSignature ClassMethodExprTypeCompose ClassMethodExprEffectPure -> true
+    _ -> false
+
+class_method_expr_signature_is_functor_pure signature =
+  case signature of
+    ClassMethodExprSignature ClassMethodExprTypeFunctor ClassMethodExprEffectPure -> true
+    _ -> false
+
+class_law_rules_for_state root_kind signature =
   case root_kind of
-    ClassMethodExprRootKindNot -> class_law_rules_not
-    ClassMethodExprRootKindAnd -> class_law_rules_and
-    ClassMethodExprRootKindOr -> class_law_rules_or
-    ClassMethodExprRootKindCompose -> class_law_rules_compose
-    ClassMethodExprRootKindMap -> class_law_rules_map
+    ClassMethodExprRootKindNot ->
+      case class_method_expr_signature_is_bool_pure signature of
+        true -> class_law_rules_not
+        _ -> class_law_rules_empty
+    ClassMethodExprRootKindAnd ->
+      case class_method_expr_signature_is_bool_pure signature of
+        true -> class_law_rules_and
+        _ -> class_law_rules_empty
+    ClassMethodExprRootKindOr ->
+      case class_method_expr_signature_is_bool_pure signature of
+        true -> class_law_rules_or
+        _ -> class_law_rules_empty
+    ClassMethodExprRootKindCompose ->
+      case class_method_expr_signature_is_compose_pure signature of
+        true -> class_law_rules_compose
+        _ -> class_law_rules_empty
+    ClassMethodExprRootKindMap ->
+      case class_method_expr_signature_is_functor_pure signature of
+        true -> class_law_rules_map
+        _ -> class_law_rules_empty
     ClassMethodExprRootKindBool -> class_law_rules_empty
     ClassMethodExprRootKindVar -> class_law_rules_empty
     ClassMethodExprRootKindOther -> class_law_rules_full
 
-class_law_rules_for_expr expr =
-  class_law_rules_for_root_kind (class_method_expr_root_kind expr)
+class_law_rules_for_expr expr signature =
+  class_law_rules_for_state (class_method_expr_root_kind expr) signature
 
 class_law_rules_full =
   ClassLawRuleListNode LawComposeLeftIdentity
@@ -938,10 +968,10 @@ rewrite_class_law_rules_once_list rules root_kind expr signature before_cost =
           let root_kind1 = class_method_expr_root_kind expr1
           in
           let before_cost1 = class_method_expr_cost expr1
-          in case (root_kind1 == root_kind) of
-            true -> rewrite_class_law_rules_once_list rest root_kind1 expr1 signature1 before_cost1
+      in case (root_kind1 == root_kind) of
+        true -> rewrite_class_law_rules_once_list rest root_kind1 expr1 signature1 before_cost1
             _ -> rewrite_class_law_rules_once_list
-              (class_law_rules_for_root_kind root_kind1)
+              (class_law_rules_for_state root_kind1 signature1)
               root_kind1
               expr1
               signature1
@@ -952,7 +982,7 @@ rewrite_class_law_expr_once expr =
       signature1 = class_method_expr_signature expr1
       before_cost1 = class_method_expr_cost expr1
   in rewrite_class_law_rules_once_list
-    (class_law_rules_for_expr expr1)
+    (class_law_rules_for_expr expr1 signature1)
     (class_method_expr_root_kind expr1)
     expr1
     signature1

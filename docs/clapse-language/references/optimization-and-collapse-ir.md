@@ -144,15 +144,19 @@ Current rule model used in the kernel rewrite path:
 
 ### Root-shape class-law dispatch selection (deterministic)
 
-Rule dispatch now first classifies the expression by root shape (for example `CCompose`, `CMap`, or boolean composition/operator shapes), then checks candidate `ClassLawRule`s in stable registry order within that shape bucket.
+Rule dispatch now first classifies the expression by root shape (for example `CCompose`, `CMap`, or boolean composition/operator shapes), then checks cached family signatures against candidate `ClassLawRule` buckets before probing members within the bucket.
 
-The scheduler now uses precomputed deterministic subset tables keyed by root kind (`compose`/`map`/`bool`) for this dispatch decision, giving constant-time rule-group selection and reduced dispatch allocations while preserving candidate ordering within each bucket.
+The scheduler now uses precomputed deterministic subset tables keyed by root kind (`compose`/`map`/`bool`) and signature family (`root-kind + signature`) for this dispatch decision, giving constant-time rule-group selection and reduced dispatch allocations while preserving candidate ordering within each bucket.
+
+This gates impossible families early when the expression signature cannot match a rule family; candidates in excluded buckets are never checked, while `class_law_rule_guard` and policy gates remain unchanged.
 
 After a successful rewrite, the scheduler performs an immediate root-shape re-dispatch before the next fixed-point step so subsequent candidates are selected against the current expression root. This is a scheduling optimization only and preserves deterministic ordering semantics.
 
 The precomputed tables are deterministic, policy-agnostic, and only affect lookup machinery; they do not alter dispatch eligibility, `class_law_rule_guard` outcomes, static/dynamic class dispatch gating, cost policy, or rewrite semantics.
 
 Class-law guard evaluation now caches before-cost signatures once per expression state during each rewrite pass and reuses them across candidate rule checks, reducing repeated signature work during fixed-point scheduling. This optimization changes only lookup/evaluation cost; rewrite semantics and class-law policies are unchanged.
+
+State dispatch still uses root-kind first, then signature-family gating, then full guards; no `ClassDispatch*` eligibility or rewrite-policy semantics changed.
 
 This optimization does **not** change class-law policy behavior:
 - `class_law_rule_guard` checks remain unchanged (shape/type/purity/effect gates).
