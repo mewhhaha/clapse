@@ -293,36 +293,6 @@ class_method_expr_signature_is_functor_pure signature =
     ClassMethodExprSignature ClassMethodExprTypeFunctor ClassMethodExprEffectPure -> true
     _ -> false
 
-class_law_rules_for_state root_kind signature =
-  case root_kind of
-    ClassMethodExprRootKindNot ->
-      case class_method_expr_signature_is_bool_pure signature of
-        true -> class_law_rules_not
-        _ -> class_law_rules_empty
-    ClassMethodExprRootKindAnd ->
-      case class_method_expr_signature_is_bool_pure signature of
-        true -> class_law_rules_and
-        _ -> class_law_rules_empty
-    ClassMethodExprRootKindOr ->
-      case class_method_expr_signature_is_bool_pure signature of
-        true -> class_law_rules_or
-        _ -> class_law_rules_empty
-    ClassMethodExprRootKindCompose ->
-      case class_method_expr_signature_is_compose_pure signature of
-        true -> class_law_rules_compose
-        _ -> class_law_rules_empty
-        ClassMethodExprRootKindMap ->
-          case class_method_expr_signature_is_functor_pure signature of
-            true -> class_law_rules_map
-            _ -> class_law_rules_empty
-    ClassMethodExprRootKindBool -> class_law_rules_empty
-    ClassMethodExprRootKindVar -> class_law_rules_empty
-    -- Current ClassLawRule families are only for Not/And/Or/Compose/Map roots.
-    ClassMethodExprRootKindOther -> class_law_rules_empty
-
-class_law_rules_for_expr expr signature =
-  class_law_rules_for_state (class_method_expr_root_kind expr) signature
-
 class_law_rules_full =
   ClassLawRuleListNode LawComposeLeftIdentity
     (ClassLawRuleListNode LawComposeRightIdentity
