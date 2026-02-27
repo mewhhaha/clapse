@@ -187,10 +187,8 @@ function AppShell() {
 
 const GITHUB_OWNER = "mewhhaha";
 const GITHUB_REPO = "clapse";
-const RELEASES_API =
-  `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=50`;
-const RELEASES_PAGE =
-  `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
+const RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=50`;
+const RELEASES_PAGE = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
 const MIN_SUPPORTED_RELEASE_TAG = "v0.1.0.12";
 const MIN_SUPPORTED_RELEASE_VERSION = parseReleaseVersion(
   MIN_SUPPORTED_RELEASE_TAG,
@@ -843,11 +841,9 @@ async function runCompile({ forceFormat = false } = {}) {
           `bytes: ${wasmBytes.length}`,
           `fnv1a32: ${fnv1aHex(wasmBytes)}`,
           exportsList.length > 0
-            ? `exports: ${
-              exportsList.map((entry) => `${entry.name}/${entry.arity}`).join(
-                ", ",
-              )
-            }`
+            ? `exports: ${exportsList
+                .map((entry) => `${entry.name}/${entry.arity}`)
+                .join(", ")}`
             : "exports: (none)",
           "",
           "wasm_base64_preview",
@@ -942,13 +938,7 @@ function callFormat(session, source) {
 }
 
 function extractFormattedText(response) {
-  const directKeys = [
-    "formatted",
-    "output_source",
-    "output",
-    "source",
-    "text",
-  ];
+  const directKeys = ["formatted", "output_source", "output", "source", "text"];
   for (const key of directKeys) {
     const value = response[key];
     if (typeof value === "string") {
@@ -968,9 +958,8 @@ function extractFormattedText(response) {
 
 function renderProblems(lines) {
   const filtered = lines.filter((line) => String(line).trim().length > 0);
-  elements.problemsOutput.textContent = filtered.length > 0
-    ? filtered.join("\n\n")
-    : "No problems.";
+  elements.problemsOutput.textContent =
+    filtered.length > 0 ? filtered.join("\n\n") : "No problems.";
 }
 
 function renderSourceHighlight() {
@@ -1156,7 +1145,9 @@ function previewText(text, limit) {
 
 function extractArtifactText(response, name) {
   if (
-    response && response.ok === true && response.artifacts &&
+    response &&
+    response.ok === true &&
+    response.artifacts &&
     typeof response.artifacts === "object"
   ) {
     const value = response.artifacts[name];
@@ -1206,16 +1197,15 @@ async function refreshPreludeForSelectedRelease() {
     if (ticket !== state.preludeLoadTicket) {
       return;
     }
-    elements.preludeOutput.textContent = prelude.length > 0
-      ? prelude
-      : `(Prelude is empty for ${tag}.)`;
+    elements.preludeOutput.textContent =
+      prelude.length > 0 ? prelude : `(Prelude is empty for ${tag}.)`;
   } catch (err) {
     if (ticket !== state.preludeLoadTicket) {
       return;
     }
-    elements.preludeOutput.textContent = `Prelude load failed for ${tag}:\n${
-      errorMessage(err)
-    }`;
+    elements.preludeOutput.textContent = `Prelude load failed for ${tag}:\n${errorMessage(
+      err,
+    )}`;
   }
 }
 
@@ -1377,9 +1367,9 @@ function resolveCompilerAssetUrls(tag) {
     urls.push(assetUrl);
   }
   urls.push(
-    `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${
-      encodeURIComponent(tag)
-    }/artifacts/latest/clapse_compiler.wasm`,
+    `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${encodeURIComponent(
+      tag,
+    )}/artifacts/latest/clapse_compiler.wasm`,
   );
   return urls;
 }
@@ -1401,9 +1391,9 @@ function resolvePreludeAssetUrls(tag) {
     urls.push(assetUrl);
   }
   urls.push(
-    `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${
-      encodeURIComponent(tag)
-    }/artifacts/latest/prelude.clapse`,
+    `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${encodeURIComponent(
+      tag,
+    )}/artifacts/latest/prelude.clapse`,
   );
   return urls;
 }
