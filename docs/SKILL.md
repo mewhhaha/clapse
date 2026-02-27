@@ -17,6 +17,7 @@ Maintain docs as executable specs. Every Clapse code fence should compile with t
 4. Mark non-compilable examples as ` ```clapse skip `.
 5. Keep `clapse.json` examples in sync with LSP behavior when module-scope rules change.
 6. Keep `clapse.json` plugin fields in sync with plugin directory conventions and LSP/CLI behavior.
+7. Use `deno run -A scripts/run-clapse-compiler-wasm.mjs compile-debug <input.clapse> [output.wasm] [artifacts-dir]` for unified wasm+IR debug flows.
 
 ## Validation
 
@@ -46,6 +47,19 @@ Or directly:
 ```bash
 CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scripts/validate-docs.mjs
 ```
+
+## Unified compile-debug flow
+
+Use:
+
+```bash
+deno run -A scripts/run-clapse-compiler-wasm.mjs compile-debug <input.clapse> [output.wasm] [artifacts-dir]
+```
+
+The command returns a single compile response with:
+
+- `lowered_ir.txt` (IR before collapse)
+- `collapsed_ir.txt` (post-collapse IR)
 
 ## Ongoing sync rule
 

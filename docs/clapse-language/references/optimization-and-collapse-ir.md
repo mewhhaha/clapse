@@ -10,6 +10,15 @@
    - compile/format/selfhost/lsp still flow through kernel handlers
    - compile with ready input still delegates to host bridge after kernel staging (`clapse_host_run`)
 
+### Unified wasm+IR compile-debug command
+
+`deno run -A scripts/run-clapse-compiler-wasm.mjs compile-debug <input.clapse> [output.wasm] [artifacts-dir]`
+
+This runs a unified one-step compile path and emits the same artifacts:
+
+- `<artifacts-dir>/lowered_ir.txt`
+- `<artifacts-dir>/collapsed_ir.txt`
+
 Current kernel-native compile behavior:
 
 - `compile_response` delegates to `clapse_host_run` for `CompileRequestReady` only.

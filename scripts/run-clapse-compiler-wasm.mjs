@@ -273,6 +273,7 @@ function usage() {
     "",
     "Supported commands:",
     "  compile <input.clapse> [output.wasm]",
+    "  compile-debug <input.clapse> [output.wasm] [artifacts-dir]",
     "  selfhost-artifacts <input.clapse> <out-dir>",
     "  format <file>",
     "  format --write <file>",
@@ -302,6 +303,7 @@ const SELFHOST_ARTIFACT_FILES = [
   "exports.txt",
   "wasm_stats.txt",
 ];
+const COMPILE_DEBUG_ARTIFACT_FILES = ["lowered_ir.txt", "collapsed_ir.txt"];
 
 function shouldFallbackSelfhostArtifactsResponse(response, inputSource) {
   if (!response || typeof response !== "object" || Array.isArray(response)) {
@@ -463,6 +465,40 @@ async function writeSelfhostArtifacts(outDir, artifacts) {
   }
 }
 
+function readCompileDebugArtifacts(response) {
+  const artifacts = response?.artifacts;
+  if (!artifacts || typeof artifacts !== "object" || Array.isArray(artifacts)) {
+    throw new Error(
+      "compile response for compile_mode debug must include object 'artifacts'",
+    );
+  }
+  const out = {};
+  const missing = [];
+  for (const key of COMPILE_DEBUG_ARTIFACT_FILES) {
+    if (typeof artifacts[key] !== "string") {
+      missing.push(key);
+      continue;
+    }
+    out[key] = artifacts[key];
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `compile response missing required debug artifacts (compile_mode: "debug"). Expected response.artifacts keys: ${COMPILE_DEBUG_ARTIFACT_FILES.join(", ")}.`,
+    );
+  }
+  return out;
+}
+
+async function writeCompileDebugArtifacts(artifactsDir, artifacts) {
+  if (!artifacts || typeof artifacts !== "object" || Array.isArray(artifacts)) {
+    throw new Error("writeCompileDebugArtifacts requires artifact map");
+  }
+  await Deno.mkdir(artifactsDir, { recursive: true });
+  for (const key of COMPILE_DEBUG_ARTIFACT_FILES) {
+    await Deno.writeTextFile(`${artifactsDir}/${key}`, artifacts[key]);
+  }
+}
+
 async function compileViaWasm(wasmPath, inputPath, outputPath, options = {}) {
   const inputBytes = await Deno.readFile(inputPath);
   const inputSource = new TextDecoder().decode(inputBytes);
@@ -472,14 +508,25 @@ async function compileViaWasm(wasmPath, inputPath, outputPath, options = {}) {
     : (!options.skipPluginCompilation && !isKernelCompile
       ? await compilePluginsWasm(wasmPath, inputPath)
       : []);
-  const response = await callCompilerWasm(wasmPath, {
+  const request = {
     command: "compile",
     input_path: inputPath,
     input_source: inputSource,
     plugin_wasm_paths: pluginWasmPaths,
-  });
+  };
+  if (typeof options.compileMode === "string" && options.compileMode.length > 0) {
+    request.compile_mode = options.compileMode;
+  }
+  const response = await callCompilerWasm(wasmPath, request);
   const decodedResponse = decodeCompileResponse(response, inputPath);
+  let debugArtifacts;
+  if (typeof options.artifactsDir === "string" && options.artifactsDir.length > 0) {
+    debugArtifacts = readCompileDebugArtifacts(decodedResponse);
+  }
   await writeCompileArtifacts(outputPath, decodedResponse);
+  if (debugArtifacts) {
+    await writeCompileDebugArtifacts(options.artifactsDir, debugArtifacts);
+  }
 }
 
 async function writeSelfhostArtifactsViaWasm(wasmPath, inputPath, outDir) {
@@ -753,6 +800,22 @@ export async function runWithArgs(rawArgs = cliArgs()) {
     const inputPath = args[1];
     const outputPath = args[2] ?? inputPath.replace(/\.clapse$/u, ".wasm");
     await compileViaWasm(wasmPath, inputPath, outputPath);
+    return;
+  }
+  if (args[0] === "compile-debug") {
+    if (args.length < 2 || args.length > 4) {
+      throw new Error(
+        "usage: compile-debug <input.clapse> [output.wasm] [artifacts-dir]",
+      );
+    }
+    const inputPath = args[1];
+    const outputPath = args[2] ?? inputPath.replace(/\.clapse$/u, ".wasm");
+    const defaultArtifactsDir = pathDir(outputPath);
+    const artifactsDir = args[3] ?? (defaultArtifactsDir.length > 0 ? defaultArtifactsDir : ".");
+    await compileViaWasm(wasmPath, inputPath, outputPath, {
+      compileMode: "debug",
+      artifactsDir,
+    });
     return;
   }
   if (args[0] === "format") {
