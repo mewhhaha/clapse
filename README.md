@@ -20,14 +20,15 @@ It provides:
 - compile includes selected release `prelude.clapse` plus your code source,
 - auto-compile on edits and release changes when auto-run is enabled.
 - choosing an example program replaces the source editor text.
-- built with Deno Fresh.
+- a client-only React SPA shell mounted from `index.html`.
 
 ## Files
 
 - `routes/index.tsx`
 - `static/app.js`
 - `static/styles.css`
-- `main.ts`
+- `index.html`
+- `main.ts` (legacy Fresh bootstrap, not used by GitHub Pages runtime)
 - `deno.json`
 - `docs/SKILL.md`
 

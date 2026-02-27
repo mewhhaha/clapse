@@ -14,12 +14,12 @@ Main workflow: `code -> IR -> wasm`.
 
 ## Canonical Entry Points
 
-- `routes/index.tsx`: page structure and controls.
-- `routes/_app.tsx`: document shell and global metadata.
-- `static/app.js`: release loading, compiler asset resolution, compiler calls,
-  and pane updates.
+- `index.html`: GitHub Pages entrypoint and React root container.
+- `static/app.js`: React shell render + release loading, compiler asset
+  resolution, compiler calls, and pane updates.
 - `static/styles.css`: visual system and responsive layout.
-- `main.ts`: Fresh app bootstrap.
+- `vite.config.ts`: plain Vite SPA dev/build config.
+- `main.ts`: legacy Fresh bootstrap (not used by GitHub Pages runtime).
 - `deno.json`: Fresh/vite tasks and imports.
 
 When behavior changes, update this file first, then update code.

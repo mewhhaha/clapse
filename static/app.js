@@ -1,3 +1,190 @@
+const ReactGlobal = globalThis.React;
+const ReactDomGlobal = globalThis.ReactDOM;
+
+if (!ReactGlobal || !ReactDomGlobal) {
+  throw new Error("React runtime failed to load.");
+}
+
+const APP_SHELL_HTML = `
+<header class="top-strip panel">
+  <div class="header-controls">
+    <label class="control">
+      <input id="auto-run" type="checkbox" checked />
+      <span>Auto-run</span>
+    </label>
+    <button id="run-button" class="toolbar-button" type="button">
+      Run (Ctrl + Enter)
+    </button>
+    <button id="format-button" class="toolbar-button" type="button">
+      Format (Ctrl + S)
+    </button>
+    <label class="control program-control">
+      <span>Example</span>
+      <select id="program-select">
+        <option value="">Example Programs</option>
+      </select>
+    </label>
+    <label class="control release-control">
+      <span>Release</span>
+      <select id="release-select"></select>
+    </label>
+    <a
+      id="release-link"
+      class="header-link"
+      href="https://github.com/mewhhaha/clapse/releases"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      Open Selected Release
+    </a>
+    <span id="release-status" class="status">
+      Loading release metadata...
+    </span>
+  </div>
+</header>
+
+<section class="workspace">
+  <article class="panel editor-pane">
+    <nav class="tabs source-tabs" role="tablist" aria-label="Source tabs">
+      <button
+        type="button"
+        class="tab-button is-active"
+        data-source-tab-target="code"
+        aria-selected="true"
+      >
+        Code
+      </button>
+      <button
+        type="button"
+        class="tab-button"
+        data-source-tab-target="prelude"
+        aria-selected="false"
+      >
+        Prelude
+      </button>
+    </nav>
+
+    <section class="tab-panels source-tab-panels">
+      <section
+        class="tab-panel source-tab-panel is-active"
+        data-source-tab-panel="code"
+      >
+        <div class="pane-body source-editor-wrap">
+          <pre id="source-highlight" class="source-highlight" aria-hidden="true"><code id="source-highlight-code"></code></pre>
+          <textarea
+            id="source-code"
+            class="source-input"
+            spellcheck="false"
+            placeholder="Write Clapse code here..."
+          ></textarea>
+        </div>
+      </section>
+
+      <section class="tab-panel source-tab-panel" data-source-tab-panel="prelude" hidden>
+        <pre id="prelude-output" class="result-output prelude-output">
+Prelude will load from the selected release.
+        </pre>
+      </section>
+    </section>
+  </article>
+
+  <aside class="panel right-pane">
+    <nav class="tabs" role="tablist" aria-label="Explorer outputs">
+      <button
+        type="button"
+        class="tab-button"
+        data-tab-target="ir"
+        aria-selected="false"
+      >
+        IR
+      </button>
+      <button
+        type="button"
+        class="tab-button is-active"
+        data-tab-target="compile"
+        aria-selected="true"
+      >
+        Compile
+      </button>
+      <button
+        type="button"
+        class="tab-button"
+        data-tab-target="problems"
+        aria-selected="false"
+      >
+        Problems
+      </button>
+      <button
+        type="button"
+        class="tab-button"
+        data-tab-target="settings"
+        aria-selected="false"
+      >
+        Settings
+      </button>
+    </nav>
+
+    <section class="tab-panels">
+      <section class="tab-panel" data-tab-panel="ir" hidden>
+        <pre id="ir-output" class="result-output">(IR appears after release load.)</pre>
+      </section>
+
+      <section class="tab-panel is-active" data-tab-panel="compile">
+        <pre id="compile-output" class="result-output">
+(Compile output appears after release load.)
+        </pre>
+        <a id="wasm-download" href="#" download hidden>
+          Download Compiled Wasm
+        </a>
+      </section>
+
+      <section class="tab-panel" data-tab-panel="problems" hidden>
+        <pre id="problems-output" class="result-output">No problems.</pre>
+      </section>
+
+      <section class="tab-panel settings-panel" data-tab-panel="settings" hidden>
+        <label class="setting-item">
+          <input id="settings-auto-run" type="checkbox" checked />
+          <span>Auto-run compile on edit</span>
+        </label>
+        <label class="setting-item">
+          <input id="settings-format-on-run" type="checkbox" />
+          <span>Format before run</span>
+        </label>
+        <p id="settings-highlight-note" class="settings-note">
+          Release metadata is loaded from GitHub Releases and compiler wasm is fetched from release assets.
+        </p>
+      </section>
+    </section>
+  </aside>
+</section>
+`;
+
+mountShell();
+
+function mountShell() {
+  const rootElement = document.getElementById("root");
+  if (!rootElement) {
+    throw new Error("Missing #root container for React app.");
+  }
+  const root = ReactDomGlobal.createRoot(rootElement);
+  const render = () => {
+    root.render(ReactGlobal.createElement(AppShell));
+  };
+  if (typeof ReactDomGlobal.flushSync === "function") {
+    ReactDomGlobal.flushSync(render);
+    return;
+  }
+  render();
+}
+
+function AppShell() {
+  return ReactGlobal.createElement("main", {
+    className: "page",
+    dangerouslySetInnerHTML: { __html: APP_SHELL_HTML },
+  });
+}
+
 const GITHUB_OWNER = "mewhhaha";
 const GITHUB_REPO = "clapse";
 const RELEASES_API =
