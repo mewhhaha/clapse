@@ -93,6 +93,7 @@ jobs:
             deno run -A scripts/run-clapse-compiler-wasm.mjs \
               compile lib/compiler/kernel.clapse \
               "${RELEASE_DIR}/clapse_compiler.wasm"
+          deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "${RELEASE_DIR}/clapse_compiler.wasm"
           deno compile -A --output "${RELEASE_DIR}/clapse-bin" scripts/clapse.mjs
           chmod +x "${RELEASE_DIR}/clapse-bin"
           cp lib/compiler/prelude.clapse "${RELEASE_DIR}/prelude.clapse"

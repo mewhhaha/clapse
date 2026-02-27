@@ -36,9 +36,13 @@ docs-validate:
 
 pre-tag-verify:
   deno run -A scripts/guard-no-host-surface.mjs
+  deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}"
   deno run -A scripts/check-pass-manifest.mjs
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" just docs-validate
   just semantics-check
+
+browser-compiler-wasm-check wasm='artifacts/latest/clapse_compiler.wasm':
+  deno run -A scripts/check-browser-compiler-wasm.mjs --wasm {{wasm}}
 
 pass-manifest-check:
   deno run -A scripts/check-pass-manifest.mjs
@@ -103,6 +107,7 @@ release-candidate out='out/releases':
   prelude_source="${release_dir}/prelude.clapse"
   mkdir -p "${release_dir}"
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/run-clapse-compiler-wasm.mjs compile lib/compiler/kernel.clapse "${compiler_wasm}"
+  deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "${compiler_wasm}"
   deno compile -A --output "${cli_bin}" scripts/clapse.mjs
   chmod +x "${cli_bin}"
   cp lib/compiler/prelude.clapse "${prelude_source}"

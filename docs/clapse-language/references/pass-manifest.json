@@ -44,6 +44,12 @@
       "scope": "rewrite"
     },
     {
+      "id": "class_law_strictness_gated_fixedpoint",
+      "status": "not implemented",
+      "title": "Strictness-gated class-law fixed-point rewrite",
+      "scope": "rewrite"
+    },
+    {
       "id": "currying_normalization",
       "status": "not implemented",
       "title": "Currying normalization",

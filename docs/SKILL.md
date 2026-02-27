@@ -24,6 +24,7 @@ Run:
 
 ```bash
 just pre-tag-verify
+just browser-compiler-wasm-check
 just pass-manifest-check
 just semantics-check
 just clapse-bin
@@ -90,6 +91,9 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
 - Keep `docs/clapse-language/references/pass-manifest.json` synchronized with
   `docs/clapse-language/references/optimization-and-collapse-ir.md`; status
   labels are machine-checked by `scripts/check-pass-manifest.mjs`.
+- Keep `RESEARCH.md` current as the optimization-theory ledger: every new
+  optimization family must include invariant statements, typed/effect guard
+  conditions, and at least one primary research citation with direct quote.
 - Keep CLI packaging docs aligned with runtime behavior: `just clapse-bin` and
   `just install` bundle `artifacts/latest/clapse_compiler.wasm` into
   `artifacts/bin/clapse` when available, with `CLAPSE_COMPILER_WASM_PATH` as an
@@ -97,6 +101,10 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
 - Keep release bundle docs aligned with `just release-candidate` and `.github`
   release verification outputs when release artifact membership changes (for
   example when adding `prelude.clapse`).
+- Keep browser-runnable compiler contract aligned between `just release-candidate`,
+  `.github/workflows/release-verify.yml`, and `scripts/check-browser-compiler-wasm.mjs`:
+  released `clapse_compiler.wasm` must be native ABI (`clapse_run` + memory),
+  non-tiny, and pass compile-smoke (`main` export) checks.
 - Keep formatter behavior aligned with runtime behavior: canonical formatter
   normalization (string/comment-preserving whitespace collapse, 100-character
   max-width wrapping at ` => `, ` = `, ` -> `, ` >>= `, ` >> `, ` && `,

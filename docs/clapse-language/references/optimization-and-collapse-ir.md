@@ -30,6 +30,7 @@ This inventory is canonical and machine-checked against
 - [pass:class_law_bool_simplification] status: partially implemented
 - [pass:class_law_collection_map_identity] status: partially implemented
 - [pass:class_law_collection_map_fusion] status: partially implemented
+- [pass:class_law_strictness_gated_fixedpoint] status: not implemented
 - [pass:currying_normalization] status: not implemented
 - [pass:closure_apply_collapse] status: not implemented
 - [pass:constant_argument_specialization] status: not implemented
@@ -215,3 +216,17 @@ Current activation status:
 - They are not yet wired
   as a mandatory compile-stage rewrite in the active `compile_response` route
   (which currently uses host compile passthrough for ready requests).
+
+### Strict law-driven optimization extension (planned)
+
+Planned pass: `[pass:class_law_strictness_gated_fixedpoint]` (status: not implemented)
+
+Goal:
+- keep current class-law rewrites, but require a stricter safety proof before law application.
+
+Planned preconditions:
+- static dispatch only (`ClassDispatchStatic`).
+- existing `class_law_rule_guard` checks (shape/purity/signature compatibility) still apply.
+- strict-context gating: candidate sub-terms only rewrite when escape-free, single-use-by-assumption, and eager-context conditions are proven.
+- structural growth remains bounded by existing cost guards.
+- fixed-point scheduling and deterministic rule order stay unchanged; the pass is additive and policy-gated, not a replacement.

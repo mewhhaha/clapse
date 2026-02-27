@@ -44,6 +44,7 @@ Current targets in `Justfile`:
 - `just docs-validate`
 - `just fib-memo-plugin-smoke`
 - `just pre-tag-verify`
+- `just browser-compiler-wasm-check [wasm=...]`
 - `just pass-manifest-check`
 - `just semantics-check`
 - `just wildcard-demand-check` (kernel demand-order regression check)
@@ -57,6 +58,8 @@ Current targets in `Justfile`:
 - `just highlights-helix`
 - `just install`
 - `just release-candidate [out=...]`
+  - now hard-fails if generated `clapse_compiler.wasm` is not browser-runnable
+    (`scripts/check-browser-compiler-wasm.mjs`)
 
 ## LSP and Formatter
 
@@ -142,6 +145,7 @@ When changing syntax/semantics/lowering/WASM behavior:
 
 ```bash
 just pre-tag-verify
+just browser-compiler-wasm-check
 just pass-manifest-check
 just docs-validate
 just lsp-wasm-fixtures
