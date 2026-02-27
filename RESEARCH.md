@@ -200,3 +200,4 @@ When adding a new optimization family:
 4. Record what check/proof/validator will enforce it.
 
 - Root-shape class-law selection now dispatches deterministically by expression root bucket before fixed-point rule matching through root-kind tag checks (`CCompose`/`CMap`/boolean forms); this is an optimization of selection order only and does not change guard predicates, `ClassDispatch*` gating, or strict-decrease/cost policy.
+- `Other` is now an empty dispatch bucket because all active laws are root-specific (`CCompose`, `CMap`, boolean roots), so this is a scheduler-internal change and rewrite semantics are unchanged.

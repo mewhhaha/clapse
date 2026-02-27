@@ -160,6 +160,7 @@ The precomputed tables are deterministic, policy-agnostic, and only affect looku
 Class-law guard evaluation now caches before-cost signatures once per expression state during each rewrite pass and reuses them across candidate rule checks, reducing repeated signature work during fixed-point scheduling. This optimization changes only lookup/evaluation cost; rewrite semantics and class-law policies are unchanged.
 
 State dispatch still uses root-kind first, then signature-family gating, then full guards; no `ClassDispatch*` eligibility or rewrite-policy semantics changed.
+`Other` is now an empty fallback bucket, and this is safe because all active laws are root-specific (`CCompose`, `CMap`, and boolean roots), so `Other` candidates are unreachable today. Rewrite semantics are unchanged.
 
 This optimization does **not** change class-law policy behavior:
 - `class_law_rule_guard` checks remain unchanged (shape/type/purity/effect gates).

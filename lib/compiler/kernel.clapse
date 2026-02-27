@@ -167,7 +167,7 @@ class_law_rules_for_dispatch_key key =
         ClassMethodExprRootKindVar ->
           class_law_rules_empty
         ClassMethodExprRootKindOther ->
-          class_law_rules_full
+          class_law_rules_empty
 
 class_method_expr_signature_is_pure signature =
   case signature of
@@ -311,13 +311,14 @@ class_law_rules_for_state root_kind signature =
       case class_method_expr_signature_is_compose_pure signature of
         true -> class_law_rules_compose
         _ -> class_law_rules_empty
-    ClassMethodExprRootKindMap ->
-      case class_method_expr_signature_is_functor_pure signature of
-        true -> class_law_rules_map
-        _ -> class_law_rules_empty
+        ClassMethodExprRootKindMap ->
+          case class_method_expr_signature_is_functor_pure signature of
+            true -> class_law_rules_map
+            _ -> class_law_rules_empty
     ClassMethodExprRootKindBool -> class_law_rules_empty
     ClassMethodExprRootKindVar -> class_law_rules_empty
-    ClassMethodExprRootKindOther -> class_law_rules_full
+    -- Current ClassLawRule families are only for Not/And/Or/Compose/Map roots.
+    ClassMethodExprRootKindOther -> class_law_rules_empty
 
 class_law_rules_for_expr expr signature =
   class_law_rules_for_state (class_method_expr_root_kind expr) signature
