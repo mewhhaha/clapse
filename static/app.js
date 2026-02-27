@@ -189,11 +189,12 @@ const GITHUB_OWNER = "mewhhaha";
 const GITHUB_REPO = "clapse";
 const RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=50`;
 const RELEASES_PAGE = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
-const GITHUB_API_VERSION = "2022-11-28";
+const LOCAL_RELEASE_ARTIFACTS_ROOT = "./artifacts/releases";
 const MIN_SUPPORTED_RELEASE_TAG = "v0.1.0.12";
 const MIN_SUPPORTED_RELEASE_VERSION = parseReleaseVersion(
   MIN_SUPPORTED_RELEASE_TAG,
 );
+const MIRRORED_RELEASE_TAGS = new Set(["v0.1.0.14", "v0.1.0.15"]);
 const COMPILER_ASSET_NAME = "clapse_compiler.wasm";
 const COMPILER_ASSET_SUFFIX = "/artifacts/latest/clapse_compiler.wasm";
 const PRELUDE_ASSET_NAME = "prelude.clapse";
@@ -521,7 +522,7 @@ async function loadReleases() {
     const releases = await fetchReleaseMetadata();
     if (releases.length === 0) {
       throw new Error(
-        `No supported releases were returned by GitHub. Requires tag >= ${MIN_SUPPORTED_RELEASE_TAG} with compiler + prelude assets.`,
+        `No supported mirrored releases were returned by GitHub. Requires tag >= ${MIN_SUPPORTED_RELEASE_TAG} with compiler + prelude assets mirrored in this branch.`,
       );
     }
     state.releases = releases;
@@ -533,7 +534,7 @@ async function loadReleases() {
     updateHighlightAvailability();
     await refreshPreludeForSelectedRelease();
     setStatus(
-      `Loaded ${releases.length} supported release(s) (>= ${MIN_SUPPORTED_RELEASE_TAG}).`,
+      `Loaded ${releases.length} mirrored release(s) (>= ${MIN_SUPPORTED_RELEASE_TAG}).`,
     );
     scheduleCompile(25);
   } catch (err) {
@@ -688,6 +689,9 @@ function hasAsset(assets, name, suffix) {
 
 function isSupportedRelease(tag, assets) {
   if (!MIN_SUPPORTED_RELEASE_VERSION) {
+    return false;
+  }
+  if (!MIRRORED_RELEASE_TAGS.has(tag)) {
     return false;
   }
   const releaseVersion = parseReleaseVersion(tag);
@@ -1360,57 +1364,15 @@ async function loadCompilerRecord(tag) {
 }
 
 function resolveCompilerAssetCandidates(tag) {
-  const release = state.releaseByTag.get(tag);
-  if (!release) {
-    throw new Error(`Release ${tag} is not loaded in the dropdown.`);
-  }
-
-  const assets = Array.isArray(release.assets) ? release.assets : [];
-  const match = assets.find((asset) => {
-    const name = String(asset?.name ?? "").trim();
-    return name === COMPILER_ASSET_NAME || name.endsWith(COMPILER_ASSET_SUFFIX);
-  });
-  return buildReleaseAssetCandidates(
-    match,
-    `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${encodeURIComponent(
-      tag,
-    )}/artifacts/latest/clapse_compiler.wasm`,
-  );
+  return [{
+    url: `${LOCAL_RELEASE_ARTIFACTS_ROOT}/${encodeURIComponent(tag)}/${COMPILER_ASSET_NAME}`,
+  }];
 }
 
 function resolvePreludeAssetCandidates(tag) {
-  const release = state.releaseByTag.get(tag);
-  if (!release) {
-    throw new Error(`Release ${tag} is not loaded in the dropdown.`);
-  }
-
-  const assets = Array.isArray(release.assets) ? release.assets : [];
-  const match = assets.find((asset) => {
-    const name = String(asset?.name ?? "").trim();
-    return name === PRELUDE_ASSET_NAME || name.endsWith(PRELUDE_ASSET_SUFFIX);
-  });
-  return buildReleaseAssetCandidates(
-    match,
-    `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${encodeURIComponent(
-      tag,
-    )}/artifacts/latest/prelude.clapse`,
-  );
-}
-
-function buildReleaseAssetCandidates(asset, rawFallbackUrl) {
-  const candidates = [];
-  const apiUrl = String(asset?.url ?? "").trim();
-  if (apiUrl.length > 0) {
-    candidates.push({
-      url: apiUrl,
-      headers: {
-        Accept: "application/octet-stream",
-        "X-GitHub-Api-Version": GITHUB_API_VERSION,
-      },
-    });
-  }
-  candidates.push({ url: rawFallbackUrl });
-  return candidates;
+  return [{
+    url: `${LOCAL_RELEASE_ARTIFACTS_ROOT}/${encodeURIComponent(tag)}/${PRELUDE_ASSET_NAME}`,
+  }];
 }
 
 function buildStubImports(imports) {
