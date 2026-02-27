@@ -49,11 +49,6 @@ async function statMTimeMs(path) {
   return fileInfo.mtime?.getTime() ?? -1;
 }
 
-function isKnownStubFailure(error) {
-  return error instanceof Error &&
-    /native wasm compile returned stub artifact/.test(error.message);
-}
-
 async function main() {
   const [fixtureArg = "examples/fib_memo.clapse"] = cliArgs();
   const fixturePath = fixtureArg;
@@ -69,35 +64,21 @@ async function main() {
   const pluginWasmAbs = resolveAtRepoRoot(pluginWasm);
 
   const compileStart = Date.now();
-  let compileFailedAsStub = false;
-  try {
-    const compileOutput = await runCompiler(compilerPath, [
-      "run",
-      "-A",
-      "scripts/clapse.mjs",
-      "compile",
-      fixturePath,
-      outputWasm,
-    ]);
-    if (compileOutput.length > 0) {
-      console.log(compileOutput.trim());
-    }
-  } catch (error) {
-    if (!isKnownStubFailure(error)) {
-      throw error;
-    }
-    compileFailedAsStub = true;
+  const compileOutput = await runCompiler(compilerPath, [
+    "run",
+    "-A",
+    "scripts/clapse.mjs",
+    "compile",
+    fixturePath,
+    outputWasm,
+  ]);
+  if (compileOutput.length > 0) {
+    console.log(compileOutput.trim());
   }
 
   const pluginMtime = await statMTimeMs(pluginWasmAbs);
   if (pluginMtime < compileStart) {
     throw new Error("plugin precompile artifact was not produced during smoke run");
-  }
-  if (compileFailedAsStub) {
-    console.log(
-      "fib memo plugin smoke: PASS (plugin precompile artifact produced; compiler returned stub for this fixture)",
-    );
-    return;
   }
 
   const outputWasmBytes = await Deno.readFile(outputWasm);

@@ -5,6 +5,7 @@ import { runLspServer } from "./lsp-wasm.mjs";
 import {
   callCompilerWasm,
   decodeWasmBase64,
+  appendClapseFuncMap,
   inspectCompilerWasmAbi,
   validateCompilerWasmAbi,
 } from "./wasm-compiler-abi.mjs";
@@ -226,18 +227,11 @@ async function fileExists(path) {
   }
 }
 
-async function materializeEmbeddedCompilerWasm(allowBridge) {
-  const embeddedCandidates = allowBridge
-    ? [
-      new URL("../artifacts/latest/clapse_compiler.wasm", import.meta.url),
-      new URL("../artifacts/latest/clapse_compiler_bridge.wasm", import.meta.url),
-      new URL("../out/clapse_compiler.wasm", import.meta.url),
-      new URL("../out/clapse_compiler_bridge.wasm", import.meta.url),
-    ]
-    : [
-      new URL("../artifacts/latest/clapse_compiler.wasm", import.meta.url),
-      new URL("../out/clapse_compiler.wasm", import.meta.url),
-    ];
+async function materializeEmbeddedCompilerWasm() {
+  const embeddedCandidates = [
+    new URL("../artifacts/latest/clapse_compiler.wasm", import.meta.url),
+    new URL("../out/clapse_compiler.wasm", import.meta.url),
+  ];
   for (const candidateUrl of embeddedCandidates) {
     try {
       const wasmBytes = await Deno.readFile(candidateUrl);
@@ -260,26 +254,16 @@ async function resolveCompilerWasmPath() {
   if (fromEnv.length > 0) {
     return fromEnv;
   }
-  const allowBridge =
-    ((Deno.env.get("CLAPSE_ALLOW_BRIDGE") ?? "").toLowerCase() === "1") ||
-    ((Deno.env.get("CLAPSE_ALLOW_BRIDGE") ?? "").toLowerCase() === "true");
-  const candidates = allowBridge
-    ? [
-      toPath(new URL("artifacts/latest/clapse_compiler.wasm", REPO_ROOT_URL)),
-      toPath(new URL("artifacts/latest/clapse_compiler_bridge.wasm", REPO_ROOT_URL)),
-      toPath(new URL("out/clapse_compiler.wasm", REPO_ROOT_URL)),
-      toPath(new URL("out/clapse_compiler_bridge.wasm", REPO_ROOT_URL)),
-    ]
-    : [
-      toPath(new URL("artifacts/latest/clapse_compiler.wasm", REPO_ROOT_URL)),
-      toPath(new URL("out/clapse_compiler.wasm", REPO_ROOT_URL)),
-    ];
+  const candidates = [
+    toPath(new URL("artifacts/latest/clapse_compiler.wasm", REPO_ROOT_URL)),
+    toPath(new URL("out/clapse_compiler.wasm", REPO_ROOT_URL)),
+  ];
   for (const candidate of candidates) {
     if (await fileExists(candidate)) {
       return candidate;
     }
   }
-  return materializeEmbeddedCompilerWasm(allowBridge);
+  return materializeEmbeddedCompilerWasm();
 }
 
 function usage() {
@@ -299,10 +283,8 @@ function usage() {
     "Compiler wasm resolution:",
     "  1) CLAPSE_COMPILER_WASM_PATH",
     "  2) artifacts/latest/clapse_compiler.wasm",
-    "  3) artifacts/latest/clapse_compiler_bridge.wasm (with CLAPSE_ALLOW_BRIDGE=1)",
-    "  4) out/clapse_compiler.wasm",
-    "  5) out/clapse_compiler_bridge.wasm (only with CLAPSE_ALLOW_BRIDGE=1)",
-    "  6) embedded compiler wasm bundled in the clapse binary",
+    "  3) out/clapse_compiler.wasm",
+    "  4) embedded compiler wasm bundled in the clapse binary",
     "",
     "Required compiler wasm ABI:",
     "  export memory or __memory",
@@ -376,73 +358,6 @@ function renderTypeScriptBindings(exportsList) {
   return lines.length > 0 ? `${lines.join("\n")}\n` : "export {}\n";
 }
 
-function parseTopLevelExports(inputSource) {
-  const lines = String(inputSource).split(/\r?\n/u);
-  const out = [];
-  const seen = new Set();
-  const add = (name, arity) => {
-    if (typeof name !== "string" || name.length === 0) return;
-    if (seen.has(name)) return;
-    seen.add(name);
-    out.push({ name, arity: Math.max(0, arity | 0) });
-  };
-  for (const rawLine of lines) {
-    if (rawLine.length === 0) continue;
-    if (/^\s/u.test(rawLine)) continue;
-    const line = rawLine.trim();
-    if (line.length === 0) continue;
-    if (line.startsWith("--")) continue;
-    if (
-      line.startsWith("module ") ||
-      line.startsWith("import ") ||
-      line.startsWith("export ")
-    ) continue;
-    if (
-      line.startsWith("type ") ||
-      line.startsWith("class ") ||
-      line.startsWith("instance ")
-    ) continue;
-    if (line.startsWith("data ")) {
-      const eqAt = line.indexOf("=");
-      if (eqAt >= 0) {
-        const rhs = line.slice(eqAt + 1).trim();
-        const variants = rhs.split("|").map((x) => x.trim()).filter((x) =>
-          x.length > 0
-        );
-        for (const variant of variants) {
-          const toks = variant.split(/\s+/u).filter((x) => x.length > 0);
-          if (toks.length === 0) continue;
-          const name = toks[0];
-          if (!/^[A-Za-z_][A-Za-z0-9_$.']*$/u.test(name)) continue;
-          add(name, toks.length - 1);
-        }
-      }
-      continue;
-    }
-    if (line.includes(":") && !line.includes("=")) continue;
-    const eqAt = line.indexOf("=");
-    if (eqAt < 0) continue;
-    const lhs = line.slice(0, eqAt).trim();
-    if (lhs.length === 0) continue;
-    const toks = lhs.split(/\s+/u).filter((x) => x.length > 0);
-    if (toks.length === 0) continue;
-    const name = toks[0];
-    if (!/^[A-Za-z_][A-Za-z0-9_$.']*$/u.test(name)) continue;
-    if (name === "case" || name === "let" || name === "in") continue;
-    add(name, toks.length - 1);
-  }
-  return out;
-}
-
-function renderExportApiList(exportsList) {
-  if (!Array.isArray(exportsList) || exportsList.length === 0) {
-    return "[]";
-  }
-  return `[${exportsList.map((item) =>
-    `ExportApi {exportName = \"${item.name}\", exportArity = ${item.arity}}`
-  ).join(",")}]`;
-}
-
 function assertObject(value, ctx) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${ctx}: expected object`);
@@ -498,7 +413,18 @@ function decodeCompileResponse(response, inputPath) {
   return response;
 }
 
-function isStubCompileResponse(response) {
+function shouldInjectFuncMapInFixedPointArtifacts() {
+  const raw = String(Deno.env.get("CLAPSE_DEBUG_FUNC_MAP") ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+
+function isCompilerKernelPath(inputPath) {
+  const normalized = String(inputPath).replaceAll("\\", "/");
+  return normalized === "lib/compiler/kernel.clapse" ||
+    normalized.endsWith("/lib/compiler/kernel.clapse");
+}
+
+function isCompilerStubResponse(response) {
   if (!response || typeof response !== "object" || Array.isArray(response)) {
     return false;
   }
@@ -506,114 +432,23 @@ function isStubCompileResponse(response) {
   if (typeof response.wasm_base64 !== "string" || response.wasm_base64.length === 0) {
     return false;
   }
-  if (!Array.isArray(response.exports) || response.exports.length !== 0) {
+  const hasStubExports = Array.isArray(response.exports) && response.exports.length === 0;
+  if (!hasStubExports) {
     return false;
   }
-  if (response.dts !== undefined && response.dts !== "export {}\n") {
-    return false;
-  }
-  return true;
-}
-
-let wasmBehaviorFixtureMapLoaded = false;
-let wasmBehaviorFixtureMap = {};
-
-function normalizeWasmBehaviorFixture(entry, inputSourceSha256) {
-  if (typeof entry === "string" && entry.length > 0) {
-    return { wasm_base64: entry };
-  }
-  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-    return null;
-  }
-  if (typeof entry.wasm_base64 !== "string" || entry.wasm_base64.length === 0) {
-    return null;
-  }
-  if (
-    typeof entry.source_sha256 !== "string" ||
-    entry.source_sha256.toLowerCase() !== inputSourceSha256
-  ) {
-    return null;
-  }
-  return {
-    wasm_base64: entry.wasm_base64,
-    dts: typeof entry.dts === "string" ? entry.dts : undefined,
-  };
-}
-
-async function loadWasmBehaviorFixtureMap() {
-  if (wasmBehaviorFixtureMapLoaded) return wasmBehaviorFixtureMap;
-  wasmBehaviorFixtureMapLoaded = true;
-  try {
-    const raw = await Deno.readTextFile(
-      new URL("./wasm-behavior-fixture-map.json", import.meta.url),
-    );
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      wasmBehaviorFixtureMap = parsed;
-    }
-  } catch {
-    wasmBehaviorFixtureMap = {};
-  }
-  return wasmBehaviorFixtureMap;
-}
-
-function fixtureLookupCandidates(inputPath) {
-  const out = [];
-  const norm = inputPath.replaceAll("\\", "/");
-  out.push(norm);
-  if (norm.startsWith("./")) {
-    out.push(norm.slice(2));
-  }
-  const cwd = Deno.cwd().replaceAll("\\", "/");
-  if (norm.startsWith(`${cwd}/`)) {
-    out.push(norm.slice(cwd.length + 1));
-  }
-  return [...new Set(out)];
-}
-
-async function sha256Hex(bytes) {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-async function lookupWasmBehaviorFixture(inputPath, inputSourceSha256) {
-  const map = await loadWasmBehaviorFixtureMap();
-  for (const key of fixtureLookupCandidates(inputPath)) {
-    const fixture = normalizeWasmBehaviorFixture(map[key], inputSourceSha256);
-    if (fixture !== null) {
-      return fixture;
-    }
-  }
-  return null;
-}
-
-function isCompilerKernelPath(inputPath) {
-  return fixtureLookupCandidates(inputPath).some(
-    (candidate) => candidate === "lib/compiler/kernel.clapse",
-  );
-}
-
-function envFlag(name, defaultValue = false) {
-  const raw = Deno.env.get(name);
-  if (raw === undefined || raw === null || raw.length === 0) {
-    return defaultValue;
-  }
-  const normalized = raw.toLowerCase();
-  return normalized === "1" || normalized === "true" || normalized === "yes";
-}
-
-function allowKernelFixedPointFallback() {
-  return envFlag("CLAPSE_ALLOW_KERNEL_FIXED_POINT", true);
-}
-
-function requireNativeCompile() {
-  return envFlag("CLAPSE_REQUIRE_NATIVE_COMPILE", false);
+  return response.dts === undefined || response.dts === "export {}\n";
 }
 
 async function writeCompileArtifacts(outputPath, response) {
-  const wasmBytes = decodeWasmBase64(response.wasm_base64);
+  let wasmBytes = decodeWasmBase64(response.wasm_base64);
+  if (shouldInjectFuncMapInFixedPointArtifacts()) {
+    try {
+      wasmBytes = appendClapseFuncMap(wasmBytes);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`compile artifact funcmap injection failed: ${msg}`);
+    }
+  }
   const outputDir = outputPath.includes("/")
     ? outputPath.slice(0, outputPath.lastIndexOf("/"))
     : ".";
@@ -628,52 +463,6 @@ async function writeCompileArtifacts(outputPath, response) {
       Array.isArray(response.exports) ? response.exports : [],
     );
   await Deno.writeTextFile(dtsPath, dts);
-}
-
-async function writeCompilerFixedPointArtifacts(wasmPath, inputSource, outputPath) {
-  const outputDir = outputPath.includes("/")
-    ? outputPath.slice(0, outputPath.lastIndexOf("/"))
-    : ".";
-  if (outputDir.length > 0 && outputDir !== ".") {
-    await Deno.mkdir(outputDir, { recursive: true });
-  }
-  await Deno.copyFile(wasmPath, outputPath);
-  const dtsPath = outputPath.replace(/\.wasm$/u, ".d.ts");
-  await Deno.writeTextFile(
-    dtsPath,
-    renderTypeScriptBindings(parseTopLevelExports(inputSource)),
-  );
-}
-
-async function tryCompileFallbackStrategies(
-  wasmPath,
-  inputPath,
-  inputSource,
-  inputBytes,
-  outputPath,
-) {
-  if (isCompilerKernelPath(inputPath)) {
-    if (!allowKernelFixedPointFallback()) {
-      return "";
-    }
-    await writeCompilerFixedPointArtifacts(wasmPath, inputSource, outputPath);
-    return "fixed-point";
-  }
-  const inputSourceSha256 = await sha256Hex(inputBytes);
-  const fixture = await lookupWasmBehaviorFixture(
-    inputPath,
-    inputSourceSha256,
-  );
-  if (fixture !== null) {
-    await writeCompileArtifacts(outputPath, {
-      ok: true,
-      wasm_base64: fixture.wasm_base64,
-      dts: fixture.dts,
-      exports: [],
-    });
-    return "fixture-map";
-  }
-  return "";
 }
 
 async function writeSelfhostArtifacts(outDir, artifacts) {
@@ -698,58 +487,19 @@ async function compileViaWasm(wasmPath, inputPath, outputPath, options = {}) {
     : (!options.skipPluginCompilation && !isKernelCompile
       ? await compilePluginsWasm(wasmPath, inputPath)
       : []);
-  try {
-    const raw = await callCompilerWasm(wasmPath, {
-      command: "compile",
-      input_path: inputPath,
-      input_source: inputSource,
-      plugin_wasm_paths: pluginWasmPaths,
-    });
-    if (isStubCompileResponse(raw)) {
-      const strategy = await tryCompileFallbackStrategies(
-        wasmPath,
-        inputPath,
-        inputSource,
-        inputBytes,
-        outputPath,
-      );
-      if (strategy.length > 0) {
-        if (requireNativeCompile()) {
-          throw new Error(
-            `native wasm compile unavailable for ${inputPath}; fallback strategy '${strategy}' is disabled by CLAPSE_REQUIRE_NATIVE_COMPILE=1`,
-          );
-        }
-        console.error(
-          `[clapse] native wasm compile returned stub artifact; using ${strategy} compile path`,
-        );
-        return;
-      }
-      throw new Error("native wasm compile returned stub artifact");
-    }
-    const response = decodeCompileResponse(raw, inputPath);
-    await writeCompileArtifacts(outputPath, response);
-  } catch (err) {
-    const strategy = await tryCompileFallbackStrategies(
-      wasmPath,
-      inputPath,
-      inputSource,
-      inputBytes,
-      outputPath,
+  const response = await callCompilerWasm(wasmPath, {
+    command: "compile",
+    input_path: inputPath,
+    input_source: inputSource,
+    plugin_wasm_paths: pluginWasmPaths,
+  });
+  if (isCompilerStubResponse(response)) {
+    throw new Error(
+      `compile response for ${inputPath} is a stub artifact; configure a native clapse compiler wasm and remove stub fallback mode`,
     );
-    if (strategy.length > 0) {
-      if (requireNativeCompile()) {
-        throw new Error(
-          `native wasm compile failed for ${inputPath}; fallback strategy '${strategy}' is disabled by CLAPSE_REQUIRE_NATIVE_COMPILE=1`,
-        );
-      }
-      const reason = err instanceof Error ? err.message : String(err);
-      console.error(
-        `[clapse] native wasm compile failed (${reason}); using ${strategy} compile path`,
-      );
-      return;
-    }
-    throw err;
   }
+  const decodedResponse = decodeCompileResponse(response, inputPath);
+  await writeCompileArtifacts(outputPath, decodedResponse);
 }
 
 async function writeSelfhostArtifactsViaWasm(wasmPath, inputPath, outDir) {
@@ -763,8 +513,8 @@ async function writeSelfhostArtifactsViaWasm(wasmPath, inputPath, outDir) {
   const isPlaceholderResponse =
     response?.ok === true && shouldFallbackSelfhostArtifactsResponse(response, inputSource);
   if (isPlaceholderResponse) {
-    console.error(
-      "[clapse] native wasm selfhost-artifacts response is placeholder/incomplete; continuing with strict artifact validation",
+    throw new Error(
+      `selfhost-artifacts response for ${inputPath} is placeholder/incomplete; expected native kernel artifacts`,
     );
   }
   assertObject(response, "selfhost-artifacts response");
@@ -779,15 +529,6 @@ async function writeSelfhostArtifactsViaWasm(wasmPath, inputPath, outDir) {
   }
   const artifacts = response.artifacts;
   assertObject(artifacts, "selfhost-artifacts response.artifacts");
-  if (
-    artifacts["lowered_ir.txt"] === "" &&
-    artifacts["collapsed_ir.txt"] === "" &&
-    typeof artifacts["exports.txt"] === "string"
-  ) {
-    artifacts["exports.txt"] = renderExportApiList(
-      parseTopLevelExports(inputSource),
-    );
-  }
   await writeSelfhostArtifacts(outDir, artifacts);
 }
 
@@ -826,9 +567,114 @@ function decodeFormatResponse(response, ctx) {
   return response.formatted;
 }
 
+function stripFrameTokenPunctuation(rawToken) {
+  return String(rawToken)
+    .replace(/^[\s"'`]+/u, "")
+    .replace(/[)\]},"';]+$/u, "");
+}
+
+function parseDenoWasmStackOffset(rawToken) {
+  const token = stripFrameTokenPunctuation(rawToken);
+  const wasmAt = token.indexOf("wasm://");
+  if (wasmAt < 0) {
+    return null;
+  }
+  const marker = token.slice(wasmAt);
+  if (!marker.startsWith("wasm://")) {
+    return null;
+  }
+  const lastColon = marker.lastIndexOf(":");
+  if (lastColon <= 0 || lastColon === marker.length - 1) {
+    return null;
+  }
+  const secondLastColon = marker.lastIndexOf(":", lastColon - 1);
+  if (secondLastColon <= 0 || secondLastColon + 1 >= lastColon) {
+    return null;
+  }
+  const lineText = marker.slice(secondLastColon + 1, lastColon);
+  const offsetText = marker.slice(lastColon + 1);
+  if (!/^\d+$/u.test(lineText) || !/^\d+$/u.test(offsetText)) {
+    return null;
+  }
+  return Number.parseInt(offsetText, 10);
+}
+
+function extractWasmOffsetsFromStack(err) {
+  const stack = typeof err?.stack === "string" ? err.stack : "";
+  if (stack.length === 0) {
+    return [];
+  }
+  const out = [];
+  const seen = new Set();
+  const pushOffset = (value) => {
+    if (!Number.isFinite(value) || value <= 0) {
+      return;
+    }
+    if (seen.has(value)) {
+      return;
+    }
+    seen.add(value);
+    out.push(value);
+  };
+  const framePattern = /wasm-function\[\d+\](?::0x([0-9a-fA-F]+)|\+(\d+))/g;
+  for (const match of stack.matchAll(framePattern)) {
+    let value = NaN;
+    if (typeof match[1] === "string" && match[1].length > 0) {
+      value = Number.parseInt(match[1], 16);
+    } else if (typeof match[2] === "string" && match[2].length > 0) {
+      value = Number.parseInt(match[2], 10);
+    }
+    pushOffset(value);
+    if (out.length >= 24) {
+      break;
+    }
+  }
+  if (out.length < 24) {
+    const denoWasmFramePattern = /wasm:\/\/[^\s)]+/g;
+    for (const match of stack.matchAll(denoWasmFramePattern)) {
+      const value = parseDenoWasmStackOffset(match[0]);
+      if (value === null) {
+        continue;
+      }
+      pushOffset(value);
+      if (out.length >= 24) {
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+function buildFormatterStackMapHint(wasmPath, err) {
+  const offsets = extractWasmOffsetsFromStack(err);
+  if (offsets.length === 0) {
+    return "";
+  }
+  const offsetCsv = offsets.join(",");
+  return [
+    "",
+    `[clapse] formatter wasm stack offsets: ${offsetCsv}`,
+    `[clapse] map with: deno run -A scripts/wasm-stack-map.mjs --wasm ${JSON.stringify(wasmPath)} --offsets ${offsetCsv}`,
+  ].join("\n");
+}
+
 async function formatRequestWithFallback(wasmPath, request, _source, ctx) {
-  const response = await callCompilerWasm(wasmPath, request);
-  return decodeFormatResponse(response, ctx);
+  try {
+    const response = await callCompilerWasm(wasmPath, request);
+    return decodeFormatResponse(response, ctx);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const isStackOverflow = message.includes("Maximum call stack size exceeded");
+    if (isStackOverflow) {
+      const hint = buildFormatterStackMapHint(wasmPath, err);
+      if (err instanceof Error) {
+        err.message = `format error: ${ctx}: ${message}${hint}`;
+        throw err;
+      }
+      throw new Error(`format error: ${ctx}: ${message}${hint}`);
+    }
+    throw err;
+  }
 }
 
 async function formatViaWasm(wasmPath, args) {
@@ -880,8 +726,8 @@ export async function runWithArgs(rawArgs = cliArgs()) {
   const wasmPath = await resolveCompilerWasmPath();
   if (args.length === 1 && args[0] === "engine-mode") {
     if (wasmPath.length > 0 && await fileExists(wasmPath)) {
-      const abi = await inspectCompilerWasmAbi(wasmPath);
-      console.log(abi.mode === "bridge" ? "wasm-bridge" : "wasm-native");
+      await validateCompilerWasmAbi(wasmPath);
+      console.log("wasm-native");
       return;
     }
     console.log("unwired");
@@ -901,13 +747,7 @@ export async function runWithArgs(rawArgs = cliArgs()) {
       `compiler-wasm path not found: ${wasmPath}. Set CLAPSE_COMPILER_WASM_PATH to an existing artifact.`,
     );
   }
-  const abi = await inspectCompilerWasmAbi(wasmPath);
   await validateCompilerWasmAbi(wasmPath);
-  if (abi.mode === "bridge") {
-    console.error(
-      "[clapse] using bridge compiler wasm (host-backed). Native compiler wasm is still in progress.",
-    );
-  }
   if (args[0] === "compile") {
     if (args.length < 2 || args.length > 3) {
       throw new Error("usage: compile <input.clapse> [output.wasm]");

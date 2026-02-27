@@ -57,17 +57,52 @@ function parseOffsetsArg(text) {
     .filter((x) => Number.isInteger(x) && x >= 0);
 }
 
+function stripFrameTokenPunctuation(rawToken) {
+  return String(rawToken)
+    .replace(/^[\s"'`]+/u, "")
+    .replace(/[)\]},"';]+$/u, "");
+}
+
+function parseDenoWasmStackOffset(rawToken) {
+  const token = stripFrameTokenPunctuation(rawToken);
+  const wasmAt = token.indexOf("wasm://");
+  if (wasmAt < 0) {
+    return null;
+  }
+  const marker = token.slice(wasmAt);
+  if (!marker.startsWith("wasm://")) {
+    return null;
+  }
+  const lastColon = marker.lastIndexOf(":");
+  if (lastColon <= 0 || lastColon === marker.length - 1) {
+    return null;
+  }
+  const secondLastColon = marker.lastIndexOf(":", lastColon - 1);
+  if (secondLastColon <= 0 || secondLastColon + 1 >= lastColon) {
+    return null;
+  }
+  const lineText = marker.slice(secondLastColon + 1, lastColon);
+  const offsetText = marker.slice(lastColon + 1);
+  if (!/^\d+$/u.test(lineText) || !/^\d+$/u.test(offsetText)) {
+    return null;
+  }
+  return Number.parseInt(offsetText, 10);
+}
+
 function parseOffsetsFromStackText(text) {
   const out = [];
   const seen = new Set();
-  const re = /wasm:\/\/wasm\/[^:\s]+:\d+:(\d+)/g;
-  let match = null;
-  while ((match = re.exec(text)) !== null) {
-    const n = Number.parseInt(match[1], 10);
-    if (Number.isInteger(n) && n >= 0 && !seen.has(n)) {
-      seen.add(n);
-      out.push(n);
+  const re = /wasm:\/\/[^\s)]+/g;
+  for (const match of text.matchAll(re)) {
+    const n = parseDenoWasmStackOffset(match[0]);
+    if (n === null) {
+      continue;
     }
+    if (seen.has(n)) {
+      continue;
+    }
+    seen.add(n);
+    out.push(n);
   }
   return out;
 }

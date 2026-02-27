@@ -268,21 +268,6 @@ function decodeSliceBytes(memory, handle) {
   return new Uint8Array(memory.buffer, dataPtr, len);
 }
 
-function runHostCommandSync(args) {
-  const proc = new Deno.Command("bash", {
-    args: ["-lc", args],
-    stdout: "piped",
-    stderr: "piped",
-  });
-  const out = proc.outputSync();
-  return {
-    ok: out.success,
-    code: out.code,
-    stdout: UTF8_DECODER.decode(out.stdout),
-    stderr: UTF8_DECODER.decode(out.stderr),
-  };
-}
-
 function fileExistsSync(path) {
   try {
     const stat = Deno.statSync(path);
@@ -297,33 +282,19 @@ function isBridgeWasmPath(path) {
   return fileName.includes("bridge") && fileName.endsWith(".wasm");
 }
 
-function runDenoEvalJson(code, env = null) {
-  const cmd = {
-    args: ["eval", code],
-    stdout: "piped",
-    stderr: "piped",
-  };
-  if (env && typeof env === "object" && !Array.isArray(env)) {
-    cmd.env = env;
-  }
-  const proc = new Deno.Command("deno", cmd);
-  const out = proc.outputSync();
-  return {
-    ok: out.success,
-    code: out.code,
-    stdout: UTF8_DECODER.decode(out.stdout),
-    stderr: UTF8_DECODER.decode(out.stderr),
-  };
-}
-
 function resolveHostNativeCompilerWasmPath() {
   const envPath = String(Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "").trim();
   if (envPath.length > 0 && !isBridgeWasmPath(envPath) && fileExistsSync(envPath)) {
     return envPath;
   }
-  const fallback = "artifacts/latest/clapse_compiler.wasm";
-  if (fileExistsSync(fallback)) {
-    return fallback;
+  const fallbackCandidates = [
+    "out/clapse_compiler.wasm",
+    "artifacts/latest/clapse_compiler.wasm",
+  ];
+  for (const candidate of fallbackCandidates) {
+    if (fileExistsSync(candidate)) {
+      return candidate;
+    }
   }
   return "";
 }
@@ -335,25 +306,6 @@ function coerceStringArray(value) {
     if (typeof item === "string" && item.length > 0) {
       out.push(item);
     }
-  }
-  return out;
-}
-
-function ensureExportsList(value) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  const out = [];
-  for (const entry of value) {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      continue;
-    }
-    const name = typeof entry.name === "string" ? entry.name : "";
-    const arity = Number(entry.arity);
-    if (name.length === 0 || !Number.isInteger(arity) || arity < 0) {
-      continue;
-    }
-    out.push({ name, arity });
   }
   return out;
 }
@@ -374,7 +326,7 @@ function currentHostCompileDepth() {
 
 function runHostCompileNative(request) {
   const depth = currentHostCompileDepth();
-  if (depth > 0) {
+  if (depth > 1) {
     return {
       ok: false,
       error:
@@ -394,75 +346,91 @@ function runHostCompileNative(request) {
     input_source: request.input_source,
     plugin_wasm_paths: coerceStringArray(request.plugin_wasm_paths),
   };
-  const helper = new URL("./wasm-compiler-abi.mjs", import.meta.url).href;
-  const code = `import { callCompilerWasm } from ${JSON.stringify(helper)};
-const request = ${JSON.stringify(requestHandle)};
-const response = await callCompilerWasm(${JSON.stringify(compilerPath)}, request);
-console.log(JSON.stringify(response));`;
-  const procOut = runDenoEvalJson(code, {
-    ...Deno.env.toObject(),
-    [HOST_COMPILE_DEPTH_ENV]: String(depth + 1),
+  const procEnv = { ...Deno.env.toObject() };
+  procEnv[HOST_COMPILE_DEPTH_ENV] = String(depth + 1);
+  const runScript = new URL("./run-clapse-compiler-wasm.mjs", import.meta.url).pathname;
+  const outPath = Deno.makeTempFileSync({
+    prefix: "clapse-host-compile-",
+    suffix: ".wasm",
   });
-  if (!procOut.ok) {
-    const stderrTail = procOut.stderr.trim();
-    return {
-      ok: false,
-      error: `host compile command failed (exit ${procOut.code}): ${stderrTail || "empty stderr"}`,
-    };
-  }
-  const text = procOut.stdout.trim();
-  if (text.length === 0) {
-    return {
-      ok: false,
-      error: "host compile command produced empty response",
-    };
-  }
-  let response;
+  const outDtsPath = outPath.replace(/\.wasm$/u, ".d.ts");
   try {
-    response = JSON.parse(text);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return {
-      ok: false,
-      error: `host compile command returned invalid JSON: ${msg}`,
-    };
-  }
-  if (!response || typeof response !== "object" || Array.isArray(response)) {
-    return { ok: false, error: "host compile command returned invalid payload" };
-  }
-  if (response.ok !== true) {
-    if (typeof response.error === "string") {
-      return { ok: false, error: response.error };
-    }
-    return { ok: false, error: "native compile failed with non-string error" };
-  }
-  if (typeof response.wasm_base64 !== "string" || response.wasm_base64.length === 0) {
-    return { ok: false, error: "host compile response missing non-empty wasm_base64" };
-  }
-  let outputWasmBase64 = response.wasm_base64;
-  if (wantsDebugClapseFuncMap(request)) {
-    try {
-      const responseBytes = fromBase64(response.wasm_base64);
-      const withFuncMap = appendClapseFuncMap(responseBytes);
-      outputWasmBase64 = toBase64(withFuncMap);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+    const proc = new Deno.Command("deno", {
+      args: ["run", "-A", runScript, "compile", requestHandle.input_path, outPath],
+      env: procEnv,
+      stdout: "piped",
+      stderr: "piped",
+    });
+    const procOut = proc.outputSync();
+    if (!procOut.success) {
+      const stderrTail = UTF8_DECODER.decode(procOut.stderr).trim();
+      const stdoutTail = UTF8_DECODER.decode(procOut.stdout).trim();
       return {
         ok: false,
-        error: `host compile funcmap injection failed: ${msg}`,
+        error: `host compile command failed (exit ${procOut.code}): ${stderrTail || stdoutTail || "empty output"}`,
       };
     }
+    let wasmBytes;
+    try {
+      wasmBytes = Deno.readFileSync(outPath);
+    } catch {
+      return {
+        ok: false,
+        error: `host compile command did not produce ${outPath}`,
+      };
+    }
+    let dts = "export {}";
+    try {
+      dts = Deno.readTextFileSync(outDtsPath);
+    } catch {
+      // keep export {} fallback
+    }
+    let outputWasmBase64;
+    try {
+      outputWasmBase64 = toBase64(wasmBytes);
+    } catch {
+      return {
+        ok: false,
+        error: "host compile command produced malformed wasm artifact",
+      };
+    }
+    if (outputWasmBase64.length === 0) {
+      return {
+        ok: false,
+        error: "host compile command produced empty wasm artifact",
+      };
+    }
+    if (wantsDebugClapseFuncMap(request)) {
+      try {
+        const responseBytes = fromBase64(outputWasmBase64);
+        const withFuncMap = appendClapseFuncMap(responseBytes);
+        outputWasmBase64 = toBase64(withFuncMap);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          ok: false,
+          error: `host compile funcmap injection failed: ${msg}`,
+        };
+      }
+    }
+    return {
+      ok: true,
+      wasm_base64: outputWasmBase64,
+      exports: [],
+      dts,
+    };
+  } finally {
+    try {
+      Deno.removeSync(outPath);
+    } catch {
+      // best effort cleanup
+    }
+    try {
+      Deno.removeSync(outDtsPath);
+    } catch {
+      // best effort cleanup
+    }
   }
-  return {
-    ok: true,
-    wasm_base64: outputWasmBase64,
-    exports: ensureExportsList(response.exports),
-    dts: typeof response.dts === "string" ? response.dts : "export {}",
-  };
-}
-
-function shQuote(s) {
-  return `'${String(s).replaceAll("'", "'\\''")}'`;
 }
 
 function toBase64(bytes) {
@@ -602,11 +570,6 @@ function createHostImportObject(runtime, getInstanceRef) {
   };
 }
 
-function allowBridgeFallback() {
-  const raw = (Deno.env.get("CLAPSE_ALLOW_BRIDGE") ?? "").toLowerCase();
-  return raw === "1" || raw === "true" || raw === "yes";
-}
-
 async function loadCompilerWasm(path) {
   const wasmBytes = await Deno.readFile(path);
   const module = await WebAssembly.compile(wasmBytes);
@@ -614,9 +577,9 @@ async function loadCompilerWasm(path) {
   const isBridge = imports.some((imp) =>
     imp.module === "host" && imp.name === "clapse_run"
   );
-  if (isBridge && !allowBridgeFallback()) {
+  if (isBridge) {
     throw new Error(
-      "bridge compiler wasm detected; set CLAPSE_ALLOW_BRIDGE=1 for transitional testing or use a native compiler wasm artifact",
+      "bridge compiler wasm detected; use clapse_compiler.wasm without host bridge support",
     );
   }
   const runtime = makeRuntime();
@@ -685,9 +648,9 @@ export async function inspectCompilerWasmAbi(path) {
 
 export async function validateCompilerWasmAbi(path) {
   const info = await inspectCompilerWasmAbi(path);
-  if (info.mode === "bridge" && !allowBridgeFallback()) {
+  if (info.mode === "bridge") {
     throw new Error(
-      "bridge compiler wasm is disabled by default; set CLAPSE_ALLOW_BRIDGE=1 to use transitional bridge mode",
+      "bridge compiler wasm is disabled; use a native clapse_compiler.wasm artifact",
     );
   }
   return true;
@@ -699,3 +662,5 @@ export function decodeWasmBase64(input) {
   }
   return fromBase64(input);
 }
+
+export { appendClapseFuncMap };

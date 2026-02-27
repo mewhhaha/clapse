@@ -399,19 +399,10 @@ async function scopeDiagnosticsForSource(source, config) {
 }
 
 function getWasmPath() {
-  const allowBridge =
-    ((Deno.env.get("CLAPSE_ALLOW_BRIDGE") ?? "").toLowerCase() === "1") ||
-    ((Deno.env.get("CLAPSE_ALLOW_BRIDGE") ?? "").toLowerCase() === "true");
   const candidates = [
     Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "",
     toPath(new URL("artifacts/latest/clapse_compiler.wasm", REPO_ROOT_URL)),
-    ...(allowBridge
-      ? [toPath(new URL("artifacts/latest/clapse_compiler_bridge.wasm", REPO_ROOT_URL))]
-      : []),
     toPath(new URL("out/clapse_compiler.wasm", REPO_ROOT_URL)),
-    ...(allowBridge
-      ? [toPath(new URL("out/clapse_compiler_bridge.wasm", REPO_ROOT_URL))]
-      : []),
   ];
   for (const wasmPath of candidates) {
     if (wasmPath.length === 0) continue;
@@ -423,7 +414,7 @@ function getWasmPath() {
     }
   }
   throw new Error(
-    "wasm LSP mode requires CLAPSE_COMPILER_WASM_PATH or artifacts/latest/clapse_compiler.wasm (bridge additionally requires CLAPSE_ALLOW_BRIDGE=1)",
+    "wasm LSP mode requires CLAPSE_COMPILER_WASM_PATH or artifacts/latest|out clapse_compiler.wasm",
   );
 }
 
@@ -671,13 +662,6 @@ async function compileDiagnostics(wasmPath, uri, source, config) {
   const message = response && typeof response.error === "string"
     ? response.error
     : "compile failed";
-  const normalizedMessage = message.toLowerCase();
-  if (
-    normalizedMessage.includes("native compile not implemented") ||
-    normalizedMessage.includes("host compile recursion detected")
-  ) {
-    return scopeDiagnostics;
-  }
   const parsed = parseLineError(message);
   const diagnostics = [...scopeDiagnostics];
   if (parsed) {

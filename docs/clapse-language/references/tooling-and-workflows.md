@@ -23,12 +23,11 @@ deno run -A scripts/clapse.mjs bench [iterations]
   - `just clapse-bin`/`just install` embed `artifacts/latest/clapse_compiler.wasm`
     into `artifacts/bin/clapse` when present, so formatter/LSP can run without
     setting `CLAPSE_COMPILER_WASM_PATH`.
-  - transitional bridge artifact (`out/clapse_compiler_bridge.wasm`) requires
-    `CLAPSE_ALLOW_BRIDGE=1`.
-  - kernel fixed-point fallback can be disabled with
-    `CLAPSE_ALLOW_KERNEL_FIXED_POINT=0`.
-  - fallback strategies can be fully disabled with
-    `CLAPSE_REQUIRE_NATIVE_COMPILE=1` (used by `just release-candidate`).
+  - `just install` currently refreshes `artifacts/latest/clapse_compiler.wasm`
+    from the selected compiler artifact path (no in-install kernel self-recompile).
+  - `just install` runs wildcard-demand gate only when
+    `CLAPSE_RUN_WILDCARD_DEMAND_CHECK=1`.
+  - bridge artifacts are deprecated/unsupported in runtime validation paths.
 - `bench` is currently invoked via the same deno command surface through the wasm runner.
 
 ## Just Targets
@@ -46,7 +45,6 @@ Core:
 - `CLAPSE_EXPECT_CORE_LSP_BACKENDS=1 just lsp-wasm-fixtures` (require Clapse
   backend for core hover/definition fixture assertions)
 - `just fib-memo-plugin-smoke`
-- `CLAPSE_REQUIRE_NATIVE_COMPILE=1 just install` (strict native compile check)
 - `just wildcard-demand-check` (kernel demand-order regression check)
 
 WASM runtime perf:
@@ -69,13 +67,10 @@ Self-host parity:
 - `just selfhost-diff`
 - `just selfhost-behavior-diff`
 - `just formatter-idempotence-corpus`
-- `CLAPSE_ALLOW_BRIDGE=1 CLAPSE_COMPILER_WASM_PATH=out/clapse_compiler_bridge.wasm just lsp-wasm-fixtures`
 - `just selfhost-bootstrap-abc`
 - `just selfhost-check`
 - `just selfhost-check-strict`
 - `just selfhost-check-wasm` (requires `CLAPSE_COMPILER_WASM_PATH`)
-- `just selfhost-build-wasm-bridge`
-- `just selfhost-check-wasm-bridge`
 - `just selfhost-bench`
 - `just selfhost-bench-wasm`
 - `just selfhost-bench-wasm-fresh`
@@ -85,7 +80,7 @@ Self-host parity:
   executes compiler wasm through `clapse_run` ABI)
   - validates ABI exports (`memory`/`__memory`, `clapse_run`) and response JSON
     shape before writing outputs
-  - `engine-mode` reports `wasm-native` or `wasm-bridge`
+  - `engine-mode` reports `wasm-native` when configured
 
 ## LSP and Formatter
 

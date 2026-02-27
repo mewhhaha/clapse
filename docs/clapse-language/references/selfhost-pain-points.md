@@ -133,12 +133,13 @@ When we hit a new blocker while self-hosting:
   - standard library/runtime helpers for clamped slicing/copy; avoid ad-hoc span
     math in compiler-kernel code.
 
-4. `tooling`: strict engine-mode naming is ambiguous.
+4. `tooling`: enforce explicit native engine-mode checks.
 
 - Symptom:
-  - strict checks using `wasm` can accept both native and bridge modes.
+  - strict checks using a generic `wasm` label can hide whether native-only
+    validation actually ran.
 - Pain:
-  - easy to think we validated native while still running bridge-backed paths.
+  - easy to misread gate coverage when mode naming is not explicit.
 - Ship blocker to close:
   - use explicit `wasm-native` in strict gates where native-only guarantees are
     required.

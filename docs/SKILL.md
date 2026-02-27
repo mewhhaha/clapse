@@ -81,24 +81,38 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
 - Keep formatter resilience docs aligned with runtime behavior: CLI/LSP surface
   formatter errors/overflows directly (including stack-size issues), and return
   the kernel `formatted` result only from successful `format` responses.
+- Add formatter non-progress recursion guard telemetry in the kernel: recursive
+  chain walkers now emit `ok:false` with a function-specific message when the
+  formatter recursion budget is exhausted, helping isolate exact recursion loops.
 - Keep debug-trace docs aligned with runtime behavior:
   `CLAPSE_DEBUG_STACK=1` prints full JS/Wasm stack traces from CLI errors, and
   `scripts/wasm-stack-map.mjs` maps wasm stack offsets to function indices for
-  native compiler artifacts. Function-name mapping prefers the standard WASM
-  `name` section and falls back to `clapse.funcmap` only when missing; output
-  includes `function_name_source` provenance (`name-section`, `clapse.funcmap`,
-  or `unresolved`).
+  native compiler artifacts by parsing Deno-style `wasm://...:line:offset` frames.
+  Formatter stack-overflow errors now emit offsets and a ready-to-run
+  `wasm-stack-map` command directly in CLI output for quick triage.
+  Function-name mapping prefers the standard WASM `name` section and falls back
+  to `clapse.funcmap` only when missing; output includes
+  `function_name_source` provenance (`name-section`, `clapse.funcmap`, or
+  `unresolved`).
 - Add `CLAPSE_DEBUG_FUNC_MAP=1` (or set `compile_mode` to `funcmap`,
   `emit-funcmap`, `debug-funcmap`, or `debug`) on a `compile` request to
   append a custom `clapse.funcmap` section in compiler output. This section maps
   function indices to function names before falling back to `func_<index>`.
-- Caveat: this section is emitted only on the host compile bridge path and is
-  intentionally omitted for non-debug output; `name`-section names (if present)
-  still take precedence in downstream stack-map lookup.
+- This section is emitted for debug-mode outputs; `name`-section names (if
+  present) still take precedence in downstream stack-map lookup.
+  `run-clapse-compiler-wasm.mjs` now applies debug-mode function map injection
+  to emitted native compile artifacts so function-name lookup remains available
+  for stack-mapping.
 - Keep compile fallback docs aligned with runtime behavior:
-  `CLAPSE_ALLOW_KERNEL_FIXED_POINT` controls kernel fixed-point fallback and
-  `CLAPSE_REQUIRE_NATIVE_COMPILE=1` disables compile fallback strategies for
-  strict verification/release paths.
+  Compile fallback strategies are disabled in JS compile flow.
+- Keep selfhost artifact docs aligned with runtime behavior:
+  JS no longer patches placeholder selfhost payloads. If the kernel returns a
+  placeholder/incomplete `selfhost-artifacts` response, the command now fails
+  explicitly.
+- Smoke expectations are native-only:
+  `scripts/bootstrap-phase9-kernel-smoke.mjs` and
+  `scripts/fib-memo-plugin-smoke.mjs` now require successful native compile
+  output and no longer accept stub compile artifacts as pass conditions.
 - JS/TS is the host I/O boundary and does not own language semantics:
   it marshals CLI/path/env/file I/O and invokes kernel requests; compile,
   formatter, and LSP semantic behavior remain in the Clapse kernel.
@@ -107,14 +121,13 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
   - `compiler.json_response`: shared JSON request/response contract.
   - `compiler.formatter`: formatter behavior.
   - `compiler.lsp_kernel`: LSP request handling and response shaping.
-- Host bridge mode (`clapse_run` command `"compile"`) now delegates to a native
-  compiler artifact (`CLAPSE_COMPILER_WASM_PATH` or
-  `artifacts/latest/clapse_compiler.wasm`) via a sync subprocess and returns a
+- Host bridge mode (`clapse_run` command `"compile"`) is no longer an accepted
+  JS execution path. `run-clapse-compiler-wasm.mjs` now requires native
+  compiler artifacts (`CLAPSE_COMPILER_WASM_PATH`, then
+  `artifacts/latest/clapse_compiler.wasm`, then `out/clapse_compiler.wasm`) and
+  returns a
   JSON response containing `ok`, `wasm_base64`, `exports`, and `dts`. Bridge
-  recursion is guarded via `CLAPSE_HOST_COMPILE_DEPTH` so nested host compile
-  re-entry fails explicitly instead of overflowing the stack.
-  `compile` now routes through `host.clapse` via `clapse_host_run` in the kernel
-  and no longer emits `compile_stub_success_response` placeholders.
+  recursion is no longer used.
 
 ## LSP migration status
 

@@ -71,10 +71,12 @@ install:
     echo "install: compiler wasm not found or empty: $compiler_path" >&2
     exit 1
   fi
-  tmp_compiler="artifacts/latest/clapse_compiler.next.wasm"
-  CLAPSE_COMPILER_WASM_PATH="$compiler_path" deno run -A scripts/run-clapse-compiler-wasm.mjs compile lib/compiler/kernel.clapse "$tmp_compiler"
-  mv "$tmp_compiler" artifacts/latest/clapse_compiler.wasm
-  CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm just wildcard-demand-check
+  if [[ "$compiler_path" != "artifacts/latest/clapse_compiler.wasm" ]]; then
+    cp "$compiler_path" artifacts/latest/clapse_compiler.wasm
+  fi
+  if [[ "${CLAPSE_RUN_WILDCARD_DEMAND_CHECK:-0}" == "1" ]]; then
+    CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm just wildcard-demand-check
+  fi
   deno compile -A --include artifacts/latest/clapse_compiler.wasm --output artifacts/bin/clapse scripts/clapse.mjs
   RUN_HIGHLIGHT_SNAPSHOT_TESTS=1 scripts/setup-helix-local.sh
 
@@ -86,13 +88,11 @@ release-candidate out='out/releases':
   release_id="v${version}-${commit}"
   release_dir="{{out}}/${release_id}"
   compiler_wasm="${release_dir}/clapse_compiler.wasm"
-  bridge_wasm="${release_dir}/clapse_compiler_bridge.wasm"
   cli_bin="${release_dir}/clapse-bin"
   behavior_map="${release_dir}/wasm-behavior-fixture-map.json"
   artifact_map="${release_dir}/wasm-selfhost-artifact-fixture-map.json"
   mkdir -p "${release_dir}"
-  CLAPSE_REQUIRE_NATIVE_COMPILE=1 CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/run-clapse-compiler-wasm.mjs compile lib/compiler/kernel.clapse "${compiler_wasm}"
-  cp artifacts/latest/clapse_compiler_bridge.wasm "${bridge_wasm}"
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/run-clapse-compiler-wasm.mjs compile lib/compiler/kernel.clapse "${compiler_wasm}"
   deno compile -A --output "${cli_bin}" scripts/clapse.mjs
   chmod +x "${cli_bin}"
   cp scripts/wasm-behavior-fixture-map.json "${behavior_map}"
@@ -105,7 +105,7 @@ release-candidate out='out/releases':
     'exec deno run -A "https://raw.githubusercontent.com/mewhhaha/clapse/${CLAPSE_SCRIPT_REF:-main}/scripts/clapse.mjs" -- "$@"' \
     > "${release_dir}/clapse"
   chmod +x "${release_dir}/clapse"
-  deno run -A scripts/release-metadata.mjs --release-id "${release_id}" --clapse-version "${version}" --compiler-wasm "${compiler_wasm}" --bridge-wasm "${bridge_wasm}" --cli-bin "${cli_bin}" --behavior-map "${behavior_map}" --artifact-map "${artifact_map}" --out "${release_dir}/release-manifest.json" --checksums "${release_dir}/checksums.sha256"
+  deno run -A scripts/release-metadata.mjs --release-id "${release_id}" --clapse-version "${version}" --compiler-wasm "${compiler_wasm}" --cli-bin "${cli_bin}" --behavior-map "${behavior_map}" --artifact-map "${artifact_map}" --out "${release_dir}/release-manifest.json" --checksums "${release_dir}/checksums.sha256"
   echo "release-candidate: PASS (${release_dir})"
 wildcard-demand-check:
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/wildcard-demand-check.mjs

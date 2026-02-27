@@ -9,7 +9,6 @@ function parseArgs(argv) {
     releaseId: "",
     clapseVersion: "",
     compilerWasm: "",
-    bridgeWasm: "",
     cliBin: "",
     behaviorMap: "",
     artifactMap: "",
@@ -23,7 +22,6 @@ function parseArgs(argv) {
     if (key === "--release-id") out.releaseId = val;
     if (key === "--clapse-version") out.clapseVersion = val;
     if (key === "--compiler-wasm") out.compilerWasm = val;
-    if (key === "--bridge-wasm") out.bridgeWasm = val;
     if (key === "--cli-bin") out.cliBin = val;
     if (key === "--behavior-map") out.behaviorMap = val;
     if (key === "--artifact-map") out.artifactMap = val;
@@ -100,7 +98,6 @@ async function main() {
   const cfg = parseArgs(Deno.args);
   requireArg("--release-id", cfg.releaseId);
   requireArg("--compiler-wasm", cfg.compilerWasm);
-  requireArg("--bridge-wasm", cfg.bridgeWasm);
   requireArg("--behavior-map", cfg.behaviorMap);
   requireArg("--artifact-map", cfg.artifactMap);
 
@@ -138,7 +135,6 @@ async function main() {
     },
     artifacts: {
       compiler_wasm: await artifact(cfg.compilerWasm),
-      compiler_bridge_wasm: await artifact(cfg.bridgeWasm),
       ...(cfg.cliBin.length > 0 ? { cli_binary: await artifact(cfg.cliBin) } : {}),
       native_behavior_fixture_map: await artifact(cfg.behaviorMap),
       native_selfhost_artifact_fixture_map: await artifact(cfg.artifactMap),
@@ -148,7 +144,6 @@ async function main() {
   await Deno.writeTextFile(cfg.outPath, `${JSON.stringify(manifest, null, 2)}\n`);
   const checksums = [
     `${manifest.artifacts.compiler_wasm.sha256}  ${cfg.compilerWasm}`,
-    `${manifest.artifacts.compiler_bridge_wasm.sha256}  ${cfg.bridgeWasm}`,
     ...(cfg.cliBin.length > 0 && manifest.artifacts.cli_binary
       ? [`${manifest.artifacts.cli_binary.sha256}  ${cfg.cliBin}`]
       : []),

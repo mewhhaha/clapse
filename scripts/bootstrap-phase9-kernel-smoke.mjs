@@ -101,35 +101,6 @@ async function main() {
     "compile response with legacy source field must report missing input_source",
   );
 
-  const compileWithModeResp = await callCompilerWasm(wasmPath, {
-    command: "compile",
-    compile_mode: "stub-success",
-    input_path: "examples/wasm_main.clapse",
-    input_source: "main x = x",
-  });
-  assert(
-    compileWithModeResp && compileWithModeResp.ok === true,
-    "compile response with explicit compile_mode must succeed",
-  );
-  assert(
-    typeof compileWithModeResp.wasm_base64 === "string" &&
-      compileWithModeResp.wasm_base64.length > 0,
-    "compile response with explicit compile_mode must include non-empty wasm_base64",
-  );
-  {
-    const wasmBytes = Uint8Array.from(atob(compileWithModeResp.wasm_base64), (c) =>
-      c.charCodeAt(0)
-    );
-    assert(
-      wasmBytes.length >= 4 &&
-        wasmBytes[0] === 0x00 &&
-        wasmBytes[1] === 0x61 &&
-        wasmBytes[2] === 0x73 &&
-        wasmBytes[3] === 0x6d,
-      "compile response wasm_base64 must decode to wasm magic bytes",
-    );
-  }
-
   const formatResp = await callCompilerWasm(wasmPath, {
     command: "format",
     mode: "stdout",

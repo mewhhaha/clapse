@@ -19,13 +19,9 @@ function envFlag(name, defaultValue = false) {
 const REQUIRE_CORE_BACKENDS = envFlag("CLAPSE_EXPECT_CORE_LSP_BACKENDS", false);
 
 function getWasmPath() {
-  const allowBridge =
-    (Deno.env.get("CLAPSE_ALLOW_BRIDGE") ?? "").toLowerCase() === "1" ||
-    (Deno.env.get("CLAPSE_ALLOW_BRIDGE") ?? "").toLowerCase() === "true";
   const candidates = [
     Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "",
     "out/clapse_compiler.wasm",
-    ...(allowBridge ? ["out/clapse_compiler_bridge.wasm"] : []),
   ];
   for (const candidate of candidates) {
     if (candidate.length === 0) continue;
@@ -37,7 +33,7 @@ function getWasmPath() {
     }
   }
   throw new Error(
-    "wasm LSP mode requires CLAPSE_COMPILER_WASM_PATH or out/clapse_compiler.wasm (bridge additionally requires CLAPSE_ALLOW_BRIDGE=1)",
+    "wasm LSP mode requires CLAPSE_COMPILER_WASM_PATH or out/clapse_compiler.wasm",
   );
 }
 

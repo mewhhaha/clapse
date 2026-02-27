@@ -1,5 +1,6 @@
 module compiler.formatter
 import compiler.prelude
+import compiler.json_response
 export format_ok_response
 
 data OwnershipRewriteMode = OwnershipRewriteLinear | OwnershipRewriteCopyOnWrite
@@ -364,23 +365,29 @@ format_wrap_line_loop request_handle ownership_mode line line_len base_indent_le
             _ -> max2 1 (format_default_line_width - base_indent_len)
           first_break = format_find_wrap_break request_handle line source_start source_len avail
           has_empty_break = first_break <= 0
-          chunk_len = case has_empty_break of
+          raw_chunk_len = case has_empty_break of
             true -> avail
             _ -> first_break
+          chunk_len = case (raw_chunk_len <= 0 || raw_chunk_len > source_len) of
+            true -> max2 1 source_len
+            _ -> raw_chunk_len
           out1 = format_emit_wrap_prefix request_handle ownership_mode line base_indent_len is_cont out out_i
-          out2 = format_copy_segment request_handle line source_start out1 chunk_len
+          out2 = format_copy_segment request_handle ownership_mode line source_start out out1 chunk_len
           is_last_chunk = source_len <= chunk_len
-      in let last_chunk_state =
+      in let next_source_len = source_len - chunk_len
+         last_chunk_state =
            case is_last_chunk has_more of
              true true -> 0
              true false -> 1
              _ -> 2
          in case last_chunk_state of
-           0 -> slice_set_u8 request_handle ownership_mode out2 out2 format_newline_byte
+           0 -> slice_set_u8 request_handle ownership_mode out out2 format_newline_byte
            1 -> out2
            _ ->
-             let out3 = slice_set_u8 request_handle ownership_mode out2 out2 format_newline_byte
-             in format_wrap_line_loop request_handle ownership_mode line line_len base_indent_len (source_start + chunk_len) (source_len - chunk_len) out3 true true
+             let out3 = slice_set_u8 request_handle ownership_mode out out2 format_newline_byte
+             in case (next_source_len < 0 || chunk_len <= 0 || next_source_len == source_len) of
+               true -> out3
+               _ -> format_wrap_line_loop request_handle ownership_mode line line_len base_indent_len (source_start + chunk_len) next_source_len out out3 true true
 
 format_wrap_line request_handle ownership_mode line line_len base_indent_len out out_i has_more =
   let source_len = case (line_len <= base_indent_len) of
@@ -425,7 +432,7 @@ format_normalize_source_lines request_handle ownership_mode source source_len ou
           next_i = case has_next_line of
             true -> line_end + 1
             _ -> line_end
-      in format_normalize_source_lines request_handle ownership_mode source source_len out1 next_i
+      in format_normalize_source_lines request_handle ownership_mode source source_len out out1 next_i
 
 format_skip_spaces request_handle i end =
   case (i >= end) of
@@ -578,7 +585,7 @@ format_monadic_indent node =
 format_copy_raw_line request_handle source line_start line_end out out_i source_end =
   let out1 = format_copy_segment request_handle OwnershipRewriteLinear source line_start out out_i (line_end - line_start)
   in case (line_end < source_end) of
-    true -> slice_set_u8 request_handle OwnershipRewriteLinear out1 out1 format_newline_byte
+    true -> slice_set_u8 request_handle OwnershipRewriteLinear out out1 format_newline_byte
     _ -> out1
 
 format_copy_line_with_indent request_handle source line_start line_end indent out out_i source_end =
@@ -587,9 +594,9 @@ format_copy_line_with_indent request_handle source line_start line_end indent ou
       body_start = line_start + trimmed
       body_len = line_len - trimmed
       out1 = format_copy_spaces request_handle OwnershipRewriteLinear out out_i indent
-      out2 = format_copy_segment request_handle OwnershipRewriteLinear source body_start out1 (out_i + indent) body_len
+      out2 = format_copy_segment request_handle OwnershipRewriteLinear source body_start out out1 body_len
       out3 = case (line_end < source_end) of
-        true -> slice_set_u8 request_handle OwnershipRewriteLinear out2 out2 format_newline_byte
+        true -> slice_set_u8 request_handle OwnershipRewriteLinear out out2 format_newline_byte
         _ -> out2
   in out3
 
@@ -622,7 +629,10 @@ format_collect_monadic_chain request_handle source source_len base_indent next_i
                   next_multiline = case has_next_multiline of
                     true -> 1
                     _ -> 0
-              in format_collect_monadic_chain request_handle source source_len base_indent next (count + 1) next_lambda next_multiline
+                  has_progress = next > next_i
+              in case has_progress of
+                true -> format_collect_monadic_chain request_handle source source_len base_indent next (count + 1) next_lambda next_multiline
+                _ -> ChainCollect MonadicLineNil next_i count has_lambda has_multiline
             _ -> ChainCollect MonadicLineNil next_i count has_lambda has_multiline
         ParsedLine MonadicLineNil _ ->
           let content_end = format_find_comment_boundary request_handle next_i line_end
@@ -637,7 +647,11 @@ format_collect_monadic_chain request_handle source source_len base_indent next_i
                      true -> 0
                      _ -> 1
                  in case child_indent_state of
-                   0 -> format_collect_monadic_chain request_handle source source_len base_indent next count has_lambda has_multiline
+                   0 ->
+                     let has_progress = next > next_i
+                     in case has_progress of
+                       true -> format_collect_monadic_chain request_handle source source_len base_indent next count has_lambda has_multiline
+                       _ -> ChainCollect MonadicLineNil next_i count has_lambda has_multiline
                    _ -> ChainCollect MonadicLineNil next_i count has_lambda has_multiline
 
 format_find_next_chain_operator request_handle source chain_end base_indent next_i =
@@ -652,7 +666,11 @@ format_find_next_chain_operator request_handle source chain_end base_indent next
           let is_sufficient_indent = indent >= base_indent
           in case is_sufficient_indent of
             true -> next_i
-            _ -> format_find_next_chain_operator request_handle source chain_end base_indent next
+            _ ->
+              let has_progress = next > next_i
+              in case has_progress of
+                true -> format_find_next_chain_operator request_handle source chain_end base_indent next
+                _ -> chain_end
         ParsedLine MonadicLineNil _ ->
           let content_end = format_find_comment_boundary request_handle next_i chain_end
               has_content = format_has_nonspace request_handle next_i content_end
@@ -666,7 +684,11 @@ format_find_next_chain_operator request_handle source chain_end base_indent next
                  _ true -> 1
                  _ _ -> 2
              in case chain_end_state of
-               0 -> format_find_next_chain_operator request_handle source chain_end base_indent next
+               0 ->
+                 let has_progress = next > next_i
+                 in case has_progress of
+                   true -> format_find_next_chain_operator request_handle source chain_end base_indent next
+                   _ -> chain_end
                _ -> chain_end
 
 format_find_chain_first_body_indent request_handle source body_start body_end op_indent =
@@ -685,103 +707,232 @@ format_find_chain_first_body_indent request_handle source body_start body_end op
              _ _ -> 1
          in case body_indent_state of
               0 -> indent
-              _ -> format_find_chain_first_body_indent request_handle source next body_end op_indent
+              _ ->
+                let has_progress = next > body_start
+                in case has_progress of
+                  true -> format_find_chain_first_body_indent request_handle source next body_end op_indent
+                  _ -> -1
 
 format_copy_chain_body request_handle source out out_i source_end op_indent first_body_indent normalized_body_indent body_start body_end =
-  case (body_start >= body_end) of
-    true -> out_i
+  format_copy_chain_body_with_budget
+    request_handle
+    source
+    out
+    out_i
+    source_end
+    op_indent
+    first_body_indent
+    normalized_body_indent
+    body_start
+    body_end
+    format_nonprogress_guard_limit
+
+format_copy_chain_body_with_budget request_handle source out out_i source_end op_indent first_body_indent normalized_body_indent body_start body_end budget =
+  case (budget <= 0) of
+    true -> format_nonprogress_copy_chain_body_error
     _ ->
-      let line_end = format_line_end request_handle body_start body_end
-          next = format_next_line_start line_end body_end
-          content_end = format_find_comment_boundary request_handle body_start line_end
-          has_content = format_has_nonspace request_handle body_start content_end
-          shift = normalized_body_indent - first_body_indent
-          line_indent = format_leading_space_len request_handle body_start line_end 0
-          has_body_indent = line_indent > op_indent
-          copy_body_state = case has_content has_body_indent of
-            true false -> 0
-            true true -> 1
-            _ _ -> 2
-          out1 = case copy_body_state of
-            0 -> format_copy_raw_line request_handle source body_start line_end out out_i body_end
-            1 ->
-              format_copy_line_with_indent request_handle source body_start line_end (line_indent + shift) out out_i body_end
-            _ -> format_copy_raw_line request_handle source body_start line_end out out_i body_end
-      in format_copy_chain_body request_handle source out1 out1 source_end op_indent first_body_indent normalized_body_indent next body_end
+      case (body_start >= body_end) of
+        true -> out_i
+        _ ->
+          let line_end = format_line_end request_handle body_start body_end
+              next = format_next_line_start line_end body_end
+              content_end = format_find_comment_boundary request_handle body_start line_end
+              has_content = format_has_nonspace request_handle body_start content_end
+              shift = normalized_body_indent - first_body_indent
+              line_indent = format_leading_space_len request_handle body_start line_end 0
+              has_body_indent = line_indent > op_indent
+              copy_body_state = case has_content has_body_indent of
+                true false -> 0
+                true true -> 1
+                _ _ -> 2
+              out1 = case copy_body_state of
+                0 -> format_copy_raw_line request_handle source body_start line_end out out_i body_end
+                1 ->
+                  format_copy_line_with_indent request_handle source body_start line_end (line_indent + shift) out out_i body_end
+                _ -> format_copy_raw_line request_handle source body_start line_end out out_i body_end
+              has_progress = next > body_start
+          in case has_progress of
+            true ->
+              let out2 = format_copy_chain_body_with_budget
+                request_handle
+                source
+                out
+                out1
+                source_end
+                op_indent
+                first_body_indent
+                normalized_body_indent
+                next
+                body_end
+                (budget - 1)
+              in case (out2 < 0) of
+                true -> out2
+                _ -> out2
+            _ -> out1
 
 format_normalize_chain_region request_handle source source_len out out_i i chain_end base_indent =
-  case (i >= chain_end) of
-    true -> out_i
+  format_normalize_chain_region_with_budget
+    request_handle
+    source
+    source_len
+    out
+    out_i
+    i
+    chain_end
+    base_indent
+    format_nonprogress_guard_limit
+
+format_normalize_chain_region_with_budget request_handle source source_len out out_i i chain_end base_indent budget =
+  case (budget <= 0) of
+    true -> format_nonprogress_chain_region_error
     _ ->
-      let line_end = format_line_end request_handle i source_len
-          next = format_next_line_start line_end source_len
-          parsed = format_parse_monadic_line request_handle source i line_end
-      in case parsed of
-        ParsedLine (MonadicLineNode _ _ op_indent _ _ _ _) _ ->
-          let out1 = format_copy_line_with_indent request_handle source i line_end base_indent out out_i source_len
-              body_start = next
-              next_op = format_find_next_chain_operator request_handle source chain_end base_indent body_start
-              first_body_indent = format_find_chain_first_body_indent request_handle source body_start next_op op_indent
-              is_missing_body_indent = first_body_indent < 0
-              is_body_indent_missing = is_missing_body_indent
-          in case is_body_indent_missing of
-            true ->
-              format_normalize_chain_region request_handle source source_len out1 next_op chain_end base_indent
-            _ ->
-              let relative_body_indent = max2 1 (first_body_indent - op_indent)
-                  normalized_body_indent = base_indent + relative_body_indent
-                  out2 = format_copy_chain_body request_handle source out1 source_len op_indent first_body_indent normalized_body_indent body_start next_op
-              in format_normalize_chain_region request_handle source source_len out2 next_op chain_end base_indent
-        ParsedLine MonadicLineNil _ ->
-          format_normalize_chain_region request_handle source source_len out out_i next chain_end base_indent
+      case (i >= chain_end) of
+        true -> out_i
+        _ ->
+          let line_end = format_line_end request_handle i source_len
+              next = format_next_line_start line_end source_len
+              parsed = format_parse_monadic_line request_handle source i line_end
+          in case parsed of
+            ParsedLine (MonadicLineNode _ _ op_indent _ _ _ _) _ ->
+              let out1 = format_copy_line_with_indent request_handle source i line_end base_indent out out_i source_len
+                  body_start = next
+                  next_op = format_find_next_chain_operator request_handle source chain_end base_indent body_start
+                  first_body_indent = format_find_chain_first_body_indent request_handle source body_start next_op op_indent
+                  has_next_progress = next_op > body_start && next_op <= chain_end
+                  is_missing_body_indent = first_body_indent < 0
+                  is_body_indent_missing = is_missing_body_indent
+              in case has_next_progress of
+                false -> out1
+                _ ->
+                  case is_body_indent_missing of
+                    true ->
+                      let out2 = format_normalize_chain_region_with_budget
+                          request_handle
+                          source
+                          source_len
+                          out
+                          out1
+                          next_op
+                          chain_end
+                          base_indent
+                          (budget - 1)
+                      in case (out2 < 0) of
+                        true -> out2
+                        _ -> out2
+                    _ ->
+                          let relative_body_indent = max2 1 (first_body_indent - op_indent)
+                          normalized_body_indent = base_indent + relative_body_indent
+                          out2 = format_copy_chain_body_with_budget
+                            request_handle
+                            source
+                            out
+                            out1
+                            source_len
+                            op_indent
+                            first_body_indent
+                            normalized_body_indent
+                            body_start
+                            next_op
+                            (budget - 1)
+                          in case (out2 < 0) of
+                            true -> out2
+                            _ ->
+                              format_normalize_chain_region_with_budget
+                                request_handle
+                                source
+                                source_len
+                                out
+                                out2
+                                next_op
+                                chain_end
+                                base_indent
+                                (budget - 1)
+            ParsedLine MonadicLineNil _ ->
+              format_normalize_chain_region_with_budget
+                request_handle
+                source
+                source_len
+                out
+                out_i
+                next
+                chain_end
+                base_indent
+                (budget - 1)
 
 format_normalize_monadic_lines request_handle source source_len out out_i i =
-  case (i >= source_len) of
-    true -> out_i
+  format_normalize_monadic_lines_with_budget
+    request_handle
+    source
+    source_len
+    out
+    out_i
+    i
+    format_nonprogress_guard_limit
+
+format_normalize_monadic_lines_with_budget request_handle source source_len out out_i i budget =
+  case (budget <= 0) of
+    true -> format_nonprogress_normalize_monadic_lines_error
     _ ->
-      let line_end = format_line_end request_handle i source_len
-          next_i = case (line_end < source_len) of true -> line_end + 1 _ -> line_end
-      in case format_parse_monadic_line request_handle source i line_end of
-        ParsedLine MonadicLineNil _ ->
-          let out1 = format_copy_segment request_handle OwnershipRewriteLinear source i out out_i (line_end - i)
-              out2 = case (line_end < source_len) of
-                true -> slice_set_u8 request_handle OwnershipRewriteLinear out1 out1 format_newline_byte
-                _ -> out1
-          in format_normalize_monadic_lines request_handle source source_len out2 next_i
-        ParsedLine (MonadicLineNode _ _ base_indent _ _ _ _) flags ->
-          let has_first_lambda = flags == 1 || flags == 3
-              first_lambda = case has_first_lambda of
-                true -> 1
-                _ -> 0
-              has_first_multiline = flags == 2 || flags == 3
-              first_multiline = case has_first_multiline of
-                true -> 1
-                _ -> 0
-              ChainCollect _ chain_end chain_count chain_lambda chain_multiline = format_collect_monadic_chain request_handle source source_len base_indent next_i 1 first_lambda first_multiline
-              should_normalize_chain = chain_count >= 2 && chain_lambda == 1 && chain_multiline == 0
-              is_normalizable_chain_size = chain_count >= 2
-              has_lambda_chain = chain_lambda == 1
-              is_one_line = chain_multiline == 0
-          in let normalize_chain_state =
-               case should_normalize_chain is_normalizable_chain_size has_lambda_chain is_one_line of
-                 true true true true -> 0
-                 _ _ _ _ -> 1
-             in case normalize_chain_state of
-               0 ->
-                 let out1 = format_normalize_chain_region request_handle source source_len out out_i i chain_end base_indent
-                 in format_normalize_monadic_lines request_handle source source_len out1 chain_end
-               _ ->
-                 let out1 = format_copy_segment request_handle OwnershipRewriteLinear source i out out_i (chain_end - i)
-                 in format_normalize_monadic_lines request_handle source source_len out1 chain_end
+      case (i >= source_len) of
+        true -> out_i
+        _ ->
+          let line_end = format_line_end request_handle i source_len
+              next_i = case (line_end < source_len) of true -> line_end + 1 _ -> line_end
+          in case format_parse_monadic_line request_handle source i line_end of
+            ParsedLine MonadicLineNil _ ->
+              let out1 = format_copy_segment request_handle OwnershipRewriteLinear source i out out_i (line_end - i)
+                  out2 = case (line_end < source_len) of
+                    true -> slice_set_u8 request_handle OwnershipRewriteLinear out out1 format_newline_byte
+                    _ -> out1
+              in case (out2 < 0) of
+                true -> out2
+                _ -> format_normalize_monadic_lines_with_budget request_handle source source_len out out2 next_i (budget - 1)
+            ParsedLine (MonadicLineNode _ _ base_indent _ _ _ _) flags ->
+              let has_first_lambda = flags == 1 || flags == 3
+                  first_lambda = case has_first_lambda of
+                    true -> 1
+                    _ -> 0
+                  has_first_multiline = flags == 2 || flags == 3
+                  first_multiline = case has_first_multiline of
+                    true -> 1
+                    _ -> 0
+                  ChainCollect _ chain_end chain_count chain_lambda chain_multiline = format_collect_monadic_chain request_handle source source_len base_indent next_i 1 first_lambda first_multiline
+                  normalized_chain_end = case (chain_end > i) of
+                    true -> chain_end
+                    _ -> next_i
+                  should_normalize_chain = chain_count >= 2 && chain_lambda == 1 && chain_multiline == 0
+                  is_normalizable_chain_size = chain_count >= 2
+                  has_lambda_chain = chain_lambda == 1
+                  is_one_line = chain_multiline == 0
+              in let normalize_chain_state =
+                   case should_normalize_chain is_normalizable_chain_size has_lambda_chain is_one_line of
+                     true true true true -> 0
+                     _ _ _ _ -> 1
+                 in case normalize_chain_state of
+                   0 ->
+                     let out1 = format_normalize_chain_region request_handle source source_len out out_i i normalized_chain_end base_indent
+                     in case (out1 < 0) of
+                       true -> out1
+                       _ -> format_normalize_monadic_lines_with_budget request_handle source source_len out out1 normalized_chain_end (budget - 1)
+                   _ ->
+                     let copy_len = case (normalized_chain_end > i) of
+                           true -> normalized_chain_end - i
+                           _ -> next_i - i
+                         out1 = format_copy_segment request_handle OwnershipRewriteLinear source i out out_i copy_len
+                     in case (out1 < 0) of
+                       true -> out1
+                       _ -> format_normalize_monadic_lines_with_budget request_handle source source_len out out1 normalized_chain_end (budget - 1)
 
 format_normalize_source request_handle source source_len out out_i =
   let decoded = slice_new_u8 (source_len + 1)
       decoded_len = format_unescape_source_loop request_handle source source_len decoded 0 0
       normalized = slice_new_u8 (decoded_len + format_default_line_width * 8)
-      normalized_len = format_normalize_source_lines decoded OwnershipRewriteLinear decoded decoded_len normalized 0 0
+      normalized_len = format_normalize_source_lines request_handle OwnershipRewriteLinear decoded decoded_len normalized 0 0
       monadic = slice_new_u8 (normalized_len * 2 + format_default_line_width * 4)
-      monadic_len = format_normalize_monadic_lines normalized normalized normalized_len monadic 0 0
-      out1 = format_copy_segment monadic OwnershipRewriteLinear monadic 0 out out_i monadic_len
+      monadic_len = format_normalize_monadic_lines request_handle normalized normalized_len monadic 0 0
+  in case (monadic_len < 0) of
+    true -> monadic_len
+    _ -> format_copy_segment request_handle OwnershipRewriteLinear monadic 0 out out_i monadic_len
 
 find_source_start request_handle i req_len =
   find_json_key_value_start request_handle i req_len "\"source\""
@@ -796,6 +947,17 @@ max_source_scan_steps = 1024
 max_inline_request_len = 32768
 max_inline_validation_request_len = 2048
 find_source_end_scan_chunk = 64
+format_nonprogress_guard_limit = 1024
+format_nonprogress_chain_region_error = -1001
+format_nonprogress_copy_chain_body_error = -1002
+format_nonprogress_normalize_monadic_lines_error = -1003
+
+format_nonprogress_error_message code =
+  case code of
+    format_nonprogress_chain_region_error -> "format non-progress recursion in format_normalize_chain_region"
+    format_nonprogress_copy_chain_body_error -> "format non-progress recursion in format_copy_chain_body"
+    format_nonprogress_normalize_monadic_lines_error -> "format non-progress recursion in format_normalize_monadic_lines"
+    _ -> "format non-progress recursion detected in monadic formatter"
 
 find_source_end request_handle i req_len slash_parity =
   find_source_end_limited request_handle i req_len slash_parity 0
@@ -1022,14 +1184,18 @@ format_source_response request_handle ownership_mode source_start req_len =
       source_len = source_end - source_start
       formatted = slice_new_u8 (source_len * 2 + format_default_line_width * 8)
       formatted_len = format_normalize_source request_handle source_start source_len formatted 0
-  in json_response_with_escaped_slice_segment
-    request_handle
-    ownership_mode
-    json_format_prefix
-    json_format_suffix
-    formatted
-    0
-    formatted_len
+  in case (formatted_len < 0) of
+    true ->
+      error_response_from_message request_handle ownership_mode (format_nonprogress_error_message formatted_len)
+    _ ->
+      json_response_with_escaped_slice_segment
+        request_handle
+        ownership_mode
+        json_format_prefix
+        json_format_suffix
+        formatted
+        0
+        formatted_len
 
 format_ok_response request_handle ownership_mode =
   let req_len = slice_len request_handle
