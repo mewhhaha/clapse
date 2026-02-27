@@ -65,7 +65,6 @@ jobs:
           set -euo pipefail
           for path in \
             artifacts/latest/clapse_compiler.wasm \
-            artifacts/latest/clapse_compiler_bridge.wasm \
             artifacts/latest/seed-lock.json \
             scripts/wasm-behavior-fixture-map.json \
             scripts/wasm-selfhost-artifact-fixture-map.json
@@ -78,11 +77,9 @@ jobs:
 
           seed_release_id="$(deno eval 'const lock = JSON.parse(await Deno.readTextFile("artifacts/latest/seed-lock.json")); console.log(lock.seed_release_id ?? "");')"
           seed_compiler_sha_expected="$(deno eval 'const lock = JSON.parse(await Deno.readTextFile("artifacts/latest/seed-lock.json")); console.log(lock.compiler_wasm_sha256 ?? "");')"
-          seed_bridge_sha_expected="$(deno eval 'const lock = JSON.parse(await Deno.readTextFile("artifacts/latest/seed-lock.json")); console.log(lock.compiler_bridge_wasm_sha256 ?? "");')"
           seed_manifest_release_id="$(deno eval 'const m = JSON.parse(await Deno.readTextFile("artifacts/latest/release-manifest.json")); console.log(m.release_id ?? "");')"
           seed_compiler_sha_actual="$(sha256sum artifacts/latest/clapse_compiler.wasm | awk '{print $1}')"
-          seed_bridge_sha_actual="$(sha256sum artifacts/latest/clapse_compiler_bridge.wasm | awk '{print $1}')"
-          if [ -z "${seed_release_id}" ] || [ -z "${seed_compiler_sha_expected}" ] || [ -z "${seed_bridge_sha_expected}" ]; then
+          if [ -z "${seed_release_id}" ] || [ -z "${seed_compiler_sha_expected}" ]; then
             echo "invalid seed lock file: artifacts/latest/seed-lock.json" >&2
             exit 1
           fi
@@ -94,10 +91,6 @@ jobs:
             echo "seed compiler checksum mismatch: expected=${seed_compiler_sha_expected} actual=${seed_compiler_sha_actual}" >&2
             exit 1
           fi
-          if [ "${seed_bridge_sha_actual}" != "${seed_bridge_sha_expected}" ]; then
-            echo "seed bridge checksum mismatch: expected=${seed_bridge_sha_expected} actual=${seed_bridge_sha_actual}" >&2
-            exit 1
-          fi
           echo "seed lock verified (${seed_release_id})"
 
           mkdir -p "${RELEASE_DIR}"
@@ -105,7 +98,6 @@ jobs:
             deno run -A scripts/run-clapse-compiler-wasm.mjs \
               compile lib/compiler/kernel.clapse \
               "${RELEASE_DIR}/clapse_compiler.wasm"
-          cp artifacts/latest/clapse_compiler_bridge.wasm "${RELEASE_DIR}/clapse_compiler_bridge.wasm"
           deno compile -A --output "${RELEASE_DIR}/clapse-bin" scripts/clapse.mjs
           chmod +x "${RELEASE_DIR}/clapse-bin"
           cp scripts/wasm-behavior-fixture-map.json "${RELEASE_DIR}/wasm-behavior-fixture-map.json"
@@ -124,7 +116,6 @@ jobs:
             --release-id "${RELEASE_ID}" \
             --clapse-version "${CLAPSE_VERSION}" \
             --compiler-wasm "${RELEASE_DIR}/clapse_compiler.wasm" \
-            --bridge-wasm "${RELEASE_DIR}/clapse_compiler_bridge.wasm" \
             --cli-bin "${RELEASE_DIR}/clapse-bin" \
             --behavior-map "${RELEASE_DIR}/wasm-behavior-fixture-map.json" \
             --artifact-map "${RELEASE_DIR}/wasm-selfhost-artifact-fixture-map.json" \
@@ -154,45 +145,7 @@ jobs:
             ${{ steps.release_context.outputs.release_dir }}/clapse
             ${{ steps.release_context.outputs.release_dir }}/clapse-bin
             ${{ steps.release_context.outputs.release_dir }}/clapse_compiler.wasm
-            ${{ steps.release_context.outputs.release_dir }}/clapse_compiler_bridge.wasm
             ${{ steps.release_context.outputs.release_dir }}/wasm-behavior-fixture-map.json
             ${{ steps.release_context.outputs.release_dir }}/wasm-selfhost-artifact-fixture-map.json
             ${{ steps.release_context.outputs.release_dir }}/release-manifest.json
             ${{ steps.release_context.outputs.release_dir }}/checksums.sha256
-
-      - name: Update latest compiler artifacts in repo
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          RELEASE_DIR: ${{ steps.release_context.outputs.release_dir }}
-          RELEASE_ID: ${{ steps.release_context.outputs.release_id }}
-        run: |
-          set -euo pipefail
-          git lfs install --local
-          git fetch origin main
-          git switch -C main origin/main
-          mkdir -p artifacts/latest
-          cp "${RELEASE_DIR}/clapse_compiler.wasm" artifacts/latest/clapse_compiler.wasm
-          cp "${RELEASE_DIR}/clapse_compiler_bridge.wasm" artifacts/latest/clapse_compiler_bridge.wasm
-          cp "${RELEASE_DIR}/clapse" artifacts/latest/clapse
-          cp "${RELEASE_DIR}/release-manifest.json" artifacts/latest/release-manifest.json
-          cp "${RELEASE_DIR}/checksums.sha256" artifacts/latest/checksums.sha256
-          chmod +x artifacts/latest/clapse
-          compiler_sha="$(sha256sum artifacts/latest/clapse_compiler.wasm | awk '{print $1}')"
-          bridge_sha="$(sha256sum artifacts/latest/clapse_compiler_bridge.wasm | awk '{print $1}')"
-          cat > artifacts/latest/seed-lock.json <<EOF
-          {
-            "schema_version": 1,
-            "seed_release_id": "${RELEASE_ID}",
-            "compiler_wasm_sha256": "${compiler_sha}",
-            "compiler_bridge_wasm_sha256": "${bridge_sha}"
-          }
-          EOF
-          if [ -z "$(git status --porcelain -- artifacts/latest)" ]; then
-            echo "artifacts/latest unchanged"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add artifacts/latest
-          git commit -m "release: update latest compiler artifacts for ${GITHUB_REF_NAME}"
-          git push origin HEAD:main
