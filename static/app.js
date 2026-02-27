@@ -194,7 +194,7 @@ const MIN_SUPPORTED_RELEASE_TAG = "v0.1.0.12";
 const MIN_SUPPORTED_RELEASE_VERSION = parseReleaseVersion(
   MIN_SUPPORTED_RELEASE_TAG,
 );
-const MIRRORED_RELEASE_TAGS = new Set(["v0.1.0.14", "v0.1.0.15"]);
+const MIRRORED_RELEASE_TAGS = new Set(["v0.1.0.17"]);
 const COMPILER_ASSET_NAME = "clapse_compiler.wasm";
 const COMPILER_ASSET_SUFFIX = "/artifacts/latest/clapse_compiler.wasm";
 const PRELUDE_ASSET_NAME = "prelude.clapse";
@@ -1364,15 +1364,19 @@ async function loadCompilerRecord(tag) {
 }
 
 function resolveCompilerAssetCandidates(tag) {
-  return [{
-    url: `${LOCAL_RELEASE_ARTIFACTS_ROOT}/${encodeURIComponent(tag)}/${COMPILER_ASSET_NAME}`,
-  }];
+  return [
+    {
+      url: `${LOCAL_RELEASE_ARTIFACTS_ROOT}/${encodeURIComponent(tag)}/${COMPILER_ASSET_NAME}`,
+    },
+  ];
 }
 
 function resolvePreludeAssetCandidates(tag) {
-  return [{
-    url: `${LOCAL_RELEASE_ARTIFACTS_ROOT}/${encodeURIComponent(tag)}/${PRELUDE_ASSET_NAME}`,
-  }];
+  return [
+    {
+      url: `${LOCAL_RELEASE_ARTIFACTS_ROOT}/${encodeURIComponent(tag)}/${PRELUDE_ASSET_NAME}`,
+    },
+  ];
 }
 
 function buildStubImports(imports) {
