@@ -210,11 +210,11 @@ const GITHUB_REPO = "clapse";
 const RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=50`;
 const RELEASES_PAGE = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
 const LOCAL_RELEASE_ARTIFACTS_ROOT = "./artifacts/releases";
-const MIN_SUPPORTED_RELEASE_TAG = "v0.1.0.20";
+const MIN_SUPPORTED_RELEASE_TAG = "v0.1.0.21";
 const MIN_SUPPORTED_RELEASE_VERSION = parseReleaseVersion(
   MIN_SUPPORTED_RELEASE_TAG,
 );
-const MIRRORED_RELEASE_TAGS = new Set(["v0.1.0.20"]);
+const MIRRORED_RELEASE_TAGS = new Set(["v0.1.0.21"]);
 const COMPILER_ASSET_NAME = "clapse_compiler.wasm";
 const COMPILER_ASSET_SUFFIX = "/artifacts/latest/clapse_compiler.wasm";
 const PRELUDE_ASSET_NAME = "prelude.clapse";
@@ -937,9 +937,7 @@ async function runCompile({ forceFormat = false } = {}) {
                 .map((entry) => `${entry.name}/${entry.arity}`)
                 .join(", ")}`
             : "exports: (none)",
-          "",
-          "wasm_base64_preview",
-          previewText(wasmBase64, 2200),
+          "wasm_payload: binary (download link available)",
         ].join("\n");
       }
     } else {
@@ -1228,15 +1226,6 @@ function escapeHtml(text) {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
-}
-
-function previewText(text, limit) {
-  if (text.length <= limit) {
-    return text;
-  }
-  return `${text.slice(0, limit)}\n... (${
-    text.length - limit
-  } chars truncated)`;
 }
 
 function extractArtifactText(response, name) {

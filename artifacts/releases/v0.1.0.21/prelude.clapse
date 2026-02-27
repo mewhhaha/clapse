@@ -1,0 +1,383 @@
+module compiler.prelude
+export id, compose, map_replace_default, ap_default, then_m_default, keep_left_default, keep_right_default, alt_default, map_replace, then_m, keep_left, keep_right, alt, Pair, Maybe, maybe_map, maybe_with_default, maybe_bind, List, list_reverse, list_map, list_foldl, list_filter, list_any, list_all, Map, map_empty, map_lookup_by, map_member_by, map_insert_by, map_remove_by, map_from_list_by, Set, set_empty, set_member_by, set_insert_by, set_remove_by, set_from_list_by, Reader, run_reader, reader_pure, reader_map, reader_ap, reader_bind, ask_reader, asks_reader, local_reader, State, run_state, eval_state, exec_state, state_pure, state_map, state_ap, state_bind, get_state, put_state, modify_state, gets_state, Unit, Lazy, force, lazy, not, and, or, xor, implies, byte, char, Boolean, Functor, Applicative, Monad, Alternative
+
+infixl 1 >>=
+infixl 1 >>
+infixl 3 <|>
+infixl 4 <$
+infixl 4 <$>
+infixl 4 <*>
+infixl 4 <*
+infixl 4 *>
+
+id x =    x
+compose f g x = f    (g x)
+map_replace_default x fa = fmap (\_ -> x) fa
+ap_default mf mx = bind mf (\f -> bind mx (\x -> pure (f x)))
+then_m_default m n = bind m (\_ -> n)
+keep_left_default u v = ap (fmap (\x -> (\_ -> x)) u) v
+keep_right_default u v = ap (fmap (\_ -> id) u) v
+alt_default a b = append a b
+map_replace x fa = map_replace_default x fa
+
+class Functor f where
+  fmap : (a -> b) -> f a -> f b
+  <$> : (a -> b) -> f a -> f b
+  <$ : a -> f b -> f a
+  <$> = fmap
+  <$ = map_replace
+law Functor identity = fmap id x => x
+law Functor composition = fmap f (fmap g x) => fmap (compose f g) x
+law Functor map_replace_default = map_replace x fx => map_replace_default x fx
+
+class Applicative f where
+  pure : a -> f a
+  ap : f (a -> b) -> f a -> f b
+  <*> : f (a -> b) -> f a -> f b
+  keep_left : f a -> f b -> f a
+  keep_right : f a -> f b -> f b
+  <* : f a -> f b -> f a
+  *> : f a -> f b -> f b
+  <*> = ap
+  keep_left = keep_left_default
+  keep_right = keep_right_default
+  <* = keep_left
+  *> = keep_right
+law Applicative identity = ap (pure id) x => x
+law Applicative homomorphism = ap (pure f) (pure x) => pure (f x)
+law Applicative interchange = ap u (pure y) => ap (pure (\f -> f y)) u
+law Applicative composition = ap (ap (ap (pure compose) u) v) w => ap u (ap v w)
+law Applicative keep_left_default = keep_left u v => keep_left_default u v
+law Applicative keep_right_default = keep_right u v => keep_right_default u v
+
+class Monad m where
+  bind : m a -> (a -> m b) -> m b
+  then_m : m a -> m b -> m b
+  >>= : m a -> (a -> m b) -> m b
+  >> : m a -> m b -> m b
+  then_m = then_m_default
+  >>= = bind
+  >> = then_m
+law Monad left_identity = bind (pure x) f => f x
+law Monad right_identity = bind m pure => m
+law Monad associativity = bind (bind m f) g => bind m (\x -> bind (f x) g)
+law Monad then_default = then_m m n => then_m_default m n
+
+data ByteIntent = ByteIntent
+data CharIntent = CharIntent
+data Pair a b = Pair a b
+data Maybe a = Just a | Nothing
+data List a = ListNil | ListCons a (List a)
+data Unit = Unit
+
+maybe_map f m =
+  case m of
+    Just x -> Just (f x)
+    Nothing -> Nothing
+
+maybe_with_default fallback m =
+  case m of
+    Just x -> x
+    Nothing -> fallback
+
+maybe_bind m f =
+  case m of
+    Just x -> f x
+    Nothing -> Nothing
+
+instance Functor Maybe where
+  fmap = maybe_map
+  <$> = fmap
+  <$ = map_replace
+
+instance Applicative Maybe where
+  pure = Just
+  ap mf mx = maybe_bind mf (\f -> maybe_bind mx (\x -> Just (f x)))
+
+instance Monad Maybe where
+  pure = Just
+  bind = maybe_bind
+
+instance Alternative Maybe where
+  empty = Nothing
+  append a b =
+    case a of
+      Just _ -> a
+      Nothing -> b
+
+list_reverse xs = list_reverse_with xs ListNil
+
+list_reverse_with xs acc =
+  case xs of
+    ListNil -> acc
+    ListCons x rest -> list_reverse_with rest (ListCons x acc)
+
+list_map f xs =
+  case xs of
+    ListNil -> ListNil
+    ListCons x rest -> ListCons (f x) (list_map f rest)
+
+list_foldl f acc xs =
+  case xs of
+    ListNil -> acc
+    ListCons x rest -> list_foldl f (f acc x) rest
+
+list_filter pred xs =
+  case xs of
+    ListNil -> ListNil
+    ListCons x rest ->
+      case pred x of
+        true -> ListCons x (list_filter pred rest)
+        _ -> list_filter pred rest
+
+list_any pred xs =
+  case xs of
+    ListNil -> false
+    ListCons x rest ->
+      case pred x of
+        true -> true
+        _ -> list_any pred rest
+
+list_all pred xs =
+  case xs of
+    ListNil -> true
+    ListCons x rest ->
+      case pred x of
+        true -> list_all pred rest
+        _ -> false
+
+data Map k v = Map (List (Pair k v))
+data Set a = Set (List a)
+
+map_empty = Map ListNil
+
+map_lookup_by eq_key key m =
+  case m of
+    Map entries -> map_lookup_list_by eq_key key entries
+
+map_lookup_list_by eq_key key entries =
+  case entries of
+    ListNil -> Nothing
+    ListCons pair rest ->
+      case pair of
+        Pair entry_key entry_value ->
+          case eq_key key entry_key of
+            true -> Just entry_value
+            _ -> map_lookup_list_by eq_key key rest
+
+map_member_by eq_key key m =
+  case map_lookup_by eq_key key m of
+    Just _ -> true
+    Nothing -> false
+
+map_insert_by eq_key key value m =
+  case m of
+    Map entries -> Map (map_insert_list_by eq_key key value entries)
+
+map_insert_list_by eq_key key value entries =
+  case entries of
+    ListNil -> ListCons (Pair key value) ListNil
+    ListCons pair rest ->
+      case pair of
+        Pair entry_key _ ->
+          case eq_key key entry_key of
+            true -> ListCons (Pair key value) rest
+            _ -> ListCons pair (map_insert_list_by eq_key key value rest)
+
+map_remove_by eq_key key m =
+  case m of
+    Map entries -> Map (map_remove_list_by eq_key key entries)
+
+map_remove_list_by eq_key key entries =
+  case entries of
+    ListNil -> ListNil
+    ListCons pair rest ->
+      case pair of
+        Pair entry_key _ ->
+          case eq_key key entry_key of
+            true -> rest
+            _ -> ListCons pair (map_remove_list_by eq_key key rest)
+
+map_from_list_by eq_key pairs = map_from_list_by_with eq_key pairs map_empty
+
+map_from_list_by_with eq_key pairs acc =
+  case pairs of
+    ListNil -> acc
+    ListCons pair rest ->
+      case pair of
+        Pair key value -> map_from_list_by_with eq_key rest (map_insert_by eq_key key value acc)
+
+set_empty = Set ListNil
+
+set_member_by eq_value value s =
+  case s of
+    Set items -> list_any (\item -> eq_value value item) items
+
+set_insert_by eq_value value s =
+  case s of
+    Set items ->
+      case set_member_by eq_value value s of
+        true -> Set items
+        _ -> Set (ListCons value items)
+
+set_remove_by eq_value value s =
+  case s of
+    Set items -> Set (list_filter (\item -> not (eq_value value item)) items)
+
+set_from_list_by eq_value values = set_from_list_by_with eq_value values set_empty
+
+set_from_list_by_with eq_value values acc =
+  case values of
+    ListNil -> acc
+    ListCons value rest -> set_from_list_by_with eq_value rest (set_insert_by eq_value value acc)
+
+data Reader r a = Reader : (r -> a) -> Reader r a
+data State s a = State : (s -> Pair a s) -> State s a
+
+run_reader ra env =
+  case ra of
+    Reader run_fn -> run_fn env
+
+reader_pure x = Reader (\_ -> x)
+
+reader_map f ra = Reader (\env -> f (run_reader ra env))
+
+reader_ap rf ra = Reader (\env -> (run_reader rf env) (run_reader ra env))
+
+reader_bind ra f =
+  Reader (\env -> run_reader (f (run_reader ra env)) env)
+
+ask_reader = Reader (\env -> env)
+
+asks_reader f = Reader (\env -> f env)
+
+local_reader modify_env ra =
+  Reader (\env -> run_reader ra (modify_env env))
+
+run_state sa state0 =
+  case sa of
+    State run_fn -> run_fn state0
+
+eval_state sa state0 =
+  case run_state sa state0 of
+    Pair value _ -> value
+
+exec_state sa state0 =
+  case run_state sa state0 of
+    Pair _ next_state -> next_state
+
+state_pure x =
+  State (\s -> Pair x s)
+
+state_map f sa =
+  State
+    (\s ->
+      case run_state sa s of
+        Pair value next_state -> Pair (f value) next_state)
+
+state_ap sf sa =
+  State
+    (\s0 ->
+      case run_state sf s0 of
+        Pair f s1 ->
+          case run_state sa s1 of
+            Pair value s2 -> Pair (f value) s2)
+
+state_bind sa f =
+  State
+    (\s0 ->
+      case run_state sa s0 of
+        Pair value s1 -> run_state (f value) s1)
+
+get_state = State (\s -> Pair s s)
+
+put_state next_state = State (\_ -> Pair Unit next_state)
+
+modify_state f = State (\s -> Pair Unit (f s))
+
+gets_state f = state_map f get_state
+
+data Lazy a = Lazy : (Unit -> a) -> Lazy a
+
+force l =
+  case l of
+    Lazy thunk -> thunk Unit
+
+lazy thunk = Lazy thunk
+
+class AsByte a where
+  as_byte : ByteIntent -> a -> a
+
+class AsChar a where
+  as_char : CharIntent -> a -> a
+
+byte x = as_byte ByteIntent x
+char x = as_char CharIntent x
+
+instance AsByte i64 where
+  as_byte _ x = x
+
+instance AsChar i64 where
+  as_char _ x = x
+
+class Alternative f where
+  empty : f a
+  append : f a -> f a -> f a
+  alt : f a -> f a -> f a
+  <|> : f a -> f a -> f a
+  alt = alt_default
+  <|> = alt
+law Alternative left_identity = append empty x => x
+law Alternative right_identity = append x empty => x
+law Alternative associativity = append (append x y) z => append x (append y z)
+law Alternative alt_default = alt x y => alt_default x y
+
+primitive bool = true<1> | false<0>
+
+infixr 3 &&
+infixr 2 ||
+
+class Boolean b where
+  not : b -> b
+  and : b -> b -> b
+  or : b -> b -> b
+  xor : b -> b -> b
+  implies : b -> b -> b
+  && : b -> b -> b
+  || : b -> b -> b
+  && = and
+  || = or
+  xor a b = or (and a (not b)) (and (not a) b)
+  implies a b = or (not a) b
+law Boolean and_identity = and true x => x
+law Boolean and_annihilation = and false x => false
+law Boolean or_identity = or x false => x
+law Boolean or_annihilation = or x true => true
+law Boolean double_negation = not (not x) => x
+
+instance Boolean bool where
+  not true = false
+  not false = true
+
+  and false _ = false
+  and _ false = false
+  and _ _ = true
+
+  or true _ = true
+  or _ true = true
+  or _ _ = false
+
+  xor true false = true
+  xor false true = true
+  xor _ _ = false
+
+  implies true false = false
+  implies _ _ = true
+
+  && false _ = false
+  && _ false = false
+  && _ _ = true
+
+  || true _ = true
+  || _ true = true
+  || _ _ = false
