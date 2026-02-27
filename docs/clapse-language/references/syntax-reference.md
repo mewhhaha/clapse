@@ -12,6 +12,18 @@
 primitive bool = true<1> | false<0>
 ```
 
+## Semantic Contract (core)
+
+- Core evaluation is pure and referentially transparent.
+- Function application is strict by default.
+- Pattern matching is deterministic and declaration-ordered.
+- Wildcard binders (`_`) do not bind values and may reduce argument demand
+  during clause selection when a match can be decided without forcing that
+  argument.
+- Explicit laziness uses `Lazy` and `force`; laziness is opt-in, not implicit.
+- JS/TS remains an I/O boundary only; language semantics live in the Clapse
+  kernel.
+
 ## Functions
 
 Single equation:
@@ -70,6 +82,9 @@ Multiple scrutinees:
 case a b of
   0 0 -> 0
   x y -> x + y
+
+`case` arm pattern arity must match `case` scrutinee arity. Mismatches are
+hard parse errors.
 ```
 
 ## Data Declarations
@@ -103,6 +118,9 @@ Newtype form (single constructor + single field):
 
 ```haskell
 newtype UserId = UserId i64
+
+`newtype` is strict: exactly one constructor and one field. Alternative forms
+such as `newtype X = A t | B t` are rejected.
 ```
 
 ## Type Signatures and Constraints
@@ -126,8 +144,11 @@ Functional dependencies can be written on the class header using
 `|` and `->` in minimal one-way form:
 
 ```haskell
-class eq_by_id a | a -> add where
+class eq_by_id a b | a -> b where
   eq : a -> a -> bool
+
+Fundep tails are strict: trailing commas (for example `| a -> b,`) are parse
+errors.
 ```
 
 Compiler prelude classes now follow Haskell-style `where` blocks:

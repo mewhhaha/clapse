@@ -698,12 +698,96 @@ parse_guard_cont_lines_m src len p3 =
 
 parse_function_payload_case_block src i len =
   let m0 = parse_function_head_eq_m src i len
-      m1 = maybe_bind m0 (parse_case_kw_m src len)
-      m2 = maybe_bind m1 (parse_case_tail_m src len)
-      m3 = maybe_bind m2 (parse_case_finish_m src len)
-      m4 = maybe_bind m3 (parse_case_first_arm_m src len)
-      m5 = maybe_bind m4 (parse_case_rest_arms_m src len)
-  in from_maybe_pos m5
+  in case m0 of
+    Nothing -> -1
+    Just p1 ->
+      let m1 = to_maybe_pos (parse_case_kw_m src len p1)
+      in case m1 of
+        Nothing -> -1
+        Just p3 ->
+          let scrutinee_arity = parse_case_scrutinee_arity src p3 len
+          in case (is_zero scrutinee_arity) of
+            true -> -1
+            _ ->
+              let m2 = to_maybe_pos (parse_case_tail_m src len p3)
+              in case m2 of
+                Nothing -> -1
+                Just p4 ->
+                  let m3 = to_maybe_pos (parse_case_finish_m src len p4)
+                  in case m3 of
+                    Nothing -> -1
+                    Just p5 ->
+                      let p6 = parse_case_first_arm_with_arity_m src len p5 scrutinee_arity
+                      in case p6 of
+                        -1 -> -1
+                        _ -> parse_case_rest_arms_with_arity_m src p6 len scrutinee_arity
+
+parse_case_arrow_pos src i len =
+  let b0 = slice_get_u8 src i
+  in case (b0 == 45) of
+    true ->
+      let i1 = i + 1
+      in case (i1 < len) of
+        true ->
+          let b1 = slice_get_u8 src i1
+          in case (b1 == 62) of
+            true -> i + 2
+            _ -> -1
+        _ -> -1
+    _ -> -1
+
+parse_case_scrutinee_arity src i len =
+  parse_case_scrutinee_arity_scan src (skip_spaces src i len) len 0
+
+parse_case_scrutinee_arity_scan src i len arity =
+  case (i < len) of
+    false -> 0
+    true ->
+      let m0 = to_maybe_pos (parse_keyword src i len "of")
+      in case m0 of
+        Just _ -> arity
+        Nothing ->
+          let p1 = parse_case_scrutinee_term_end src i len
+          in case p1 of
+            -1 -> 0
+            _ -> parse_case_scrutinee_arity_scan src p1 len (arity + 1)
+
+parse_case_scrutinee_term_end src i len =
+  case (i < len) of
+    false -> -1
+    true ->
+      let b0 = slice_get_u8 src i
+      in case (b0 == 40) of
+        true -> parse_case_scrutinee_term_end_paren src (i + 1) len 1
+        _ -> parse_case_scrutinee_term_end_scan src i len
+
+parse_case_scrutinee_term_end_scan src i len =
+  case (i < len) of
+    false -> -1
+    true ->
+      let b = slice_get_u8 src i
+      in case is_newline b of
+        true -> -1
+        _ ->
+          case (is_space b) of
+            true -> i
+            _ -> parse_case_scrutinee_term_end_scan src (i + 1) len
+
+parse_case_scrutinee_term_end_paren src i len depth =
+  case (i < len) of
+    false -> -1
+    true ->
+      let b = slice_get_u8 src i
+      in case is_newline b of
+        true -> -1
+        _ ->
+          case b of
+            40 -> parse_case_scrutinee_term_end_paren src (i + 1) len (depth + 1)
+            41 ->
+              case depth of
+                1 -> i + 1
+                _ -> parse_case_scrutinee_term_end_paren src (i + 1) len (depth - 1)
+            _ -> parse_case_scrutinee_term_end_paren src (i + 1) len depth
 
 parse_case_kw_m src len p2 =
   to_maybe_pos (parse_keyword src p2 len "case")
@@ -714,11 +798,88 @@ parse_case_tail_m src len p3 =
 parse_case_finish_m src len p4 =
   to_maybe_pos (finish_line src p4 len)
 
-parse_case_first_arm_m src len p5 =
-  to_maybe_pos (parse_indented_line src p5 len)
+parse_case_first_arm_with_arity_m src len p5 scrutinee_arity =
+  parse_case_arm_line_with_arity_m src p5 len scrutinee_arity
 
-parse_case_rest_arms_m src len p6 =
-  Just (parse_indented_lines src p6 len)
+parse_case_rest_arms_with_arity_m src i len scrutinee_arity =
+  let p0 = parse_indent_tail src i len
+  in case (p0 == i) of
+    true -> i
+    _ ->
+      let p1 = parse_case_arm_line_with_arity_m src i len scrutinee_arity
+      in case p1 of
+        -1 -> -1
+        _ -> parse_case_rest_arms_with_arity_m src p1 len scrutinee_arity
+
+parse_case_arm_line_with_arity_m src i len scrutinee_arity =
+  let p0 = parse_indented_line src i len
+  in case p0 of
+    -1 -> -1
+    _ ->
+      let p1 = parse_indent_tail src i len
+          arm_arity = parse_case_pattern_arity src p1 len 0
+      in case arm_arity of
+        -1 -> -1
+        _ ->
+          case (arm_arity == scrutinee_arity) of
+            true -> p0
+            _ -> -1
+
+parse_case_pattern_arity src i len arity =
+  let i0 = skip_spaces src i len
+  in case (i0 < len) of
+    false -> -1
+    true ->
+      let m0 = parse_case_arrow_pos src i0 len
+      in case m0 of
+        -1 ->
+          let p1 = parse_case_pattern_term_end src i0 len
+          in case p1 of
+            -1 -> -1
+            _ -> parse_case_pattern_arity src p1 len (arity + 1)
+        _ ->
+          case is_zero arity of
+            true -> -1
+            _ -> arity
+
+parse_case_pattern_term_end src i len =
+  let b0 = slice_get_u8 src i
+  in case is_upper_alpha b0 of
+    true -> parse_case_pattern_ctor_term_end src i len
+    _ ->
+      case (b0 == 40) of
+        true -> parse_case_scrutinee_term_end_paren src (i + 1) len 1
+        _ -> parse_case_pattern_term_end_scan src i len
+
+parse_case_pattern_ctor_term_end src i len =
+  parse_case_pattern_ctor_term_end_scan src i len
+
+parse_case_pattern_ctor_term_end_scan src i len =
+  case (i < len) of
+    false -> -1
+    true ->
+      let b = slice_get_u8 src i
+      in case is_newline b of
+        true -> -1
+        _ ->
+          case parse_case_arrow_pos src i len of
+            -1 -> parse_case_pattern_ctor_term_end_scan src (i + 1) len
+            _ -> i
+
+parse_case_pattern_term_end_scan src i len =
+  case (i < len) of
+    false -> -1
+    true ->
+      let b = slice_get_u8 src i
+      in case is_newline b of
+        true -> -1
+        _ ->
+          case parse_case_arrow_pos src i len of
+            -1 ->
+              case (is_space b) of
+                true -> i
+                _ -> parse_case_pattern_term_end_scan src (i + 1) len
+            _ -> i
 
 finish_line src i len =
   let i0 = skip_spaces src i len
@@ -1137,8 +1298,32 @@ parse_primitive_backing_scan src i len seen = case (i < len) of
   _ -> -1
 
 parse_newtype_payload src i len =
-  let p = parse_ident *> parser_many parse_ident *> parse_eq *> parse_nonempty_tail
-  in p src i len
+  let p0 = parse_ident *> parser_many parse_ident *> parse_eq
+      m0 = to_maybe_pos (p0 src i len)
+  in case m0 of
+    Nothing -> -1
+    Just p1 ->
+      let m1 = to_maybe_pos (parse_cap_ident src p1 len)
+      in case m1 of
+        Nothing -> -1
+        Just p2 ->
+          let m2 = to_maybe_pos (parse_newtype_field_head src p2 len)
+          in case m2 of
+            Nothing -> -1
+            Just _ ->
+              let p3 = parse_nonempty_tail src p1 len
+                  has_pipe = parse_tail_with_char src p1 len 124
+              in case (is_fail_pos p3) of
+                true -> -1
+                _ ->
+                  case (is_fail_pos has_pipe) of
+                    true -> p3
+                    _ -> -1
+
+parse_newtype_field_head src i len =
+  let m0 = to_maybe_pos (parse_ident src i len)
+      m1 = to_maybe_pos (parse_cap_ident src i len)
+  in from_maybe_pos (maybe_or m0 m1)
 
 parse_type_payload src i len =
   let p = parse_ident *> parser_many parse_ident *> parse_eq *> parse_type_payload_tail
@@ -1223,21 +1408,23 @@ parse_class_fundep src i len =
                   let m3 = to_maybe_pos (parse_ident src p2 len)
                   in case m3 of
                     Nothing -> ClassFundepParseFail
-                    Just p3 ->
-                      let m4 = to_maybe_pos (parse_class_fundep_rhs_tail src p3 len)
-                      in case m4 of
-                        Nothing -> ClassFundepParseResult p3 ClassFundepInfoSingle
-                        Just p4 ->
-                          let m5 = to_maybe_pos (parser_many parse_class_fundep_rhs_tail src p4 len)
-                          in case m5 of
-                            Nothing -> ClassFundepParseFail
-                            Just p5 -> ClassFundepParseResult p5 ClassFundepInfoAmbiguous
+                    Just p3 -> parse_class_fundep_rhs src p3 len ClassFundepInfoSingle
 
-parse_class_fundep_rhs_tail src i len =
-  let m0 = to_maybe_pos (parse_comma src i len)
+parse_class_fundep_rhs src i len info =
+  let i0 = skip_spaces src i len
+  in case (i0 < len) of
+    true ->
+      let b0 = slice_get_u8 src i0
+      in case (b0 == 44) of
+        true -> parse_class_fundep_rhs_after_comma src (i0 + 1) len
+        _ -> ClassFundepParseResult i info
+    _ -> ClassFundepParseResult i info
+
+parse_class_fundep_rhs_after_comma src i len =
+  let m0 = to_maybe_pos (parse_ident src i len)
   in case m0 of
-    Nothing -> -1
-    Just p0 -> parse_ident src p0 len
+    Nothing -> ClassFundepParseFail
+    Just p0 -> parse_class_fundep_rhs src p0 len ClassFundepInfoAmbiguous
 
 parse_law_payload src i len =
   let p = parse_ident *> parse_ident *> parse_eq *> parse_nonempty_tail
@@ -1652,10 +1839,12 @@ bad_attribute_source = "module entry\n#[memo\nmain x = x\n"
 bad_guard_function_source = "module entry\nmain x | eq x 0\n"
 bad_block_function_source = "module entry\nmain x =\nnext y = y\n"
 bad_guard_continuation_source = "module entry\nmain x | eq x 0 = 0\n  | otherwise x\n"
-bad_case_block_source = "module entry\nmain x = case (eq x 0) of\nnext y = y\n"
+bad_case_block_source = "module entry\nmain x = case (eq x 0) of\n  true x -> x\n  false -> x\n"
 bad_type_source = "module entry\ntype Broken\n"
 bad_type_union_source = "module entry\ntype Digit = <0 | >\n"
 bad_type_union_string_source = "module entry\ntype Tag = <\"a\" | >\n"
+bad_newtype_alt_source = "module entry\nnewtype UserId = UserId i64 | Other i64\n"
+bad_class_fundep_trailing_comma_source = "module entry\nclass plus_rules a b | a -> b, : add\n"
 module_optional_source = "import util.base\nmain x = x\n"
 
 bad_sources_ok =
@@ -1672,6 +1861,8 @@ bad_sources_ok =
       b10 = parse_program_decl_stats bad_type_source
       b11 = parse_program_decl_stats bad_type_union_source
       b12 = parse_program_decl_stats bad_type_union_string_source
+      b13 = parse_program_decl_stats bad_newtype_alt_source
+      b14 = parse_program_decl_stats bad_class_fundep_trailing_comma_source
       g0 = parse_program_decl_stats module_optional_source
       ok0 = bool_and (is_zero b0) (is_zero b1)
       ok1 = bool_and ok0 (is_zero b2)
@@ -1684,7 +1875,9 @@ bad_sources_ok =
       ok8 = bool_and ok7 (is_zero b9)
       ok9 = bool_and ok8 (is_zero b10)
       ok10 = bool_and ok9 (is_zero b11)
-      all_bad = bool_and ok10 (is_zero b12)
+      ok11 = bool_and ok10 (is_zero b12)
+      ok12 = bool_and ok11 (is_zero b13)
+      all_bad = bool_and ok12 (is_zero b14)
       module_optional_ok = (g0 == 0)
       module_optional_missing = not2 module_optional_ok
   in bool_and all_bad module_optional_missing

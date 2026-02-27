@@ -24,6 +24,7 @@ Run:
 
 ```bash
 just pre-tag-verify
+just semantics-check
 just clapse-bin
 just docs-validate
 deno run -A scripts/lsp-wasm-fixtures.mjs
@@ -69,7 +70,15 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
   declaration-order tie-break behavior changes.
 - Keep `scripts/wildcard-demand-check.mjs` aligned with
   `scripts/wasm-behavior-fixture-map.json`: the check now validates the
-  wildcard-demand fixture via precomputed wasm and fails on source-hash drift.
+  wildcard-demand fixture via precomputed wasm, fails on source-hash drift, and
+  asserts deterministic repeated evaluation for each scenario export.
+- Keep `docs/clapse-language/references/syntax-reference.md` semantic contract
+  section aligned with kernel behavior whenever strictness, wildcard-demand, or
+  explicit-laziness semantics change.
+- Keep parser hardline invariants synchronized between kernel and docs:
+  case scrutinee/arm arity mismatch is a hard parse error, `newtype` accepts
+  exactly one constructor + one field (no `|` alternatives), and class fundep
+  tails reject trailing commas.
 - Record memory-model pass changes in `docs/clapse-language/references/optimization-and-collapse-ir.md` when kernel collapse pipeline stages change (escape/lifetime annotations, ownership/COW rewrite ordering), and mirror behavior notes in `docs/SKILL.md` with concise pass-level comments.
 - Record allocation/reuse/COW scope contract updates in both
   `docs/clapse-language/references/optimization-and-collapse-ir.md` and
