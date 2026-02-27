@@ -189,6 +189,7 @@ const GITHUB_OWNER = "mewhhaha";
 const GITHUB_REPO = "clapse";
 const RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=50`;
 const RELEASES_PAGE = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
+const GITHUB_API_VERSION = "2022-11-28";
 const MIN_SUPPORTED_RELEASE_TAG = "v0.1.0.12";
 const MIN_SUPPORTED_RELEASE_VERSION = parseReleaseVersion(
   MIN_SUPPORTED_RELEASE_TAG,
@@ -1253,14 +1254,18 @@ async function loadPreludeSource(tag) {
     return state.preludeByTag.get(tag).source;
   }
 
-  const candidates = resolvePreludeAssetUrls(tag);
+  const candidates = resolvePreludeAssetCandidates(tag);
   let preludeText = null;
   let selectedUrl = "";
   const errors = [];
 
-  for (const url of candidates) {
+  for (const candidate of candidates) {
+    const url = candidate.url;
     try {
-      const response = await fetch(url, { cache: "no-store" });
+      const response = await fetch(url, {
+        cache: "no-store",
+        headers: candidate.headers,
+      });
       if (!response.ok) {
         errors.push(`${url} -> HTTP ${response.status}`);
         continue;
@@ -1294,14 +1299,18 @@ async function loadCompilerRecord(tag) {
     return state.compilerByTag.get(tag);
   }
 
-  const candidates = resolveCompilerAssetUrls(tag);
+  const candidates = resolveCompilerAssetCandidates(tag);
   let wasmBytes = null;
   let selectedUrl = "";
   const errors = [];
 
-  for (const url of candidates) {
+  for (const candidate of candidates) {
+    const url = candidate.url;
     try {
-      const response = await fetch(url, { cache: "no-store" });
+      const response = await fetch(url, {
+        cache: "no-store",
+        headers: candidate.headers,
+      });
       if (!response.ok) {
         errors.push(`${url} -> HTTP ${response.status}`);
         continue;
@@ -1350,7 +1359,7 @@ async function loadCompilerRecord(tag) {
   return record;
 }
 
-function resolveCompilerAssetUrls(tag) {
+function resolveCompilerAssetCandidates(tag) {
   const release = state.releaseByTag.get(tag);
   if (!release) {
     throw new Error(`Release ${tag} is not loaded in the dropdown.`);
@@ -1361,20 +1370,15 @@ function resolveCompilerAssetUrls(tag) {
     const name = String(asset?.name ?? "").trim();
     return name === COMPILER_ASSET_NAME || name.endsWith(COMPILER_ASSET_SUFFIX);
   });
-  const urls = [];
-  const assetUrl = String(match?.browser_download_url ?? "");
-  if (assetUrl.length > 0) {
-    urls.push(assetUrl);
-  }
-  urls.push(
+  return buildReleaseAssetCandidates(
+    match,
     `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${encodeURIComponent(
       tag,
     )}/artifacts/latest/clapse_compiler.wasm`,
   );
-  return urls;
 }
 
-function resolvePreludeAssetUrls(tag) {
+function resolvePreludeAssetCandidates(tag) {
   const release = state.releaseByTag.get(tag);
   if (!release) {
     throw new Error(`Release ${tag} is not loaded in the dropdown.`);
@@ -1385,17 +1389,28 @@ function resolvePreludeAssetUrls(tag) {
     const name = String(asset?.name ?? "").trim();
     return name === PRELUDE_ASSET_NAME || name.endsWith(PRELUDE_ASSET_SUFFIX);
   });
-  const urls = [];
-  const assetUrl = String(match?.browser_download_url ?? "");
-  if (assetUrl.length > 0) {
-    urls.push(assetUrl);
-  }
-  urls.push(
+  return buildReleaseAssetCandidates(
+    match,
     `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${encodeURIComponent(
       tag,
     )}/artifacts/latest/prelude.clapse`,
   );
-  return urls;
+}
+
+function buildReleaseAssetCandidates(asset, rawFallbackUrl) {
+  const candidates = [];
+  const apiUrl = String(asset?.url ?? "").trim();
+  if (apiUrl.length > 0) {
+    candidates.push({
+      url: apiUrl,
+      headers: {
+        Accept: "application/octet-stream",
+        "X-GitHub-Api-Version": GITHUB_API_VERSION,
+      },
+    });
+  }
+  candidates.push({ url: rawFallbackUrl });
+  return candidates;
 }
 
 function buildStubImports(imports) {
