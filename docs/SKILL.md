@@ -51,6 +51,7 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
 
 - Keep `docs/clapse-language/references/tooling-and-workflows.md` updated when `clapse.json` configuration shape changes.
 - When compiler behavior around dispatch, class-method resolution, or rewrite simplification changes, update `docs/clapse-language/references/syntax-reference.md` and `docs/clapse-language/references/optimization-and-collapse-ir.md` together with any `SKILL.md` workflow updates in this folder.
+- When nested complement-chain boolean rewrites change, update `docs/clapse-language/references/optimization-and-collapse-ir.md` and `RESEARCH.md` to match the active `ClassLawRule` fixed-point registry behavior: bool-only subject/type, pure-effect guard, and one-way size-reducing orientation.
 - Keep class/instance docs aligned with the compiler target syntax: Haskell-style `where` blocks are canonical for new docs and examples.
 - Keep prelude operator mapping docs aligned with code (`<$`, `<$>`, `<*>`, `<*`, `*>`, `>>=`, `>>`, `<|>`) and reflect any helper-default changes in the syntax reference.
 - Keep Boolean class docs aligned with prelude method surface (`not`, `and`, `or`, `xor`, `implies`, `&&`, `||`), including eager boolean-method signatures (`&&`, `|| : b -> b -> b`) and updated default-instance semantics in `docs/clapse-language/references/syntax-reference.md`.
@@ -70,6 +71,12 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
   `examples/wildcard_demand_behavior_regressions.clapse` and
   `examples/selfhost_behavior_corpus.json` when clause-demand semantics or
   declaration-order tie-break behavior changes.
+- Keep boolean rewrites aligned with the class-law registry contract: constant-negation
+  laws (`not true`, `not false`) are admitted through `ClassLawRule` only when the
+  bool+pure guard discipline holds.
+- Keep nested complement-chain annihilation boolean rewrites aligned with the same
+  contract (`ClassLawRule` fixed-point, `ClassDispatchStatic`, bool-only and
+  pure-effect guards, one-way size-reducing orientation).
 - Keep `scripts/wildcard-demand-check.mjs` aligned with
   `scripts/wasm-behavior-fixture-map.json`: the check now validates the
   wildcard-demand fixture via precomputed wasm, fails on source-hash drift, and

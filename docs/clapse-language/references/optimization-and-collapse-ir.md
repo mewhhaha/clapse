@@ -185,6 +185,7 @@ The class rewrite stage sits before lowering and chooses method implementations 
   (4 iterations or until no change), which is the same kernel policy used by
   `derive_law_expr*` helpers.
 - this fixed-point pass is registry-driven consensus rewriting: all boolean laws come from the shared `ClassLawRule` registry and are reapplied until saturation under deterministic rule order.
+  constant-negation laws (`not true -> false`, `not false -> true`) are included in this same path and share the same fixed-point scheduling.
 - `class_law_rule_guard` additionally requires expression-shape, purity, and static type compatibility preconditions before each law fires:
   - composition rules only match on `CCompose` expressions, require pure method expressions, and require non-boolean compose-compatible inputs.
   - functor/map rules only match on `CMap` expressions, require pure method expressions, and require non-boolean map-compatible inputs.
@@ -194,6 +195,8 @@ The class rewrite stage sits before lowering and chooses method implementations 
   - map-fusion-candidate expressions allow a budget of `+1`,
   - if a rewrite step exceeds the budget, iteration halts and keeps the previous expression.
 - `ClassDispatchDynamic` keeps the law method unchanged.
+
+Boolean constant-negation rewrites are class-law registry rewrites subject to bool+pure guard discipline.
 
 ### Compose-associativity canonicalization policy
 
@@ -214,15 +217,23 @@ Bool fold set is now implemented through the class-law registry fixed-point rewr
 - `x && x -> x` (idempotence)
 - `x || x -> x` (idempotence)
 - absorption:
-  - `x && (x || y) -> x` (absorption left)
-  - `x && (y || x) -> x` (absorption left, commuted inner operand)
-  - `x || (x && y) -> x` (absorption right)
-  - `x || (y && x) -> x` (absorption right, commuted inner operand)
+- `x && (x || y) -> x` (absorption left)
+- `x && (y || x) -> x` (absorption left, commuted inner operand)
+- `x || (x && y) -> x` (absorption right)
+- `x || (y && x) -> x` (absorption right, commuted inner operand)
 - complement:
 - `x && not x -> false`
 - `not x && x -> false`
 - `x || not x -> true`
 - `not x || x -> true`
+- `not true -> false`
+- `not false -> true`
+- nested-complement chain annihilation (class-law fixed-point):
+- `x && (not x || y) -> x && y`
+- `x && (y || not x) -> x && y`
+- `x || (not x && y) -> x || y`
+- `x || (y && not x) -> x || y`
+- outer-operand-swapped variants are included when shape-match is stable
 
 ## Registry-driven associative-idempotence chain reductions
 
@@ -242,10 +253,11 @@ These rules run in the same static `ClassLawRule` fixed-point driver as other bo
 
 Rewrites use a size-reducing orientation (no growth in `class_method_expr_cost`, with the existing `+1` exception only for map-fusion candidates) and therefore terminate under the same bounded fixed-point convergence rule.
 
-Boolean simplification, absorption, and complement now run as the same consensus rewrite cluster:
+Boolean simplification, absorption, complement, and nested-complement-chain annihilation now run as the same consensus rewrite cluster:
 - all laws share the same deterministic registry order and fixed-point convergence gate,
 - all law applications pass through existing `class_law_rule_guard` shape/purity/type/effect checks,
 - `ClassDispatchStatic` remains the only enabled dispatch mode for these rewrites.
+- nested-complement-chain rules are one-way size-reducing (or cost-neutral under existing map-fusion exceptions), and no inverse rewrites are registered to prevent oscillation.
 
 Collection law set currently implemented in class-law scheduler:
 

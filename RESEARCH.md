@@ -27,6 +27,7 @@ Every optimization must satisfy all of:
 
 - Invariant: rewrites apply only where referential transparency holds.
 - Consequence: rewrites are law-driven (identity, associativity variants, fusion, annihilation, idempotence) under typed guards.
+  Constant-negation is in this same cluster (`not true -> false`, `not false -> true`) and requires bool+pure guard discipline.
 
 ## 2.2 Type-directed admissibility
 
@@ -167,12 +168,14 @@ Notes:
 - Treat compose-associativity similarly as one-way canonicalization in registry with explicit compose-shape/type/purity guards (`compose f (compose g h) -> compose (compose f g) h`); do not add the reverse rewrite to prevent oscillation.
 - Duplicate ad-hoc bool-collapse helper paths were removed in favor of a single, shared class-law registry (`ClassLawRule`) for boolean simplification.
 - Current boolean simplification remains a consensus fixed-point rewrite cluster (`ClassLawRule`) under existing type/effect/shape guard discipline.
+- Constant-negation laws are also admitted through the same cluster under bool+pure guards.
 - Associative-idempotence chain reductions are now admitted only through the class-law registry cluster with static-dispatch-only selection, bool-type guards, and pure-effect admissibility; orientation is size-reducing (or cost-neutral in map-fusion cases) under fixed-point iteration.
 - Add pass metadata (status + invariant owner + proof/validator hook).
 - Keep fixed-point passes bounded and cost-policy controlled.
 - Couple optimization rollout with differential behavior checks and validator evidence.
 - In this implementation, strict class-law boolean idempotence (`x && x`, `x || x`) is now active and constrained by boolean-type plus purity/effect guards.
 - Boolean absorption and complement families are now admitted to the same law-first optimizer path (`ClassLawRule` fixed-point driver), with side-condition checks for boolean type + purity/strictness/effect metadata (`x && (x || y)`, `x || (x && y)`, `x && not x`, `x || not x`).
+- Nested complement-chain annihilation rewrites are now included in the same registry cluster (`x && (not x || y)`, `x || (not x && y)` with outer-operand swaps), gated by `ClassDispatchStatic` and bool-only/pure-effect predicates, and enforced as one-way size-reducing rules in fixed-point iteration.
 
 ## 7. Open research-backed tasks
 

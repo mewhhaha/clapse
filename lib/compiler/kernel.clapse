@@ -24,7 +24,7 @@ data ParsedLine = ParsedLine MonadicLine Int
 data ChainCollect = ChainCollect MonadicLine Int Int Int Int
 data ClassMethodExpr = CBool bool | CVar i64 | CNot ClassMethodExpr | CAnd ClassMethodExpr ClassMethodExpr | COr ClassMethodExpr ClassMethodExpr
   | CId | CCompose ClassMethodExpr ClassMethodExpr | CMap ClassMethodExpr ClassMethodExpr
-data ClassLawRule = LawComposeLeftIdentity | LawComposeRightIdentity | LawComposeAssociateRight | LawMapIdentity | LawMapFusion | LawBoolDoubleNot | LawBoolAndTrueLeft | LawBoolAndTrueRight | LawBoolAndFalseLeft | LawBoolAndFalseRight | LawBoolOrTrueLeft | LawBoolOrTrueRight | LawBoolOrFalseLeft | LawBoolOrFalseRight | LawBoolAndAbsorbLeft | LawBoolAndAbsorbRight | LawBoolOrAbsorbLeft | LawBoolOrAbsorbRight | LawBoolAndComplementLeft | LawBoolAndComplementRight | LawBoolOrComplementLeft | LawBoolOrComplementRight | LawBoolAndConsensusNotOrLeft | LawBoolAndConsensusNotOrRight | LawBoolAndConsensusOrNotLeft | LawBoolAndConsensusOrNotRight | LawBoolOrConsensusNotAndLeft | LawBoolOrConsensusNotAndRight | LawBoolOrConsensusAndNotLeft | LawBoolOrConsensusAndNotRight | LawBoolAndChainLeftLeft | LawBoolAndChainLeftRight | LawBoolAndChainRightLeft | LawBoolAndChainRightRight | LawBoolOrChainLeftLeft | LawBoolOrChainLeftRight | LawBoolOrChainRightLeft | LawBoolOrChainRightRight | LawBoolIdempotent
+data ClassLawRule = LawComposeLeftIdentity | LawComposeRightIdentity | LawComposeAssociateRight | LawMapIdentity | LawMapFusion | LawBoolDoubleNot | LawBoolNotTrue | LawBoolNotFalse | LawBoolAndTrueLeft | LawBoolAndTrueRight | LawBoolAndFalseLeft | LawBoolAndFalseRight | LawBoolOrTrueLeft | LawBoolOrTrueRight | LawBoolOrFalseLeft | LawBoolOrFalseRight | LawBoolAndAbsorbLeft | LawBoolAndAbsorbRight | LawBoolOrAbsorbLeft | LawBoolOrAbsorbRight | LawBoolAndComplementLeft | LawBoolAndComplementRight | LawBoolAndComplementChainLeftLeft | LawBoolAndComplementChainLeftRight | LawBoolAndComplementChainRightLeft | LawBoolAndComplementChainRightRight | LawBoolOrComplementLeft | LawBoolOrComplementRight | LawBoolOrComplementChainLeftLeft | LawBoolOrComplementChainLeftRight | LawBoolOrComplementChainRightLeft | LawBoolOrComplementChainRightRight | LawBoolAndConsensusNotOrLeft | LawBoolAndConsensusNotOrRight | LawBoolAndConsensusOrNotLeft | LawBoolAndConsensusOrNotRight | LawBoolOrConsensusNotAndLeft | LawBoolOrConsensusNotAndRight | LawBoolOrConsensusAndNotLeft | LawBoolOrConsensusAndNotRight | LawBoolAndChainLeftLeft | LawBoolAndChainLeftRight | LawBoolAndChainRightLeft | LawBoolAndChainRightRight | LawBoolOrChainLeftLeft | LawBoolOrChainLeftRight | LawBoolOrChainRightLeft | LawBoolOrChainRightRight | LawBoolIdempotent
 data ClassMethodExprType = ClassMethodExprTypeBool | ClassMethodExprTypeFunctor | ClassMethodExprTypeCompose | ClassMethodExprTypeUnknown
 data ClassMethodExprEffect = ClassMethodExprEffectPure | ClassMethodExprEffectUnknown
 data ClassMethodExprSignature = ClassMethodExprSignature ClassMethodExprType ClassMethodExprEffect
@@ -161,8 +161,10 @@ class_law_rules =
       (ClassLawRuleListNode LawComposeAssociateRight
         (ClassLawRuleListNode LawMapIdentity
           (ClassLawRuleListNode LawMapFusion
-            (ClassLawRuleListNode LawBoolDoubleNot
-              (ClassLawRuleListNode LawBoolAndTrueLeft
+                (ClassLawRuleListNode LawBoolDoubleNot
+                  (ClassLawRuleListNode LawBoolNotTrue
+                    (ClassLawRuleListNode LawBoolNotFalse
+                      (ClassLawRuleListNode LawBoolAndTrueLeft
                 (ClassLawRuleListNode LawBoolAndTrueRight
                   (ClassLawRuleListNode LawBoolAndFalseLeft
                     (ClassLawRuleListNode LawBoolAndFalseRight
@@ -176,25 +178,33 @@ class_law_rules =
                                     (ClassLawRuleListNode LawBoolOrAbsorbRight
                                       (ClassLawRuleListNode LawBoolAndComplementLeft
                                         (ClassLawRuleListNode LawBoolAndComplementRight
-                                          (ClassLawRuleListNode LawBoolOrComplementLeft
-                                            (ClassLawRuleListNode LawBoolOrComplementRight
-                                              (ClassLawRuleListNode LawBoolAndConsensusNotOrLeft
-                                                (ClassLawRuleListNode LawBoolAndConsensusNotOrRight
-                                                  (ClassLawRuleListNode LawBoolAndConsensusOrNotLeft
-                                                    (ClassLawRuleListNode LawBoolAndConsensusOrNotRight
-                                                      (ClassLawRuleListNode LawBoolOrConsensusNotAndLeft
-                                                        (ClassLawRuleListNode LawBoolOrConsensusNotAndRight
-                                                          (ClassLawRuleListNode LawBoolOrConsensusAndNotLeft
-                                                            (ClassLawRuleListNode LawBoolOrConsensusAndNotRight
-                                                              (ClassLawRuleListNode LawBoolAndChainLeftLeft
-                                                                (ClassLawRuleListNode LawBoolAndChainLeftRight
-                                                                  (ClassLawRuleListNode LawBoolAndChainRightLeft
-                                                                    (ClassLawRuleListNode LawBoolAndChainRightRight
-                                                                      (ClassLawRuleListNode LawBoolOrChainLeftLeft
-                                                                        (ClassLawRuleListNode LawBoolOrChainLeftRight
-                                                                          (ClassLawRuleListNode LawBoolOrChainRightLeft
-                                                                            (ClassLawRuleListNode LawBoolOrChainRightRight
-                                                                              (ClassLawRuleListNode LawBoolIdempotent ClassLawRuleListNil)))))))))))))))))))))
+                                          (ClassLawRuleListNode LawBoolAndComplementChainLeftLeft
+                                            (ClassLawRuleListNode LawBoolAndComplementChainLeftRight
+                                              (ClassLawRuleListNode LawBoolAndComplementChainRightLeft
+                                                (ClassLawRuleListNode LawBoolAndComplementChainRightRight
+                                                  (ClassLawRuleListNode LawBoolOrComplementLeft
+                                                    (ClassLawRuleListNode LawBoolOrComplementRight
+                                                      (ClassLawRuleListNode LawBoolOrComplementChainLeftLeft
+                                                        (ClassLawRuleListNode LawBoolOrComplementChainLeftRight
+                                                          (ClassLawRuleListNode LawBoolOrComplementChainRightLeft
+                                                            (ClassLawRuleListNode LawBoolOrComplementChainRightRight
+                                                              (ClassLawRuleListNode LawBoolAndConsensusNotOrLeft
+                                                                (ClassLawRuleListNode LawBoolAndConsensusNotOrRight
+                                                                  (ClassLawRuleListNode LawBoolAndConsensusOrNotLeft
+                                                                    (ClassLawRuleListNode LawBoolAndConsensusOrNotRight
+                                                                      (ClassLawRuleListNode LawBoolOrConsensusNotAndLeft
+                                                                        (ClassLawRuleListNode LawBoolOrConsensusNotAndRight
+                                                                          (ClassLawRuleListNode LawBoolOrConsensusAndNotLeft
+                                                                            (ClassLawRuleListNode LawBoolOrConsensusAndNotRight
+                                                                              (ClassLawRuleListNode LawBoolAndChainLeftLeft
+                                                                                (ClassLawRuleListNode LawBoolAndChainLeftRight
+                                                                                  (ClassLawRuleListNode LawBoolAndChainRightLeft
+                                                                                    (ClassLawRuleListNode LawBoolAndChainRightRight
+                                                                                      (ClassLawRuleListNode LawBoolOrChainLeftLeft
+                                                                                        (ClassLawRuleListNode LawBoolOrChainLeftRight
+                                                                                          (ClassLawRuleListNode LawBoolOrChainRightLeft
+                                                                                            (ClassLawRuleListNode LawBoolOrChainRightRight
+                                                                                              (ClassLawRuleListNode LawBoolIdempotent ClassLawRuleListNil)))))))))))))))))))))))))))
 
 class_law_rule_guard_with_signature rule expr signature =
   let is_bool_pure =
@@ -233,6 +243,16 @@ class_law_rule_guard_with_signature rule expr signature =
             case inner of
               CNot _ -> true
               _ -> false
+          _ -> false
+    LawBoolNotTrue ->
+      is_bool_pure &&
+        case expr of
+          CNot (CBool true) -> true
+          _ -> false
+    LawBoolNotFalse ->
+      is_bool_pure &&
+        case expr of
+          CNot (CBool false) -> true
           _ -> false
     LawBoolAndTrueLeft ->
       is_bool_pure &&
@@ -313,6 +333,46 @@ class_law_rule_guard_with_signature rule expr signature =
       is_bool_pure &&
         case expr of
           COr (CNot x) y -> x == y
+          _ -> false
+    LawBoolAndComplementChainLeftLeft ->
+      is_bool_pure &&
+        case expr of
+          CAnd x (CAnd (CNot y) z) -> x == y
+          _ -> false
+    LawBoolAndComplementChainLeftRight ->
+      is_bool_pure &&
+        case expr of
+          CAnd x (CAnd z (CNot y)) -> x == y
+          _ -> false
+    LawBoolAndComplementChainRightLeft ->
+      is_bool_pure &&
+        case expr of
+          CAnd (CAnd (CNot y) z) x -> x == y
+          _ -> false
+    LawBoolAndComplementChainRightRight ->
+      is_bool_pure &&
+        case expr of
+          CAnd (CAnd z (CNot y)) x -> x == y
+          _ -> false
+    LawBoolOrComplementChainLeftLeft ->
+      is_bool_pure &&
+        case expr of
+          COr x (COr (CNot y) z) -> x == y
+          _ -> false
+    LawBoolOrComplementChainLeftRight ->
+      is_bool_pure &&
+        case expr of
+          COr x (COr z (CNot y)) -> x == y
+          _ -> false
+    LawBoolOrComplementChainRightLeft ->
+      is_bool_pure &&
+        case expr of
+          COr (COr (CNot y) z) x -> x == y
+          _ -> false
+    LawBoolOrComplementChainRightRight ->
+      is_bool_pure &&
+        case expr of
+          COr (COr z (CNot y)) x -> x == y
           _ -> false
     LawBoolAndConsensusNotOrLeft ->
       is_bool_pure &&
@@ -448,6 +508,14 @@ rewrite_class_law_rule rule expr =
                 CNot inner2 -> inner2
                 _ -> expr
             _ -> expr
+        LawBoolNotTrue ->
+          case expr of
+            CNot (CBool true) -> CBool false
+            _ -> expr
+        LawBoolNotFalse ->
+          case expr of
+            CNot (CBool false) -> CBool true
+            _ -> expr
         LawBoolAndTrueLeft ->
           case expr of
             CAnd _ x -> x
@@ -555,6 +623,62 @@ rewrite_class_law_rule rule expr =
         LawBoolOrComplementRight ->
           case expr of
             COr (CNot _) _ -> CBool true
+            _ -> expr
+        LawBoolAndComplementChainLeftLeft ->
+          case expr of
+            CAnd x (CAnd (CNot x2) y) ->
+              case x == x2 of
+                true -> CBool false
+                _ -> expr
+            _ -> expr
+        LawBoolAndComplementChainLeftRight ->
+          case expr of
+            CAnd x (CAnd y (CNot x2)) ->
+              case x == x2 of
+                true -> CBool false
+                _ -> expr
+            _ -> expr
+        LawBoolAndComplementChainRightLeft ->
+          case expr of
+            CAnd (CAnd (CNot x2) y) x ->
+              case x == x2 of
+                true -> CBool false
+                _ -> expr
+            _ -> expr
+        LawBoolAndComplementChainRightRight ->
+          case expr of
+            CAnd (CAnd y (CNot x2)) x ->
+              case x == x2 of
+                true -> CBool false
+                _ -> expr
+            _ -> expr
+        LawBoolOrComplementChainLeftLeft ->
+          case expr of
+            COr x (COr (CNot x2) y) ->
+              case x == x2 of
+                true -> CBool true
+                _ -> expr
+            _ -> expr
+        LawBoolOrComplementChainLeftRight ->
+          case expr of
+            COr x (COr y (CNot x2)) ->
+              case x == x2 of
+                true -> CBool true
+                _ -> expr
+            _ -> expr
+        LawBoolOrComplementChainRightLeft ->
+          case expr of
+            COr (COr (CNot x2) y) x ->
+              case x == x2 of
+                true -> CBool true
+                _ -> expr
+            _ -> expr
+        LawBoolOrComplementChainRightRight ->
+          case expr of
+            COr (COr y (CNot x2)) x ->
+              case x == x2 of
+                true -> CBool true
+                _ -> expr
             _ -> expr
         LawBoolOrConsensusNotAndLeft ->
           case expr of
