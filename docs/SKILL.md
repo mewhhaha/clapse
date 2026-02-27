@@ -72,6 +72,7 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
   `examples/selfhost_behavior_corpus.json` when clause-demand semantics or
   declaration-order tie-break behavior changes.
 - Record class-law signature caching where applied: class-law pass signatures are cached as before-cost values once per expression state during each rewrite pass and reused across guard checks; this is a performance optimization with no rewrite-policy or semantics changes.
+- Keep strictness-mode derivation documented as dispatch-state/signature-family-driven: boolean class-law rewrites still require strict cost decrease, while compose/map rewrites continue to use bounded-growth policy only (`0`, `+1` only for map-fusion candidates); rewrite semantics unchanged.
 - Record dispatch-state-key refinement for scheduler redispatch: class-law in-pass keying now uses
   `(root-kind, signature-family)` and improves signature-aware selection correctness/performance.
   Guard predicates, cost policy, `ClassDispatch*` eligibility, and rewrite semantics are unchanged.

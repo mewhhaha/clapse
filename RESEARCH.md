@@ -170,7 +170,8 @@ Notes:
 - Current boolean simplification remains a consensus fixed-point rewrite cluster (`ClassLawRule`) under existing type/effect/shape guard discipline.
 - Constant-negation laws are also admitted through the same cluster under bool+pure guards and strict cost-decrease policy in fixed-point governance.
 - Associative-idempotence chain reductions are now admitted only through the class-law registry cluster with static-dispatch-only selection, bool-type guards, and pure-effect admissibility; orientation is size-reducing (or cost-neutral in map-fusion cases) under fixed-point iteration.
-- Compose and map registry rewrites now use bounded cost governance (`0` default growth, `+1` map-fusion exception); boolean-class-law rewrites in that cluster additionally require strict cost decrease on each rewrite step.
+- Compose and map registry rewrites use bounded cost governance (`0` default growth, `+1` map-fusion exception); boolean-class-law rewrites additionally require strict cost decrease on each rewrite step.
+- Strictness-mode is now derived from the class-law dispatch-state/signature-family bucketing, so strict decrease remains bool-only and compose/map remain budget-only while semantics stay unchanged.
 - Root-shape rewrite scheduling now re-dispatches immediately after each successful rewrite, reclassifying the current expression before selecting the next rule bucket (`CCompose`, `CMap`, boolean forms).
   The redispatch key is `dispatch-state-key = (root-kind, signature-family)` for signature-aware in-pass scheduling, improving bucket selection correctness/perf.
   Dispatcher selection is now a precomputed deterministic root-kind + signature-family subset table lookup (constant-time) instead of a rule-list equality scan; guard predicates, `ClassDispatch*` gates, and strict-decrease/cost policy are unchanged.

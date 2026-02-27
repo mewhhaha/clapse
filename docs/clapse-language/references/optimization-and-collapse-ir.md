@@ -30,7 +30,7 @@ This inventory is canonical and machine-checked against
 - [pass:class_law_bool_simplification] status: partially implemented
 - [pass:class_law_collection_map_identity] status: partially implemented
 - [pass:class_law_collection_map_fusion] status: partially implemented
-- [pass:class_law_strictness_gated_fixedpoint] status: not implemented
+- [pass:class_law_strictness_gated_fixedpoint] status: implemented
 - [pass:currying_normalization] status: not implemented
 - [pass:closure_apply_collapse] status: not implemented
 - [pass:constant_argument_specialization] status: not implemented
@@ -165,6 +165,7 @@ State dispatch still uses root-kind first, then signature-family gating, then fu
 This optimization does **not** change class-law policy behavior:
 - `class_law_rule_guard` checks remain unchanged (shape/type/purity/effect gates).
 - `ClassDispatchStatic`/`ClassDispatchDynamic` eligibility is unchanged.
+- strict-decrease mode now keys off the dispatch-state/signature-family table: boolean rules still require strict cost decrease, while compose/map rules stay on budget growth policy (`0`, `+1` only for map-fusion candidates).
 - fixed-point control remains bounded by the existing cost policy and strict-decrease governance (`class_method_expr_cost`).
 
 ### Scope and lifetime behavior (function-local vs escaping)
@@ -300,16 +301,12 @@ Current activation status:
   as a mandatory compile-stage rewrite in the active `compile_response` route
   (which currently uses host compile passthrough for ready requests).
 
-### Strict law-driven optimization extension (planned)
+### Strict law-driven optimization extension (implemented)
 
-Planned pass: `[pass:class_law_strictness_gated_fixedpoint]` (status: not implemented)
-
-Goal:
-- keep current class-law rewrites, but require a stricter safety proof before law application.
-
-Planned preconditions:
-- static dispatch only (`ClassDispatchStatic`).
-- existing `class_law_rule_guard` checks (shape/purity/signature compatibility) still apply.
-- strict-context gating: candidate sub-terms only rewrite when escape-free, single-use-by-assumption, and eager-context conditions are proven.
-- structural growth remains bounded by existing cost guards.
-- fixed-point scheduling and deterministic rule order stay unchanged; the pass is additive and policy-gated, not a replacement.
+`[pass:class_law_strictness_gated_fixedpoint]` is implemented with dispatch-state/signature-family strictness derivation:
+- static dispatch only (`ClassDispatchStatic`);
+- existing `class_law_rule_guard` checks (shape/purity/signature compatibility) still apply;
+- strictness-mode now comes from the dispatch-state/signature-family bucket:
+  - boolean rewrites require strict cost decrease;
+  - compose/map rewrites remain budgeted (`0`, `+1` only for map-fusion candidates);
+- fixed-point scheduling and deterministic rule order stay unchanged; this pass is additive and policy-gated, not a replacement.
