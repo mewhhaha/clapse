@@ -24,7 +24,7 @@ data ParsedLine = ParsedLine MonadicLine Int
 data ChainCollect = ChainCollect MonadicLine Int Int Int Int
 data ClassMethodExpr = CBool bool | CVar i64 | CNot ClassMethodExpr | CAnd ClassMethodExpr ClassMethodExpr | COr ClassMethodExpr ClassMethodExpr
   | CId | CCompose ClassMethodExpr ClassMethodExpr | CMap ClassMethodExpr ClassMethodExpr
-data ClassLawRule = LawComposeLeftIdentity | LawComposeRightIdentity | LawMapIdentity | LawMapFusion
+data ClassLawRule = LawComposeLeftIdentity | LawComposeRightIdentity | LawMapIdentity | LawMapFusion | LawBoolDoubleNot | LawBoolAndTrueLeft | LawBoolAndTrueRight | LawBoolAndFalseLeft | LawBoolAndFalseRight | LawBoolOrTrueLeft | LawBoolOrTrueRight | LawBoolOrFalseLeft | LawBoolOrFalseRight | LawBoolIdempotent
 data ClassMethodExprType = ClassMethodExprTypeBool | ClassMethodExprTypeFunctor | ClassMethodExprTypeCompose | ClassMethodExprTypeUnknown
 data ClassMethodExprEffect = ClassMethodExprEffectPure | ClassMethodExprEffectUnknown
 data ClassMethodExprSignature = ClassMethodExprSignature ClassMethodExprType ClassMethodExprEffect
@@ -45,30 +45,11 @@ rewrite_bool_law_expr expr =
     CVar _ -> expr
     CId -> CId
     CNot inner ->
-      let inner1 = rewrite_bool_law_expr inner
-      in case inner1 of
-        CNot inner2 -> inner2
-        _ -> CNot inner1
+      CNot (rewrite_bool_law_expr inner)
     CAnd left right =
-      let left1 = rewrite_bool_law_expr left
-          right1 = rewrite_bool_law_expr right
-      in case left1 of
-        CBool true -> right1
-        CBool false -> CBool false
-        _ -> case right1 of
-          CBool true -> left1
-          CBool false -> CBool false
-          _ -> CAnd left1 right1
+      CAnd (rewrite_bool_law_expr left) (rewrite_bool_law_expr right)
     COr left right =
-      let left1 = rewrite_bool_law_expr left
-          right1 = rewrite_bool_law_expr right
-      in case left1 of
-        CBool true -> CBool true
-        CBool false -> right1
-        _ -> case right1 of
-          CBool true -> CBool true
-          CBool false -> left1
-          _ -> COr left1 right1
+      COr (rewrite_bool_law_expr left) (rewrite_bool_law_expr right)
     CCompose left right ->
       CCompose (rewrite_bool_law_expr left) (rewrite_bool_law_expr right)
     CMap f xs ->
@@ -178,9 +159,23 @@ class_law_rules =
   ClassLawRuleListNode LawComposeLeftIdentity
     (ClassLawRuleListNode LawComposeRightIdentity
       (ClassLawRuleListNode LawMapIdentity
-        (ClassLawRuleListNode LawMapFusion ClassLawRuleListNil)))
+        (ClassLawRuleListNode LawMapFusion
+          (ClassLawRuleListNode LawBoolDoubleNot
+            (ClassLawRuleListNode LawBoolAndTrueLeft
+              (ClassLawRuleListNode LawBoolAndTrueRight
+                (ClassLawRuleListNode LawBoolAndFalseLeft
+                  (ClassLawRuleListNode LawBoolAndFalseRight
+                    (ClassLawRuleListNode LawBoolOrTrueLeft
+                      (ClassLawRuleListNode LawBoolOrTrueRight
+                        (ClassLawRuleListNode LawBoolOrFalseLeft
+                          (ClassLawRuleListNode LawBoolOrFalseRight
+                            (ClassLawRuleListNode LawBoolIdempotent ClassLawRuleListNil))))))))))
 
 class_law_rule_guard_with_signature rule expr signature =
+  let is_bool_pure =
+    case signature of
+      ClassMethodExprSignature ClassMethodExprTypeBool ClassMethodExprEffectPure -> true
+      _ -> false
   let is_pure = class_method_expr_signature_is_pure signature
   in case rule of
     LawComposeLeftIdentity ->
@@ -199,6 +194,60 @@ class_law_rule_guard_with_signature rule expr signature =
       case expr of
         CMap _ _ -> is_pure && class_method_expr_map_compatible expr
         _ -> false
+    LawBoolDoubleNot ->
+      is_bool_pure &&
+        case expr of
+          CNot inner ->
+            case inner of
+              CNot _ -> true
+              _ -> false
+          _ -> false
+    LawBoolAndTrueLeft ->
+      is_bool_pure &&
+        case expr of
+          CAnd CBool true _ -> true
+          _ -> false
+    LawBoolAndTrueRight ->
+      is_bool_pure &&
+        case expr of
+          CAnd _ CBool true -> true
+          _ -> false
+    LawBoolAndFalseLeft ->
+      is_bool_pure &&
+        case expr of
+          CAnd CBool false _ -> true
+          _ -> false
+    LawBoolAndFalseRight ->
+      is_bool_pure &&
+        case expr of
+          CAnd _ CBool false -> true
+          _ -> false
+    LawBoolOrTrueLeft ->
+      is_bool_pure &&
+        case expr of
+          COr CBool true _ -> true
+          _ -> false
+    LawBoolOrTrueRight ->
+      is_bool_pure &&
+        case expr of
+          COr _ CBool true -> true
+          _ -> false
+    LawBoolOrFalseLeft ->
+      is_bool_pure &&
+        case expr of
+          COr CBool false _ -> true
+          _ -> false
+    LawBoolOrFalseRight ->
+      is_bool_pure &&
+        case expr of
+          COr _ CBool false -> true
+          _ -> false
+    LawBoolIdempotent ->
+      is_bool_pure &&
+        case expr of
+          CAnd x y -> x == y
+          COr x y -> x == y
+          _ -> false
 
 class_law_rule_guard rule expr =
   class_law_rule_guard_with_signature rule expr (class_method_expr_signature expr)
@@ -226,6 +275,56 @@ rewrite_class_law_rule rule expr =
             CMap f inner ->
               case inner of
                 CMap g xs -> CMap (CCompose f g) xs
+                _ -> expr
+            _ -> expr
+        LawBoolDoubleNot ->
+          case expr of
+            CNot inner ->
+              case inner of
+                CNot inner2 -> inner2
+                _ -> expr
+            _ -> expr
+        LawBoolAndTrueLeft ->
+          case expr of
+            CAnd _ x -> x
+            _ -> expr
+        LawBoolAndTrueRight ->
+          case expr of
+            CAnd x _ -> x
+            _ -> expr
+        LawBoolAndFalseLeft ->
+          case expr of
+            CAnd _ _ -> CBool false
+            _ -> expr
+        LawBoolAndFalseRight ->
+          case expr of
+            CAnd _ _ -> CBool false
+            _ -> expr
+        LawBoolOrTrueLeft ->
+          case expr of
+            COr _ _ -> CBool true
+            _ -> expr
+        LawBoolOrTrueRight ->
+          case expr of
+            COr _ _ -> CBool true
+            _ -> expr
+        LawBoolOrFalseLeft ->
+          case expr of
+            COr _ x -> x
+            _ -> expr
+        LawBoolOrFalseRight ->
+          case expr of
+            COr x _ -> x
+            _ -> expr
+        LawBoolIdempotent ->
+          case expr of
+            CAnd x y ->
+              case x == y of
+                true -> x
+                _ -> expr
+            COr x y ->
+              case x == y of
+                true -> x
                 _ -> expr
             _ -> expr
 

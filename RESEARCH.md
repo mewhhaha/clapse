@@ -162,9 +162,11 @@ Notes:
 
 - Keep rewrite rules in explicit registries with typed/effect guards.
 - Prefer law schemas over one-off peephole transforms.
+- Duplicate ad-hoc bool-collapse helper paths were removed in favor of a single, shared class-law registry (`ClassLawRule`) for boolean simplification.
 - Add pass metadata (status + invariant owner + proof/validator hook).
 - Keep fixed-point passes bounded and cost-policy controlled.
 - Couple optimization rollout with differential behavior checks and validator evidence.
+- In this implementation, strict class-law boolean idempotence (`x && x`, `x || x`) is now active and constrained by boolean-type plus purity/effect guards.
 
 ## 7. Open research-backed tasks
 
@@ -182,4 +184,3 @@ When adding a new optimization family:
 2. Add at least one primary research citation with a short direct quote.
 3. State the concrete Clapse pass-level implication.
 4. Record what check/proof/validator will enforce it.
-

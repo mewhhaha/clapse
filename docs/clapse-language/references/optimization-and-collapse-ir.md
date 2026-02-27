@@ -187,19 +187,22 @@ The class rewrite stage sits before lowering and chooses method implementations 
 - `class_law_rule_guard` additionally requires expression-shape, purity, and static type compatibility preconditions before each law fires:
   - composition rules only match on `CCompose` expressions, require pure method expressions, and require non-boolean compose-compatible inputs.
   - functor/map rules only match on `CMap` expressions, require pure method expressions, and require non-boolean map-compatible inputs.
+  - boolean simplification rules additionally require boolean-type metadata and pure-effect metadata for both subject and argument expressions.
 - fixed-point iteration is structural-cost guarded (`class_method_expr_cost`) with a bounded rule-aware growth budget:
   - default budget is zero growth,
   - map-fusion-candidate expressions allow a budget of `+1`,
   - if a rewrite step exceeds the budget, iteration halts and keeps the previous expression.
 - `ClassDispatchDynamic` keeps the law method unchanged.
 
-Safe fold set currently implemented in `rewrite_bool_law_expr`:
+Bool fold set is now implemented through the class-law registry and fixed-point rewriter (`ClassLawRule`), not through a standalone bool-collapse helper:
 
-- `not (not x)` -> `x`
-- `true && x` -> `x`
-- `false && x` -> `false`
-- `true || x` -> `true`
-- `false || x` -> `x`
+- `not (not x) -> x` (double negation)
+- `true && x -> x` (identity)
+- `false && x -> false` (annihilation)
+- `true || x -> true` (annihilation)
+- `false || x -> x` (identity)
+- `x && x -> x` (idempotence)
+- `x || x -> x` (idempotence)
 
 Collection law set currently implemented in class-law scheduler:
 
@@ -210,8 +213,8 @@ Collection law set currently implemented in class-law scheduler:
 
 Current activation status:
 
-- These folds are implemented in rewrite helpers.
-- They are implemented through a bounded fixed-point rewrite driver, with deterministic
+- These folds are implemented through a bounded fixed-point rewrite driver over the shared
+  `ClassLawRule` registry, with deterministic
   rule ordering over a `ClassLawRule` registry and monotonic-cost guard.
 - They are not yet wired
   as a mandatory compile-stage rewrite in the active `compile_response` route
