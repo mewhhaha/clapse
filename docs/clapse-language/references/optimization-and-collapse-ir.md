@@ -152,7 +152,7 @@ After a successful rewrite, the scheduler performs an immediate root-shape re-di
 
 The precomputed tables are deterministic, policy-agnostic, and only affect lookup machinery; they do not alter dispatch eligibility, `class_law_rule_guard` outcomes, static/dynamic class dispatch gating, cost policy, or rewrite semantics.
 
-Class-law guard evaluation now computes each expression signature once per rewrite-state pass and reuses it across candidate rule checks, reducing repeated signature work during fixed-point scheduling. This optimization changes only lookup/evaluation cost; rewrite semantics and class-law policy behavior are unchanged.
+Class-law guard evaluation now caches before-cost signatures once per expression state during each rewrite pass and reuses them across candidate rule checks, reducing repeated signature work during fixed-point scheduling. This optimization changes only lookup/evaluation cost; rewrite semantics and class-law policies are unchanged.
 
 This optimization does **not** change class-law policy behavior:
 - `class_law_rule_guard` checks remain unchanged (shape/type/purity/effect gates).

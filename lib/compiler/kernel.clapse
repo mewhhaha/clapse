@@ -905,12 +905,11 @@ rewrite_class_law_rule_with_signature rule expr signature =
     false -> expr
     true -> rewrite_class_law_rule rule expr
 
-apply_class_law_rule_once_with_signature rule expr signature =
+apply_class_law_rule_once_with_signature rule expr signature before_cost =
   let candidate =
         case class_law_rule_guard_with_signature rule expr signature of
           true -> rewrite_class_law_rule_with_signature rule expr signature
           _ -> expr
-      before_cost = class_method_expr_cost expr
       candidate_cost = class_method_expr_cost candidate
       cost_ok = class_law_expr_cost_ok expr candidate
       strict_ok =
@@ -923,30 +922,41 @@ apply_class_law_rule_once_with_signature rule expr signature =
 
 apply_class_law_rule_once rule expr =
   let signature = class_method_expr_signature expr
-  in apply_class_law_rule_once_with_signature rule expr signature
+      before_cost = class_method_expr_cost expr
+  in apply_class_law_rule_once_with_signature rule expr signature before_cost
 
-rewrite_class_law_rules_once_list rules root_kind expr signature =
+rewrite_class_law_rules_once_list rules root_kind expr signature before_cost =
   case rules of
     ClassLawRuleListNil -> expr
     ClassLawRuleListNode rule rest ->
-      let expr1 = apply_class_law_rule_once_with_signature rule expr signature
+      let expr1 = apply_class_law_rule_once_with_signature rule expr signature before_cost
       in case (expr1 == expr) of
-        true -> rewrite_class_law_rules_once_list rest root_kind expr1 signature
+        true -> rewrite_class_law_rules_once_list rest root_kind expr1 signature before_cost
         _ ->
           let signature1 = class_method_expr_signature expr1
           in
           let root_kind1 = class_method_expr_root_kind expr1
+          in
+          let before_cost1 = class_method_expr_cost expr1
           in case (root_kind1 == root_kind) of
-            true -> rewrite_class_law_rules_once_list rest root_kind1 expr1 signature1
-            _ -> rewrite_class_law_rules_once_list (class_law_rules_for_root_kind root_kind1) root_kind1 expr1 signature1
+            true -> rewrite_class_law_rules_once_list rest root_kind1 expr1 signature1 before_cost1
+            _ -> rewrite_class_law_rules_once_list
+              (class_law_rules_for_root_kind root_kind1)
+              root_kind1
+              expr1
+              signature1
+              before_cost1
 
 rewrite_class_law_expr_once expr =
   let expr1 = rewrite_bool_law_expr expr
+      signature1 = class_method_expr_signature expr1
+      before_cost1 = class_method_expr_cost expr1
   in rewrite_class_law_rules_once_list
     (class_law_rules_for_expr expr1)
     (class_method_expr_root_kind expr1)
     expr1
-    (class_method_expr_signature expr1)
+    signature1
+    before_cost1
 
 class_law_rewrite_stages = 4
 
