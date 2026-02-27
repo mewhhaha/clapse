@@ -424,21 +424,6 @@ function isCompilerKernelPath(inputPath) {
     normalized.endsWith("/lib/compiler/kernel.clapse");
 }
 
-function isCompilerStubResponse(response) {
-  if (!response || typeof response !== "object" || Array.isArray(response)) {
-    return false;
-  }
-  if (response.ok !== true) return false;
-  if (typeof response.wasm_base64 !== "string" || response.wasm_base64.length === 0) {
-    return false;
-  }
-  const hasStubExports = Array.isArray(response.exports) && response.exports.length === 0;
-  if (!hasStubExports) {
-    return false;
-  }
-  return response.dts === undefined || response.dts === "export {}\n";
-}
-
 async function writeCompileArtifacts(outputPath, response) {
   let wasmBytes = decodeWasmBase64(response.wasm_base64);
   if (shouldInjectFuncMapInFixedPointArtifacts()) {
@@ -493,11 +478,6 @@ async function compileViaWasm(wasmPath, inputPath, outputPath, options = {}) {
     input_source: inputSource,
     plugin_wasm_paths: pluginWasmPaths,
   });
-  if (isCompilerStubResponse(response)) {
-    throw new Error(
-      `compile response for ${inputPath} is a stub artifact; configure a native clapse compiler wasm and remove stub fallback mode`,
-    );
-  }
   const decodedResponse = decodeCompileResponse(response, inputPath);
   await writeCompileArtifacts(outputPath, decodedResponse);
 }

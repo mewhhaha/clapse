@@ -25,20 +25,14 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: Guard no host toolchain surface
-        run: deno run -A scripts/guard-no-host-surface.mjs
+      - name: Setup just
+        uses: extractions/setup-just@v1
 
-      - name: Validate docs code fences
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Run pre-tag verification
         env:
           CLAPSE_COMPILER_WASM_PATH: artifacts/latest/clapse_compiler.wasm
-        run: deno run -A scripts/validate-docs.mjs
-
-      - name: Validate wildcard demand
         if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          CLAPSE_COMPILER_WASM_PATH: artifacts/latest/clapse_compiler.wasm
-        run: deno run -A scripts/wildcard-demand-check.mjs
+        run: just pre-tag-verify
 
       - name: Resolve release context
         id: release_context

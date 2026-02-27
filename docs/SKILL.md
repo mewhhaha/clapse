@@ -23,6 +23,7 @@ Maintain docs as executable specs. Every Clapse code fence should compile with t
 Run:
 
 ```bash
+just pre-tag-verify
 just clapse-bin
 just docs-validate
 deno run -A scripts/lsp-wasm-fixtures.mjs
@@ -33,6 +34,9 @@ just highlights-real
 just highlights-helix
 just formatter-golden-fixtures
 ```
+
+`release-verify` CI runs the same pre-tag gate via `just pre-tag-verify` before
+release bundling and publication.
 
 Or directly:
 
@@ -63,6 +67,9 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
   `examples/wildcard_demand_behavior_regressions.clapse` and
   `examples/selfhost_behavior_corpus.json` when clause-demand semantics or
   declaration-order tie-break behavior changes.
+- Keep `scripts/wildcard-demand-check.mjs` aligned with
+  `scripts/wasm-behavior-fixture-map.json`: the check now validates the
+  wildcard-demand fixture via precomputed wasm and fails on source-hash drift.
 - Record memory-model pass changes in `docs/clapse-language/references/optimization-and-collapse-ir.md` when kernel collapse pipeline stages change (escape/lifetime annotations, ownership/COW rewrite ordering), and mirror behavior notes in `docs/SKILL.md` with concise pass-level comments.
 - Record allocation/reuse/COW scope contract updates in both
   `docs/clapse-language/references/optimization-and-collapse-ir.md` and
@@ -111,7 +118,9 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
   to emitted native compile artifacts so function-name lookup remains available
   for stack-mapping.
 - Keep compile fallback docs aligned with runtime behavior:
-  Compile fallback strategies are disabled in JS compile flow.
+  JS compile accepts host-bridge compile responses when they include a valid
+  `ok:true` + non-empty `wasm_base64` payload, and writes the emitted wasm/dts
+  artifacts from that response.
 - Keep selfhost artifact docs aligned with runtime behavior:
   JS no longer patches placeholder selfhost payloads. If the kernel returns a
   placeholder/incomplete `selfhost-artifacts` response, the command now fails
@@ -128,13 +137,11 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
   - `compiler.json_response`: shared JSON request/response contract.
   - `compiler.formatter`: formatter behavior.
   - `compiler.lsp_kernel`: LSP request handling and response shaping.
-- Host bridge mode (`clapse_run` command `"compile"`) is no longer an accepted
-  JS execution path. `run-clapse-compiler-wasm.mjs` now requires native
-  compiler artifacts (`CLAPSE_COMPILER_WASM_PATH`, then
-  `artifacts/latest/clapse_compiler.wasm`, then `out/clapse_compiler.wasm`) and
-  returns a
-  JSON response containing `ok`, `wasm_base64`, `exports`, and `dts`. Bridge
-  recursion is no longer used.
+- Host bridge compile recursion is still guarded by
+  `CLAPSE_HOST_COMPILE_DEPTH`; compile calls that recurse too deeply fail with
+  an explicit recursion error. Path resolution remains
+  `CLAPSE_COMPILER_WASM_PATH`, then `artifacts/latest/clapse_compiler.wasm`,
+  then `out/clapse_compiler.wasm`.
 
 ## LSP migration status
 
