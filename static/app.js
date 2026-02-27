@@ -6,6 +6,7 @@ const RELEASES_PAGE =
   `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
 const COMPILER_ASSET_NAME = "clapse_compiler.wasm";
 const COMPILER_ASSET_SUFFIX = "/artifacts/latest/clapse_compiler.wasm";
+const AUTO_COMPILE_DELAY_MS = 380;
 const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder();
 const WASM_PAGE_SIZE = 65536;
@@ -22,12 +23,13 @@ const state = {
   releaseByTag: new Map(),
   compilerByTag: new Map(),
   running: false,
+  compileQueued: false,
+  compileTimer: null,
   downloadUrl: null,
 };
 
 const elements = {
   releaseSelect: document.getElementById("release-select"),
-  compileButton: document.getElementById("compile-button"),
   releaseLink: document.getElementById("release-link"),
   releaseStatus: document.getElementById("release-status"),
   sourceCode: document.getElementById("source-code"),
@@ -47,12 +49,13 @@ async function main() {
 }
 
 function bindEvents() {
-  elements.compileButton.addEventListener("click", () => {
-    void runCompile();
-  });
-
   elements.releaseSelect.addEventListener("change", () => {
     syncReleaseLink();
+    scheduleCompile(10);
+  });
+
+  elements.sourceCode.addEventListener("input", () => {
+    scheduleCompile();
   });
 }
 
@@ -71,6 +74,7 @@ async function loadReleases() {
     renderReleaseSelect(releases);
     syncReleaseLink();
     setStatus(`Loaded ${releases.length} release(s) from GitHub.`);
+    scheduleCompile(10);
   } catch (err) {
     setStatus(errorMessage(err));
   } finally {
@@ -167,7 +171,7 @@ function formatDate(raw) {
 
 async function runCompile() {
   if (state.running) {
-    setStatus("Compile already in progress.");
+    state.compileQueued = true;
     return;
   }
 
@@ -178,7 +182,6 @@ async function runCompile() {
   }
 
   state.running = true;
-  setControlsDisabled(true);
   setStatus(`Compiling with release ${tag}...`);
   elements.irOutput.textContent = "Running selfhost-artifacts...";
   elements.wasmOutput.textContent = "Running compile...";
@@ -247,7 +250,10 @@ async function runCompile() {
     elements.wasmOutput.textContent = "Compile failed. See status above.";
   } finally {
     state.running = false;
-    setControlsDisabled(false);
+    if (state.compileQueued) {
+      state.compileQueued = false;
+      void runCompile();
+    }
   }
 }
 
@@ -441,7 +447,16 @@ function buildStubImports(imports) {
 
 function setControlsDisabled(disabled) {
   elements.releaseSelect.disabled = disabled;
-  elements.compileButton.disabled = disabled;
+}
+
+function scheduleCompile(delayMs = AUTO_COMPILE_DELAY_MS) {
+  if (state.compileTimer !== null) {
+    clearTimeout(state.compileTimer);
+  }
+  state.compileTimer = setTimeout(() => {
+    state.compileTimer = null;
+    void runCompile();
+  }, delayMs);
 }
 
 function setStatus(message) {

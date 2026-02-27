@@ -6,17 +6,17 @@ export default define.page(function Home() {
       <main class="page">
         <header class="hero panel">
           <p class="eyebrow">Artifact-only GitHub Pages</p>
-          <h1>Clapse Release Explorer</h1>
+          <h1>Clapse Explorer</h1>
           <p class="lede">
-            Select a release from GitHub, then run
-            <code>code -&gt; IR -&gt; wasm</code>.
+            Imagine Godbolt mixed with GitHub releases: edit code and inspect
+            <code>code -&gt; IR -&gt; wasm</code> in real time.
           </p>
           <div class="header-controls">
             <label class="control">
               Release
               <select id="release-select" />
             </label>
-            <button id="compile-button" type="button">Compile</button>
+            <span class="auto-chip">Auto compile on edit</span>
             <a
               id="release-link"
               class="header-link"
@@ -44,14 +44,14 @@ export default define.page(function Home() {
           <article class="panel pane resize-middle">
             <h2>IR</h2>
             <pre id="ir-output" class="pane-body result-output">
-              (Run compile to view IR.)
+              (IR appears after release load.)
             </pre>
           </article>
 
           <article class="panel pane">
             <h2>Wasm</h2>
             <pre id="wasm-output" class="pane-body result-output">
-              (Run compile to view Wasm.)
+              (Wasm summary appears after release load.)
             </pre>
             <a id="wasm-download" href="#" download hidden>
               Download Compiled Wasm

@@ -6,8 +6,10 @@ It provides:
 
 - release-aware compiler selection from GitHub Releases,
 - a browser pipeline for `code -> IR -> wasm`,
-- a single-header release dropdown,
-- three side-by-side panes where only `Code` is editable.
+- auto-compile on code or release changes (no compile button),
+- a sticky top header with release controls and release link,
+- three side-by-side panes that fill the viewport (`Code` editable; `IR`/`Wasm`
+  read-only).
 - built with Deno Fresh.
 
 ## Files

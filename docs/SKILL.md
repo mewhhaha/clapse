@@ -47,12 +47,19 @@ for this page.
 
 ## Layout Contract
 
-- Header has a single release dropdown plus compile action.
+- Header is sticky at the top, full-width, and keeps release controls visible.
+- Header has a single release dropdown and release link (no compile button).
 - Main area has three side-by-side panes:
   - `Code` (editable)
   - `IR` (read-only)
   - `Wasm` (read-only)
-- First two panes are horizontally resizable on desktop.
+- Panes fill remaining viewport space; first two panes are horizontally
+  resizable on desktop.
+
+## Compile Contract
+
+- Compile is automatic on source edits (debounced) and release changes.
+- If edits happen during compile, one follow-up compile is queued automatically.
 
 ## Local Preview
 
