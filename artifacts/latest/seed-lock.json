@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "seed_release_id": "v0.1.0.7-a314656bb1ef",
+  "seed_release_id": "v0.1.0.9-276a6c8cd92b",
   "compiler_wasm_sha256": "0d2ca5718bbcd791b46241e642038dbe9d5065c940e151367b4a161d37d0dd52",
   "compiler_bridge_wasm_sha256": "70dcf229b32b592c4f46849c3ffca4c84f83b3ca722802d2283ffa1080353714"
 }
