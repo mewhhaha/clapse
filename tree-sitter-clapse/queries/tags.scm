@@ -28,6 +28,15 @@
 (data_declaration
   constructor_name: (capitalized_identifier) @name) @definition.class
 
+(primitive_declaration
+  type_name: (identifier) @name) @definition.type
+
+(primitive_declaration
+  type_parameter: (identifier) @name) @reference.type
+
+(primitive_declaration
+  constructor_name: (identifier) @name) @definition.constant
+
 (law_declaration
   name: (identifier) @name) @definition.constant
 

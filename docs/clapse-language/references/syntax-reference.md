@@ -3,12 +3,13 @@
 ## Naming
 
 - Value/function identifiers: `snake_case`
-- Data type names: `PascalCase`
-- Constructor names are usually `PascalCase`, with literal-backed constructors
-  commonly written as lowercase (for example `true`/`false`):
+- `data` type names: `PascalCase`
+- `data` constructor names: `PascalCase`
+- `primitive` type names: `snake_case`
+- `primitive` constructors are lowercase and primitive-backed:
 
 ```haskell
-data bool = true<1> | false<0>
+primitive bool = true<1> | false<0>
 ```
 
 ## Functions
@@ -85,6 +86,17 @@ Multi-constructor GADT-like one-line form:
 data Maybe a = Just : a -> Maybe a | Nothing : Maybe a
 ```
 
+`data` declarations are Capitalized-only for both type names and constructor names.
+
+## Primitive Declarations
+
+Lowercase primitive-backed declarations use `primitive`:
+
+```haskell
+primitive bool = true<1> | false<0>
+primitive string = string<slice byte>
+```
+
 Newtype form (single constructor + single field):
 
 ```haskell
@@ -135,6 +147,8 @@ class Applicative f where
   <* : f a -> f b -> f a
   *> : f a -> f b -> f b
   <*> = ap
+  keep_left = keep_left_default
+  keep_right = keep_right_default
   <* = keep_left
   *> = keep_right
 
@@ -143,6 +157,7 @@ class Monad m where
   then_m : m a -> m b -> m b
   >>= : m a -> (a -> m b) -> m b
   >> : m a -> m b -> m b
+  then_m = then_m_default
   >>= = bind
   >> = then_m
 
@@ -151,6 +166,7 @@ class Alternative f where
   append : f a -> f a -> f a
   alt : f a -> f a -> f a
   <|> : f a -> f a -> f a
+  alt = alt_default
   <|> = alt
 
 instance Functor parser where
@@ -159,18 +175,29 @@ instance Functor parser where
 instance Applicative parser where
   pure = parser_pure
   ap = parser_ap
-  keep_left = keep_left_default
-  keep_right = keep_right_default
 
 instance Monad parser where
   pure = parser_pure
   bind = parser_bind
-  then_m = then_m_default
 
 instance Alternative parser where
   empty = parser_empty
   append = parser_or
-  alt = alt_default
+
+instance Functor Maybe where
+  fmap = maybe_map
+
+instance Applicative Maybe where
+  pure = Just
+  ap mf mx = maybe_bind mf (\f -> maybe_bind mx (\x -> Just (f x)))
+
+instance Monad Maybe where
+  pure = Just
+  bind = maybe_bind
+
+instance Alternative Maybe where
+  empty = Nothing
+  append a b = case a of Just _ -> a; Nothing -> b
 ```
 
 The compiler now uses a local evidence model for dispatch:
@@ -189,6 +216,48 @@ terms of `bind`/`pure`/`append` so custom instances can override while preservin
 `<$` is mapped to `map_replace`, which defaults to `fmap (\_ -> x)`.
 Default helper functions are `map_replace_default`, `ap_default`, `then_m_default`,
 `keep_left_default`, `keep_right_default`, and `alt_default`.
+
+Core prelude abstraction preview:
+
+```haskell
+data Pair a b = Pair a b
+data Maybe a = Just a | Nothing
+data List a = ListNil | ListCons a (List a)
+
+data Reader r a = Reader : (r -> a) -> Reader r a
+run_reader : Reader r a -> r -> a
+reader_pure : a -> Reader r a
+reader_map : (a -> b) -> Reader r a -> Reader r b
+reader_ap : Reader r (a -> b) -> Reader r a -> Reader r b
+reader_bind : Reader r a -> (a -> Reader r b) -> Reader r b
+ask_reader : Reader r r
+asks_reader : (r -> a) -> Reader r a
+local_reader : (r -> r) -> Reader r a -> Reader r a
+
+data State s a = State : (s -> Pair a s) -> State s a
+run_state : State s a -> s -> Pair a s
+eval_state : State s a -> s -> a
+exec_state : State s a -> s -> s
+state_pure : a -> State s a
+state_map : (a -> b) -> State s a -> State s b
+state_ap : State s (a -> b) -> State s a -> State s b
+state_bind : State s a -> (a -> State s b) -> State s b
+get_state : State s s
+put_state : s -> State s Unit
+modify_state : (s -> s) -> State s Unit
+gets_state : (s -> a) -> State s a
+
+data Map k v = Map (List (Pair k v))
+data Set a = Set (List a)
+map_lookup_by : (k -> k -> bool) -> k -> Map k v -> Maybe v
+map_insert_by : (k -> k -> bool) -> k -> v -> Map k v -> Map k v
+set_member_by : (a -> a -> bool) -> a -> Set a -> bool
+set_insert_by : (a -> a -> bool) -> a -> Set a -> Set a
+```
+
+These map/set containers are intentionally simple (list-backed) and deterministic.
+They are a functional baseline abstraction layer before introducing specialized
+runtime-backed maps/sets.
 
 ## Class Dispatch Witness (Kernel)
 
@@ -252,7 +321,7 @@ infixl 6 plus_op
 The compiler prelude also defines the shared boolean class in Haskell-like naming:
 
 ```haskell
-data bool = true<1> | false<0>
+primitive bool = true<1> | false<0>
 data Unit = Unit
 data Lazy a = Lazy : (Unit -> a) -> Lazy a
 

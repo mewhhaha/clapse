@@ -11,10 +11,6 @@ module.exports = grammar({
 
   word: ($) => $.identifier,
 
-  conflicts: ($) => [
-    [$.instance_declaration, $.instance_binding],
-  ],
-
   rules: {
     source_file: ($) =>
       repeat(
@@ -36,6 +32,7 @@ module.exports = grammar({
         $.instance_declaration,
         $.operator_declaration,
         $.data_declaration,
+        $.primitive_declaration,
         $.attributed_function_declaration,
         $.function_declaration,
         $.function_signature,
@@ -137,7 +134,7 @@ module.exports = grammar({
         seq(
           $._kw_data,
           $._ws1,
-          field("type_name", choice($.capitalized_identifier, $.identifier)),
+          field("type_name", $.capitalized_identifier),
           repeat(seq($._ws1, field("type_parameter", $.identifier))),
           $._ws1,
           "=",
@@ -146,7 +143,7 @@ module.exports = grammar({
             prec.dynamic(
               4,
               seq(
-                field("constructor_name", choice($.capitalized_identifier, $.identifier)),
+                field("constructor_name", $.capitalized_identifier),
                 optional($._ws1),
                 ":",
                 optional($._ws1),
@@ -154,28 +151,16 @@ module.exports = grammar({
               ),
             ),
             prec.dynamic(
-              3,
-              seq(
-                field("constructor_name", choice($.capitalized_identifier, $.identifier)),
-                optional($._ws1),
-                "<",
-                optional($._ws1),
-                field("literal_backing", $.type_union_literal),
-                optional($._ws1),
-                ">",
-              ),
-            ),
-            prec.dynamic(
               2,
               seq(
-                field("constructor_name", choice($.capitalized_identifier, $.identifier)),
+                field("constructor_name", $.capitalized_identifier),
                 repeat1(seq($._ws1, field("field_name", $.identifier))),
               ),
             ),
             prec.dynamic(
               -1,
               seq(
-                field("constructor_name", choice($.capitalized_identifier, $.identifier)),
+                field("constructor_name", $.capitalized_identifier),
               ),
             ),
           ),
@@ -189,7 +174,7 @@ module.exports = grammar({
                 prec.dynamic(
                   4,
                   seq(
-                    field("constructor_name", choice($.capitalized_identifier, $.identifier)),
+                    field("constructor_name", $.capitalized_identifier),
                     optional($._ws1),
                     ":",
                     optional($._ws1),
@@ -197,28 +182,16 @@ module.exports = grammar({
                   ),
                 ),
                 prec.dynamic(
-                  3,
-                  seq(
-                    field("constructor_name", choice($.capitalized_identifier, $.identifier)),
-                    optional($._ws1),
-                    "<",
-                    optional($._ws1),
-                    field("literal_backing", $.type_union_literal),
-                    optional($._ws1),
-                    ">",
-                  ),
-                ),
-                prec.dynamic(
                   2,
                   seq(
-                    field("constructor_name", choice($.capitalized_identifier, $.identifier)),
+                    field("constructor_name", $.capitalized_identifier),
                     repeat1(seq($._ws1, field("field_name", $.identifier))),
                   ),
                 ),
                 prec.dynamic(
                   -1,
                   seq(
-                    field("constructor_name", choice($.capitalized_identifier, $.identifier)),
+                    field("constructor_name", $.capitalized_identifier),
                   ),
                 ),
               ),
@@ -227,6 +200,48 @@ module.exports = grammar({
           ),
         ),
       ),
+
+    primitive_declaration: ($) =>
+      prec.right(
+        seq(
+          $._kw_primitive,
+          $._ws1,
+          field("type_name", $.identifier),
+          repeat(seq($._ws1, field("type_parameter", $.identifier))),
+          $._ws1,
+          "=",
+          $._ws1,
+          seq(
+            field("constructor_name", $.identifier),
+            optional($._ws1),
+            "<",
+            optional($._ws1),
+            field("primitive_backing", $.primitive_backing_text),
+            optional($._ws1),
+            ">",
+          ),
+          repeat(
+            prec.right(
+              seq(
+                optional($._ws1),
+                "|",
+                optional($._ws1),
+                seq(
+                  field("constructor_name", $.identifier),
+                  optional($._ws1),
+                  "<",
+                  optional($._ws1),
+                  field("primitive_backing", $.primitive_backing_text),
+                  optional($._ws1),
+                  ">",
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+
+    primitive_backing_text: () => token(/[^>\n|]+/),
 
     type_declaration: ($) =>
       seq(
@@ -871,6 +886,7 @@ module.exports = grammar({
     _newline_indent: () => token(seq(/\n/, /[ \t\r\f]+/)),
 
     _kw_data: () => token(prec(1, "data")),
+    _kw_primitive: () => token(prec(1, "primitive")),
     _kw_class: () => token(prec(1, "class")),
     _kw_law: () => token(prec(1, "law")),
     _kw_instance: () => token(prec(1, "instance")),

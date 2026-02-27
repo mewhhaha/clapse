@@ -8,12 +8,25 @@ Current language-level target set:
 - `u64` (reserved)
 - `byte` (reserved for compact binary/host ABI boundaries)
 
-Conventional core data wrappers:
+Conventional core wrappers:
 
-- `data string = string<slice byte>`
-- `data bool = true<1> | false<0>`
+- `primitive string = string<slice byte>`
+- `primitive bool = true<1> | false<0>`
+- `data Maybe a = Just a | Nothing`
+- `data Pair a b = Pair a b`
 
-`type` aliases may define literal unions (for example `type Digit = <0 | 1 | 2>`) and may not own constructors. Constructor ownership belongs to `data`.
+`type` aliases may define literal unions (for example `type Digit = <0 | 1 | 2>`) and may not own constructors. Constructor ownership belongs to `data` and `primitive`.
+
+`data` is now Capitalized-only for both type and constructor names.
+Lowercase primitive-backed declarations use `primitive`.
+
+Prelude abstraction preview also includes:
+
+- `data List a = ListNil | ListCons a (List a)`
+- `data Reader r a = Reader : (r -> a) -> Reader r a`
+- `data State s a = State : (s -> Pair a s) -> State s a`
+- `data Map k v = Map (List (Pair k v))` (list-backed map baseline)
+- `data Set a = Set (List a)` (list-backed set baseline)
 
 ## Current Inference Behavior
 

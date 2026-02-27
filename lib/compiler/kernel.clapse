@@ -9,7 +9,6 @@ export clapse_run
 
 data CommandTag = CommandCompile | CommandFormat | CommandSelfhost
   | CommandLspSymbolIndex | CommandLspHover | CommandLspDefinition | CommandUnknown
-data Maybe a = Just a | Nothing
 data MonadicLine = MonadicLineNil
   | MonadicLineNode
     Int
@@ -337,12 +336,14 @@ parse_command_tag_code request_handle value_start req_len =
       symbol_index_tag = parser_map command_tag_code_lsp_symbol_index (parse_command_tag request_handle value_start req_len "lsp-symbol-index")
       hover_tag = parser_map command_tag_code_lsp_hover (parse_command_tag request_handle value_start req_len "lsp-hover")
       def_tag = parser_map command_tag_code_lsp_definition (parse_command_tag request_handle value_start req_len "lsp-definition")
-  in parser_or compile_tag (parser_or format_tag (parser_or selfhost_tag (parser_or symbol_index_tag (parser_or hover_tag def_tag))) ) request_handle value_start req_len
-
-command_tag_of request_handle value_start req_len command tag =
-  case is_command_literal request_handle value_start req_len command of
-    true -> Just tag
-    _ -> Nothing
+      remaining_tag_parsers =
+        ListCons format_tag
+          (ListCons selfhost_tag
+            (ListCons symbol_index_tag
+              (ListCons hover_tag
+                (ListCons def_tag ListNil))))
+      combined = list_foldl (\acc p -> parser_or acc p) compile_tag remaining_tag_parsers
+  in combined request_handle value_start req_len
 
 command_tag_at request_handle value_start req_len =
   let command = parse_command_tag_code request_handle value_start req_len
@@ -357,18 +358,18 @@ command_tag_at request_handle value_start req_len =
 
 find_command_tag request_handle i req_len =
   let value_start = find_json_key_value_start request_handle i req_len "\"command\""
-  in case (value_start == req_len) of
-    true -> Nothing
-    _ -> command_tag_at request_handle value_start req_len
+      maybe_start =
+        case (value_start == req_len) of
+          true -> Nothing
+          _ -> Just value_start
+  in maybe_bind maybe_start (\start -> command_tag_at request_handle start req_len)
 
 command_tag request_handle =
   let req_len = slice_len request_handle
       scan_limit = 256
       scan_len = min2 req_len scan_limit
       raw_tag = find_command_tag request_handle 0 scan_len
-  in case raw_tag of
-    Nothing -> CommandUnknown
-    Just tag -> tag
+  in maybe_with_default CommandUnknown raw_tag
 
 clapse_run request_handle =
   let tagged_request = collapse_pipeline_run request_handle

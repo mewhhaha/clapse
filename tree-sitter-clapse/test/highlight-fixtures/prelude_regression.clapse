@@ -24,4 +24,4 @@ law Applicative homomorphism = ap (pure f) (pure x) => pure (f x)
 law Applicative interchange = ap u (pure y) => ap (pure (\f -> f y)) u
 law Applicative composition = ap (ap (ap (pure compose) u) v) w => ap u (ap v w)
 
-data bool = true<1> | false<0>
+primitive bool = true<1> | false<0>

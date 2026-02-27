@@ -3,7 +3,6 @@ import compiler.prelude
 export format_ok_response
 
 data OwnershipRewriteMode = OwnershipRewriteLinear | OwnershipRewriteCopyOnWrite
-data Maybe a = Just a | Nothing
 data MonadicLine = MonadicLineNil
   | MonadicLineNode
     Int
@@ -198,19 +197,18 @@ format_collapse_code request_handle ownership_mode source start end scratch out_
 
 format_normalize_line request_handle ownership_mode source line_start line_end scratch =
   let comment_start = format_find_comment_start request_handle line_start line_end
-      code_end = case comment_start of
-        Nothing -> line_end
-        Just at -> at
+      code_end = maybe_with_default line_end comment_start
       indent_len = format_leading_space_len request_handle line_start code_end 0
       compact_end = format_collapse_code request_handle ownership_mode source (line_start + indent_len) code_end scratch indent_len 0 false false false
       compact_trim = format_trim_trailing_spaces request_handle scratch compact_end compact_end
       copied_prefix = copy_slice_segment request_handle source line_start scratch 0 indent_len 0
-      comment_len = case comment_start of
-        Nothing -> 0
-        Just at ->
-          let len = line_end - at
-          in copy_slice_segment request_handle source at copied_prefix compact_trim len 0
-             in len
+      comment_len = maybe_with_default 0
+        (maybe_map
+          (\at ->
+            let len = line_end - at
+            in copy_slice_segment request_handle source at copied_prefix compact_trim len 0
+               in len)
+          comment_start)
   in compact_trim + comment_len
 
 format_copy_spaces request_handle ownership_mode out out_i count =
@@ -458,9 +456,7 @@ format_has_nonspace request_handle i end =
 
 format_find_comment_boundary request_handle line_start line_end =
   let comment_start = format_find_comment_start request_handle line_start line_end
-  in case comment_start of
-    Nothing -> line_end
-    Just at -> at
+  in maybe_with_default line_end comment_start
 
 format_has_content_outside_comment request_handle line_start line_end =
   let content_end = format_find_comment_boundary request_handle line_start line_end

@@ -2,7 +2,7 @@ module util.json
 export byte_at, json_command_tag
 import slice_scan
 
-data bool = true<1> | false<0>
+primitive bool = true<1> | false<0>
 data CommandTag = CommandCompile | CommandFormat | CommandSelfhost
 data Maybe a = Just a | Nothing
 

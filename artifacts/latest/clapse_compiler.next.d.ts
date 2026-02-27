@@ -1,8 +1,6 @@
 export declare function CommandCompile(): number;
 export declare function CommandFormat(): number;
 export declare function CommandSelfhost(): number;
-export declare function Just(arg0: number): number;
-export declare function Nothing(): number;
 export declare function MonadicLineNil(): number;
 export declare function ParsedLine(arg0: number, arg1: number): number;
 export declare function ChainCollect(arg0: number, arg1: number, arg2: number, arg3: number, arg4: number): number;
@@ -72,7 +70,6 @@ export declare function command_tag_code_lsp_hover(arg0: number): number;
 export declare function command_tag_code_lsp_definition(arg0: number): number;
 export declare function parse_command_tag(arg0: number, arg1: number, arg2: number, arg3: number): number;
 export declare function parse_command_tag_code(arg0: number, arg1: number, arg2: number): number;
-export declare function command_tag_of(arg0: number, arg1: number, arg2: number, arg3: number, arg4: number): number;
 export declare function command_tag_at(arg0: number, arg1: number, arg2: number): number;
 export declare function find_command_tag(arg0: number, arg1: number, arg2: number): number;
 export declare function command_tag(arg0: number): number;

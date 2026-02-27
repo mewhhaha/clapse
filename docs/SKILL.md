@@ -47,6 +47,12 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
 - Keep class/instance docs aligned with the compiler target syntax: Haskell-style `where` blocks are canonical for new docs and examples.
 - Keep prelude operator mapping docs aligned with code (`<$`, `<$>`, `<*>`, `<*`, `*>`, `>>=`, `>>`, `<|>`) and reflect any helper-default changes in the syntax reference.
 - Keep Boolean class docs aligned with prelude method surface (`not`, `and`, `or`, `xor`, `implies`, `&&`, `||`), including eager boolean-method signatures (`&&`, `|| : b -> b -> b`) and updated default-instance semantics in `docs/clapse-language/references/syntax-reference.md`.
+- Keep prelude abstraction docs aligned with code for:
+  `Pair`/`Maybe`/`List`, `reader`/`state` combinators, and the list-backed
+  `map`/`set` baseline APIs (`*_by` equality-driven operations).
+- Keep declaration-kind naming rules synchronized across docs/examples:
+  `data` declarations are Capitalized-only, and lowercase primitive-backed
+  declarations use `primitive` (for example `primitive bool = true<1> | false<0>`).
 - Keep wildcard-demand matching docs aligned with compiler behavior:
   `_` remains a wildcard binder and may reduce argument demand during clause
   matching via deterministic demand ordering; keep this rule synchronized

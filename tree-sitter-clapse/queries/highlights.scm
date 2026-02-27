@@ -55,33 +55,41 @@
   (type_union) @type)
 
 (data_declaration
-  type_name: (identifier) @type.definition)
-
-(data_declaration
   type_name: (capitalized_identifier) @type.definition)
 
 (data_declaration
   type_parameter: (identifier) @type.parameter)
 
 (data_declaration
-  constructor_name: (identifier) @constructor)
-
-(data_declaration
   constructor_name: (capitalized_identifier) @constructor)
-
-(data_declaration
-  constructor_name: (identifier) @constant.builtin
-  literal_backing: (integer) @constant.numeric.integer)
-
-(data_declaration
-  constructor_name: (identifier) @constant.builtin
-  literal_backing: (string) @string)
 
 (data_declaration
   constructor_type: (type_expr_text) @type)
 
 (data_declaration
   field_name: (identifier) @variable.parameter)
+
+(primitive_declaration
+  type_name: (identifier) @type.definition)
+
+(primitive_declaration
+  type_parameter: (identifier) @type.parameter)
+
+(primitive_declaration
+  constructor_name: (identifier) @constant.builtin)
+
+(primitive_declaration
+  primitive_backing: (primitive_backing_text) @constant.numeric.integer
+  (#match? @constant.numeric.integer "^[ \t]*-?[0-9]+[ \t]*$"))
+
+(primitive_declaration
+  primitive_backing: (primitive_backing_text) @string
+  (#match? @string "^[ \t]*\".*\"[ \t]*$"))
+
+(primitive_declaration
+  primitive_backing: (primitive_backing_text) @type
+  (#not-match? @type "^[ \t]*-?[0-9]+[ \t]*$")
+  (#not-match? @type "^[ \t]*\".*\"[ \t]*$"))
 
 (class_declaration
   name: (identifier) @type.definition)
@@ -264,6 +272,7 @@
   "instance"
   "where"
   "data"
+  "primitive"
   "type"
   "infix"
   "infixl"

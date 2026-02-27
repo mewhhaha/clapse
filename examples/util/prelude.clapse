@@ -1,7 +1,7 @@
 module prelude
 export to_bool, from_bool, bool_not, bool_and, bool_or, and, or, not
 
-data bool = true<1> | false<0>
+primitive bool = true<1> | false<0>
 data Maybe a = Just a | Nothing
 data Either e a = Left e | Right a
 data Ordering = LT | EQ | GT

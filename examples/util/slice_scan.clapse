@@ -1,7 +1,7 @@
 module slice_scan
 export slice_find_u8, slice_find_seq_u8
 
-data bool = true<1> | false<0>
+primitive bool = true<1> | false<0>
 
 slice_find_u8 bytes needle start | start >= slice_len bytes = -1
                                  | slice_get_u8 bytes start == needle = start

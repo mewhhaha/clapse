@@ -467,10 +467,6 @@
           {
             "type": "capitalized_identifier",
             "named": true
-          },
-          {
-            "type": "identifier",
-            "named": true
           }
         ]
       },
@@ -494,26 +490,12 @@
           }
         ]
       },
-      "literal_backing": {
-        "multiple": true,
-        "required": false,
-        "types": [
-          {
-            "type": "type_union_literal",
-            "named": true
-          }
-        ]
-      },
       "type_name": {
         "multiple": false,
         "required": true,
         "types": [
           {
             "type": "capitalized_identifier",
-            "named": true
-          },
-          {
-            "type": "identifier",
             "named": true
           }
         ]
@@ -580,6 +562,10 @@
         },
         {
           "type": "operator_declaration",
+          "named": true
+        },
+        {
+          "type": "primitive_declaration",
           "named": true
         },
         {
@@ -1374,6 +1360,52 @@
     }
   },
   {
+    "type": "primitive_declaration",
+    "named": true,
+    "fields": {
+      "constructor_name": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "primitive_backing": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "primitive_backing_text",
+            "named": true
+          }
+        ]
+      },
+      "type_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "type_parameter": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "source_file",
     "named": true,
     "root": true,
@@ -1653,6 +1685,14 @@
   },
   {
     "type": "operator_symbol",
+    "named": true
+  },
+  {
+    "type": "primitive",
+    "named": false
+  },
+  {
+    "type": "primitive_backing_text",
     "named": true
   },
   {

@@ -1,7 +1,7 @@
 module bootstrap_phase10_frontend_lexer
 export main
 
-data bool = true<1> | false<0>
+primitive bool = true<1> | false<0>
 
 if2 p t f = case p of
   true -> t
@@ -126,6 +126,7 @@ is_keyword_slice w =
     "import" -> true
     "export" -> true
     "data" -> true
+    "primitive" -> true
     "newtype" -> true
     "class" -> true
     "law" -> true

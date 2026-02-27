@@ -13,30 +13,18 @@ parser_empty _ _ _ = -1
 
 instance Functor parser where
   fmap = parser_map
-  <$> = fmap
-  <$ = map_replace
 
 instance Applicative parser where
   pure = parser_pure
   ap = parser_ap
-  <*> = ap
-  keep_left = keep_left_default
-  keep_right = keep_right_default
-  <* = keep_left
-  *> = keep_right
 
 instance Monad parser where
   pure = parser_pure
   bind = parser_bind
-  >>= = bind
-  then_m = then_m_default
-  >> = then_m
 
 instance Alternative parser where
   empty = parser_empty
   append = parser_or
-  alt = alt_default
-  <|> = alt
 
 parser_dispatch_default = ParserDispatchDefault
 class_dispatch_default = ClassDispatchStatic

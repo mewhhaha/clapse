@@ -1,4 +1,4 @@
-data bool = true<1> | false<0>
+primitive bool = true<1> | false<0>
 
 drop _ x = x
 keep_right u v = ap (fmap (\_ -> id) u) v

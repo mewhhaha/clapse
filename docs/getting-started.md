@@ -18,7 +18,7 @@ main n = inc n
 ```clapse skip
 module tagged_bool
 
-data bool = true<1> | false<0>
+primitive bool = true<1> | false<0>
 
 --| Convert bool to i64 payload.
 to_i64 b = case b of
@@ -35,7 +35,7 @@ main x = to_i64 (case x == 0 of
 ```clapse skip
 module string_wrapper
 
-data string = string<slice u8>
+primitive string = string<slice u8>
 
 --| Wrap a byte slice as string.
 from_slice bytes = string bytes
