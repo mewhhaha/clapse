@@ -1,235 +1,97 @@
 const GITHUB_OWNER = "mewhhaha";
 const GITHUB_REPO = "clapse";
 const RELEASES_API =
-  `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=40`;
-const RELEASE_PROBE_LIMIT = 24;
-const SUPPORTED_RELEASE_TARGET = 12;
+  `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=50`;
+const RELEASES_PAGE = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
+const COMPILER_ASSET_NAME = "clapse_compiler.wasm";
+const COMPILER_ASSET_SUFFIX = "/artifacts/latest/clapse_compiler.wasm";
 const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder();
-const TAGGED_INT_MAX = 1073741823;
-const TAGGED_INT_MIN = -1073741824;
 const WASM_PAGE_SIZE = 65536;
 const HOST_ALLOC_GUARD_BYTES = 16 * WASM_PAGE_SIZE;
 const SLICE_DESC_SIZE = 8;
 
-const SAMPLE_PROGRAMS = [
-  {
-    id: "identity",
-    label: "Identity",
-    source: `identity x = x
+const DEFAULT_SOURCE = `identity x = x
 
 main = identity 7
-`,
-  },
-  {
-    id: "arithmetic",
-    label: "Arithmetic",
-    source: `double x = x + x
-
-main = double 21
-`,
-  },
-  {
-    id: "manual",
-    label: "Custom (keep editor text)",
-    source: "",
-  },
-];
+`;
 
 const state = {
-  supportedReleases: [],
+  releases: [],
+  releaseByTag: new Map(),
   compilerByTag: new Map(),
-  lastRuns: {
-    primary: null,
-    compare: null,
-  },
-  downloadUrls: {
-    primary: null,
-    compare: null,
-  },
   running: false,
+  downloadUrl: null,
 };
 
 const elements = {
-  primaryRelease: document.getElementById("primary-release"),
-  compareRelease: document.getElementById("compare-release"),
-  stepPrimaryBack: document.getElementById("step-primary-back"),
-  stepPrimaryForward: document.getElementById("step-primary-forward"),
-  refreshReleases: document.getElementById("refresh-releases"),
+  releaseSelect: document.getElementById("release-select"),
+  compileButton: document.getElementById("compile-button"),
+  releaseLink: document.getElementById("release-link"),
   releaseStatus: document.getElementById("release-status"),
-  sampleProgram: document.getElementById("sample-program"),
-  inputPath: document.getElementById("input-path"),
-  exportName: document.getElementById("export-name"),
-  exportArgs: document.getElementById("export-args"),
   sourceCode: document.getElementById("source-code"),
-  runPrimary: document.getElementById("run-primary"),
-  runCompare: document.getElementById("run-compare"),
-  runBoth: document.getElementById("run-both"),
-  pipelineStatus: document.getElementById("pipeline-status"),
-  compareSummary: document.getElementById("compare-summary"),
-};
-
-const panelNodes = {
-  primary: {
-    version: document.getElementById("primary-version"),
-    irLowered: document.getElementById("primary-ir-lowered"),
-    irCollapsed: document.getElementById("primary-ir-collapsed"),
-    wasm: document.getElementById("primary-wasm"),
-    repl: document.getElementById("primary-repl"),
-    download: document.getElementById("primary-download"),
-  },
-  compare: {
-    version: document.getElementById("compare-version"),
-    irLowered: document.getElementById("compare-ir-lowered"),
-    irCollapsed: document.getElementById("compare-ir-collapsed"),
-    wasm: document.getElementById("compare-wasm"),
-    repl: document.getElementById("compare-repl"),
-    download: document.getElementById("compare-download"),
-  },
+  irOutput: document.getElementById("ir-output"),
+  wasmOutput: document.getElementById("wasm-output"),
+  wasmDownload: document.getElementById("wasm-download"),
 };
 
 main().catch((err) => {
-  const message = err instanceof Error ? err.message : String(err);
-  elements.pipelineStatus.textContent = `Initialization failed: ${message}`;
+  setStatus(`Initialization failed: ${errorMessage(err)}`);
 });
 
 async function main() {
-  populateSamples();
+  elements.sourceCode.value = DEFAULT_SOURCE;
   bindEvents();
-  resetPanel("primary");
-  resetPanel("compare");
-  elements.compareSummary.textContent = "Run primary and compare to generate a diff summary.";
-  await refreshSupportedReleases();
+  await loadReleases();
 }
 
 function bindEvents() {
-  elements.refreshReleases.addEventListener("click", () => {
-    refreshSupportedReleases().catch((err) => {
-      setPipelineStatus(err, "Refresh failed");
-    });
+  elements.compileButton.addEventListener("click", () => {
+    void runCompile();
   });
 
-  elements.sampleProgram.addEventListener("change", () => {
-    const selectedId = elements.sampleProgram.value;
-    const sample = SAMPLE_PROGRAMS.find((entry) => entry.id === selectedId);
-    if (!sample || sample.id === "manual") {
-      return;
-    }
-    elements.sourceCode.value = sample.source;
-  });
-
-  elements.stepPrimaryBack.addEventListener("click", () => {
-    stepPrimary(-1);
-  });
-  elements.stepPrimaryForward.addEventListener("click", () => {
-    stepPrimary(1);
-  });
-
-  elements.runPrimary.addEventListener("click", () => {
-    void runOnlyPrimary();
-  });
-  elements.runCompare.addEventListener("click", () => {
-    void runOnlyCompare();
-  });
-  elements.runBoth.addEventListener("click", () => {
-    void runBothSides();
+  elements.releaseSelect.addEventListener("change", () => {
+    syncReleaseLink();
   });
 }
 
-function populateSamples() {
-  elements.sampleProgram.innerHTML = "";
-  for (const sample of SAMPLE_PROGRAMS) {
-    const option = document.createElement("option");
-    option.value = sample.id;
-    option.textContent = sample.label;
-    elements.sampleProgram.append(option);
-  }
-  elements.sampleProgram.value = SAMPLE_PROGRAMS[0].id;
-  elements.sourceCode.value = SAMPLE_PROGRAMS[0].source;
-}
-
-async function refreshSupportedReleases() {
-  toggleReleaseControls(true);
-  elements.releaseStatus.textContent = "Fetching release metadata...";
+async function loadReleases() {
+  setControlsDisabled(true);
+  setStatus("Loading GitHub releases...");
   try {
     const releases = await fetchReleaseMetadata();
     if (releases.length === 0) {
-      throw new Error("GitHub releases API returned no tags.");
+      throw new Error("No non-draft releases were returned by GitHub.");
     }
-
-    const candidates = releases.slice(0, RELEASE_PROBE_LIMIT);
-    const supported = [];
-
-    for (let i = 0; i < candidates.length; i += 1) {
-      const release = candidates[i];
-      elements.releaseStatus.textContent =
-        `Probing ${release.tag} (${i + 1}/${candidates.length})...`;
-      const result = await probeReleaseSupport(release);
-      if (result.supported) {
-        supported.push(release);
-      }
-      if (supported.length >= SUPPORTED_RELEASE_TARGET) {
-        break;
-      }
-    }
-
-    if (supported.length === 0) {
-      elements.releaseStatus.textContent =
-        "No compatible native compiler release was found in the probed window.";
-      return;
-    }
-
-    state.supportedReleases = supported;
-    renderReleaseSelectors();
-    elements.releaseStatus.textContent =
-      `Loaded ${supported.length} supported release(s) from GitHub Releases.`;
+    state.releases = releases;
+    state.releaseByTag = new Map(releases.map((release) => [release.tag, release]));
+    renderReleaseSelect(releases);
+    syncReleaseLink();
+    setStatus(`Loaded ${releases.length} release(s) from GitHub.`);
+  } catch (err) {
+    setStatus(errorMessage(err));
   } finally {
-    toggleReleaseControls(false);
+    setControlsDisabled(false);
   }
 }
 
-function renderReleaseSelectors() {
-  const previousPrimary = elements.primaryRelease.value;
-  const previousCompare = elements.compareRelease.value;
+function renderReleaseSelect(releases) {
+  const previous = elements.releaseSelect.value;
+  elements.releaseSelect.innerHTML = "";
 
-  elements.primaryRelease.innerHTML = "";
-  elements.compareRelease.innerHTML = "";
-
-  const noneOption = document.createElement("option");
-  noneOption.value = "";
-  noneOption.textContent = "None";
-  elements.compareRelease.append(noneOption);
-
-  for (const release of state.supportedReleases) {
-    const label = formatReleaseLabel(release);
-
-    const primaryOption = document.createElement("option");
-    primaryOption.value = release.tag;
-    primaryOption.textContent = label;
-    elements.primaryRelease.append(primaryOption);
-
-    const compareOption = document.createElement("option");
-    compareOption.value = release.tag;
-    compareOption.textContent = label;
-    elements.compareRelease.append(compareOption);
+  for (const release of releases) {
+    const option = document.createElement("option");
+    option.value = release.tag;
+    option.textContent = `${release.tag} (${formatDate(release.publishedAt)})`;
+    elements.releaseSelect.append(option);
   }
 
-  if (hasOption(elements.primaryRelease, previousPrimary)) {
-    elements.primaryRelease.value = previousPrimary;
-  } else {
-    elements.primaryRelease.selectedIndex = 0;
+  if (hasOption(elements.releaseSelect, previous)) {
+    elements.releaseSelect.value = previous;
+    return;
   }
-
-  if (hasOption(elements.compareRelease, previousCompare)) {
-    elements.compareRelease.value = previousCompare;
-  } else if (state.supportedReleases.length > 1) {
-    const primaryTag = elements.primaryRelease.value;
-    const fallback = state.supportedReleases.find((release) =>
-      release.tag !== primaryTag
-    );
-    elements.compareRelease.value = fallback ? fallback.tag : "";
-  } else {
-    elements.compareRelease.value = "";
+  if (releases.length > 0) {
+    elements.releaseSelect.selectedIndex = 0;
   }
 }
 
@@ -242,47 +104,25 @@ function hasOption(selectEl, value) {
   return false;
 }
 
-function formatReleaseLabel(release) {
-  const date = release.publishedAt
-    ? new Date(release.publishedAt).toISOString().slice(0, 10)
-    : "unknown-date";
-  return `${release.tag} (${date})`;
-}
-
-function toggleReleaseControls(disabled) {
-  elements.primaryRelease.disabled = disabled;
-  elements.compareRelease.disabled = disabled;
-  elements.refreshReleases.disabled = disabled;
-  elements.stepPrimaryBack.disabled = disabled;
-  elements.stepPrimaryForward.disabled = disabled;
-}
-
-function stepPrimary(delta) {
-  const select = elements.primaryRelease;
-  if (select.options.length === 0) {
-    return;
-  }
-  const nextIndex = clamp(select.selectedIndex + delta, 0, select.options.length - 1);
-  select.selectedIndex = nextIndex;
-}
-
-function clamp(n, min, max) {
-  return Math.max(min, Math.min(max, n));
+function syncReleaseLink() {
+  const release = state.releaseByTag.get(elements.releaseSelect.value);
+  const href = release?.htmlUrl ?? RELEASES_PAGE;
+  elements.releaseLink.href = href;
 }
 
 async function fetchReleaseMetadata() {
   const response = await fetch(RELEASES_API, {
-    headers: {
-      Accept: "application/vnd.github+json",
-    },
+    headers: { Accept: "application/vnd.github+json" },
   });
   if (!response.ok) {
-    throw new Error(`GitHub releases request failed with HTTP ${response.status}`);
+    throw new Error(`GitHub releases request failed: HTTP ${response.status}`);
   }
+
   const payload = await response.json();
   if (!Array.isArray(payload)) {
     throw new Error("GitHub releases payload was not an array.");
   }
+
   const releases = [];
   for (const entry of payload) {
     if (!entry || typeof entry !== "object") {
@@ -297,510 +137,145 @@ async function fetchReleaseMetadata() {
     }
     releases.push({
       tag,
-      name: String(entry.name ?? tag),
       publishedAt: String(entry.published_at ?? entry.created_at ?? ""),
+      htmlUrl: String(entry.html_url ?? `${RELEASES_PAGE}/tag/${tag}`),
+      assets: Array.isArray(entry.assets) ? entry.assets : [],
     });
   }
+
+  releases.sort((a, b) => {
+    const aDate = Date.parse(a.publishedAt);
+    const bDate = Date.parse(b.publishedAt);
+    if (Number.isNaN(aDate) && Number.isNaN(bDate)) return 0;
+    if (Number.isNaN(aDate)) return 1;
+    if (Number.isNaN(bDate)) return -1;
+    return bDate - aDate;
+  });
   return releases;
 }
 
-function rawTagFileUrl(tag, path) {
-  return `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${encodeURIComponent(tag)}/${path}`;
+function formatDate(raw) {
+  const parsed = Date.parse(raw);
+  if (Number.isNaN(parsed)) {
+    return "unknown-date";
+  }
+  return new Date(parsed).toISOString().slice(0, 10);
 }
 
-async function probeReleaseSupport(release) {
-  const tag = release.tag;
+async function runCompile() {
+  if (state.running) {
+    setStatus("Compile already in progress.");
+    return;
+  }
+
+  const tag = elements.releaseSelect.value;
+  if (!tag) {
+    setStatus("Select a release first.");
+    return;
+  }
+
+  state.running = true;
+  setControlsDisabled(true);
+  setStatus(`Compiling with release ${tag}...`);
+  elements.irOutput.textContent = "Running selfhost-artifacts...";
+  elements.wasmOutput.textContent = "Running compile...";
+  setDownloadLink(null, null);
+
   try {
     const session = await createCompilerSession(tag);
-    const probeCompileResponse = await session.call({
+    const source = elements.sourceCode.value;
+
+    const artifactsResponse = await session.call({
+      command: "selfhost-artifacts",
+      input_path: "repl/input.clapse",
+      input_source: source,
+    });
+    const compileResponse = await session.call({
       command: "compile",
-      input_path: "probe/empty.clapse",
-      input_source: "",
+      input_path: "repl/input.clapse",
+      input_source: source,
       plugin_wasm_paths: [],
     });
-    if (!hasBoolOk(probeCompileResponse)) {
-      return { supported: false, reason: "compile response missing ok field" };
-    }
-    if (isUnsupportedCommand(probeCompileResponse)) {
-      return { supported: false, reason: "compile command unavailable" };
-    }
 
-    const probeArtifactsResponse = await session.call({
-      command: "selfhost-artifacts",
-      input_path: "probe/empty.clapse",
-      input_source: "",
-    });
-    if (!hasBoolOk(probeArtifactsResponse)) {
-      return { supported: false, reason: "selfhost-artifacts response missing ok field" };
-    }
-    if (isUnsupportedCommand(probeArtifactsResponse)) {
-      return { supported: false, reason: "selfhost-artifacts command unavailable" };
-    }
-    return { supported: true };
-  } catch (err) {
-    return {
-      supported: false,
-      reason: err instanceof Error ? err.message : String(err),
-    };
-  }
-}
+    const loweredIr = extractArtifactText(artifactsResponse, "lowered_ir.txt");
+    const collapsedIr = extractArtifactText(artifactsResponse, "collapsed_ir.txt");
+    elements.irOutput.textContent = [
+      "lowered_ir.txt",
+      loweredIr,
+      "",
+      "collapsed_ir.txt",
+      collapsedIr,
+    ].join("\n");
 
-function hasBoolOk(response) {
-  return Boolean(
-    response &&
-      typeof response === "object" &&
-      !Array.isArray(response) &&
-      typeof response.ok === "boolean",
-  );
-}
-
-function isUnsupportedCommand(response) {
-  if (!response || typeof response !== "object" || Array.isArray(response)) {
-    return false;
-  }
-  const message = String(response.error ?? "").toLowerCase();
-  return message.includes("unsupported command");
-}
-
-async function runOnlyPrimary() {
-  const tag = elements.primaryRelease.value;
-  if (!tag) {
-    elements.pipelineStatus.textContent = "Select a primary release first.";
-    return;
-  }
-  await withRunLock(async () => {
-    await runPipeline("primary", tag);
-    updateCompareSummary();
-  });
-}
-
-async function runOnlyCompare() {
-  const tag = elements.compareRelease.value;
-  if (!tag) {
-    elements.pipelineStatus.textContent = "Select a compare release first.";
-    return;
-  }
-  await withRunLock(async () => {
-    await runPipeline("compare", tag);
-    updateCompareSummary();
-  });
-}
-
-async function runBothSides() {
-  const primaryTag = elements.primaryRelease.value;
-  if (!primaryTag) {
-    elements.pipelineStatus.textContent = "Select a primary release first.";
-    return;
-  }
-  const compareTag = elements.compareRelease.value;
-  await withRunLock(async () => {
-    await runPipeline("primary", primaryTag);
-    if (compareTag) {
-      await runPipeline("compare", compareTag);
+    if (compileResponse && compileResponse.ok === true) {
+      const wasmBase64 = String(compileResponse.wasm_base64 ?? "");
+      if (wasmBase64.length === 0) {
+        elements.wasmOutput.textContent = "Compile succeeded but wasm_base64 was empty.";
+      } else {
+        const wasmBytes = decodeWasmBase64(wasmBase64);
+        setDownloadLink(tag, wasmBytes);
+        elements.wasmOutput.textContent = [
+          `ok: true`,
+          `release: ${tag}`,
+          `bytes: ${wasmBytes.length}`,
+          `fnv1a32: ${fnv1aHex(wasmBytes)}`,
+          "",
+          "wasm_base64_preview",
+          previewText(wasmBase64, 2200),
+        ].join("\n");
+      }
     } else {
-      resetPanel("compare");
-      state.lastRuns.compare = null;
+      elements.wasmOutput.textContent = formatResponseError(compileResponse);
     }
-    updateCompareSummary();
-  });
-}
 
-async function withRunLock(action) {
-  if (state.running) {
-    elements.pipelineStatus.textContent = "A run is already in progress.";
-    return;
-  }
-  state.running = true;
-  toggleRunButtons(true);
-  try {
-    await action();
+    const compileOk = Boolean(compileResponse?.ok === true);
+    const artifactsOk = Boolean(artifactsResponse?.ok === true);
+    setStatus(
+      `Done for ${tag} (compile ok: ${String(compileOk)}, artifacts ok: ${String(artifactsOk)}).`,
+    );
   } catch (err) {
-    setPipelineStatus(err, "Pipeline failed");
+    setStatus(`Compile failed: ${errorMessage(err)}`);
+    elements.wasmOutput.textContent = "Compile failed. See status above.";
   } finally {
     state.running = false;
-    toggleRunButtons(false);
+    setControlsDisabled(false);
   }
 }
 
-function toggleRunButtons(disabled) {
-  elements.runPrimary.disabled = disabled;
-  elements.runCompare.disabled = disabled;
-  elements.runBoth.disabled = disabled;
-}
-
-async function runPipeline(side, tag) {
-  const panel = panelNodes[side];
-  const source = elements.sourceCode.value;
-  const inputPath = elements.inputPath.value.trim() || "repl/input.clapse";
-  const exportName = elements.exportName.value.trim() || "main";
-  const argsText = elements.exportArgs.value.trim();
-
-  panel.version.textContent = `Version: ${tag}`;
-  panel.irLowered.textContent = "Loading IR...";
-  panel.irCollapsed.textContent = "Loading IR...";
-  panel.wasm.textContent = "Compiling wasm...";
-  panel.repl.textContent = "Running REPL...";
-  setDownloadLink(side, null, null);
-
-  elements.pipelineStatus.textContent = `Running ${side} pipeline on ${tag}...`;
-
-  const session = await createCompilerSession(tag);
-  const artifactsResponse = await session.call({
-    command: "selfhost-artifacts",
-    input_path: inputPath,
-    input_source: source,
-  });
-
-  const loweredIr = extractArtifactText(artifactsResponse, "lowered_ir.txt");
-  const collapsedIr = extractArtifactText(artifactsResponse, "collapsed_ir.txt");
-
-  const compileResponse = await session.call({
-    command: "compile",
-    input_path: inputPath,
-    input_source: source,
-    plugin_wasm_paths: [],
-  });
-
-  let wasmBytes = null;
-  let replOutput = "Skipped because compilation did not produce wasm.";
-  let wasmSummary = formatCompileError(compileResponse);
-  let exportsList = [];
-
-  if (compileResponse && compileResponse.ok === true) {
-    if (typeof compileResponse.wasm_base64 === "string" && compileResponse.wasm_base64.length > 0) {
-      wasmBytes = decodeWasmBase64(compileResponse.wasm_base64);
-      exportsList = normalizeExportsList(compileResponse.exports);
-      wasmSummary = formatWasmSummary(tag, wasmBytes, exportsList);
-      try {
-        replOutput = await executeRepl(wasmBytes, exportName, argsText, exportsList);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        replOutput = `REPL failed: ${message}`;
-      }
-      setDownloadLink(side, wasmBytes, tag);
-    } else {
-      wasmSummary = "Compile succeeded, but wasm_base64 was empty.";
-      replOutput = "No wasm emitted.";
-    }
+function previewText(text, limit) {
+  if (text.length <= limit) {
+    return text;
   }
-
-  panel.irLowered.textContent = loweredIr;
-  panel.irCollapsed.textContent = collapsedIr;
-  panel.wasm.textContent = wasmSummary;
-  panel.repl.textContent = replOutput;
-
-  state.lastRuns[side] = {
-    tag,
-    loweredIr,
-    collapsedIr,
-    wasmBytes,
-    exportsList,
-    compileOk: compileResponse && compileResponse.ok === true,
-    artifactsOk: artifactsResponse && artifactsResponse.ok === true,
-    compileError: textOrEmpty(compileResponse?.error),
-    artifactsError: textOrEmpty(artifactsResponse?.error),
-  };
-
-  elements.pipelineStatus.textContent = `${side} pipeline finished for ${tag}.`;
+  return `${text.slice(0, limit)}\n... (${text.length - limit} chars truncated)`;
 }
 
-function extractArtifactText(response, key) {
+function extractArtifactText(response, name) {
   if (response && response.ok === true && response.artifacts && typeof response.artifacts === "object") {
-    const value = response.artifacts[key];
+    const value = response.artifacts[name];
     if (typeof value === "string" && value.length > 0) {
       return value;
     }
-    return `(artifact '${key}' was not returned)`;
+    return `(artifact '${name}' missing in response)`;
   }
-  return formatCompileError(response);
+  return formatResponseError(response);
 }
 
-function formatCompileError(response) {
+function formatResponseError(response) {
   if (!response || typeof response !== "object" || Array.isArray(response)) {
     return "No structured compiler response.";
   }
-  const okLine = `ok: ${String(response.ok === true)}`;
-  const errorText = textOrEmpty(response.error);
-  if (errorText.length > 0) {
-    return `${okLine}\nerror: ${errorText}`;
+  const ok = response.ok === true;
+  const error = typeof response.error === "string" ? response.error : "";
+  if (error.length > 0) {
+    return `ok: ${String(ok)}\nerror: ${error}`;
   }
-  return okLine;
-}
-
-function normalizeExportsList(value) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  const out = [];
-  for (const entry of value) {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      continue;
-    }
-    const name = String(entry.name ?? "").trim();
-    const arity = Number(entry.arity);
-    if (name.length === 0 || !Number.isInteger(arity) || arity < 0) {
-      continue;
-    }
-    out.push({ name, arity });
-  }
-  return out;
-}
-
-function textOrEmpty(value) {
-  return typeof value === "string" ? value : "";
-}
-
-function formatWasmSummary(tag, wasmBytes, exportsList) {
-  const hash = fnv1aHex(wasmBytes);
-  const exportNames = exportsList.map((entry) => `${entry.name}/${entry.arity}`);
-  const lines = [
-    `release: ${tag}`,
-    `bytes: ${wasmBytes.length}`,
-    `fnv1a32: ${hash}`,
-  ];
-  if (exportNames.length > 0) {
-    lines.push(`exports: ${exportNames.join(", ")}`);
-  } else {
-    lines.push("exports: (none reported)");
-  }
-  return lines.join("\n");
-}
-
-async function executeRepl(wasmBytes, exportName, argsText, exportsList) {
-  const module = await WebAssembly.compile(wasmBytes);
-  const imports = buildStubImports(WebAssembly.Module.imports(module));
-  const instance = await WebAssembly.instantiate(module, imports);
-  const fn = instance.exports[exportName];
-  if (typeof fn !== "function") {
-    const available = Object.keys(instance.exports)
-      .filter((name) => typeof instance.exports[name] === "function")
-      .join(", ");
-    return `Export '${exportName}' not found.\nAvailable exports: ${available || "(none)"}`;
-  }
-
-  const parsedArgs = parseArgList(argsText);
-  const expected = exportsList.find((entry) => entry.name === exportName);
-  if (expected && expected.arity !== parsedArgs.length) {
-    return `Arity mismatch for ${exportName}: expected ${expected.arity}, got ${parsedArgs.length}.`;
-  }
-
-  const encodedArgs = parsedArgs.map((n) => encodeInt(n));
-  let resultValue;
-  try {
-    resultValue = fn(...encodedArgs);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return `Wasm trap while executing ${exportName}: ${message}`;
-  }
-  const memory = instance.exports.__memory ?? instance.exports.memory;
-  const rendered = renderRuntimeValue(resultValue, memory);
-  return `result: ${rendered}`;
-}
-
-function parseArgList(text) {
-  const trimmed = text.trim();
-  if (trimmed.length === 0) {
-    return [];
-  }
-  const pieces = trimmed.split(",");
-  const out = [];
-  for (const piece of pieces) {
-    const raw = piece.trim();
-    if (raw.length === 0) {
-      continue;
-    }
-    const value = Number(raw);
-    if (!Number.isInteger(value)) {
-      throw new Error(`Invalid integer argument: ${raw}`);
-    }
-    out.push(value);
-  }
-  return out;
-}
-
-function encodeInt(n) {
-  if (!Number.isInteger(n)) {
-    throw new Error(`Non-integer value cannot be encoded: ${n}`);
-  }
-  if (n < TAGGED_INT_MIN || n > TAGGED_INT_MAX) {
-    throw new Error(`Tagged int payload out of range: ${n}`);
-  }
-  return ((n | 0) << 1) | 1;
-}
-
-function decodeInt(v) {
-  return v >> 1;
-}
-
-function isTaggedInt(v) {
-  return (v & 1) === 1;
-}
-
-function renderRuntimeValue(value, memoryExport) {
-  const signed = value | 0;
-  if (isTaggedInt(signed)) {
-    return String(decodeInt(signed));
-  }
-  if (memoryExport instanceof WebAssembly.Memory) {
-    try {
-      const desc = readSliceDescriptor(memoryExport, value >>> 0);
-      const bytes = new Uint8Array(memoryExport.buffer, desc.dataPtr, desc.len);
-      if (bytesLikelyText(bytes)) {
-        return UTF8_DECODER.decode(bytes);
-      }
-      return `<slice_u8 len=${desc.len}>`;
-    } catch (_err) {
-      return `<raw:${value >>> 0}>`;
-    }
-  }
-  return `<raw:${value >>> 0}>`;
-}
-
-function readSliceDescriptor(memory, ptr) {
-  if (!(memory instanceof WebAssembly.Memory)) {
-    throw new Error("memory export is unavailable");
-  }
-  if (ptr + SLICE_DESC_SIZE > memory.buffer.byteLength) {
-    throw new Error("slice descriptor is out of bounds");
-  }
-  const view = new DataView(memory.buffer);
-  const dataPtr = view.getUint32(ptr, true);
-  const len = view.getInt32(ptr + 4, true);
-  if (len < 0 || dataPtr + len > memory.buffer.byteLength) {
-    throw new Error("invalid slice descriptor");
-  }
-  return { dataPtr, len };
-}
-
-function bytesLikelyText(bytes) {
-  for (let i = 0; i < bytes.length; i += 1) {
-    const b = bytes[i];
-    if (b === 0) {
-      return false;
-    }
-    if (b !== 9 && b !== 10 && b !== 13 && (b < 32 || b > 126)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function fnv1aHex(bytes) {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < bytes.length; i += 1) {
-    hash ^= bytes[i];
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
-}
-
-function decodeWasmBase64(input) {
-  const raw = atob(input);
-  const out = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i += 1) {
-    out[i] = raw.charCodeAt(i);
-  }
-  return out;
-}
-
-function setDownloadLink(side, wasmBytes, tag) {
-  const link = panelNodes[side].download;
-  const existingUrl = state.downloadUrls[side];
-  if (existingUrl) {
-    URL.revokeObjectURL(existingUrl);
-    state.downloadUrls[side] = null;
-  }
-  if (!(wasmBytes instanceof Uint8Array) || !tag) {
-    link.hidden = true;
-    link.href = "#";
-    return;
-  }
-  const blob = new Blob([wasmBytes], { type: "application/wasm" });
-  const url = URL.createObjectURL(blob);
-  state.downloadUrls[side] = url;
-  link.href = url;
-  link.download = `${tag}-compiled.wasm`;
-  link.hidden = false;
-}
-
-function updateCompareSummary() {
-  const primary = state.lastRuns.primary;
-  const compare = state.lastRuns.compare;
-  if (!primary || !compare) {
-    elements.compareSummary.textContent = "Run both sides to compare outputs.";
-    return;
-  }
-
-  const primaryExports = primary.exportsList.map((entry) => entry.name);
-  const compareExports = compare.exportsList.map((entry) => entry.name);
-  const primaryOnlyExports = primaryExports.filter((name) =>
-    !compareExports.includes(name)
-  );
-  const compareOnlyExports = compareExports.filter((name) =>
-    !primaryExports.includes(name)
-  );
-
-  const primaryWasmLen = primary.wasmBytes ? primary.wasmBytes.length : 0;
-  const compareWasmLen = compare.wasmBytes ? compare.wasmBytes.length : 0;
-  const delta = primaryWasmLen - compareWasmLen;
-
-  const loweredEqual = normalizeText(primary.loweredIr) === normalizeText(compare.loweredIr);
-  const collapsedEqual = normalizeText(primary.collapsedIr) === normalizeText(compare.collapsedIr);
-
-  const lines = [
-    `primary: ${primary.tag}`,
-    `compare: ${compare.tag}`,
-    `primary compile ok: ${String(primary.compileOk)}`,
-    `compare compile ok: ${String(compare.compileOk)}`,
-    `primary artifacts ok: ${String(primary.artifactsOk)}`,
-    `compare artifacts ok: ${String(compare.artifactsOk)}`,
-    `lowered IR equal: ${String(loweredEqual)}`,
-    `collapsed IR equal: ${String(collapsedEqual)}`,
-    `wasm bytes primary: ${primaryWasmLen}`,
-    `wasm bytes compare: ${compareWasmLen}`,
-    `wasm byte delta (primary - compare): ${delta}`,
-  ];
-
-  if (primary.wasmBytes && compare.wasmBytes) {
-    lines.push(`primary wasm hash: ${fnv1aHex(primary.wasmBytes)}`);
-    lines.push(`compare wasm hash: ${fnv1aHex(compare.wasmBytes)}`);
-  }
-  if (primaryOnlyExports.length > 0) {
-    lines.push(`exports only in primary: ${primaryOnlyExports.join(", ")}`);
-  }
-  if (compareOnlyExports.length > 0) {
-    lines.push(`exports only in compare: ${compareOnlyExports.join(", ")}`);
-  }
-  if (primaryOnlyExports.length === 0 && compareOnlyExports.length === 0) {
-    lines.push("exports diff: none");
-  }
-
-  elements.compareSummary.textContent = lines.join("\n");
-}
-
-function normalizeText(value) {
-  return String(value ?? "").trim().replace(/\r\n/g, "\n");
-}
-
-function setPipelineStatus(err, prefix) {
-  const message = err instanceof Error ? err.message : String(err);
-  elements.pipelineStatus.textContent = `${prefix}: ${message}`;
-}
-
-function resetPanel(side) {
-  const panel = panelNodes[side];
-  panel.version.textContent = "Version: (none)";
-  panel.irLowered.textContent = "No run yet.";
-  panel.irCollapsed.textContent = "No run yet.";
-  panel.wasm.textContent = "No run yet.";
-  panel.repl.textContent = "No run yet.";
-  setDownloadLink(side, null, null);
+  return `ok: ${String(ok)}`;
 }
 
 async function createCompilerSession(tag) {
-  const compiler = await loadCompilerRecord(tag);
-  const imports = buildStubImports(WebAssembly.Module.imports(compiler.module));
-  const { instance } = await WebAssembly.instantiate(compiler.module, imports);
+  const record = await loadCompilerRecord(tag);
+  const imports = buildStubImports(WebAssembly.Module.imports(record.module));
+  const { instance } = await WebAssembly.instantiate(record.module, imports);
   const memory = instance.exports.__memory ?? instance.exports.memory;
   if (!(memory instanceof WebAssembly.Memory)) {
     throw new Error(`Release ${tag} is missing memory export.`);
@@ -812,15 +287,10 @@ async function createCompilerSession(tag) {
 
   const runtime = makeRuntime();
   runtime.state.memory = memory;
-  const heapGlobal = instance.exports.__heap_ptr;
-  if (heapGlobal instanceof WebAssembly.Global) {
-    runtime.state.heapGlobal = heapGlobal;
-  }
 
   return {
     async call(requestObject) {
-      const requestText = JSON.stringify(requestObject);
-      const requestBytes = UTF8_ENCODER.encode(requestText);
+      const requestBytes = UTF8_ENCODER.encode(JSON.stringify(requestObject));
       const requestHandle = runtime.allocSliceU8(requestBytes);
       const responseHandle = run(requestHandle | 0);
       if (!Number.isInteger(responseHandle) || (responseHandle & 1) === 1) {
@@ -831,8 +301,7 @@ async function createCompilerSession(tag) {
       try {
         return JSON.parse(responseText);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        throw new Error(`Release ${tag} returned invalid JSON: ${message}`);
+        throw new Error(`Release ${tag} returned invalid JSON: ${errorMessage(err)}`);
       }
     },
   };
@@ -843,24 +312,39 @@ async function loadCompilerRecord(tag) {
     return state.compilerByTag.get(tag);
   }
 
-  const wasmUrl = rawTagFileUrl(tag, "artifacts/latest/clapse_compiler.wasm");
-  const response = await fetch(wasmUrl, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`Release ${tag} compiler wasm fetch failed (HTTP ${response.status}).`);
+  const candidates = resolveCompilerAssetUrl(tag);
+  let wasmBytes = null;
+  let selectedUrl = "";
+  const errors = [];
+
+  for (const url of candidates) {
+    try {
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) {
+        errors.push(`${url} -> HTTP ${response.status}`);
+        continue;
+      }
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.length === 0) {
+        errors.push(`${url} -> empty payload`);
+        continue;
+      }
+      wasmBytes = bytes;
+      selectedUrl = url;
+      break;
+    } catch (err) {
+      errors.push(`${url} -> ${errorMessage(err)}`);
+    }
   }
-  const wasmBytes = new Uint8Array(await response.arrayBuffer());
-  if (wasmBytes.length === 0) {
-    throw new Error(`Release ${tag} compiler wasm was empty.`);
+
+  if (!(wasmBytes instanceof Uint8Array)) {
+    throw new Error(
+      `Failed to load compiler wasm for ${tag}. Tried:\n${errors.join("\n")}`,
+    );
   }
 
   const module = await WebAssembly.compile(wasmBytes);
   const imports = WebAssembly.Module.imports(module);
-  const isBridgeMode = imports.some((entry) =>
-    entry.module === "host" && entry.name === "clapse_run"
-  );
-  if (isBridgeMode) {
-    throw new Error(`Release ${tag} uses bridge compiler wasm; browser mode requires native compiler wasm.`);
-  }
   for (const entry of imports) {
     if (entry.kind !== "function") {
       throw new Error(
@@ -879,28 +363,44 @@ async function loadCompilerRecord(tag) {
     throw new Error(`Release ${tag} compiler wasm missing clapse_run export.`);
   }
 
-  const record = {
-    tag,
-    wasmUrl,
-    module,
-  };
+  const record = { tag, wasmUrl: selectedUrl, module };
   state.compilerByTag.set(tag, record);
   return record;
+}
+
+function resolveCompilerAssetUrl(tag) {
+  const release = state.releaseByTag.get(tag);
+  if (!release) {
+    throw new Error(`Release ${tag} is not loaded in the dropdown.`);
+  }
+
+  const assets = Array.isArray(release.assets) ? release.assets : [];
+  const match = assets.find((asset) => {
+    const name = String(asset?.name ?? "").trim();
+    return name === COMPILER_ASSET_NAME || name.endsWith(COMPILER_ASSET_SUFFIX);
+  });
+  const urls = [];
+  const assetUrl = String(match?.browser_download_url ?? "");
+  if (assetUrl.length > 0) {
+    urls.push(assetUrl);
+  }
+  urls.push(
+    `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${encodeURIComponent(
+      tag,
+    )}/artifacts/latest/clapse_compiler.wasm`,
+  );
+  return urls;
 }
 
 function buildStubImports(imports) {
   const out = {};
   for (const entry of imports) {
-    if (entry.kind !== "function") {
-      throw new Error(
-        `Wasm import '${entry.module}.${entry.name}' has unsupported kind '${entry.kind}'.`,
-      );
-    }
     if (!out[entry.module]) {
       out[entry.module] = {};
     }
     out[entry.module][entry.name] = (..._args) => 0;
   }
+
   if (!out.host) {
     out.host = {};
   }
@@ -917,6 +417,57 @@ function buildStubImports(imports) {
     out.host.unix_time_ms = (seed) => seed | 0;
   }
   return out;
+}
+
+function setControlsDisabled(disabled) {
+  elements.releaseSelect.disabled = disabled;
+  elements.compileButton.disabled = disabled;
+}
+
+function setStatus(message) {
+  elements.releaseStatus.textContent = message;
+}
+
+function setDownloadLink(tag, wasmBytes) {
+  if (state.downloadUrl) {
+    URL.revokeObjectURL(state.downloadUrl);
+    state.downloadUrl = null;
+  }
+
+  if (!(wasmBytes instanceof Uint8Array) || !tag) {
+    elements.wasmDownload.hidden = true;
+    elements.wasmDownload.href = "#";
+    return;
+  }
+
+  const blob = new Blob([wasmBytes], { type: "application/wasm" });
+  const url = URL.createObjectURL(blob);
+  elements.wasmDownload.hidden = false;
+  elements.wasmDownload.href = url;
+  elements.wasmDownload.download = `${tag}-clapse.wasm`;
+  state.downloadUrl = url;
+}
+
+function errorMessage(err) {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function decodeWasmBase64(input) {
+  const raw = atob(input);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i += 1) {
+    out[i] = raw.charCodeAt(i);
+  }
+  return out;
+}
+
+function fnv1aHex(bytes) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i += 1) {
+    hash ^= bytes[i];
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 function makeRuntime() {
@@ -970,6 +521,16 @@ function makeRuntime() {
     return start;
   }
 
+  function toUint8Array(input) {
+    if (input instanceof Uint8Array) return input;
+    if (ArrayBuffer.isView(input)) {
+      return new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+    }
+    if (input instanceof ArrayBuffer) return new Uint8Array(input);
+    if (Array.isArray(input)) return Uint8Array.from(input);
+    throw new Error("expected bytes-like input");
+  }
+
   function allocSliceU8(input) {
     const source = toUint8Array(input);
     const descPtr = allocLinear(SLICE_DESC_SIZE, 4);
@@ -978,8 +539,7 @@ function makeRuntime() {
     const view = new DataView(memory.buffer);
     view.setUint32(descPtr, dataPtr >>> 0, true);
     view.setInt32(descPtr + 4, source.length, true);
-    const payload = new Uint8Array(memory.buffer, dataPtr, source.length);
-    payload.set(source);
+    new Uint8Array(memory.buffer, dataPtr, source.length).set(source);
     return descPtr;
   }
 
@@ -1012,20 +572,4 @@ function makeRuntime() {
     allocSliceU8,
     readSliceU8Copy,
   };
-}
-
-function toUint8Array(input) {
-  if (input instanceof Uint8Array) {
-    return input;
-  }
-  if (ArrayBuffer.isView(input)) {
-    return new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
-  }
-  if (input instanceof ArrayBuffer) {
-    return new Uint8Array(input);
-  }
-  if (Array.isArray(input)) {
-    return Uint8Array.from(input);
-  }
-  throw new Error("expected bytes-like input");
 }

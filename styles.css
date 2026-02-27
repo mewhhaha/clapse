@@ -45,6 +45,14 @@ body {
   animation: rise 250ms ease both;
 }
 
+.header-controls {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.7rem;
+}
+
 .hero h1 {
   margin: 0;
   font-size: clamp(1.45rem, 3vw, 2.1rem);
@@ -63,19 +71,7 @@ body {
   max-width: 78ch;
 }
 
-.control-grid {
-  display: grid;
-  gap: 0.8rem;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-}
-
-.step-group {
-  display: grid;
-  gap: 0.45rem;
-  align-content: end;
-}
-
-label {
+.control {
   display: grid;
   gap: 0.35rem;
   font-size: 0.9rem;
@@ -100,8 +96,53 @@ textarea {
 
 textarea {
   width: 100%;
-  min-height: 260px;
-  resize: vertical;
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.panes {
+  display: flex;
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.pane {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 220px;
+  min-height: 540px;
+  overflow: hidden;
+}
+
+.pane.resize-left,
+.pane.resize-middle {
+  overflow: auto;
+  resize: horizontal;
+}
+
+.pane h2 {
+  margin: 0 0 0.55rem;
+}
+
+.pane-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.result-output,
+#source-code {
+  height: 100%;
+  min-height: 0;
+}
+
+#source-code {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.7rem;
+  resize: none;
   font-family: var(--mono);
   font-size: 0.9rem;
   line-height: 1.45;
@@ -128,22 +169,11 @@ button:disabled {
   cursor: not-allowed;
 }
 
-.source-head {
-  display: flex;
-  gap: 1rem;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.65rem;
-}
-
-.source-head h2 {
-  margin: 0;
-}
-
-.actions {
-  display: flex;
-  gap: 0.55rem;
-  flex-wrap: wrap;
+.header-link {
+  color: var(--accent-strong);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  white-space: nowrap;
 }
 
 .status {
@@ -152,32 +182,10 @@ button:disabled {
   font-size: 0.9rem;
 }
 
-.compare-panel h2,
-.result-card h2 {
-  margin-top: 0;
-}
-
-.results-grid {
-  display: grid;
-  gap: 1rem;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-}
-
-.version-line {
-  margin: 0 0 0.75rem;
-  color: var(--ink-soft);
-}
-
-.result-card h3 {
-  margin: 0.8rem 0 0.35rem;
-  font-size: 0.92rem;
-}
-
 .result-output {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 300px;
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -211,8 +219,12 @@ a[download] {
     padding: 0.8rem;
   }
 
-  .source-head {
+  .panes {
     flex-direction: column;
-    align-items: stretch;
+  }
+
+  .pane {
+    resize: none;
+    min-height: 320px;
   }
 }

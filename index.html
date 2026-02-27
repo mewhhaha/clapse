@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Clapse Release Explorer + REPL</title>
+    <title>Clapse Release Explorer</title>
     <meta
       name="description"
-      content="Artifact-only Clapse explorer and REPL. Compare code -> IR -> wasm across GitHub releases."
+      content="Run a selected Clapse GitHub release in-browser and inspect code -> IR -> wasm."
     />
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -14,108 +14,48 @@
     <main class="page">
       <header class="hero panel">
         <p class="eyebrow">Artifact-only GitHub Pages</p>
-        <h1>Clapse Explorer + REPL</h1>
+        <h1>Clapse Release Explorer</h1>
         <p class="lede">
-          Load compiler versions from releases, run <code>code -> IR -> wasm</code>, and
-          compare results between versions.
+          Select a release from GitHub, then run
+          <code>code -> IR -> wasm</code>.
         </p>
+        <div class="header-controls">
+          <label class="control">
+            Release
+            <select id="release-select"></select>
+          </label>
+          <button id="compile-button" type="button">Compile</button>
+          <a
+            id="release-link"
+            class="header-link"
+            href="https://github.com/mewhhaha/clapse/releases"
+            target="_blank"
+            rel="noopener noreferrer"
+          >Open Selected Release</a>
+        </div>
+        <p id="release-status" class="status">Loading release metadata...</p>
       </header>
 
-      <section class="panel controls">
-        <div class="control-grid">
-          <label>
-            Primary Release
-            <select id="primary-release"></select>
-          </label>
-          <div class="step-group">
-            <button id="step-primary-back" type="button">Step Back</button>
-            <button id="step-primary-forward" type="button">Step Forward</button>
-          </div>
-          <label>
-            Compare Release
-            <select id="compare-release"></select>
-          </label>
-          <button id="refresh-releases" type="button">Refresh Versions</button>
-        </div>
-        <p id="release-status" class="status">
-          Loading release metadata and compatibility probes...
-        </p>
-      </section>
-
-      <section class="panel controls">
-        <div class="control-grid">
-          <label>
-            Sample
-            <select id="sample-program"></select>
-          </label>
-          <label>
-            Input Path
-            <input id="input-path" type="text" value="repl/input.clapse" />
-          </label>
-          <label>
-            Export
-            <input id="export-name" type="text" value="main" />
-          </label>
-          <label>
-            Args (integers)
-            <input id="export-args" type="text" placeholder="e.g. 1,2" />
-          </label>
-        </div>
-      </section>
-
-      <section class="panel source-panel">
-        <div class="source-head">
+      <section class="panes">
+        <article class="panel pane resize-left">
           <h2>Code</h2>
-          <div class="actions">
-            <button id="run-primary" type="button">Run Primary</button>
-            <button id="run-compare" type="button">Run Compare</button>
-            <button id="run-both" type="button">Run Both</button>
-          </div>
-        </div>
-        <textarea id="source-code" spellcheck="false"></textarea>
-        <p id="pipeline-status" class="status">Ready.</p>
-      </section>
-
-      <section class="panel compare-panel">
-        <h2>Comparison Summary</h2>
-        <pre id="compare-summary" class="result-output"></pre>
-      </section>
-
-      <section class="results-grid">
-        <article class="panel result-card">
-          <h2>Primary Output</h2>
-          <p id="primary-version" class="version-line"></p>
-
-          <h3>Lowered IR</h3>
-          <pre id="primary-ir-lowered" class="result-output"></pre>
-
-          <h3>Collapsed IR</h3>
-          <pre id="primary-ir-collapsed" class="result-output"></pre>
-
-          <h3>Wasm</h3>
-          <pre id="primary-wasm" class="result-output"></pre>
-          <a id="primary-download" href="#" download hidden>Download Compiled Wasm</a>
-
-          <h3>REPL</h3>
-          <pre id="primary-repl" class="result-output"></pre>
+          <textarea
+            id="source-code"
+            class="pane-body"
+            spellcheck="false"
+            placeholder="Write Clapse code here..."
+          ></textarea>
         </article>
 
-        <article class="panel result-card">
-          <h2>Compare Output</h2>
-          <p id="compare-version" class="version-line"></p>
+        <article class="panel pane resize-middle">
+          <h2>IR</h2>
+          <pre id="ir-output" class="pane-body result-output">(Run compile to view IR.)</pre>
+        </article>
 
-          <h3>Lowered IR</h3>
-          <pre id="compare-ir-lowered" class="result-output"></pre>
-
-          <h3>Collapsed IR</h3>
-          <pre id="compare-ir-collapsed" class="result-output"></pre>
-
-          <h3>Wasm</h3>
-          <pre id="compare-wasm" class="result-output"></pre>
-          <a id="compare-download" href="#" download hidden>Download Compiled Wasm</a>
-
-          <h3>REPL</h3>
-          <pre id="compare-repl" class="result-output"></pre>
+        <article class="panel pane">
+          <h2>Wasm</h2>
+          <pre id="wasm-output" class="pane-body result-output">(Run compile to view Wasm.)</pre>
+          <a id="wasm-download" href="#" download hidden>Download Compiled Wasm</a>
         </article>
       </section>
     </main>

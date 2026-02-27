@@ -1,34 +1,33 @@
 ---
 name: gh-pages-explorer
-description: Maintain the artifact-only GitHub Pages explorer and REPL for Clapse release comparison.
+description: Maintain the artifact-only GitHub Pages explorer for code -> IR -> wasm on selected releases.
 ---
 
 # Clapse GH Pages Skill
 
 ## Purpose
 
-This branch hosts a client-only explorer and REPL that runs the Clapse compiler wasm directly in the browser.
+This branch hosts a client-only explorer that runs the Clapse compiler wasm directly in the browser.
 
-Main workflow: `code -> IR -> wasm -> REPL`.
+Main workflow: `code -> IR -> wasm`.
 
 ## Canonical Entry Points
 
 - `index.html`: page structure and controls.
-- `app.js`: release loading, compatibility probing, compiler calls, compare logic, REPL execution.
+- `app.js`: release loading, compiler asset resolution, compiler calls, and pane updates.
 - `styles.css`: visual system and responsive layout.
 
 When behavior changes, update this file first, then update code.
 
 ## Release Source Contract
 
-- Versions come from GitHub Releases metadata:
+- Release dropdown data comes from GitHub Releases metadata:
   `https://api.github.com/repos/mewhhaha/clapse/releases`.
-- Wasm bytes are fetched by tag from:
-  `https://raw.githubusercontent.com/mewhhaha/clapse/<tag>/artifacts/latest/clapse_compiler.wasm`.
-- Supported versions are filtered in-browser:
-  - must instantiate in native mode (bridge artifacts are rejected),
-  - must export `clapse_run`,
-  - must respond to both `compile` and `selfhost-artifacts` commands with structured JSON.
+- Selected release pages should open at:
+  `https://github.com/mewhhaha/clapse/releases`.
+- Compiler wasm loading prefers release assets (`clapse_compiler.wasm`) via `browser_download_url`.
+- If asset download fails, loader falls back to tag path
+  `artifacts/latest/clapse_compiler.wasm` for that selected release tag.
 
 ## IR Contract
 
@@ -39,14 +38,14 @@ When behavior changes, update this file first, then update code.
 
 If a version omits these files or command support, it is treated as unsupported for this page.
 
-## REPL Contract
+## Layout Contract
 
-- REPL invokes the selected export from compiled wasm.
-- Args are parsed as integers and encoded as tagged ints before invocation.
-- Result rendering supports:
-  - tagged ints,
-  - slice-like text handles when decodable,
-  - raw fallback handles.
+- Header has a single release dropdown plus compile action.
+- Main area has three side-by-side panes:
+  - `Code` (editable)
+  - `IR` (read-only)
+  - `Wasm` (read-only)
+- First two panes are horizontally resizable on desktop.
 
 ## Local Preview
 

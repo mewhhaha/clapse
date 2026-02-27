@@ -6,8 +6,8 @@ It provides:
 
 - release-aware compiler selection from GitHub Releases,
 - a browser pipeline for `code -> IR -> wasm`,
-- side-by-side version comparison,
-- a wasm export REPL runner.
+- a single-header release dropdown,
+- three side-by-side panes where only `Code` is editable.
 
 ## Files
 
