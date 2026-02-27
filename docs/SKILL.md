@@ -71,6 +71,7 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
   `examples/wildcard_demand_behavior_regressions.clapse` and
   `examples/selfhost_behavior_corpus.json` when clause-demand semantics or
   declaration-order tie-break behavior changes.
+- Record class-law signature caching where applied: class-law pass signatures are computed once per expression state and reused across guard checks in that pass; this is a performance optimization with no rewrite-policy or semantics changes.
 - Keep boolean rewrites aligned with the class-law registry contract: constant-negation
   laws (`not true`, `not false`) are admitted through `ClassLawRule` only when the
   bool+pure guard discipline holds.

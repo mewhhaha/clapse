@@ -609,303 +609,307 @@ class_law_rule_requires_strict_decrease rule =
     _ -> false
 
 rewrite_class_law_rule rule expr =
-  let signature = class_method_expr_signature expr
-  in case class_law_rule_guard_with_signature rule expr signature of
-    false -> expr
-    true ->
-      case rule of
-        LawComposeLeftIdentity ->
-          case expr of
-            CCompose CId f -> f
+  case rule of
+    LawComposeLeftIdentity ->
+      case expr of
+        CCompose CId f -> f
+        _ -> expr
+    LawComposeRightIdentity ->
+      case expr of
+        CCompose f CId -> f
+        _ -> expr
+    LawComposeAssociateRight ->
+      case expr of
+        CCompose f (CCompose g h) -> CCompose (CCompose f g) h
+        _ -> expr
+    LawMapIdentity ->
+      case expr of
+        CMap CId xs -> xs
+        _ -> expr
+    LawMapFusion ->
+      case expr of
+        CMap f inner ->
+          case inner of
+            CMap g xs -> CMap (CCompose f g) xs
             _ -> expr
-        LawComposeRightIdentity ->
-          case expr of
-            CCompose f CId -> f
+        _ -> expr
+    LawBoolDoubleNot ->
+      case expr of
+        CNot inner ->
+          case inner of
+            CNot inner2 -> inner2
             _ -> expr
-        LawComposeAssociateRight ->
-          case expr of
-            CCompose f (CCompose g h) -> CCompose (CCompose f g) h
+        _ -> expr
+    LawBoolNotTrue ->
+      case expr of
+        CNot (CBool true) -> CBool false
+        _ -> expr
+    LawBoolNotFalse ->
+      case expr of
+        CNot (CBool false) -> CBool true
+        _ -> expr
+    LawBoolAndTrueLeft ->
+      case expr of
+        CAnd _ x -> x
+        _ -> expr
+    LawBoolAndTrueRight ->
+      case expr of
+        CAnd x _ -> x
+        _ -> expr
+    LawBoolAndFalseLeft ->
+      case expr of
+        CAnd _ _ -> CBool false
+        _ -> expr
+    LawBoolAndFalseRight ->
+      case expr of
+        CAnd _ _ -> CBool false
+        _ -> expr
+    LawBoolOrTrueLeft ->
+      case expr of
+        COr _ _ -> CBool true
+        _ -> expr
+    LawBoolOrTrueRight ->
+      case expr of
+        COr _ _ -> CBool true
+        _ -> expr
+    LawBoolOrFalseLeft ->
+      case expr of
+        COr _ x -> x
+        _ -> expr
+    LawBoolOrFalseRight ->
+      case expr of
+        COr x _ -> x
+        _ -> expr
+    LawBoolAndAbsorbLeft ->
+      case expr of
+        CAnd x (COr _ _) -> x
+        _ -> expr
+    LawBoolAndAbsorbRight ->
+      case expr of
+        CAnd (COr _ _) y -> y
+        _ -> expr
+    LawBoolOrAbsorbLeft ->
+      case expr of
+        COr x (CAnd _ _) -> x
+        _ -> expr
+    LawBoolOrAbsorbRight ->
+      case expr of
+        COr (CAnd _ _) y -> y
+        _ -> expr
+    LawBoolAndComplementLeft ->
+      case expr of
+        CAnd _ (CNot _) -> CBool false
+        _ -> expr
+    LawBoolAndComplementRight ->
+      case expr of
+        CAnd (CNot _) _ -> CBool false
+        _ -> expr
+    LawBoolAndConsensusNotOrLeft ->
+      case expr of
+        CAnd x (COr (CNot y) z) ->
+          case x == y of
+            true -> CAnd x z
             _ -> expr
-        LawMapIdentity ->
-          case expr of
-            CMap CId xs -> xs
+        CAnd x (COr z (CNot y)) ->
+          case x == y of
+            true -> CAnd x z
             _ -> expr
-        LawMapFusion ->
-          case expr of
-            CMap f inner ->
-              case inner of
-                CMap g xs -> CMap (CCompose f g) xs
-                _ -> expr
+        _ -> expr
+    LawBoolAndConsensusNotOrRight ->
+      case expr of
+        CAnd (COr (CNot y) z) x ->
+          case x == y of
+            true -> CAnd x z
             _ -> expr
-        LawBoolDoubleNot ->
-          case expr of
-            CNot inner ->
-              case inner of
-                CNot inner2 -> inner2
-                _ -> expr
+        CAnd (COr z (CNot y)) x ->
+          case x == y of
+            true -> CAnd x z
             _ -> expr
-        LawBoolNotTrue ->
-          case expr of
-            CNot (CBool true) -> CBool false
+        _ -> expr
+    LawBoolAndConsensusOrNotLeft ->
+      case expr of
+        CAnd x (COr y (CNot z)) ->
+          case x == z of
+            true -> CAnd x y
             _ -> expr
-        LawBoolNotFalse ->
-          case expr of
-            CNot (CBool false) -> CBool true
+        CAnd x (COr (CNot z) y) ->
+          case x == z of
+            true -> CAnd x y
             _ -> expr
-        LawBoolAndTrueLeft ->
-          case expr of
-            CAnd _ x -> x
+        _ -> expr
+    LawBoolAndConsensusOrNotRight ->
+      case expr of
+        CAnd (COr y (CNot z)) x ->
+          case x == z of
+            true -> CAnd x y
             _ -> expr
-        LawBoolAndTrueRight ->
-          case expr of
-            CAnd x _ -> x
+        CAnd (COr (CNot z) y) x ->
+          case x == z of
+            true -> CAnd x y
             _ -> expr
-        LawBoolAndFalseLeft ->
-          case expr of
-            CAnd _ _ -> CBool false
+        _ -> expr
+    LawBoolOrComplementLeft ->
+      case expr of
+        COr _ (CNot _) -> CBool true
+        _ -> expr
+    LawBoolOrComplementRight ->
+      case expr of
+        COr (CNot _) _ -> CBool true
+        _ -> expr
+    LawBoolAndComplementChainLeftLeft ->
+      case expr of
+        CAnd x (CAnd (CNot x2) y) ->
+          case x == x2 of
+            true -> CBool false
             _ -> expr
-        LawBoolAndFalseRight ->
-          case expr of
-            CAnd _ _ -> CBool false
+        _ -> expr
+    LawBoolAndComplementChainLeftRight ->
+      case expr of
+        CAnd x (CAnd y (CNot x2)) ->
+          case x == x2 of
+            true -> CBool false
             _ -> expr
-        LawBoolOrTrueLeft ->
-          case expr of
-            COr _ _ -> CBool true
+        _ -> expr
+    LawBoolAndComplementChainRightLeft ->
+      case expr of
+        CAnd (CAnd (CNot x2) y) x ->
+          case x == x2 of
+            true -> CBool false
             _ -> expr
-        LawBoolOrTrueRight ->
-          case expr of
-            COr _ _ -> CBool true
+        _ -> expr
+    LawBoolAndComplementChainRightRight ->
+      case expr of
+        CAnd (CAnd y (CNot x2)) x ->
+          case x == x2 of
+            true -> CBool false
             _ -> expr
-        LawBoolOrFalseLeft ->
-          case expr of
-            COr _ x -> x
+        _ -> expr
+    LawBoolOrComplementChainLeftLeft ->
+      case expr of
+        COr x (COr (CNot x2) y) ->
+          case x == x2 of
+            true -> CBool true
             _ -> expr
-        LawBoolOrFalseRight ->
-          case expr of
-            COr x _ -> x
+        _ -> expr
+    LawBoolOrComplementChainLeftRight ->
+      case expr of
+        COr x (COr y (CNot x2)) ->
+          case x == x2 of
+            true -> CBool true
             _ -> expr
-        LawBoolAndAbsorbLeft ->
-          case expr of
-            CAnd x (COr _ _) -> x
+        _ -> expr
+    LawBoolOrComplementChainRightLeft ->
+      case expr of
+        COr (COr (CNot x2) y) x ->
+          case x == x2 of
+            true -> CBool true
             _ -> expr
-        LawBoolAndAbsorbRight ->
-          case expr of
-            CAnd (COr _ _) y -> y
+        _ -> expr
+    LawBoolOrComplementChainRightRight ->
+      case expr of
+        COr (COr y (CNot x2)) x ->
+          case x == x2 of
+            true -> CBool true
             _ -> expr
-        LawBoolOrAbsorbLeft ->
-          case expr of
-            COr x (CAnd _ _) -> x
+        _ -> expr
+    LawBoolOrConsensusNotAndLeft ->
+      case expr of
+        COr x (CAnd (CNot y) z) ->
+          case x == y of
+            true -> COr x z
             _ -> expr
-        LawBoolOrAbsorbRight ->
-          case expr of
-            COr (CAnd _ _) y -> y
+        COr x (CAnd z (CNot y)) ->
+          case x == y of
+            true -> COr x z
             _ -> expr
-        LawBoolAndComplementLeft ->
-          case expr of
-            CAnd _ (CNot _) -> CBool false
+        _ -> expr
+    LawBoolOrConsensusNotAndRight ->
+      case expr of
+        COr (CAnd (CNot y) z) x ->
+          case x == y of
+            true -> COr x z
             _ -> expr
-        LawBoolAndComplementRight ->
-          case expr of
-            CAnd (CNot _) _ -> CBool false
+        COr (CAnd z (CNot y)) x ->
+          case x == y of
+            true -> COr x z
             _ -> expr
-        LawBoolAndConsensusNotOrLeft ->
-          case expr of
-            CAnd x (COr (CNot y) z) ->
-              case x == y of
-                true -> CAnd x z
-                _ -> expr
-            CAnd x (COr z (CNot y)) ->
-              case x == y of
-                true -> CAnd x z
-                _ -> expr
+        _ -> expr
+    LawBoolOrConsensusAndNotLeft ->
+      case expr of
+        COr x (CAnd y (CNot z)) ->
+          case x == z of
+            true -> COr x y
             _ -> expr
-        LawBoolAndConsensusNotOrRight ->
-          case expr of
-            CAnd (COr (CNot y) z) x ->
-              case x == y of
-                true -> CAnd x z
-                _ -> expr
-            CAnd (COr z (CNot y)) x ->
-              case x == y of
-                true -> CAnd x z
-                _ -> expr
+        COr x (CAnd (CNot z) y) ->
+          case x == z of
+            true -> COr x y
             _ -> expr
-        LawBoolAndConsensusOrNotLeft ->
-          case expr of
-            CAnd x (COr y (CNot z)) ->
-              case x == z of
-                true -> CAnd x y
-                _ -> expr
-            CAnd x (COr (CNot z) y) ->
-              case x == z of
-                true -> CAnd x y
-                _ -> expr
+        _ -> expr
+    LawBoolOrConsensusAndNotRight ->
+      case expr of
+        COr (CAnd y (CNot z)) x ->
+          case x == z of
+            true -> COr x y
             _ -> expr
-        LawBoolAndConsensusOrNotRight ->
-          case expr of
-            CAnd (COr y (CNot z)) x ->
-              case x == z of
-                true -> CAnd x y
-                _ -> expr
-            CAnd (COr (CNot z) y) x ->
-              case x == z of
-                true -> CAnd x y
-                _ -> expr
+        COr (CAnd (CNot z) y) x ->
+          case x == z of
+            true -> COr x y
             _ -> expr
-        LawBoolOrComplementLeft ->
-          case expr of
-            COr _ (CNot _) -> CBool true
+        _ -> expr
+    LawBoolAndChainLeftLeft ->
+      case expr of
+        CAnd x (CAnd x2 y) -> CAnd x y
+        _ -> expr
+    LawBoolAndChainLeftRight ->
+      case expr of
+        CAnd x (CAnd y x2) -> CAnd x y
+        _ -> expr
+    LawBoolAndChainRightLeft ->
+      case expr of
+        CAnd (CAnd x y) x2 -> CAnd x y
+        _ -> expr
+    LawBoolAndChainRightRight ->
+      case expr of
+        CAnd (CAnd y x2) x -> CAnd y x
+        _ -> expr
+    LawBoolOrChainLeftLeft ->
+      case expr of
+        COr x (COr x2 y) -> COr x y
+        _ -> expr
+    LawBoolOrChainLeftRight ->
+      case expr of
+        COr x (COr y x2) -> COr x y
+        _ -> expr
+    LawBoolOrChainRightLeft ->
+      case expr of
+        COr (COr x y) x2 -> COr x y
+        _ -> expr
+    LawBoolOrChainRightRight ->
+      case expr of
+        COr (COr y x2) x -> COr y x
+        _ -> expr
+    LawBoolIdempotent ->
+      case expr of
+        CAnd x y ->
+          case x == y of
+            true -> x
             _ -> expr
-        LawBoolOrComplementRight ->
-          case expr of
-            COr (CNot _) _ -> CBool true
+        COr x y ->
+          case x == y of
+            true -> x
             _ -> expr
-        LawBoolAndComplementChainLeftLeft ->
-          case expr of
-            CAnd x (CAnd (CNot x2) y) ->
-              case x == x2 of
-                true -> CBool false
-                _ -> expr
-            _ -> expr
-        LawBoolAndComplementChainLeftRight ->
-          case expr of
-            CAnd x (CAnd y (CNot x2)) ->
-              case x == x2 of
-                true -> CBool false
-                _ -> expr
-            _ -> expr
-        LawBoolAndComplementChainRightLeft ->
-          case expr of
-            CAnd (CAnd (CNot x2) y) x ->
-              case x == x2 of
-                true -> CBool false
-                _ -> expr
-            _ -> expr
-        LawBoolAndComplementChainRightRight ->
-          case expr of
-            CAnd (CAnd y (CNot x2)) x ->
-              case x == x2 of
-                true -> CBool false
-                _ -> expr
-            _ -> expr
-        LawBoolOrComplementChainLeftLeft ->
-          case expr of
-            COr x (COr (CNot x2) y) ->
-              case x == x2 of
-                true -> CBool true
-                _ -> expr
-            _ -> expr
-        LawBoolOrComplementChainLeftRight ->
-          case expr of
-            COr x (COr y (CNot x2)) ->
-              case x == x2 of
-                true -> CBool true
-                _ -> expr
-            _ -> expr
-        LawBoolOrComplementChainRightLeft ->
-          case expr of
-            COr (COr (CNot x2) y) x ->
-              case x == x2 of
-                true -> CBool true
-                _ -> expr
-            _ -> expr
-        LawBoolOrComplementChainRightRight ->
-          case expr of
-            COr (COr y (CNot x2)) x ->
-              case x == x2 of
-                true -> CBool true
-                _ -> expr
-            _ -> expr
-        LawBoolOrConsensusNotAndLeft ->
-          case expr of
-            COr x (CAnd (CNot y) z) ->
-              case x == y of
-                true -> COr x z
-                _ -> expr
-            COr x (CAnd z (CNot y)) ->
-              case x == y of
-                true -> COr x z
-                _ -> expr
-            _ -> expr
-        LawBoolOrConsensusNotAndRight ->
-          case expr of
-            COr (CAnd (CNot y) z) x ->
-              case x == y of
-                true -> COr x z
-                _ -> expr
-            COr (CAnd z (CNot y)) x ->
-              case x == y of
-                true -> COr x z
-                _ -> expr
-            _ -> expr
-        LawBoolOrConsensusAndNotLeft ->
-          case expr of
-            COr x (CAnd y (CNot z)) ->
-              case x == z of
-                true -> COr x y
-                _ -> expr
-            COr x (CAnd (CNot z) y) ->
-              case x == z of
-                true -> COr x y
-                _ -> expr
-            _ -> expr
-        LawBoolOrConsensusAndNotRight ->
-          case expr of
-            COr (CAnd y (CNot z)) x ->
-              case x == z of
-                true -> COr x y
-                _ -> expr
-            COr (CAnd (CNot z) y) x ->
-              case x == z of
-                true -> COr x y
-                _ -> expr
-            _ -> expr
-        LawBoolAndChainLeftLeft ->
-          case expr of
-            CAnd x (CAnd x2 y) -> CAnd x y
-            _ -> expr
-        LawBoolAndChainLeftRight ->
-          case expr of
-            CAnd x (CAnd y x2) -> CAnd x y
-            _ -> expr
-        LawBoolAndChainRightLeft ->
-          case expr of
-            CAnd (CAnd x y) x2 -> CAnd x y
-            _ -> expr
-        LawBoolAndChainRightRight ->
-          case expr of
-            CAnd (CAnd y x2) x -> CAnd y x
-            _ -> expr
-        LawBoolOrChainLeftLeft ->
-          case expr of
-            COr x (COr x2 y) -> COr x y
-            _ -> expr
-        LawBoolOrChainLeftRight ->
-          case expr of
-            COr x (COr y x2) -> COr x y
-            _ -> expr
-        LawBoolOrChainRightLeft ->
-          case expr of
-            COr (COr x y) x2 -> COr x y
-            _ -> expr
-        LawBoolOrChainRightRight ->
-          case expr of
-            COr (COr y x2) x -> COr y x
-            _ -> expr
-        LawBoolIdempotent ->
-          case expr of
-            CAnd x y ->
-              case x == y of
-                true -> x
-                _ -> expr
-            COr x y ->
-              case x == y of
-                true -> x
-                _ -> expr
-            _ -> expr
+        _ -> expr
 
-apply_class_law_rule_once rule expr =
-  let candidate = rewrite_class_law_rule rule expr
+rewrite_class_law_rule_with_signature rule expr signature =
+  case class_law_rule_guard_with_signature rule expr signature of
+    false -> expr
+    true -> rewrite_class_law_rule rule expr
+
+apply_class_law_rule_once_with_signature rule expr signature =
+  let candidate =
+        case class_law_rule_guard_with_signature rule expr signature of
+          true -> rewrite_class_law_rule_with_signature rule expr signature
+          _ -> expr
       before_cost = class_method_expr_cost expr
       candidate_cost = class_method_expr_cost candidate
       cost_ok = class_law_expr_cost_ok expr candidate
@@ -917,22 +921,32 @@ apply_class_law_rule_once rule expr =
     true -> candidate
     _ -> expr
 
-rewrite_class_law_rules_once_list rules root_kind expr =
+apply_class_law_rule_once rule expr =
+  let signature = class_method_expr_signature expr
+  in apply_class_law_rule_once_with_signature rule expr signature
+
+rewrite_class_law_rules_once_list rules root_kind expr signature =
   case rules of
     ClassLawRuleListNil -> expr
     ClassLawRuleListNode rule rest ->
-      let expr1 = apply_class_law_rule_once rule expr
+      let expr1 = apply_class_law_rule_once_with_signature rule expr signature
       in case (expr1 == expr) of
-        true -> rewrite_class_law_rules_once_list rest root_kind expr
+        true -> rewrite_class_law_rules_once_list rest root_kind expr1 signature
         _ ->
+          let signature1 = class_method_expr_signature expr1
+          in
           let root_kind1 = class_method_expr_root_kind expr1
           in case (root_kind1 == root_kind) of
-            true -> rewrite_class_law_rules_once_list rest root_kind1 expr1
-            _ -> rewrite_class_law_rules_once_list (class_law_rules_for_root_kind root_kind1) root_kind1 expr1
+            true -> rewrite_class_law_rules_once_list rest root_kind1 expr1 signature1
+            _ -> rewrite_class_law_rules_once_list (class_law_rules_for_root_kind root_kind1) root_kind1 expr1 signature1
 
 rewrite_class_law_expr_once expr =
   let expr1 = rewrite_bool_law_expr expr
-  in rewrite_class_law_rules_once_list (class_law_rules_for_expr expr1) (class_method_expr_root_kind expr1) expr1
+  in rewrite_class_law_rules_once_list
+    (class_law_rules_for_expr expr1)
+    (class_method_expr_root_kind expr1)
+    expr1
+    (class_method_expr_signature expr1)
 
 class_law_rewrite_stages = 4
 
