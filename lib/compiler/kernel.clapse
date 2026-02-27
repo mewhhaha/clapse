@@ -156,21 +156,23 @@ class_method_expr_map_compatible expr =
       in class_method_expr_type_allows_map f_type && class_method_expr_type_allows_map xs_type
     _ -> false
 
-class_law_rules_for_compose =
+class_law_rules_empty = ClassLawRuleListNil
+
+class_law_rules_compose =
   ClassLawRuleListNode LawComposeLeftIdentity
     (ClassLawRuleListNode LawComposeRightIdentity
       (ClassLawRuleListNode LawComposeAssociateRight ClassLawRuleListNil))
 
-class_law_rules_for_map =
+class_law_rules_map =
   ClassLawRuleListNode LawMapIdentity
     (ClassLawRuleListNode LawMapFusion ClassLawRuleListNil)
 
-class_law_rules_for_not =
+class_law_rules_not =
   ClassLawRuleListNode LawBoolDoubleNot
     (ClassLawRuleListNode LawBoolNotTrue
       (ClassLawRuleListNode LawBoolNotFalse ClassLawRuleListNil))
 
-class_law_rules_for_and =
+class_law_rules_and =
   ClassLawRuleListNode LawBoolAndTrueLeft
     (ClassLawRuleListNode LawBoolAndTrueRight
       (ClassLawRuleListNode LawBoolAndFalseLeft
@@ -187,13 +189,13 @@ class_law_rules_for_and =
                             (ClassLawRuleListNode LawBoolAndConsensusNotOrRight
                               (ClassLawRuleListNode LawBoolAndConsensusOrNotLeft
                                 (ClassLawRuleListNode LawBoolAndConsensusOrNotRight
-                                  (ClassLawRuleListNode LawBoolAndChainLeftLeft
-                                    (ClassLawRuleListNode LawBoolAndChainLeftRight
-                                      (ClassLawRuleListNode LawBoolAndChainRightLeft
-                                        (ClassLawRuleListNode LawBoolAndChainRightRight
-                                          (ClassLawRuleListNode LawBoolIdempotent ClassLawRuleListNil)))))))))))))))))
+                                        (ClassLawRuleListNode LawBoolAndChainLeftLeft
+                                          (ClassLawRuleListNode LawBoolAndChainLeftRight
+                                            (ClassLawRuleListNode LawBoolAndChainRightLeft
+                                              (ClassLawRuleListNode LawBoolAndChainRightRight
+                                                (ClassLawRuleListNode LawBoolIdempotent ClassLawRuleListNil)))))))))))))))))
 
-class_law_rules_for_or =
+class_law_rules_or =
   ClassLawRuleListNode LawBoolOrTrueLeft
     (ClassLawRuleListNode LawBoolOrTrueRight
       (ClassLawRuleListNode LawBoolOrFalseLeft
@@ -210,11 +212,11 @@ class_law_rules_for_or =
                             (ClassLawRuleListNode LawBoolOrConsensusNotAndRight
                               (ClassLawRuleListNode LawBoolOrConsensusAndNotLeft
                                 (ClassLawRuleListNode LawBoolOrConsensusAndNotRight
-                                  (ClassLawRuleListNode LawBoolOrChainLeftLeft
-                                    (ClassLawRuleListNode LawBoolOrChainLeftRight
-                                      (ClassLawRuleListNode LawBoolOrChainRightLeft
-                                        (ClassLawRuleListNode LawBoolOrChainRightRight
-                                          (ClassLawRuleListNode LawBoolIdempotent ClassLawRuleListNil)))))))))))))))))
+                                      (ClassLawRuleListNode LawBoolOrChainLeftLeft
+                                        (ClassLawRuleListNode LawBoolOrChainLeftRight
+                                          (ClassLawRuleListNode LawBoolOrChainRightLeft
+                                            (ClassLawRuleListNode LawBoolOrChainRightRight
+                                              (ClassLawRuleListNode LawBoolIdempotent ClassLawRuleListNil)))))))))))))))))
 
 class_method_expr_root_kind expr =
   case expr of
@@ -229,19 +231,19 @@ class_method_expr_root_kind expr =
 
 class_law_rules_for_root_kind root_kind =
   case root_kind of
-    ClassMethodExprRootKindNot -> class_law_rules_for_not
-    ClassMethodExprRootKindAnd -> class_law_rules_for_and
-    ClassMethodExprRootKindOr -> class_law_rules_for_or
-    ClassMethodExprRootKindCompose -> class_law_rules_for_compose
-    ClassMethodExprRootKindMap -> class_law_rules_for_map
-    ClassMethodExprRootKindBool -> ClassLawRuleListNil
-    ClassMethodExprRootKindVar -> ClassLawRuleListNil
-    ClassMethodExprRootKindOther -> class_law_rules
+    ClassMethodExprRootKindNot -> class_law_rules_not
+    ClassMethodExprRootKindAnd -> class_law_rules_and
+    ClassMethodExprRootKindOr -> class_law_rules_or
+    ClassMethodExprRootKindCompose -> class_law_rules_compose
+    ClassMethodExprRootKindMap -> class_law_rules_map
+    ClassMethodExprRootKindBool -> class_law_rules_empty
+    ClassMethodExprRootKindVar -> class_law_rules_empty
+    ClassMethodExprRootKindOther -> class_law_rules_full
 
 class_law_rules_for_expr expr =
   class_law_rules_for_root_kind (class_method_expr_root_kind expr)
 
-class_law_rules =
+class_law_rules_full =
   ClassLawRuleListNode LawComposeLeftIdentity
     (ClassLawRuleListNode LawComposeRightIdentity
       (ClassLawRuleListNode LawComposeAssociateRight

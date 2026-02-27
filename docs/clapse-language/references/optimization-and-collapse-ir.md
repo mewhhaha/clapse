@@ -146,9 +146,11 @@ Current rule model used in the kernel rewrite path:
 
 Rule dispatch now first classifies the expression by root shape (for example `CCompose`, `CMap`, or boolean composition/operator shapes), then checks candidate `ClassLawRule`s in stable registry order within that shape bucket.
 
-The scheduler now uses a root-kind tag check (`compose/map/bool` buckets) for this dispatch decision, giving constant-time rule-group selection and replacing prior equality checks against rule lists. This is a scheduling-only micro-optimization.
+The scheduler now uses precomputed deterministic subset tables keyed by root kind (`compose`/`map`/`bool`) for this dispatch decision, giving constant-time rule-group selection and reduced dispatch allocations while preserving candidate ordering within each bucket.
 
 After a successful rewrite, the scheduler performs an immediate root-shape re-dispatch before the next fixed-point step so subsequent candidates are selected against the current expression root. This is a scheduling optimization only and preserves deterministic ordering semantics.
+
+The precomputed tables are deterministic, policy-agnostic, and only affect lookup machinery; they do not alter dispatch eligibility, `class_law_rule_guard` outcomes, static/dynamic class dispatch gating, cost policy, or rewrite semantics.
 
 This optimization does **not** change class-law policy behavior:
 - `class_law_rule_guard` checks remain unchanged (shape/type/purity/effect gates).
