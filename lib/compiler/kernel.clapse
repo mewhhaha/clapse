@@ -29,6 +29,7 @@ data ClassMethodExprType = ClassMethodExprTypeBool | ClassMethodExprTypeFunctor 
 data ClassMethodExprEffect = ClassMethodExprEffectPure | ClassMethodExprEffectUnknown
 data ClassMethodExprSignature = ClassMethodExprSignature ClassMethodExprType ClassMethodExprEffect
 data ClassLawRuleList = ClassLawRuleListNil | ClassLawRuleListNode ClassLawRule ClassLawRuleList
+data ClassMethodExprRootKind = ClassMethodExprRootKindNot | ClassMethodExprRootKindAnd | ClassMethodExprRootKindOr | ClassMethodExprRootKindCompose | ClassMethodExprRootKindMap | ClassMethodExprRootKindBool | ClassMethodExprRootKindVar | ClassMethodExprRootKindOther
 
 kernel_class_dispatch = class_dispatch_static
 class_dispatch_default_resolved =
@@ -215,16 +216,30 @@ class_law_rules_for_or =
                                         (ClassLawRuleListNode LawBoolOrChainRightRight
                                           (ClassLawRuleListNode LawBoolIdempotent ClassLawRuleListNil)))))))))))))))))
 
-class_law_rules_for_expr expr =
+class_method_expr_root_kind expr =
   case expr of
-    CNot _ -> class_law_rules_for_not
-    CAnd _ _ -> class_law_rules_for_and
-    COr _ _ -> class_law_rules_for_or
-    CCompose _ _ -> class_law_rules_for_compose
-    CMap _ _ -> class_law_rules_for_map
-    CBool _ -> ClassLawRuleListNil
-    CVar _ -> ClassLawRuleListNil
-    _ -> class_law_rules
+    CNot _ -> ClassMethodExprRootKindNot
+    CAnd _ _ -> ClassMethodExprRootKindAnd
+    COr _ _ -> ClassMethodExprRootKindOr
+    CCompose _ _ -> ClassMethodExprRootKindCompose
+    CMap _ _ -> ClassMethodExprRootKindMap
+    CBool _ -> ClassMethodExprRootKindBool
+    CVar _ -> ClassMethodExprRootKindVar
+    _ -> ClassMethodExprRootKindOther
+
+class_law_rules_for_root_kind root_kind =
+  case root_kind of
+    ClassMethodExprRootKindNot -> class_law_rules_for_not
+    ClassMethodExprRootKindAnd -> class_law_rules_for_and
+    ClassMethodExprRootKindOr -> class_law_rules_for_or
+    ClassMethodExprRootKindCompose -> class_law_rules_for_compose
+    ClassMethodExprRootKindMap -> class_law_rules_for_map
+    ClassMethodExprRootKindBool -> ClassLawRuleListNil
+    ClassMethodExprRootKindVar -> ClassLawRuleListNil
+    ClassMethodExprRootKindOther -> class_law_rules
+
+class_law_rules_for_expr expr =
+  class_law_rules_for_root_kind (class_method_expr_root_kind expr)
 
 class_law_rules =
   ClassLawRuleListNode LawComposeLeftIdentity
@@ -900,16 +915,22 @@ apply_class_law_rule_once rule expr =
     true -> candidate
     _ -> expr
 
-rewrite_class_law_rules_once_list rules expr =
+rewrite_class_law_rules_once_list rules root_kind expr =
   case rules of
     ClassLawRuleListNil -> expr
     ClassLawRuleListNode rule rest ->
       let expr1 = apply_class_law_rule_once rule expr
-      in rewrite_class_law_rules_once_list rest expr1
+      in case (expr1 == expr) of
+        true -> rewrite_class_law_rules_once_list rest root_kind expr
+        _ ->
+          let root_kind1 = class_method_expr_root_kind expr1
+          in case (root_kind1 == root_kind) of
+            true -> rewrite_class_law_rules_once_list rest root_kind1 expr1
+            _ -> rewrite_class_law_rules_once_list (class_law_rules_for_root_kind root_kind1) root_kind1 expr1
 
 rewrite_class_law_expr_once expr =
   let expr1 = rewrite_bool_law_expr expr
-  in rewrite_class_law_rules_once_list (class_law_rules_for_expr expr1) expr1
+  in rewrite_class_law_rules_once_list (class_law_rules_for_expr expr1) (class_method_expr_root_kind expr1) expr1
 
 class_law_rewrite_stages = 4
 

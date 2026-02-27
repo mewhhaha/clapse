@@ -230,4 +230,5 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
 
 ### Root-shape class-law selection (deterministic)
 
-Root-shape class-law dispatch now uses deterministic rule grouping by expression root (`CCompose`, `CMap`, boolean root forms) before fixed-point application. This selection change does not alter any cost/guard policy, strict-decrease check, or static/dynamic dispatch gates.
+Root-shape class-law dispatch now uses deterministic rule grouping by expression root (`CCompose`, `CMap`, boolean root forms) before fixed-point application. After each successful rewrite, `rewrite_class_law_rules_once_list` re-dispatches immediately to the new root rule set before continuing within the same pass; this does not alter any cost/guard policy, strict-decrease check, or static/dynamic dispatch gates.
+- Root-kind dispatch is now a constant-time scheduler check (compose/map/bool tags) that replaces rule-list equality checks while preserving all rewrite guards, policies, and semantics.

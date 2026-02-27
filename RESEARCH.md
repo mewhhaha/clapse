@@ -171,6 +171,7 @@ Notes:
 - Constant-negation laws are also admitted through the same cluster under bool+pure guards and strict cost-decrease policy in fixed-point governance.
 - Associative-idempotence chain reductions are now admitted only through the class-law registry cluster with static-dispatch-only selection, bool-type guards, and pure-effect admissibility; orientation is size-reducing (or cost-neutral in map-fusion cases) under fixed-point iteration.
 - Compose and map registry rewrites now use bounded cost governance (`0` default growth, `+1` map-fusion exception); boolean-class-law rewrites in that cluster additionally require strict cost decrease on each rewrite step.
+- Root-shape rewrite scheduling now re-dispatches immediately after each successful rewrite, reclassifying the current expression before selecting the next rule bucket (`CCompose`, `CMap`, boolean forms). Dispatcher selection is now a root-kind tag check (constant-time) instead of a rule-list equality scan; guard predicates, `ClassDispatch*` gates, and strict-decrease/cost policy are unchanged.
 - Add pass metadata (status + invariant owner + proof/validator hook).
 - Keep fixed-point passes bounded and cost-policy controlled.
 - Couple optimization rollout with differential behavior checks and validator evidence.
@@ -195,4 +196,4 @@ When adding a new optimization family:
 3. State the concrete Clapse pass-level implication.
 4. Record what check/proof/validator will enforce it.
 
-- Root-shape class-law selection now dispatches deterministically by expression root bucket before fixed-point rule matching; this is an optimization of selection order only and does not change guard predicates, `ClassDispatch*` gating, or strict-decrease/cost policy.
+- Root-shape class-law selection now dispatches deterministically by expression root bucket before fixed-point rule matching through root-kind tag checks (`CCompose`/`CMap`/boolean forms); this is an optimization of selection order only and does not change guard predicates, `ClassDispatch*` gating, or strict-decrease/cost policy.
