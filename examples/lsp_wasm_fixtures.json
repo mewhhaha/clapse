@@ -152,6 +152,28 @@
       "hoverExpectation": {
         "contains": "main x = x"
       }
+    },
+    {
+      "name": "records_with_plugin_compile_path",
+      "source": "type Options a = { allow: bool, include: Maybe a }\ndefault_options = { allow = true, include = Nothing }\nmain x = default_options.allow\n",
+      "sourceFile": "src/main.clapse",
+      "hover": {
+        "line": 2,
+        "character": 8
+      },
+      "projectConfig": {
+        "include": ["src"],
+        "plugins": ["plugins"]
+      },
+      "projectFiles": {
+        "plugins/record_plugin.clapse": "type PluginState = { enabled: bool }\nplugin_state = { enabled = true }\nplugin_use s = s.enabled\n"
+      },
+      "expectedDiagnostics": 0,
+      "hoverExpectation": null,
+      "formatting": true,
+      "formattingExpectation": {
+        "expectedEditCount": 1
+      }
     }
   ]
 }

@@ -27,6 +27,23 @@ Current kernel-native compile behavior:
 - `collapse_pipeline` and ownership policy derivation are both request-scoped and deterministic.
 - ownership mode is derived in a separate pass and threaded into each response builder and rewrite helper.
 
+## Record Lowering Status and Native Plan
+
+Current shipped behavior:
+
+- Closed-record syntax is now consumed directly by native kernel compile
+  handling (runtime compile paths no longer pre-lower records in JS).
+- Parity gating uses kernel-native compile smoke + LSP fixtures in
+  `pre-tag-verify`.
+
+Next-stage native work remains:
+
+1. Make record lowering/typing pass boundaries explicit in kernel IR docs.
+2. Add record-specific pass-manifest entries when those passes are surfaced as
+   named optimization/lowering stages.
+3. Continue fixture expansion for ambiguous/projection/update edge cases under
+   kernel-owned diagnostics.
+
 ## Pass Status Inventory (normative)
 
 This inventory is canonical and machine-checked against

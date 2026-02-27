@@ -11,6 +11,10 @@ module.exports = grammar({
 
   word: ($) => $.identifier,
 
+  conflicts: ($) => [
+    [$._atom, $.record_projection_target],
+  ],
+
   rules: {
     source_file: ($) =>
       repeat(
@@ -248,10 +252,17 @@ module.exports = grammar({
         $._kw_type,
         $._ws1,
         field("type_name", $.capitalized_identifier),
+        repeat(seq($._ws1, field("type_parameter", $.identifier))),
         $._ws1,
         "=",
         $._ws1,
+        $.type_alias_rhs,
+      ),
+
+    type_alias_rhs: ($) =>
+      choice(
         $.type_union,
+        $.type_record,
       ),
 
     type_union: ($) =>
@@ -701,6 +712,83 @@ module.exports = grammar({
         $.string,
         $.parenthesized_expression,
         $.list_expression,
+        $.record_expression,
+        $.field_projection_expression,
+        $.record_update_expression,
+      ),
+
+    field_projection_expression: ($) =>
+      seq(
+        field("record", $.record_projection_target),
+        ".",
+        field("field", $.identifier),
+      ),
+
+    record_update_expression: ($) =>
+      seq(
+        field("record", $.record_projection_target),
+        $._ws1,
+        field("updates", $.record_update_fields),
+      ),
+
+    record_projection_target: ($) =>
+      choice(
+        $.identifier,
+        $.parenthesized_expression,
+        $.list_expression,
+        $.record_expression,
+      ),
+
+    record_expression: ($) =>
+      seq(
+        "{",
+        optional($._ws1),
+        field("field", $.record_field),
+        repeat(
+          seq(
+            optional($._ws1),
+            ",",
+            optional($._ws1),
+            field("field", $.record_field),
+          ),
+        ),
+        optional($._ws1),
+        "}",
+      ),
+
+    record_field: ($) =>
+      seq(
+        field("name", $.identifier),
+        optional($._ws1),
+        "=",
+        optional($._ws1),
+        field("value", $.expression),
+      ),
+
+    record_update_fields: ($) =>
+      seq(
+        "{",
+        optional($._ws1),
+        field("field", $.record_update_field),
+        repeat(
+          seq(
+            optional($._ws1),
+            ",",
+            optional($._ws1),
+            field("field", $.record_update_field),
+          ),
+        ),
+        optional($._ws1),
+        "}",
+      ),
+
+    record_update_field: ($) =>
+      seq(
+        field("name", $.identifier),
+        optional($._ws1),
+        "=",
+        optional($._ws1),
+        field("value", $.expression),
       ),
 
     type_expression: ($) =>
@@ -750,7 +838,39 @@ module.exports = grammar({
     type_atom: ($) =>
       prec(
         1,
-        choice($.capitalized_identifier, $.identifier, $.parenthesized_type, $.list_type),
+        choice(
+          $.capitalized_identifier,
+          $.identifier,
+          $.parenthesized_type,
+          $.list_type,
+          $.type_record,
+        ),
+      ),
+
+    type_record: ($) =>
+      seq(
+        "{",
+        optional($._ws1),
+        field("field", $.type_field),
+        repeat(
+          seq(
+            optional($._ws1),
+            ",",
+            optional($._ws1),
+            field("field", $.type_field),
+          ),
+        ),
+        optional($._ws1),
+        "}",
+      ),
+
+    type_field: ($) =>
+      seq(
+        field("name", $.identifier),
+        optional($._ws1),
+        ":",
+        optional($._ws1),
+        field("type", $.type_expression),
       ),
 
     parenthesized_type: ($) =>

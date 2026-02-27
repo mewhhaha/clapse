@@ -10,7 +10,7 @@ infixl 4 <*>
 infixl 4 <*
 infixl 4 *>
 
-id x = x
+id x =    x
 compose f g x = f    (g x)
 map_replace_default x fa = fmap (\_ -> x) fa
 ap_default mf mx = bind mf (\f -> bind mx (\x -> pure (f x)))

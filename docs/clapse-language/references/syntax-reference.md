@@ -105,6 +105,44 @@ data Maybe a = Just : a -> Maybe a | Nothing : Maybe a
 `data` declarations must include `=` and at least one constructor. Bare
 `data TypeName` declarations are invalid.
 
+## Type Aliases (Closed Records)
+
+Type aliases may take parameters and currently support closed record RHS:
+
+```haskell
+type Options a = { allow: bool, include: Maybe a }
+```
+
+Only explicit, closed record fields are supported.
+
+## Record Values
+
+Record literal:
+
+```haskell
+default_options = { allow = true, include = Nothing }
+```
+
+Projection:
+
+```haskell
+allow_only = default_options.allow
+```
+
+Record update:
+
+```haskell
+updated_options = default_options { allow = not default_options.allow }
+```
+
+Current limits:
+- Closed records only (no row polymorphism/open records).
+- Field labels are fixed at the type level.
+- Compile/LSP now use native kernel compile behavior for records (no JS
+  pre-lowering in runtime compile paths).
+- Record validity, projection/update behavior, and ambiguity handling are owned
+  by kernel compile/typechecking semantics.
+
 ## Primitive Declarations
 
 Lowercase primitive-backed declarations use `primitive`:

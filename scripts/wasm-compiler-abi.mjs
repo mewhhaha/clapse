@@ -6,6 +6,10 @@ const MAX_TAGGED_INT = 1073741823;
 const MIN_TAGGED_INT = -1073741824;
 const HOST_COMPILE_DEPTH_ENV = "CLAPSE_HOST_COMPILE_DEPTH";
 const CLAPSE_FUNC_MAP_ENV = "CLAPSE_DEBUG_FUNC_MAP";
+const COMPILE_DEBUG_ARTIFACT_FILES = [
+  "lowered_ir.txt",
+  "collapsed_ir.txt",
+];
 const SELFHOST_ARTIFACT_FILES = [
   "merged_module.txt",
   "type_info.txt",
@@ -233,6 +237,11 @@ function wantsDebugClapseFuncMap(request) {
     || mode === "debug";
 }
 
+function wantsCompileDebugArtifacts(request) {
+  const mode = String(request?.compile_mode ?? "").toLowerCase().trim();
+  return mode === "debug" || mode === "debug-funcmap";
+}
+
 function assertFn(instance, name) {
   const fn = instance.exports[name];
   if (typeof fn !== "function") {
@@ -349,14 +358,29 @@ function runHostCompileNative(request) {
   const procEnv = { ...Deno.env.toObject() };
   procEnv[HOST_COMPILE_DEPTH_ENV] = String(depth + 1);
   const runScript = new URL("./run-clapse-compiler-wasm.mjs", import.meta.url).pathname;
+  const sourcePath = Deno.makeTempFileSync({
+    prefix: "clapse-host-compile-source-",
+    suffix: ".clapse",
+  });
   const outPath = Deno.makeTempFileSync({
     prefix: "clapse-host-compile-",
     suffix: ".wasm",
   });
   const outDtsPath = outPath.replace(/\.wasm$/u, ".d.ts");
+  const debugArtifactsDir = Deno.makeTempDirSync({
+    prefix: "clapse-host-compile-debug-artifacts-",
+  });
   try {
+    try {
+      Deno.writeTextFileSync(sourcePath, requestHandle.input_source);
+    } catch {
+      return {
+        ok: false,
+        error: `host compile bridge failed to write temporary source for ${String(requestHandle.input_path ?? "<unknown>")}`,
+      };
+    }
     const proc = new Deno.Command("deno", {
-      args: ["run", "-A", runScript, "compile", requestHandle.input_path, outPath],
+      args: ["run", "-A", runScript, "compile", sourcePath, outPath],
       env: procEnv,
       stdout: "piped",
       stderr: "piped",
@@ -413,13 +437,59 @@ function runHostCompileNative(request) {
         };
       }
     }
+    let debugArtifacts = null;
+    if (wantsCompileDebugArtifacts(request)) {
+      const selfhostProc = new Deno.Command("deno", {
+        args: [
+          "run",
+          "-A",
+          runScript,
+          "selfhost-artifacts",
+          sourcePath,
+          debugArtifactsDir,
+        ],
+        env: procEnv,
+        stdout: "piped",
+        stderr: "piped",
+      });
+      const selfhostOut = selfhostProc.outputSync();
+      if (!selfhostOut.success) {
+        const stderrTail = UTF8_DECODER.decode(selfhostOut.stderr).trim();
+        const stdoutTail = UTF8_DECODER.decode(selfhostOut.stdout).trim();
+        return {
+          ok: false,
+          error:
+            `host debug-artifacts command failed (exit ${selfhostOut.code}): ${stderrTail || stdoutTail || "empty output"}`,
+        };
+      }
+      const collected = {};
+      for (const key of COMPILE_DEBUG_ARTIFACT_FILES) {
+        const filePath = `${debugArtifactsDir}/${key}`;
+        try {
+          collected[key] = Deno.readTextFileSync(filePath);
+        } catch {
+          return {
+            ok: false,
+            error:
+              `host debug-artifacts command did not produce ${key}`,
+          };
+        }
+      }
+      debugArtifacts = collected;
+    }
     return {
       ok: true,
       wasm_base64: outputWasmBase64,
       exports: [],
       dts,
+      ...(debugArtifacts === null ? {} : { artifacts: debugArtifacts }),
     };
   } finally {
+    try {
+      Deno.removeSync(sourcePath);
+    } catch {
+      // best effort cleanup
+    }
     try {
       Deno.removeSync(outPath);
     } catch {
@@ -427,6 +497,11 @@ function runHostCompileNative(request) {
     }
     try {
       Deno.removeSync(outDtsPath);
+    } catch {
+      // best effort cleanup
+    }
+    try {
+      Deno.removeSync(debugArtifactsDir, { recursive: true });
     } catch {
       // best effort cleanup
     }

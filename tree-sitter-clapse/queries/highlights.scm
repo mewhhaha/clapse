@@ -52,7 +52,25 @@
   type_name: (capitalized_identifier) @type.definition)
 
 (type_declaration
-  (type_union) @type)
+  type_parameter: (identifier) @type.parameter)
+
+(type_declaration
+  (type_alias_rhs
+    (type_union) @type))
+
+(type_declaration
+  (type_alias_rhs
+    (type_record) @type))
+
+(type_record
+  "{" @punctuation.bracket
+  "}" @punctuation.bracket)
+
+(type_field
+  name: (identifier) @property)
+
+(type_field
+  type: (type_expression) @type)
 
 (data_declaration
   type_name: (capitalized_identifier) @type.definition)
@@ -250,6 +268,26 @@
   "[" @punctuation.bracket
   "]" @punctuation.bracket)
 
+(record_expression
+  "{" @punctuation.bracket
+  "}" @punctuation.bracket)
+
+(record_field
+  name: (identifier) @property)
+
+(record_update_fields
+  "{" @punctuation.bracket
+  "}" @punctuation.bracket)
+
+(record_update_field
+  name: (identifier) @property)
+
+(field_projection_expression
+  "." @punctuation.bracket)
+
+(field_projection_expression
+  field: (identifier) @property)
+
 [
   "("
   ")"
@@ -259,6 +297,7 @@
   "\\"
   "|"
   "->"
+  "."
   "="
   ":"
 ] @keyword.operator

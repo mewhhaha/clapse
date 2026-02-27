@@ -108,6 +108,23 @@ The command returns a single compile response with:
   case scrutinee/arm arity mismatch is a hard parse error, `newtype` accepts
   exactly one constructor + one field (no `|` alternatives), and class fundep
   tails reject trailing commas.
+- Parser surface recognizes closed records in `tree-sitter-clapse`:
+  parameterized type aliases (`type Name a = { ... }`), record literals,
+  dot projection (`record.field`), and record update (`record { field = ... }`).
+- Keep compile semantics lockstep in syntax docs and compiler notes:
+  closed records are now handled in native kernel compile paths (no JS
+  pre-lowering in runtime compile/LSP request builders).
+- Keep compile-debug behavior aligned with host bridge fallback semantics:
+  when compile requests are host-bridged, `compile_mode: "debug"` must still
+  return `artifacts.lowered_ir.txt` and `artifacts.collapsed_ir.txt` in the
+  compile response contract.
+- Keep kernel record coverage active in `scripts/record-kernel-smoke.mjs` and in
+  `examples/lsp_wasm_fixtures.json` scenario `records_with_plugin_compile_path`
+  so compile + LSP/plugin wiring stay guarded.
+- Use `just ci-local` before tags to mirror local release verification flow (`just install`, `just pre-tag-verify`, `just release-candidate out=out/releases-ci-local`).
+- Keep native record-lowering migration notes synchronized between
+  `docs/clapse-language/references/syntax-reference.md` and
+  `docs/clapse-language/references/optimization-and-collapse-ir.md`.
 - Record memory-model pass changes in `docs/clapse-language/references/optimization-and-collapse-ir.md` when kernel collapse pipeline stages change (escape/lifetime annotations, ownership/COW rewrite ordering), and mirror behavior notes in `docs/SKILL.md` with concise pass-level comments.
 - Record allocation/reuse/COW scope contract updates in both
   `docs/clapse-language/references/optimization-and-collapse-ir.md` and

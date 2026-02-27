@@ -28,6 +28,14 @@ deno run -A scripts/clapse.mjs bench [iterations]
   - `just install` runs wildcard-demand gate only when
     `CLAPSE_RUN_WILDCARD_DEMAND_CHECK=1`.
   - bridge artifacts are deprecated/unsupported in runtime validation paths.
+- `compile-debug` contract:
+  - request shape: `command: "compile"` with `compile_mode: "debug"`
+  - response must include normal compile payload (`ok`, `wasm_base64`) plus
+    `artifacts.lowered_ir.txt` and `artifacts.collapsed_ir.txt`
+  - if `compile` omits debug artifacts, the runner resolves them via
+    `selfhost-artifacts` for the same input and writes the required debug files
+    from that response.
+  - this contract is preserved in native and host-bridge compile paths.
 - `bench` is currently invoked via the same deno command surface through the wasm runner.
 
 ## Just Targets

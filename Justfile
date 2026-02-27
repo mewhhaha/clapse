@@ -38,8 +38,17 @@ pre-tag-verify:
   deno run -A scripts/guard-no-host-surface.mjs
   deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}"
   deno run -A scripts/check-pass-manifest.mjs
+  deno run -A scripts/record-kernel-smoke.mjs
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" just docs-validate
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" just lsp-wasm-fixtures
   just semantics-check
+
+ci-local:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  just install
+  just pre-tag-verify
+  just release-candidate out=out/releases-ci-local
 
 browser-compiler-wasm-check wasm='artifacts/latest/clapse_compiler.wasm':
   deno run -A scripts/check-browser-compiler-wasm.mjs --wasm {{wasm}}

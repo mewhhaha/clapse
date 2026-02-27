@@ -465,12 +465,9 @@ async function writeSelfhostArtifacts(outDir, artifacts) {
   }
 }
 
-function readCompileDebugArtifacts(response) {
-  const artifacts = response?.artifacts;
+function collectCompileDebugArtifacts(artifacts, contextLabel) {
   if (!artifacts || typeof artifacts !== "object" || Array.isArray(artifacts)) {
-    throw new Error(
-      "compile response for compile_mode debug must include object 'artifacts'",
-    );
+    throw new Error(`${contextLabel} must include object 'artifacts'`);
   }
   const out = {};
   const missing = [];
@@ -483,10 +480,40 @@ function readCompileDebugArtifacts(response) {
   }
   if (missing.length > 0) {
     throw new Error(
-      `compile response missing required debug artifacts (compile_mode: "debug"). Expected response.artifacts keys: ${COMPILE_DEBUG_ARTIFACT_FILES.join(", ")}.`,
+      `${contextLabel} missing required debug artifacts. Expected response.artifacts keys: ${COMPILE_DEBUG_ARTIFACT_FILES.join(", ")}.`,
     );
   }
   return out;
+}
+
+function readCompileDebugArtifacts(response) {
+  const artifacts = response?.artifacts;
+  if (!artifacts || typeof artifacts !== "object" || Array.isArray(artifacts)) {
+    return null;
+  }
+  return collectCompileDebugArtifacts(artifacts, "compile response for compile_mode debug");
+}
+
+async function readCompileDebugArtifactsViaSelfhost(wasmPath, inputPath, inputSource) {
+  const response = await callCompilerWasm(wasmPath, {
+    command: "selfhost-artifacts",
+    input_path: inputPath,
+    input_source: inputSource,
+  });
+  assertObject(response, `selfhost-artifacts response for compile_mode debug (${inputPath})`);
+  if (typeof response.ok !== "boolean") {
+    throw new Error(`selfhost-artifacts response for compile_mode debug (${inputPath}) missing boolean 'ok'`);
+  }
+  if (!response.ok) {
+    const err = typeof response.error === "string"
+      ? response.error
+      : `selfhost-artifacts error in ${inputPath}`;
+    throw new Error(err);
+  }
+  return collectCompileDebugArtifacts(
+    response.artifacts,
+    `selfhost-artifacts response for compile_mode debug (${inputPath})`,
+  );
 }
 
 async function writeCompileDebugArtifacts(artifactsDir, artifacts) {
@@ -522,6 +549,13 @@ async function compileViaWasm(wasmPath, inputPath, outputPath, options = {}) {
   let debugArtifacts;
   if (typeof options.artifactsDir === "string" && options.artifactsDir.length > 0) {
     debugArtifacts = readCompileDebugArtifacts(decodedResponse);
+    if (debugArtifacts === null) {
+      debugArtifacts = await readCompileDebugArtifactsViaSelfhost(
+        wasmPath,
+        inputPath,
+        inputSource,
+      );
+    }
   }
   await writeCompileArtifacts(outputPath, decodedResponse);
   if (debugArtifacts) {

@@ -648,6 +648,7 @@ async function formatSource(wasmPath, uri, source) {
 }
 
 async function compileDiagnostics(wasmPath, uri, source, config) {
+  const scopeDiagnostics = await scopeDiagnosticsForSource(source, config);
   const pluginWasmPaths = await resolveProjectPluginWasmPaths(config, wasmPath);
   const response = await callCompilerWasm(wasmPath, {
     command: "compile",
@@ -655,7 +656,6 @@ async function compileDiagnostics(wasmPath, uri, source, config) {
     input_source: source,
     plugin_wasm_paths: pluginWasmPaths,
   });
-  const scopeDiagnostics = await scopeDiagnosticsForSource(source, config);
   if (response && typeof response === "object" && response.ok === true) {
     return scopeDiagnostics;
   }
