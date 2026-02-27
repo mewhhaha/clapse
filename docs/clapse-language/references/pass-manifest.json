@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "passes": [
+    {
+      "id": "collapse_escape_lifetime_annotation",
+      "status": "implemented",
+      "title": "Escape/lifetime annotation stage",
+      "scope": "collapse"
+    },
+    {
+      "id": "collapse_slice_ownership_rewrite",
+      "status": "implemented",
+      "title": "Slice ownership policy selection",
+      "scope": "collapse"
+    },
+    {
+      "id": "slice_set_u8_linear_reuse",
+      "status": "implemented",
+      "title": "slice_set_u8 in-place linear rewrite",
+      "scope": "collapse"
+    },
+    {
+      "id": "slice_set_u8_copy_on_write",
+      "status": "implemented",
+      "title": "slice_set_u8 copy-on-write rewrite",
+      "scope": "collapse"
+    },
+    {
+      "id": "class_law_bool_simplification",
+      "status": "partially implemented",
+      "title": "Guarded class-law bool simplification",
+      "scope": "rewrite"
+    },
+    {
+      "id": "class_law_collection_map_identity",
+      "status": "partially implemented",
+      "title": "Guarded collection map identity law (map id)",
+      "scope": "rewrite"
+    },
+    {
+      "id": "class_law_collection_map_fusion",
+      "status": "partially implemented",
+      "title": "Guarded collection map fusion law (map f . map g)",
+      "scope": "rewrite"
+    },
+    {
+      "id": "currying_normalization",
+      "status": "not implemented",
+      "title": "Currying normalization",
+      "scope": "collapse"
+    },
+    {
+      "id": "closure_apply_collapse",
+      "status": "not implemented",
+      "title": "Immediate closure/curry apply collapse",
+      "scope": "collapse"
+    },
+    {
+      "id": "constant_argument_specialization",
+      "status": "not implemented",
+      "title": "Constant-argument direct-call specialization",
+      "scope": "collapse"
+    },
+    {
+      "id": "wrapper_inlining",
+      "status": "not implemented",
+      "title": "Small wrapper inlining",
+      "scope": "collapse"
+    },
+    {
+      "id": "dead_function_pruning",
+      "status": "not implemented",
+      "title": "Root-based dead-function pruning",
+      "scope": "collapse"
+    },
+    {
+      "id": "dead_temp_pruning",
+      "status": "not implemented",
+      "title": "Dead-temp pruning",
+      "scope": "collapse"
+    },
+    {
+      "id": "temp_renumbering",
+      "status": "not implemented",
+      "title": "Temporary compaction/renumbering",
+      "scope": "collapse"
+    },
+    {
+      "id": "self_tail_call_normalization",
+      "status": "not implemented",
+      "title": "Self tail-call normalization",
+      "scope": "collapse"
+    }
+  ]
+}

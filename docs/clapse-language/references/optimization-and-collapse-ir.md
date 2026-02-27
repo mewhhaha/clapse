@@ -2,15 +2,42 @@
 
 ## Pipeline Shape
 
-1. Parse source
-2. Derive/apply class-law rewrites from class/law/instance declarations
-   - class dispatch is explicit (static default), with static rewrites applying
-     boolean normalization for law terms (`not not`, `true/false` identities and
-     annihilations for `and`/`or`) and dynamic dispatch preserving method shape
-3. Lower to stack ops
-4. Collapse to normalized IR
-5. Verify IR invariants
-6. Emit WASM
+1. Parse command/tag from request slice.
+2. Run staged request passthrough (`collapse_pipeline_run`) over request bytes.
+3. Derive ownership policy per request (`collapse_pipeline_slice_ownership_mode`).
+4. Dispatch to per-command response builders with both staged request and request-derived policy.
+5. Return command response:
+   - compile/format/selfhost/lsp still flow through kernel handlers
+   - compile with ready input still delegates to host bridge after kernel staging (`clapse_host_run`)
+
+Current kernel-native compile behavior:
+
+- `compile_response` delegates to `clapse_host_run` for `CompileRequestReady` only.
+- command dispatch runs after staging; the request is **passthrough** through the kernel pipeline
+  and is not rewritten before handler selection.
+- `collapse_pipeline` and ownership policy derivation are both request-scoped and deterministic.
+- ownership mode is derived in a separate pass and threaded into each response builder and rewrite helper.
+
+## Pass Status Inventory (normative)
+
+This inventory is canonical and machine-checked against
+`docs/clapse-language/references/pass-manifest.json`.
+
+- [pass:collapse_escape_lifetime_annotation] status: implemented
+- [pass:collapse_slice_ownership_rewrite] status: implemented
+- [pass:slice_set_u8_linear_reuse] status: implemented
+- [pass:slice_set_u8_copy_on_write] status: implemented
+- [pass:class_law_bool_simplification] status: partially implemented
+- [pass:class_law_collection_map_identity] status: partially implemented
+- [pass:class_law_collection_map_fusion] status: partially implemented
+- [pass:currying_normalization] status: not implemented
+- [pass:closure_apply_collapse] status: not implemented
+- [pass:constant_argument_specialization] status: not implemented
+- [pass:wrapper_inlining] status: not implemented
+- [pass:dead_function_pruning] status: not implemented
+- [pass:dead_temp_pruning] status: not implemented
+- [pass:temp_renumbering] status: not implemented
+- [pass:self_tail_call_normalization] status: not implemented
 
 ## Collapsed IR Concepts
 
@@ -28,17 +55,7 @@ Values:
 - closure create/call (`VClosure`, `VCallClosure`, `VApply`)
 - self tail call marker (`VSelfTailCall`)
 
-## Implemented Optimization Passes
-
-- Currying normalization
-- Immediate closure/curry apply collapse
-- Constant-argument direct-call specialization for small wrapper-style callees
-- Small non-recursive interprocedural inlining for wrapper-style callees
-- Root-based dead-function pruning
-- slice ownership rewrite for `slice_set_u8` (linear reuse vs shared-target copy path)
-- Dead-temp pruning and compact temp renumbering
-- Self tail-call normalization
-- Compile-time bool-law simplification (`CAnd`/`COr`/`CNot`) when class dispatch is static
+## Currently Active Rewrite Patterns
 
 ## Memory Model Staging (Current)
 
@@ -47,17 +64,18 @@ Collapse now carries explicit memory-model stage ordering:
 1. `MemoryPassEscapeLifetimeAnnotation`
 2. `MemoryPassSliceOwnershipRewrite`
 
-Current kernel wiring keeps stage 1 semantics-preserving over request payloads and
-keeps stage 2 aligned with explicit ownership policy selection for
-`slice_set_u8` chains.
+Current kernel wiring keeps both stages semantics-preserving over request payloads.
+Stage 2 no longer performs direct structural rewriting in that slot; it exists as the
+ownership-policy derivation stage for `slice_set_u8` chains.
 
-Pipeline behavior is deterministic and pure:
+Request-policy pipeline behavior is deterministic and pure:
 
 - Stage 1 scans request payload text and materializes `SliceSetU8WriteChainHint`
   (escape marker + alias hint + explicit-chain-presence marker).
-- Stage 2 converts that hint into an `OwnershipRewriteMode` policy
-  (`OwnershipRewriteLinear` or `OwnershipRewriteCopyOnWrite`) and returns
-  unchanged payload in this bootstrap.
+- Stage 2 converts staged hints into an `OwnershipRewriteMode` policy
+  (`OwnershipRewriteLinear` or `OwnershipRewriteCopyOnWrite`) and passes request payload unchanged.
+- `clapse_run` invokes `collapse_pipeline_slice_ownership_mode` explicitly so policy derivation is separate from
+  `collapse_pipeline_run`.
 
 ### Allocation / Deallocation and Ownership Semantics
 
@@ -161,7 +179,17 @@ Current rule model used in the kernel rewrite path:
 The class rewrite stage sits before lowering and chooses method implementations from class metadata:
 
 - `resolve_class_method` selects between `static_method` and `dynamic_method` with the mode witness.
-- `apply_class_law_rewrites` applies the bool-law rewrite only when mode is `ClassDispatchStatic`.
+- `apply_class_law_rewrites` applies bool-law rewrites only when mode is `ClassDispatchStatic`.
+- `rewrite_class_law_expr_fixedpoint_stages` applies a bounded fixed-point pass over bool laws
+  (4 iterations or until no change), which is the same kernel policy used by
+  `derive_law_expr*` helpers.
+- `class_law_rule_guard` additionally requires expression-shape, purity, and static type compatibility preconditions before each law fires:
+  - composition rules only match on `CCompose` expressions, require pure method expressions, and require non-boolean compose-compatible inputs.
+  - functor/map rules only match on `CMap` expressions, require pure method expressions, and require non-boolean map-compatible inputs.
+- fixed-point iteration is structural-cost guarded (`class_method_expr_cost`) with a bounded rule-aware growth budget:
+  - default budget is zero growth,
+  - map-fusion-candidate expressions allow a budget of `+1`,
+  - if a rewrite step exceeds the budget, iteration halts and keeps the previous expression.
 - `ClassDispatchDynamic` keeps the law method unchanged.
 
 Safe fold set currently implemented in `rewrite_bool_law_expr`:
@@ -172,4 +200,18 @@ Safe fold set currently implemented in `rewrite_bool_law_expr`:
 - `true || x` -> `true`
 - `false || x` -> `x`
 
-All of these are conservative bool simplifications and are documented as compile-time only.
+Collection law set currently implemented in class-law scheduler:
+
+- `compose id f` -> `f`
+- `compose f id` -> `f`
+- `map id xs` -> `xs`
+- `map f (map g xs)` -> `map (compose f g) xs`
+
+Current activation status:
+
+- These folds are implemented in rewrite helpers.
+- They are implemented through a bounded fixed-point rewrite driver, with deterministic
+  rule ordering over a `ClassLawRule` registry and monotonic-cost guard.
+- They are not yet wired
+  as a mandatory compile-stage rewrite in the active `compile_response` route
+  (which currently uses host compile passthrough for ready requests).

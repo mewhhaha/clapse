@@ -36,8 +36,12 @@ docs-validate:
 
 pre-tag-verify:
   deno run -A scripts/guard-no-host-surface.mjs
+  deno run -A scripts/check-pass-manifest.mjs
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" just docs-validate
-  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" just wildcard-demand-check
+  just semantics-check
+
+pass-manifest-check:
+  deno run -A scripts/check-pass-manifest.mjs
 
 fib-memo-plugin-smoke:
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/fib-memo-plugin-smoke.mjs
@@ -80,7 +84,7 @@ install:
     cp "$compiler_path" artifacts/latest/clapse_compiler.wasm
   fi
   if [[ "${CLAPSE_RUN_WILDCARD_DEMAND_CHECK:-0}" == "1" ]]; then
-    CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm just wildcard-demand-check
+    just semantics-check
   fi
   deno compile -A --include artifacts/latest/clapse_compiler.wasm --output artifacts/bin/clapse scripts/clapse.mjs
   RUN_HIGHLIGHT_SNAPSHOT_TESTS=1 scripts/setup-helix-local.sh
@@ -114,5 +118,8 @@ release-candidate out='out/releases':
   chmod +x "${release_dir}/clapse"
   deno run -A scripts/release-metadata.mjs --release-id "${release_id}" --clapse-version "${version}" --compiler-wasm "${compiler_wasm}" --cli-bin "${cli_bin}" --behavior-map "${behavior_map}" --artifact-map "${artifact_map}" --prelude-source "${prelude_source}" --out "${release_dir}/release-manifest.json" --checksums "${release_dir}/checksums.sha256"
   echo "release-candidate: PASS (${release_dir})"
+semantics-check:
+  just wildcard-demand-check
+
 wildcard-demand-check:
-  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/wildcard-demand-check.mjs
+  deno run -A scripts/wildcard-demand-check.mjs

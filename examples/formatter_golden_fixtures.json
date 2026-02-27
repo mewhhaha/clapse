@@ -19,6 +19,11 @@
       "name": "collapse-inline-spacing",
       "input": "examples/formatter-golden-fixtures/collapse-inline-spacing.input.clapse",
       "expected": "examples/formatter-golden-fixtures/collapse-inline-spacing.expected.clapse"
+    },
+    {
+      "name": "paren-application-spacing",
+      "input": "examples/formatter-golden-fixtures/paren-application-spacing.input.clapse",
+      "expected": "examples/formatter-golden-fixtures/paren-application-spacing.expected.clapse"
     }
   ]
 }

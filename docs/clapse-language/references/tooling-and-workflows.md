@@ -19,7 +19,7 @@ deno run -A scripts/clapse.mjs bench [iterations]
 - `compile`/`selfhost-artifacts`/`format`/`lsp` use compiler-wasm mode by
   default.
   - compiler wasm is resolved from `CLAPSE_COMPILER_WASM_PATH`, then
-    `out/clapse_compiler.wasm`.
+    `artifacts/latest/clapse_compiler.wasm`, then `out/clapse_compiler.wasm`.
   - `just clapse-bin`/`just install` embed `artifacts/latest/clapse_compiler.wasm`
     into `artifacts/bin/clapse` when present, so formatter/LSP can run without
     setting `CLAPSE_COMPILER_WASM_PATH`.
@@ -32,55 +32,31 @@ deno run -A scripts/clapse.mjs bench [iterations]
 
 ## Just Targets
 
-Core:
+Current targets in `Justfile`:
 
-- `just install`
-- `just grammar`
-- `just wasm-smoke`
-- `just wasm-closure-smoke`
-- `just wasm-string-smoke`
-- `just bench`
+- `just clapse-bin`
+- `just compile <input> [output]`
+- `just format <file>`
+- `just format-write <file>`
+- `just lsp`
 - `just formatter-golden-fixtures`
 - `just lsp-wasm-fixtures`
-- `CLAPSE_EXPECT_CORE_LSP_BACKENDS=1 just lsp-wasm-fixtures` (require Clapse
-  backend for core hover/definition fixture assertions)
+- `just docs-validate`
 - `just fib-memo-plugin-smoke`
+- `just pre-tag-verify`
+- `just pass-manifest-check`
+- `just semantics-check`
 - `just wildcard-demand-check` (kernel demand-order regression check)
-
-WASM runtime perf:
-
-- `just bench-wasm-main`
-- `just bench-wasm-compare`
-- `just bench-wasm-compare-slice-set`
-
-Browser Game of Life demo:
-
-- `just life-build`
-- `just life-serve 8080`
-- `just life-smoke`
-
-Self-host parity:
-
-- `just selfhost-artifacts`
-- `just selfhost-parser-parity`
-- `just selfhost-parser-parity-strict`
-- `just selfhost-diff`
-- `just selfhost-behavior-diff`
-- `just formatter-idempotence-corpus`
-- `just selfhost-bootstrap-abc`
-- `just selfhost-check`
-- `just selfhost-check-strict`
-- `just selfhost-check-wasm` (requires `CLAPSE_COMPILER_WASM_PATH`)
-- `just selfhost-bench`
-- `just selfhost-bench-wasm`
-- `just selfhost-bench-wasm-fresh`
-- `scripts/selfhost-bench.mjs --reuse-compiles-across-repeats 0|1` (default `1`
-  for steady-state compile reuse)
-- `scripts/run-clapse-compiler-wasm.mjs` (strict right-engine entrypoint;
-  executes compiler wasm through `clapse_run` ABI)
-  - validates ABI exports (`memory`/`__memory`, `clapse_run`) and response JSON
-    shape before writing outputs
-  - `engine-mode` reports `wasm-native` when configured
+  - validated from `scripts/wasm-behavior-fixture-map.json` with source-hash
+    drift checks against `examples/wildcard_demand_behavior_regressions.clapse`
+  - checks both expected results and deterministic repeat evaluation
+- `just highlights`
+- `just highlights-update`
+- `just highlights-expect`
+- `just highlights-real`
+- `just highlights-helix`
+- `just install`
+- `just release-candidate [out=...]`
 
 ## LSP and Formatter
 
@@ -89,6 +65,8 @@ Self-host parity:
   `textDocument/formatting` now forward kernel output directly:
   - collapse repeated internal whitespace in expressions while preserving
     indentation, string literals, and line comments
+  - normalize repeated spaces before parenthesized application arguments
+    (for example `f    (g x)` -> `f (g x)`)
   - enforce a max line width of 100 with vertical wrapping
   - prefer breaking at ` => `, ` = `, ` -> `, ` >>= `, ` >> `, ` && `, ` || `
   - continuation lines are indented by two spaces
@@ -163,11 +141,10 @@ When changing syntax/semantics/lowering/WASM behavior:
 ## Minimal Validation Set
 
 ```bash
-just selfhost-check-wasm
-just bench
-just wasm-smoke
-just wildcard-demand-check
-just life-smoke
-just selfhost-diff
-just selfhost-behavior-diff
+just pre-tag-verify
+just pass-manifest-check
+just docs-validate
+just lsp-wasm-fixtures
+just formatter-golden-fixtures
+just semantics-check
 ```

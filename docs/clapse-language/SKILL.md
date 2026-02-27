@@ -31,6 +31,9 @@ Use for primitive types, inference behavior, constructor/deconstruction model, a
 - `references/optimization-and-collapse-ir.md`
 Use for lowering and collapse pipeline behavior, optimization passes, verifier invariants, and benchmark expectations.
 
+- `references/pass-manifest.json`
+Use for machine-checked optimization pass status (`implemented`, `partially implemented`, `not implemented`) and keep it synchronized with optimization docs.
+
 - `references/wasm-runtime-and-interop.md`
 Use for runtime value encoding, imports, closures/struct/string layout, JS interop boundaries, and buffer/slice proposal status.
 

@@ -20,10 +20,6 @@ export
 
 data CompileRequestTag = CompileRequestMissingPath | CompileRequestMissingSource | CompileRequestReady
 
-max2 a b = case (a > b) of
-  true -> b
-  _ -> a
-
 json_error_prefix = str_to_slice "{\"ok\":false,\"error\":\""
 json_error_suffix = str_to_slice "\"}"
 json_selfhost_prefix = str_to_slice "{\"ok\":true,\"artifacts\":{\"merged_module.txt\":\""
@@ -34,15 +30,6 @@ json_response_from_slice request_handle ownership_mode literal =
   let out = slice_new_u8 (slice_len literal)
       out1 = copy_slice_literal request_handle ownership_mode out 0 literal
   in out1
-
-parse_json_key_value_end request_handle i req_len key_txt =
-  let key_end = scan_find_json_key_value_end request_handle i req_len key_txt
-  in case (key_end == -1) of
-    true -> -1
-    _ -> key_end
-
-parse_json_key_value_end_to_start request_handle i req_len =
-  scan_source_value_start_at request_handle i req_len
 
 find_json_key_value_start request_handle i req_len key_txt =
   scan_find_json_key_value_start request_handle i req_len key_txt

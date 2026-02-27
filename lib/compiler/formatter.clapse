@@ -174,14 +174,24 @@ format_collapse_code request_handle ownership_mode source start end scratch out_
           is_space_outside = !in_string && is_space
           is_space_at_segment_start = is_space_outside && is_space_or_start
       let collapse_state =
-            case is_string_escape is_string_escape_char is_string_quote is_string_data is_space_outside is_space_at_segment_start of
-              true _ _ _ _ _ _ -> 0
-              _ true _ _ _ _ _ -> 1
-              _ _ true _ _ _ _ -> 2
-              _ _ _ true _ _ _ -> 3
-              _ _ _ _ _ true -> 4
-              _ _ _ _ true false _ -> 5
-              _ _ _ _ _ _ _ -> 6
+            case is_string_escape of
+              true -> 0
+              _ ->
+                case is_string_escape_char of
+                  true -> 1
+                  _ ->
+                    case is_string_quote of
+                      true -> 2
+                      _ ->
+                        case is_string_data of
+                          true -> 3
+                          _ ->
+                            case is_space_at_segment_start of
+                              true -> 4
+                              _ ->
+                                case is_space_outside of
+                                  true -> 5
+                                  _ -> 6
       in case collapse_state of
         0 ->
           format_collapse_code request_handle ownership_mode source start end next_char (out_i + 1) (i + 1) true false prev_space

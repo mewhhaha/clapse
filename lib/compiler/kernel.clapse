@@ -23,6 +23,12 @@ data MonadicLine = MonadicLineNil
 data ParsedLine = ParsedLine MonadicLine Int
 data ChainCollect = ChainCollect MonadicLine Int Int Int Int
 data ClassMethodExpr = CBool bool | CVar i64 | CNot ClassMethodExpr | CAnd ClassMethodExpr ClassMethodExpr | COr ClassMethodExpr ClassMethodExpr
+  | CId | CCompose ClassMethodExpr ClassMethodExpr | CMap ClassMethodExpr ClassMethodExpr
+data ClassLawRule = LawComposeLeftIdentity | LawComposeRightIdentity | LawMapIdentity | LawMapFusion
+data ClassMethodExprType = ClassMethodExprTypeBool | ClassMethodExprTypeFunctor | ClassMethodExprTypeCompose | ClassMethodExprTypeUnknown
+data ClassMethodExprEffect = ClassMethodExprEffectPure | ClassMethodExprEffectUnknown
+data ClassMethodExprSignature = ClassMethodExprSignature ClassMethodExprType ClassMethodExprEffect
+data ClassLawRuleList = ClassLawRuleListNil | ClassLawRuleListNode ClassLawRule ClassLawRuleList
 
 kernel_class_dispatch = class_dispatch_static
 class_dispatch_default_resolved =
@@ -37,6 +43,7 @@ rewrite_bool_law_expr expr =
   case expr of
     CBool b -> CBool b
     CVar _ -> expr
+    CId -> CId
     CNot inner ->
       let inner1 = rewrite_bool_law_expr inner
       in case inner1 of
@@ -62,10 +69,227 @@ rewrite_bool_law_expr expr =
           CBool true -> CBool true
           CBool false -> left1
           _ -> COr left1 right1
+    CCompose left right ->
+      CCompose (rewrite_bool_law_expr left) (rewrite_bool_law_expr right)
+    CMap f xs ->
+      CMap (rewrite_bool_law_expr f) (rewrite_bool_law_expr xs)
+
+class_method_expr_type expr =
+  case expr of
+    CBool _ -> ClassMethodExprTypeBool
+    CNot inner ->
+      case class_method_expr_type inner of
+        ClassMethodExprTypeBool -> ClassMethodExprTypeBool
+        _ -> ClassMethodExprTypeUnknown
+    CAnd left right ->
+      case class_method_expr_type left of
+        ClassMethodExprTypeBool ->
+          case class_method_expr_type right of
+            ClassMethodExprTypeBool -> ClassMethodExprTypeBool
+            _ -> ClassMethodExprTypeUnknown
+        _ -> ClassMethodExprTypeUnknown
+    COr left right ->
+      case class_method_expr_type left of
+        ClassMethodExprTypeBool ->
+          case class_method_expr_type right of
+            ClassMethodExprTypeBool -> ClassMethodExprTypeBool
+            _ -> ClassMethodExprTypeUnknown
+        _ -> ClassMethodExprTypeUnknown
+    CCompose _ _ -> ClassMethodExprTypeCompose
+    CMap _ _ -> ClassMethodExprTypeFunctor
+    CId -> ClassMethodExprTypeFunctor
+    _ -> ClassMethodExprTypeUnknown
+
+class_method_expr_effect expr =
+  case expr of
+    CBool _ -> ClassMethodExprEffectPure
+    CId -> ClassMethodExprEffectPure
+    CVar _ -> ClassMethodExprEffectPure
+    CNot inner -> class_method_expr_effect inner
+    CAnd left right ->
+      case class_method_expr_effect left of
+        ClassMethodExprEffectPure ->
+          case class_method_expr_effect right of
+            ClassMethodExprEffectPure -> ClassMethodExprEffectPure
+            _ -> ClassMethodExprEffectUnknown
+        _ -> ClassMethodExprEffectUnknown
+    COr left right ->
+      case class_method_expr_effect left of
+        ClassMethodExprEffectPure ->
+          case class_method_expr_effect right of
+            ClassMethodExprEffectPure -> ClassMethodExprEffectPure
+            _ -> ClassMethodExprEffectUnknown
+        _ -> ClassMethodExprEffectUnknown
+    CCompose left right ->
+      case class_method_expr_effect left of
+        ClassMethodExprEffectPure ->
+          case class_method_expr_effect right of
+            ClassMethodExprEffectPure -> ClassMethodExprEffectPure
+            _ -> ClassMethodExprEffectUnknown
+        _ -> ClassMethodExprEffectUnknown
+    CMap f xs ->
+      case class_method_expr_effect f of
+        ClassMethodExprEffectPure ->
+          case class_method_expr_effect xs of
+            ClassMethodExprEffectPure -> ClassMethodExprEffectPure
+            _ -> ClassMethodExprEffectUnknown
+        _ -> ClassMethodExprEffectUnknown
+
+class_method_expr_signature expr =
+  ClassMethodExprSignature (class_method_expr_type expr) (class_method_expr_effect expr)
+
+class_method_expr_signature_is_pure signature =
+  case signature of
+    ClassMethodExprSignature _ ClassMethodExprEffectPure -> true
+    _ -> false
+
+class_method_expr_is_pure expr =
+  case class_method_expr_effect expr of
+    ClassMethodExprEffectPure -> true
+    _ -> false
+
+class_method_expr_type_allows_compose expr_type =
+  case expr_type of
+    ClassMethodExprTypeBool -> false
+    _ -> true
+
+class_method_expr_type_allows_map expr_type =
+  case expr_type of
+    ClassMethodExprTypeBool -> false
+    _ -> true
+
+class_method_expr_compose_compatible expr =
+  case expr of
+    CCompose left right ->
+      let left_type = class_method_expr_type left
+          right_type = class_method_expr_type right
+      in class_method_expr_type_allows_compose left_type && class_method_expr_type_allows_compose right_type
+    _ -> false
+
+class_method_expr_map_compatible expr =
+  case expr of
+    CMap f xs ->
+      let f_type = class_method_expr_type f
+          xs_type = class_method_expr_type xs
+      in class_method_expr_type_allows_map f_type && class_method_expr_type_allows_map xs_type
+    _ -> false
+
+class_law_rules =
+  ClassLawRuleListNode LawComposeLeftIdentity
+    (ClassLawRuleListNode LawComposeRightIdentity
+      (ClassLawRuleListNode LawMapIdentity
+        (ClassLawRuleListNode LawMapFusion ClassLawRuleListNil)))
+
+class_law_rule_guard_with_signature rule expr signature =
+  let is_pure = class_method_expr_signature_is_pure signature
+  in case rule of
+    LawComposeLeftIdentity ->
+      case expr of
+        CCompose _ _ -> is_pure && class_method_expr_compose_compatible expr
+        _ -> false
+    LawComposeRightIdentity ->
+      case expr of
+        CCompose _ _ -> is_pure && class_method_expr_compose_compatible expr
+        _ -> false
+    LawMapIdentity ->
+      case expr of
+        CMap _ _ -> is_pure && class_method_expr_map_compatible expr
+        _ -> false
+    LawMapFusion ->
+      case expr of
+        CMap _ _ -> is_pure && class_method_expr_map_compatible expr
+        _ -> false
+
+class_law_rule_guard rule expr =
+  class_law_rule_guard_with_signature rule expr (class_method_expr_signature expr)
+
+rewrite_class_law_rule rule expr =
+  let signature = class_method_expr_signature expr
+  in case class_law_rule_guard_with_signature rule expr signature of
+    false -> expr
+    true ->
+      case rule of
+        LawComposeLeftIdentity ->
+          case expr of
+            CCompose CId f -> f
+            _ -> expr
+        LawComposeRightIdentity ->
+          case expr of
+            CCompose f CId -> f
+            _ -> expr
+        LawMapIdentity ->
+          case expr of
+            CMap CId xs -> xs
+            _ -> expr
+        LawMapFusion ->
+          case expr of
+            CMap f inner ->
+              case inner of
+                CMap g xs -> CMap (CCompose f g) xs
+                _ -> expr
+            _ -> expr
+
+rewrite_class_law_rules_once_list rules expr =
+  case rules of
+    ClassLawRuleListNil -> expr
+    ClassLawRuleListNode rule rest ->
+      let expr1 = rewrite_class_law_rule rule expr
+      in rewrite_class_law_rules_once_list rest expr1
+
+rewrite_class_law_expr_once expr =
+  rewrite_class_law_rules_once_list class_law_rules (rewrite_bool_law_expr expr)
+
+class_law_rewrite_stages = 4
+
+class_method_expr_cost expr =
+  case expr of
+    CBool _ -> 1
+    CVar _ -> 1
+    CId -> 1
+    CNot inner -> 1 + class_method_expr_cost inner
+    CAnd left right -> 1 + class_method_expr_cost left + class_method_expr_cost right
+    COr left right -> 1 + class_method_expr_cost left + class_method_expr_cost right
+    CCompose left right -> 1 + class_method_expr_cost left + class_method_expr_cost right
+    CMap f xs -> 1 + class_method_expr_cost f + class_method_expr_cost xs
+
+class_law_expr_has_map_fusion_candidate expr =
+  case expr of
+    CMap _ inner ->
+      case inner of
+        CMap _ _ -> true
+        _ -> class_law_expr_has_map_fusion_candidate inner
+    CNot inner -> class_law_expr_has_map_fusion_candidate inner
+    CAnd left right -> class_law_expr_has_map_fusion_candidate left || class_law_expr_has_map_fusion_candidate right
+    COr left right -> class_law_expr_has_map_fusion_candidate left || class_law_expr_has_map_fusion_candidate right
+    CCompose left right -> class_law_expr_has_map_fusion_candidate left || class_law_expr_has_map_fusion_candidate right
+    _ -> false
+
+class_law_expr_cost_growth_budget expr =
+  case class_law_expr_has_map_fusion_candidate expr of
+    true -> 1
+    _ -> 0
+
+class_law_expr_cost_ok expr expr1 =
+  let cost0 = class_method_expr_cost expr
+      cost1 = class_method_expr_cost expr1
+      budget = class_law_expr_cost_growth_budget expr
+  in cost1 <= (cost0 + budget)
+
+rewrite_class_law_expr_fixedpoint_stages remaining expr =
+  case remaining of
+    0 -> expr
+    _ ->
+      let expr1 = rewrite_class_law_expr_once expr
+      in case (expr1 == expr) of
+        true -> expr1
+        _ ->
+          case class_law_expr_cost_ok expr expr1 of
+            true -> rewrite_class_law_expr_fixedpoint_stages (remaining - 1) expr1
+            _ -> expr
 
 apply_class_law_rewrites dispatch law_expr =
   case class_dispatch_mode dispatch of
-    ClassDispatchStatic -> rewrite_bool_law_expr law_expr
+    ClassDispatchStatic -> rewrite_class_law_expr_fixedpoint_stages class_law_rewrite_stages law_expr
     ClassDispatchDynamic -> law_expr
 
 derive_class_method_with_dispatch dispatch static_expr dynamic_expr =
@@ -123,9 +347,12 @@ collapse_pipeline_escape_lifetime request_handle =
 
 collapse_pipeline_slice_ownership_rewrite request_handle =
   -- Stage 2: explicit ownership/COW selection for write-chain style.
-  -- Current body keeps payload unchanged and returns the derived ownership policy.
+  -- Stage body is currently request-pure: derive annotations, preserve request handle.
   let _ = slice_set_u8_request_chain_hint request_handle
-  in collapse_pipeline_slice_write_policy request_handle
+  in request_handle
+
+collapse_pipeline_slice_ownership_mode request_handle =
+  collapse_pipeline_slice_write_policy request_handle
 
 slice_set_u8_has_literal request_handle needle =
   let hay_len = slice_len request_handle
@@ -400,7 +627,7 @@ command_tag request_handle =
 
 clapse_run request_handle =
   let tagged_request = collapse_pipeline_run request_handle
-      ownership_mode = collapse_pipeline_slice_write_policy tagged_request
+      ownership_mode = collapse_pipeline_slice_ownership_mode tagged_request
       tag = command_tag tagged_request
   in case tag of
     CommandCompile -> compile_response tagged_request ownership_mode

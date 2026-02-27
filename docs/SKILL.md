@@ -24,6 +24,7 @@ Run:
 
 ```bash
 just pre-tag-verify
+just pass-manifest-check
 just semantics-check
 just clapse-bin
 just docs-validate
@@ -86,6 +87,9 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
 - Keep `docs/clapse-language/references/optimization-and-collapse-ir.md` and
   `docs/clapse-language/references/wasm-runtime-and-interop.md` aligned on
   memory-model semantics whenever allocation, reclaim, alias/freeze, or scope/lifetime behavior changes.
+- Keep `docs/clapse-language/references/pass-manifest.json` synchronized with
+  `docs/clapse-language/references/optimization-and-collapse-ir.md`; status
+  labels are machine-checked by `scripts/check-pass-manifest.mjs`.
 - Keep CLI packaging docs aligned with runtime behavior: `just clapse-bin` and
   `just install` bundle `artifacts/latest/clapse_compiler.wasm` into
   `artifacts/bin/clapse` when available, with `CLAPSE_COMPILER_WASM_PATH` as an
@@ -172,8 +176,11 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
 
 ## Memory model checkpoint
 
-- `clapse_run` now executes `collapse_pipeline_run` once per request and threads the derived `OwnershipRewriteMode` through request-scoped response builders and `slice_set_u8` rewrite helpers.
+- `clapse_run` now uses the staged request from `collapse_pipeline_run` as a passthrough value, derives `OwnershipRewriteMode` through a dedicated helper (`collapse_pipeline_slice_write_policy`), and threads that mode through request-scoped response builders.
 - `slice_set_u8` rewrite now uses explicit linear writes on the copied descriptor in the COW path (`slice_set_u8_cow`) so copy-on-write remains descriptor-local and does not accidentally recurse into COW policy.
+- `apply_class_law_rewrites` now applies boolean class-law rewrites through a bounded structural fixed-point driver (4 iterations or until stabilization) for static dispatch.
+- Class-law fixed-point rewriting is structural-cost guarded (`class_method_expr_cost`) with a bounded growth budget: default zero-growth, with a `+1` budget only when map-fusion candidates are present.
+- Class-law rewriting now uses an explicit rule registry (`ClassLawRule`) with deterministic ordering, and adds lightweight local expression metadata (`ClassMethodExprType`, `ClassMethodExprEffect`) plus per-rule guarded dispatch checks before rewriting (`class_law_rule_guard`): compose laws require a pure `CCompose` shape with non-boolean compatible inputs, and map laws require a pure `CMap` shape with non-boolean compatible inputs.
 
 ### plugin precompile contract
 

@@ -78,7 +78,7 @@ The struct field/tag operations are now emitted in-module:
   - For linear reuse, the backend emits direct overwrite semantics through `slice_set_u8`.
   - For copied reuse, rewrite expands to:
     1. `slice_new_u8` with same length as target
-    2. byte-copy from source payload to fresh destination (`slice_len_raw`, `slice_data_ptr`, `memcpy_u8`)
+    2. byte-copy from source payload to fresh destination (`copy_slice_segment` loop in kernel path)
     3. write into the fresh destination.
   - Reuse requires that the write result is provably confined to a non-escaping local chain; if not provable, the conservative COW path is used.
 - Reuse is deterministic and happens only in the kernel-level `slice_set_u8_rewrite` decision:
@@ -140,6 +140,7 @@ The struct field/tag operations are now emitted in-module:
   - `struct_tag : a -> i64`
 - Low-level memory builtins remain expression-level intrinsics; collapse dead-temp pruning keeps effectful ones live.
 - Collapse IR now runs a simple slice ownership pass for `slice_set_u8`: linear temp chains reuse in place, shared targets lower through explicit copy (`slice_len_raw` + `slice_new_u8` + `slice_data_ptr` + `memcpy_u8`) before write.
+- In the current kernel implementation, the COW copy path is materialized through `slice_set_u8_cow` + `copy_slice_segment`.
 - Effectful memory builtins are retained even if their result atoms are not referenced (`slice_set_u8`, `memcpy_u8`, `memset_u8`, `region_reset`).
 - Keep explicit data dependencies when ordering of multiple effectful memory operations matters.
 - No `rt_*` helper functions are emitted; allocation, closure apply, struct operations, and slice/region memory operations lower inline in generated Wasm.

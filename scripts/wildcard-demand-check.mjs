@@ -78,10 +78,16 @@ async function main() {
 
   for (const scenario of EXPECTED_SCENARIOS) {
     const fn = assertFnExport(instance, scenario.exportName);
-    const actual = normalizeResult(fn());
-    if (actual !== scenario.expected) {
+    const first = normalizeResult(fn());
+    const second = normalizeResult(fn());
+    if (first !== second) {
       throw new Error(
-        `wildcard-demand-check: ${scenario.exportName} expected ${scenario.expected}, got ${actual}`,
+        `wildcard-demand-check: non-deterministic result for ${scenario.exportName} (${first} vs ${second})`,
+      );
+    }
+    if (first !== scenario.expected) {
+      throw new Error(
+        `wildcard-demand-check: ${scenario.exportName} expected ${scenario.expected}, got ${first}`,
       );
     }
   }
