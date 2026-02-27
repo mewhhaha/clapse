@@ -18,6 +18,73 @@ const DEFAULT_SOURCE = `identity x = x
 main = identity 7
 `;
 
+const EXAMPLE_PROGRAMS = [
+  {
+    id: "identity",
+    label: "Identity",
+    source: `identity x = x
+
+main = identity 7
+`,
+  },
+  {
+    id: "factorial",
+    label: "Factorial (recursive)",
+    source: `factorial n = case eq n 0 of
+  true -> 1
+  _ -> mul n (factorial (sub n 1))
+
+main = factorial 8
+`,
+  },
+  {
+    id: "fibonacci",
+    label: "Fibonacci (recursive)",
+    source: `fibonacci n = case eq n 0 of
+  true -> 0
+  _ -> case eq n 1 of
+    true -> 1
+    _ -> add (fibonacci (sub n 1)) (fibonacci (sub n 2))
+
+main = fibonacci 10
+`,
+  },
+  {
+    id: "gcd",
+    label: "GCD (Euclid)",
+    source: `gcd a b = case eq b 0 of
+  true -> a
+  _ -> case eq a b of
+    true -> a
+    _ -> case lt a b of
+      true -> gcd b a
+      _ -> gcd (sub a b) b
+
+main = gcd 84 30
+`,
+  },
+  {
+    id: "sum_to_n",
+    label: "Sum to N",
+    source: `sum_to_n n = case eq n 0 of
+  true -> 0
+  _ -> add n (sum_to_n (sub n 1))
+
+main = sum_to_n 10
+`,
+  },
+  {
+    id: "pow",
+    label: "Power",
+    source: `pow base exp = case eq exp 0 of
+  true -> 1
+  _ -> mul base (pow base (sub exp 1))
+
+main = pow 3 10
+`,
+  },
+];
+
 const state = {
   releases: [],
   releaseByTag: new Map(),
@@ -25,17 +92,32 @@ const state = {
   running: false,
   compileQueued: false,
   compileTimer: null,
+  autoRun: true,
+  formatOnRun: false,
+  activeTab: "compile",
   downloadUrl: null,
 };
 
 const elements = {
+  programSelect: document.getElementById("program-select"),
   releaseSelect: document.getElementById("release-select"),
   releaseLink: document.getElementById("release-link"),
   releaseStatus: document.getElementById("release-status"),
   sourceCode: document.getElementById("source-code"),
+  sourceHighlight: document.getElementById("source-highlight"),
+  sourceHighlightCode: document.getElementById("source-highlight-code"),
+  autoRun: document.getElementById("auto-run"),
+  runButton: document.getElementById("run-button"),
+  formatButton: document.getElementById("format-button"),
+  settingsAutoRun: document.getElementById("settings-auto-run"),
+  settingsFormatOnRun: document.getElementById("settings-format-on-run"),
+  settingsHighlightNote: document.getElementById("settings-highlight-note"),
   irOutput: document.getElementById("ir-output"),
-  wasmOutput: document.getElementById("wasm-output"),
+  compileOutput: document.getElementById("compile-output"),
+  problemsOutput: document.getElementById("problems-output"),
   wasmDownload: document.getElementById("wasm-download"),
+  tabButtons: [...document.querySelectorAll("[data-tab-target]")],
+  tabPanels: [...document.querySelectorAll("[data-tab-panel]")],
 };
 
 main().catch((err) => {
@@ -44,24 +126,175 @@ main().catch((err) => {
 
 async function main() {
   elements.sourceCode.value = DEFAULT_SOURCE;
+  renderProgramSelect();
+  renderSourceHighlight();
   bindEvents();
+  setAutoRun(true);
+  setFormatOnRun(false);
+  setActiveTab("compile");
   await loadReleases();
 }
 
 function bindEvents() {
+  elements.runButton.addEventListener("click", () => {
+    cancelScheduledCompile();
+    void runCompile({ forceFormat: false });
+  });
+
+  elements.formatButton.addEventListener("click", () => {
+    void runFormatOnly();
+  });
+
   elements.releaseSelect.addEventListener("change", () => {
     syncReleaseLink();
-    scheduleCompile(10);
+    updateHighlightAvailability();
+    scheduleCompile(15);
+  });
+
+  elements.programSelect.addEventListener("change", () => {
+    applySelectedProgram();
   });
 
   elements.sourceCode.addEventListener("input", () => {
-    scheduleCompile();
+    renderSourceHighlight();
+    if (state.autoRun) {
+      scheduleCompile();
+    }
+  });
+
+  elements.sourceCode.addEventListener("scroll", () => {
+    syncSourceHighlightScroll();
+  });
+
+  elements.autoRun.addEventListener("change", () => {
+    setAutoRun(elements.autoRun.checked);
+    if (state.autoRun) {
+      scheduleCompile(15);
+    }
+  });
+
+  elements.settingsAutoRun.addEventListener("change", () => {
+    setAutoRun(elements.settingsAutoRun.checked);
+    if (state.autoRun) {
+      scheduleCompile(15);
+    }
+  });
+
+  elements.settingsFormatOnRun.addEventListener("change", () => {
+    setFormatOnRun(elements.settingsFormatOnRun.checked);
+  });
+
+  for (const button of elements.tabButtons) {
+    button.addEventListener("click", () => {
+      const tab = button.dataset.tabTarget ?? "compile";
+      setActiveTab(tab);
+    });
+  }
+
+  globalThis.addEventListener("keydown", (event) => {
+    if (!(event.ctrlKey || event.metaKey)) {
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      cancelScheduledCompile();
+      void runCompile({ forceFormat: false });
+      return;
+    }
+    if (event.key.toLowerCase() === "s") {
+      event.preventDefault();
+      void runFormatOnly();
+    }
   });
 }
 
+function renderProgramSelect() {
+  elements.programSelect.innerHTML = "";
+
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Example Programs";
+  elements.programSelect.append(placeholder);
+
+  for (const program of EXAMPLE_PROGRAMS) {
+    const option = document.createElement("option");
+    option.value = program.id;
+    option.textContent = program.label;
+    elements.programSelect.append(option);
+  }
+
+  elements.programSelect.value = "";
+}
+
+function applySelectedProgram() {
+  const selectedId = elements.programSelect.value;
+  if (selectedId.length === 0) {
+    return;
+  }
+
+  const program = EXAMPLE_PROGRAMS.find((entry) => entry.id === selectedId);
+  if (!program) {
+    return;
+  }
+
+  elements.sourceCode.value = program.source;
+  renderSourceHighlight();
+  elements.sourceCode.focus();
+  setStatus(`Loaded example: ${program.label}.`);
+  if (state.autoRun) {
+    scheduleCompile(15);
+  }
+}
+
+function setActiveTab(tab) {
+  state.activeTab = tab;
+  for (const button of elements.tabButtons) {
+    const target = button.dataset.tabTarget;
+    button.classList.toggle("is-active", target === tab);
+    button.setAttribute("aria-selected", target === tab ? "true" : "false");
+  }
+  for (const panel of elements.tabPanels) {
+    const panelTab = panel.dataset.tabPanel;
+    const active = panelTab === tab;
+    panel.classList.toggle("is-active", active);
+    panel.hidden = !active;
+  }
+}
+
+function setAutoRun(enabled) {
+  state.autoRun = enabled;
+  elements.autoRun.checked = enabled;
+  elements.settingsAutoRun.checked = enabled;
+}
+
+function setFormatOnRun(enabled) {
+  state.formatOnRun = enabled;
+  elements.settingsFormatOnRun.checked = enabled;
+}
+
+function scheduleCompile(delayMs = AUTO_COMPILE_DELAY_MS) {
+  if (!state.autoRun) {
+    return;
+  }
+  if (state.compileTimer !== null) {
+    clearTimeout(state.compileTimer);
+  }
+  state.compileTimer = setTimeout(() => {
+    state.compileTimer = null;
+    void runCompile({ forceFormat: false });
+  }, delayMs);
+}
+
+function cancelScheduledCompile() {
+  if (state.compileTimer !== null) {
+    clearTimeout(state.compileTimer);
+    state.compileTimer = null;
+  }
+}
+
 async function loadReleases() {
-  setControlsDisabled(true);
   setStatus("Loading GitHub releases...");
+  setControlsBusy(true);
   try {
     const releases = await fetchReleaseMetadata();
     if (releases.length === 0) {
@@ -73,12 +306,15 @@ async function loadReleases() {
     );
     renderReleaseSelect(releases);
     syncReleaseLink();
-    setStatus(`Loaded ${releases.length} release(s) from GitHub.`);
-    scheduleCompile(10);
+    updateHighlightAvailability();
+    setStatus(`Loaded ${releases.length} release(s).`);
+    scheduleCompile(25);
   } catch (err) {
     setStatus(errorMessage(err));
+    renderProblems([`Release load failed: ${errorMessage(err)}`]);
+    setActiveTab("problems");
   } finally {
-    setControlsDisabled(false);
+    setControlsBusy(false);
   }
 }
 
@@ -113,8 +349,19 @@ function hasOption(selectEl, value) {
 
 function syncReleaseLink() {
   const release = state.releaseByTag.get(elements.releaseSelect.value);
-  const href = release?.htmlUrl ?? RELEASES_PAGE;
-  elements.releaseLink.href = href;
+  elements.releaseLink.href = release?.htmlUrl ?? RELEASES_PAGE;
+}
+
+function updateHighlightAvailability() {
+  const tag = elements.releaseSelect.value;
+  const hasTreeSitterAsset = releaseHasTreeSitterAsset(tag);
+  if (hasTreeSitterAsset) {
+    elements.settingsHighlightNote.textContent =
+      "Release includes a Tree-sitter asset; syntax mode can be upgraded once parser integration is added.";
+    return;
+  }
+  elements.settingsHighlightNote.textContent =
+    "Current releases do not include a Tree-sitter grammar wasm asset, so editor highlighting uses the built-in tokenizer.";
 }
 
 async function fetchReleaseMetadata() {
@@ -132,10 +379,7 @@ async function fetchReleaseMetadata() {
 
   const releases = [];
   for (const entry of payload) {
-    if (!entry || typeof entry !== "object") {
-      continue;
-    }
-    if (entry.draft === true) {
+    if (!entry || typeof entry !== "object" || entry.draft === true) {
       continue;
     }
     const tag = String(entry.tag_name ?? "").trim();
@@ -169,7 +413,64 @@ function formatDate(raw) {
   return new Date(parsed).toISOString().slice(0, 10);
 }
 
-async function runCompile() {
+function releaseHasTreeSitterAsset(tag) {
+  const release = state.releaseByTag.get(tag);
+  if (!release || !Array.isArray(release.assets)) {
+    return false;
+  }
+  return release.assets.some((asset) => {
+    const name = String(asset?.name ?? "").toLowerCase();
+    return name.includes("tree-sitter") && name.endsWith(".wasm");
+  });
+}
+
+async function runFormatOnly() {
+  const tag = elements.releaseSelect.value;
+  if (!tag) {
+    setStatus("Select a release first.");
+    return;
+  }
+
+  if (state.running) {
+    state.compileQueued = true;
+    return;
+  }
+
+  state.running = true;
+  setControlsBusy(true);
+  setStatus(`Formatting with release ${tag}...`);
+
+  try {
+    const session = await createCompilerSession(tag);
+    const formatResult = callFormat(session, elements.sourceCode.value);
+    if (!formatResult.ok) {
+      renderProblems([`Format failed: ${formatResult.error}`]);
+      setStatus(`Format failed: ${formatResult.error}`);
+      setActiveTab("problems");
+      return;
+    }
+
+    if (formatResult.formatted !== null) {
+      elements.sourceCode.value = formatResult.formatted;
+      renderSourceHighlight();
+    }
+    renderProblems(["No problems."]);
+    setStatus(`Formatted using ${tag}.`);
+    if (state.autoRun) {
+      scheduleCompile(20);
+    }
+  } catch (err) {
+    const message = errorMessage(err);
+    setStatus(`Format failed: ${message}`);
+    renderProblems([`Format failed: ${message}`]);
+    setActiveTab("problems");
+  } finally {
+    state.running = false;
+    setControlsBusy(false);
+  }
+}
+
+async function runCompile({ forceFormat = false } = {}) {
   if (state.running) {
     state.compileQueued = true;
     return;
@@ -182,21 +483,33 @@ async function runCompile() {
   }
 
   state.running = true;
-  setStatus(`Compiling with release ${tag}...`);
-  elements.irOutput.textContent = "Running selfhost-artifacts...";
-  elements.wasmOutput.textContent = "Running compile...";
+  setControlsBusy(true);
+  setStatus(`Compiling with ${tag}...`);
   setDownloadLink(null, null);
+
+  const problems = [];
 
   try {
     const session = await createCompilerSession(tag);
-    const source = elements.sourceCode.value;
+    let source = elements.sourceCode.value;
 
-    const artifactsResponse = await session.call({
+    if (forceFormat || state.formatOnRun) {
+      const formatResult = callFormat(session, source);
+      if (formatResult.ok && formatResult.formatted !== null) {
+        source = formatResult.formatted;
+        elements.sourceCode.value = source;
+        renderSourceHighlight();
+      } else if (!formatResult.ok) {
+        problems.push(`Format failed: ${formatResult.error}`);
+      }
+    }
+
+    const artifactsResponse = session.call({
       command: "selfhost-artifacts",
       input_path: "repl/input.clapse",
       input_source: source,
     });
-    const compileResponse = await session.call({
+    const compileResponse = session.call({
       command: "compile",
       input_path: "repl/input.clapse",
       input_source: source,
@@ -216,45 +529,328 @@ async function runCompile() {
       collapsedIr,
     ].join("\n");
 
-    if (compileResponse && compileResponse.ok === true) {
+    if (artifactsResponse?.ok !== true) {
+      problems.push(
+        `IR generation failed: ${formatResponseError(artifactsResponse)}`,
+      );
+    }
+
+    if (compileResponse?.ok === true) {
       const wasmBase64 = String(compileResponse.wasm_base64 ?? "");
       if (wasmBase64.length === 0) {
-        elements.wasmOutput.textContent =
+        elements.compileOutput.textContent =
           "Compile succeeded but wasm_base64 was empty.";
+        problems.push("Compile succeeded with empty wasm_base64.");
       } else {
         const wasmBytes = decodeWasmBase64(wasmBase64);
         setDownloadLink(tag, wasmBytes);
-        elements.wasmOutput.textContent = [
+        const exportsList = normalizeExports(compileResponse.exports);
+        elements.compileOutput.textContent = [
           `ok: true`,
           `release: ${tag}`,
           `bytes: ${wasmBytes.length}`,
           `fnv1a32: ${fnv1aHex(wasmBytes)}`,
+          exportsList.length > 0
+            ? `exports: ${
+              exportsList.map((entry) => `${entry.name}/${entry.arity}`).join(
+                ", ",
+              )
+            }`
+            : "exports: (none)",
           "",
           "wasm_base64_preview",
           previewText(wasmBase64, 2200),
         ].join("\n");
       }
     } else {
-      elements.wasmOutput.textContent = formatResponseError(compileResponse);
+      const compileError = formatResponseError(compileResponse);
+      elements.compileOutput.textContent = compileError;
+      problems.push(`Compile failed: ${compileError}`);
     }
 
-    const compileOk = Boolean(compileResponse?.ok === true);
-    const artifactsOk = Boolean(artifactsResponse?.ok === true);
-    setStatus(
-      `Done for ${tag} (compile ok: ${String(compileOk)}, artifacts ok: ${
-        String(artifactsOk)
-      }).`,
-    );
+    if (problems.length === 0) {
+      renderProblems(["No problems."]);
+      setStatus(`Compiled ${tag} successfully.`);
+      if (state.activeTab === "problems") {
+        setActiveTab("compile");
+      }
+    } else {
+      renderProblems(problems);
+      setStatus(`Finished ${tag} with ${problems.length} problem(s).`);
+      setActiveTab("problems");
+    }
   } catch (err) {
-    setStatus(`Compile failed: ${errorMessage(err)}`);
-    elements.wasmOutput.textContent = "Compile failed. See status above.";
+    const message = errorMessage(err);
+    setStatus(`Compile failed: ${message}`);
+    elements.compileOutput.textContent = `Compile failed.\n${message}`;
+    renderProblems([`Compile failed: ${message}`]);
+    setActiveTab("problems");
   } finally {
     state.running = false;
+    setControlsBusy(false);
     if (state.compileQueued) {
       state.compileQueued = false;
-      void runCompile();
+      void runCompile({ forceFormat: false });
     }
   }
+}
+
+function normalizeExports(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const out = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      continue;
+    }
+    const name = String(item.name ?? "").trim();
+    const arity = Number(item.arity);
+    if (name.length === 0 || !Number.isInteger(arity) || arity < 0) {
+      continue;
+    }
+    out.push({ name, arity });
+  }
+  return out;
+}
+
+function callFormat(session, source) {
+  const attempts = [
+    {
+      command: "format",
+      input_path: "repl/input.clapse",
+      input_source: source,
+      mode: "stdout",
+    },
+    {
+      command: "format",
+      input_path: "repl/input.clapse",
+      input_source: source,
+    },
+  ];
+
+  let lastError = "format command failed";
+  for (const request of attempts) {
+    const response = session.call(request);
+    if (!response || typeof response !== "object" || Array.isArray(response)) {
+      lastError = "format response was not an object";
+      continue;
+    }
+    if (response.ok !== true) {
+      lastError = String(response.error ?? "format failed");
+      continue;
+    }
+    const formatted = extractFormattedText(response);
+    if (formatted !== null) {
+      return { ok: true, formatted };
+    }
+    return { ok: true, formatted: source };
+  }
+  return { ok: false, error: lastError };
+}
+
+function extractFormattedText(response) {
+  const directKeys = [
+    "formatted",
+    "output_source",
+    "output",
+    "source",
+    "text",
+  ];
+  for (const key of directKeys) {
+    const value = response[key];
+    if (typeof value === "string") {
+      return value;
+    }
+  }
+  if (response.result && typeof response.result === "object") {
+    for (const key of directKeys) {
+      const nested = response.result[key];
+      if (typeof nested === "string") {
+        return nested;
+      }
+    }
+  }
+  return null;
+}
+
+function renderProblems(lines) {
+  const filtered = lines.filter((line) => String(line).trim().length > 0);
+  elements.problemsOutput.textContent = filtered.length > 0
+    ? filtered.join("\n\n")
+    : "No problems.";
+}
+
+function renderSourceHighlight() {
+  const source = elements.sourceCode.value;
+  if (source.length === 0) {
+    elements.sourceHighlightCode.innerHTML = "\n";
+  } else {
+    elements.sourceHighlightCode.innerHTML = highlightSourceToHtml(source);
+  }
+  syncSourceHighlightScroll();
+}
+
+function syncSourceHighlightScroll() {
+  elements.sourceHighlight.scrollTop = elements.sourceCode.scrollTop;
+  elements.sourceHighlight.scrollLeft = elements.sourceCode.scrollLeft;
+}
+
+function highlightSourceToHtml(source) {
+  const lines = source.split("\n");
+  return lines.map((line) => highlightLine(line)).join("\n");
+}
+
+function highlightLine(line) {
+  const keywords = new Set([
+    "module",
+    "let",
+    "switch",
+    "if",
+    "then",
+    "else",
+    "type",
+    "data",
+    "primitive",
+    "where",
+    "import",
+    "export",
+    "match",
+    "case",
+    "of",
+    "do",
+    "in",
+    "true",
+    "false",
+  ]);
+  const operators = [
+    "=>",
+    "->",
+    "::",
+    "==",
+    "!=",
+    "<=",
+    ">=",
+    "||",
+    "&&",
+    ">>=",
+    ">>",
+    "<$>",
+    "<$",
+    "<*>",
+    "<*",
+    "*>",
+    "<|>",
+    "=",
+    "+",
+    "-",
+    "*",
+    "/",
+    "<",
+    ">",
+    "|",
+    "&",
+    "!",
+    ":",
+    ",",
+    ".",
+    "(",
+    ")",
+    "{",
+    "}",
+    "[",
+    "]",
+  ];
+
+  let out = "";
+  let i = 0;
+  while (i < line.length) {
+    if (line.startsWith("//", i) || line.startsWith("--", i)) {
+      out += wrapToken("tok-comment", line.slice(i));
+      break;
+    }
+
+    const ch = line[i];
+    if (ch === "'" || ch === '"') {
+      const quote = ch;
+      let j = i + 1;
+      while (j < line.length) {
+        if (line[j] === "\\" && j + 1 < line.length) {
+          j += 2;
+          continue;
+        }
+        if (line[j] === quote) {
+          j += 1;
+          break;
+        }
+        j += 1;
+      }
+      out += wrapToken("tok-string", line.slice(i, j));
+      i = j;
+      continue;
+    }
+
+    if (/\d/.test(ch)) {
+      let j = i + 1;
+      while (j < line.length && /[\d_]/.test(line[j])) {
+        j += 1;
+      }
+      out += wrapToken("tok-number", line.slice(i, j));
+      i = j;
+      continue;
+    }
+
+    if (/[A-Za-z_]/.test(ch)) {
+      let j = i + 1;
+      while (j < line.length && /[A-Za-z0-9_']/.test(line[j])) {
+        j += 1;
+      }
+      const word = line.slice(i, j);
+      if (keywords.has(word)) {
+        out += wrapToken("tok-keyword", word);
+      } else if (/^[A-Z]/.test(word)) {
+        out += wrapToken("tok-type", word);
+      } else if (looksLikeFunctionName(line, i, j)) {
+        out += wrapToken("tok-function", word);
+      } else {
+        out += escapeHtml(word);
+      }
+      i = j;
+      continue;
+    }
+
+    const operator = operators.find((op) => line.startsWith(op, i));
+    if (operator) {
+      out += wrapToken("tok-operator", operator);
+      i += operator.length;
+      continue;
+    }
+
+    out += escapeHtml(ch);
+    i += 1;
+  }
+
+  return out;
+}
+
+function looksLikeFunctionName(line, start, end) {
+  const before = line.slice(0, start).trim();
+  if (before.length > 0) {
+    return false;
+  }
+  const after = line.slice(end);
+  return /\s*=/.test(after);
+}
+
+function wrapToken(className, text) {
+  return `<span class="${className}">${escapeHtml(text)}</span>`;
+}
+
+function escapeHtml(text) {
+  return text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 function previewText(text, limit) {
@@ -336,7 +932,7 @@ async function loadCompilerRecord(tag) {
     return state.compilerByTag.get(tag);
   }
 
-  const candidates = resolveCompilerAssetUrl(tag);
+  const candidates = resolveCompilerAssetUrls(tag);
   let wasmBytes = null;
   let selectedUrl = "";
   const errors = [];
@@ -392,7 +988,7 @@ async function loadCompilerRecord(tag) {
   return record;
 }
 
-function resolveCompilerAssetUrl(tag) {
+function resolveCompilerAssetUrls(tag) {
   const release = state.releaseByTag.get(tag);
   if (!release) {
     throw new Error(`Release ${tag} is not loaded in the dropdown.`);
@@ -410,9 +1006,7 @@ function resolveCompilerAssetUrl(tag) {
   }
   urls.push(
     `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${
-      encodeURIComponent(
-        tag,
-      )
+      encodeURIComponent(tag)
     }/artifacts/latest/clapse_compiler.wasm`,
   );
   return urls;
@@ -445,18 +1039,10 @@ function buildStubImports(imports) {
   return out;
 }
 
-function setControlsDisabled(disabled) {
-  elements.releaseSelect.disabled = disabled;
-}
-
-function scheduleCompile(delayMs = AUTO_COMPILE_DELAY_MS) {
-  if (state.compileTimer !== null) {
-    clearTimeout(state.compileTimer);
-  }
-  state.compileTimer = setTimeout(() => {
-    state.compileTimer = null;
-    void runCompile();
-  }, delayMs);
+function setControlsBusy(busy) {
+  elements.releaseSelect.disabled = busy;
+  elements.runButton.disabled = busy;
+  elements.formatButton.disabled = busy;
 }
 
 function setStatus(message) {

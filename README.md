@@ -6,10 +6,16 @@ It provides:
 
 - release-aware compiler selection from GitHub Releases,
 - a browser pipeline for `code -> IR -> wasm`,
-- auto-compile on code or release changes (no compile button),
-- a sticky top header with release controls and release link,
-- three side-by-side panes that fill the viewport (`Code` editable; `IR`/`Wasm`
-  read-only).
+- a compact sticky control strip with `Auto-run`, `Run`, `Format`, release
+  picker, example-program picker, and release link,
+- a two-column workspace: source editor on the left and tabbed output on the
+  right,
+- right-side tabs for `IR`, `Compile`, `Problems`, and `Settings`,
+- live source syntax highlighting in the editor overlay,
+- current highlight mode uses an in-browser tokenizer (release assets currently
+  do not include a Tree-sitter grammar wasm),
+- auto-compile on edits and release changes when auto-run is enabled.
+- choosing an example program replaces the source editor text.
 - built with Deno Fresh.
 
 ## Files
