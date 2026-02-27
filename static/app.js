@@ -4,8 +4,14 @@ const RELEASES_API =
   `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=50`;
 const RELEASES_PAGE =
   `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
+const MIN_SUPPORTED_RELEASE_TAG = "v0.1.0.12";
+const MIN_SUPPORTED_RELEASE_VERSION = parseReleaseVersion(
+  MIN_SUPPORTED_RELEASE_TAG,
+);
 const COMPILER_ASSET_NAME = "clapse_compiler.wasm";
 const COMPILER_ASSET_SUFFIX = "/artifacts/latest/clapse_compiler.wasm";
+const PRELUDE_ASSET_NAME = "prelude.clapse";
+const PRELUDE_ASSET_SUFFIX = "/artifacts/latest/prelude.clapse";
 const AUTO_COMPILE_DELAY_MS = 380;
 const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder();
@@ -89,12 +95,15 @@ const state = {
   releases: [],
   releaseByTag: new Map(),
   compilerByTag: new Map(),
+  preludeByTag: new Map(),
   running: false,
   compileQueued: false,
   compileTimer: null,
+  preludeLoadTicket: 0,
   autoRun: true,
   formatOnRun: false,
   activeTab: "compile",
+  activeSourceTab: "code",
   downloadUrl: null,
 };
 
@@ -106,6 +115,7 @@ const elements = {
   sourceCode: document.getElementById("source-code"),
   sourceHighlight: document.getElementById("source-highlight"),
   sourceHighlightCode: document.getElementById("source-highlight-code"),
+  preludeOutput: document.getElementById("prelude-output"),
   autoRun: document.getElementById("auto-run"),
   runButton: document.getElementById("run-button"),
   formatButton: document.getElementById("format-button"),
@@ -116,6 +126,8 @@ const elements = {
   compileOutput: document.getElementById("compile-output"),
   problemsOutput: document.getElementById("problems-output"),
   wasmDownload: document.getElementById("wasm-download"),
+  sourceTabButtons: [...document.querySelectorAll("[data-source-tab-target]")],
+  sourceTabPanels: [...document.querySelectorAll("[data-source-tab-panel]")],
   tabButtons: [...document.querySelectorAll("[data-tab-target]")],
   tabPanels: [...document.querySelectorAll("[data-tab-panel]")],
 };
@@ -131,6 +143,7 @@ async function main() {
   bindEvents();
   setAutoRun(true);
   setFormatOnRun(false);
+  setActiveSourceTab("code");
   setActiveTab("compile");
   await loadReleases();
 }
@@ -148,12 +161,20 @@ function bindEvents() {
   elements.releaseSelect.addEventListener("change", () => {
     syncReleaseLink();
     updateHighlightAvailability();
+    void refreshPreludeForSelectedRelease();
     scheduleCompile(15);
   });
 
   elements.programSelect.addEventListener("change", () => {
     applySelectedProgram();
   });
+
+  for (const button of elements.sourceTabButtons) {
+    button.addEventListener("click", () => {
+      const tab = button.dataset.sourceTabTarget ?? "code";
+      setActiveSourceTab(tab);
+    });
+  }
 
   elements.sourceCode.addEventListener("input", () => {
     renderSourceHighlight();
@@ -261,6 +282,21 @@ function setActiveTab(tab) {
   }
 }
 
+function setActiveSourceTab(tab) {
+  state.activeSourceTab = tab;
+  for (const button of elements.sourceTabButtons) {
+    const target = button.dataset.sourceTabTarget;
+    button.classList.toggle("is-active", target === tab);
+    button.setAttribute("aria-selected", target === tab ? "true" : "false");
+  }
+  for (const panel of elements.sourceTabPanels) {
+    const panelTab = panel.dataset.sourceTabPanel;
+    const active = panelTab === tab;
+    panel.classList.toggle("is-active", active);
+    panel.hidden = !active;
+  }
+}
+
 function setAutoRun(enabled) {
   state.autoRun = enabled;
   elements.autoRun.checked = enabled;
@@ -298,7 +334,9 @@ async function loadReleases() {
   try {
     const releases = await fetchReleaseMetadata();
     if (releases.length === 0) {
-      throw new Error("No non-draft releases were returned by GitHub.");
+      throw new Error(
+        `No supported releases were returned by GitHub. Requires tag >= ${MIN_SUPPORTED_RELEASE_TAG} with compiler + prelude assets.`,
+      );
     }
     state.releases = releases;
     state.releaseByTag = new Map(
@@ -307,7 +345,10 @@ async function loadReleases() {
     renderReleaseSelect(releases);
     syncReleaseLink();
     updateHighlightAvailability();
-    setStatus(`Loaded ${releases.length} release(s).`);
+    await refreshPreludeForSelectedRelease();
+    setStatus(
+      `Loaded ${releases.length} supported release(s) (>= ${MIN_SUPPORTED_RELEASE_TAG}).`,
+    );
     scheduleCompile(25);
   } catch (err) {
     setStatus(errorMessage(err));
@@ -386,11 +427,15 @@ async function fetchReleaseMetadata() {
     if (tag.length === 0) {
       continue;
     }
+    const assets = Array.isArray(entry.assets) ? entry.assets : [];
+    if (!isSupportedRelease(tag, assets)) {
+      continue;
+    }
     releases.push({
       tag,
       publishedAt: String(entry.published_at ?? entry.created_at ?? ""),
       htmlUrl: String(entry.html_url ?? `${RELEASES_PAGE}/tag/${tag}`),
-      assets: Array.isArray(entry.assets) ? entry.assets : [],
+      assets,
     });
   }
 
@@ -422,6 +467,59 @@ function releaseHasTreeSitterAsset(tag) {
     const name = String(asset?.name ?? "").toLowerCase();
     return name.includes("tree-sitter") && name.endsWith(".wasm");
   });
+}
+
+function parseReleaseVersion(tag) {
+  const normalized = String(tag).trim().replace(/^v/i, "");
+  if (!/^\d+(\.\d+)+$/.test(normalized)) {
+    return null;
+  }
+  const parts = normalized.split(".").map((part) => Number(part));
+  if (parts.some((part) => !Number.isInteger(part) || part < 0)) {
+    return null;
+  }
+  return parts;
+}
+
+function compareReleaseVersions(left, right) {
+  const len = Math.max(left.length, right.length);
+  for (let i = 0; i < len; i += 1) {
+    const a = left[i] ?? 0;
+    const b = right[i] ?? 0;
+    if (a !== b) {
+      return a - b;
+    }
+  }
+  return 0;
+}
+
+function hasAsset(assets, name, suffix) {
+  return assets.some((asset) => {
+    const assetName = String(asset?.name ?? "").trim();
+    return assetName === name || assetName.endsWith(suffix);
+  });
+}
+
+function isSupportedRelease(tag, assets) {
+  if (!MIN_SUPPORTED_RELEASE_VERSION) {
+    return false;
+  }
+  const releaseVersion = parseReleaseVersion(tag);
+  if (!releaseVersion) {
+    return false;
+  }
+  if (
+    compareReleaseVersions(releaseVersion, MIN_SUPPORTED_RELEASE_VERSION) < 0
+  ) {
+    return false;
+  }
+  const hasCompiler = hasAsset(
+    assets,
+    COMPILER_ASSET_NAME,
+    COMPILER_ASSET_SUFFIX,
+  );
+  const hasPrelude = hasAsset(assets, PRELUDE_ASSET_NAME, PRELUDE_ASSET_SUFFIX);
+  return hasCompiler && hasPrelude;
 }
 
 async function runFormatOnly() {
@@ -492,6 +590,8 @@ async function runCompile({ forceFormat = false } = {}) {
   try {
     const session = await createCompilerSession(tag);
     let source = elements.sourceCode.value;
+    const preludeSource = await loadPreludeSource(tag);
+    elements.preludeOutput.textContent = preludeSource;
 
     if (forceFormat || state.formatOnRun) {
       const formatResult = callFormat(session, source);
@@ -504,15 +604,17 @@ async function runCompile({ forceFormat = false } = {}) {
       }
     }
 
+    const compileSource = combinePreludeAndSource(preludeSource, source);
+
     const artifactsResponse = session.call({
       command: "selfhost-artifacts",
       input_path: "repl/input.clapse",
-      input_source: source,
+      input_source: compileSource,
     });
     const compileResponse = session.call({
       command: "compile",
       input_path: "repl/input.clapse",
-      input_source: source,
+      input_source: compileSource,
       plugin_wasm_paths: [],
     });
 
@@ -548,6 +650,9 @@ async function runCompile({ forceFormat = false } = {}) {
         elements.compileOutput.textContent = [
           `ok: true`,
           `release: ${tag}`,
+          `prelude_bytes: ${UTF8_ENCODER.encode(preludeSource).length}`,
+          `source_bytes: ${UTF8_ENCODER.encode(source).length}`,
+          `combined_bytes: ${UTF8_ENCODER.encode(compileSource).length}`,
           `bytes: ${wasmBytes.length}`,
           `fnv1a32: ${fnv1aHex(wasmBytes)}`,
           exportsList.length > 0
@@ -888,6 +993,45 @@ function formatResponseError(response) {
   return `ok: ${String(ok)}`;
 }
 
+function combinePreludeAndSource(preludeSource, source) {
+  const prelude = String(preludeSource ?? "").trimEnd();
+  const userSource = String(source ?? "");
+  if (prelude.length === 0) {
+    return userSource;
+  }
+  if (userSource.length === 0) {
+    return `${prelude}\n`;
+  }
+  return `${prelude}\n\n${userSource}`;
+}
+
+async function refreshPreludeForSelectedRelease() {
+  const tag = elements.releaseSelect.value;
+  const ticket = ++state.preludeLoadTicket;
+  if (!tag) {
+    elements.preludeOutput.textContent = "Select a release to load prelude.";
+    return;
+  }
+
+  elements.preludeOutput.textContent = `Loading prelude for ${tag}...`;
+  try {
+    const prelude = await loadPreludeSource(tag);
+    if (ticket !== state.preludeLoadTicket) {
+      return;
+    }
+    elements.preludeOutput.textContent = prelude.length > 0
+      ? prelude
+      : `(Prelude is empty for ${tag}.)`;
+  } catch (err) {
+    if (ticket !== state.preludeLoadTicket) {
+      return;
+    }
+    elements.preludeOutput.textContent = `Prelude load failed for ${tag}:\n${
+      errorMessage(err)
+    }`;
+  }
+}
+
 async function createCompilerSession(tag) {
   const record = await loadCompilerRecord(tag);
   const imports = buildStubImports(WebAssembly.Module.imports(record.module));
@@ -925,6 +1069,47 @@ async function createCompilerSession(tag) {
       }
     },
   };
+}
+
+async function loadPreludeSource(tag) {
+  if (state.preludeByTag.has(tag)) {
+    return state.preludeByTag.get(tag).source;
+  }
+
+  const candidates = resolvePreludeAssetUrls(tag);
+  let preludeText = null;
+  let selectedUrl = "";
+  const errors = [];
+
+  for (const url of candidates) {
+    try {
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) {
+        errors.push(`${url} -> HTTP ${response.status}`);
+        continue;
+      }
+      const text = await response.text();
+      if (text.trim().length === 0) {
+        errors.push(`${url} -> empty prelude`);
+        continue;
+      }
+      preludeText = text;
+      selectedUrl = url;
+      break;
+    } catch (err) {
+      errors.push(`${url} -> ${errorMessage(err)}`);
+    }
+  }
+
+  if (typeof preludeText !== "string") {
+    throw new Error(
+      `Failed to load prelude for ${tag}. Tried:\n${errors.join("\n")}`,
+    );
+  }
+
+  const record = { tag, source: preludeText, sourceUrl: selectedUrl };
+  state.preludeByTag.set(tag, record);
+  return preludeText;
 }
 
 async function loadCompilerRecord(tag) {
@@ -1012,6 +1197,30 @@ function resolveCompilerAssetUrls(tag) {
   return urls;
 }
 
+function resolvePreludeAssetUrls(tag) {
+  const release = state.releaseByTag.get(tag);
+  if (!release) {
+    throw new Error(`Release ${tag} is not loaded in the dropdown.`);
+  }
+
+  const assets = Array.isArray(release.assets) ? release.assets : [];
+  const match = assets.find((asset) => {
+    const name = String(asset?.name ?? "").trim();
+    return name === PRELUDE_ASSET_NAME || name.endsWith(PRELUDE_ASSET_SUFFIX);
+  });
+  const urls = [];
+  const assetUrl = String(match?.browser_download_url ?? "");
+  if (assetUrl.length > 0) {
+    urls.push(assetUrl);
+  }
+  urls.push(
+    `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${
+      encodeURIComponent(tag)
+    }/artifacts/latest/prelude.clapse`,
+  );
+  return urls;
+}
+
 function buildStubImports(imports) {
   const out = {};
   for (const entry of imports) {
@@ -1040,6 +1249,7 @@ function buildStubImports(imports) {
 }
 
 function setControlsBusy(busy) {
+  elements.programSelect.disabled = busy;
   elements.releaseSelect.disabled = busy;
   elements.runButton.disabled = busy;
   elements.formatButton.disabled = busy;

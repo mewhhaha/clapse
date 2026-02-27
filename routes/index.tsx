@@ -43,22 +43,61 @@ export default define.page(function Home() {
 
         <section class="workspace">
           <article class="panel editor-pane">
-            <h2>Source</h2>
-            <div class="pane-body source-editor-wrap">
-              <pre
-                id="source-highlight"
-                class="source-highlight"
-                aria-hidden="true"
+            <nav
+              class="tabs source-tabs"
+              role="tablist"
+              aria-label="Source tabs"
+            >
+              <button
+                type="button"
+                class="tab-button is-active"
+                data-source-tab-target="code"
+                aria-selected="true"
               >
-                <code id="source-highlight-code"></code>
-              </pre>
-              <textarea
-                id="source-code"
-                class="source-input"
-                spellcheck={false}
-                placeholder="Write Clapse code here..."
-              />
-            </div>
+                Code
+              </button>
+              <button
+                type="button"
+                class="tab-button"
+                data-source-tab-target="prelude"
+                aria-selected="false"
+              >
+                Prelude
+              </button>
+            </nav>
+
+            <section class="tab-panels source-tab-panels">
+              <section
+                class="tab-panel source-tab-panel is-active"
+                data-source-tab-panel="code"
+              >
+                <div class="pane-body source-editor-wrap">
+                  <pre
+                    id="source-highlight"
+                    class="source-highlight"
+                    aria-hidden="true"
+                  >
+                    <code id="source-highlight-code"></code>
+                  </pre>
+                  <textarea
+                    id="source-code"
+                    class="source-input"
+                    spellcheck={false}
+                    placeholder="Write Clapse code here..."
+                  />
+                </div>
+              </section>
+
+              <section
+                class="tab-panel source-tab-panel"
+                data-source-tab-panel="prelude"
+                hidden
+              >
+                <pre id="prelude-output" class="result-output prelude-output">
+                  Prelude will load from the selected release.
+                </pre>
+              </section>
+            </section>
           </article>
 
           <aside class="panel right-pane">

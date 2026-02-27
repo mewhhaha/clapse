@@ -28,12 +28,19 @@ When behavior changes, update this file first, then update code.
 
 - Release dropdown data comes from GitHub Releases metadata:
   `https://api.github.com/repos/mewhhaha/clapse/releases`.
+- Supported releases must be `>= v0.1.0.12` and include both:
+  - `clapse_compiler.wasm`
+  - `prelude.clapse`
 - Selected release pages should open at:
   `https://github.com/mewhhaha/clapse/releases`.
 - Compiler wasm loading prefers release assets (`clapse_compiler.wasm`) via
   `browser_download_url`.
 - If asset download fails, loader falls back to tag path
   `artifacts/latest/clapse_compiler.wasm` for that selected release tag.
+- Prelude loading prefers release asset `prelude.clapse` via
+  `browser_download_url`.
+- If prelude asset download fails, loader falls back to tag path
+  `artifacts/latest/prelude.clapse` for that selected release tag.
 
 ## IR Contract
 
@@ -50,7 +57,9 @@ for this page.
 - Header is a compact sticky strip containing: `Auto-run`, `Run`, `Format`,
   example-program picker, release picker, release link, and status.
 - Main area is split into:
-  - left source editor pane (`Code`, editable),
+  - left source pane with tabs:
+    - `Code` (editable)
+    - `Prelude` (read-only)
   - right output pane with tabs.
 - Right output tabs are:
   - `IR`
@@ -74,6 +83,7 @@ for this page.
   auto-run is enabled.
 - Selecting an example program replaces source text and triggers a compile when
   auto-run is enabled.
+- Compile input source is `prelude.clapse` plus the current editor source.
 - Manual `Run` compiles immediately.
 - Manual `Format` runs compiler `format` request and can trigger follow-up
   compile via auto-run.

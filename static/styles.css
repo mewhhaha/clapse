@@ -186,17 +186,6 @@ textarea:focus {
   flex-direction: column;
 }
 
-.editor-pane h2 {
-  margin: 0;
-  padding: 0.5rem 0.65rem;
-  border-bottom: 1px solid var(--border);
-  color: var(--muted);
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  background: var(--surface-3);
-}
-
 .pane-body {
   flex: 1;
   min-height: 0;
@@ -204,6 +193,8 @@ textarea:focus {
 
 .source-editor-wrap {
   position: relative;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -291,6 +282,10 @@ textarea:focus {
   background: var(--surface-3);
 }
 
+.source-tabs {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .tab-button {
   border: 0;
   border-right: 1px solid rgba(42, 52, 95, 0.4);
@@ -322,11 +317,19 @@ textarea:focus {
   min-height: 0;
 }
 
+.source-tab-panels {
+  display: flex;
+}
+
 .tab-panel {
   height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+.source-tab-panel {
+  flex: 1;
 }
 
 .result-output {
@@ -345,6 +348,10 @@ textarea:focus {
   font-family: var(--mono);
   font-size: 0.81rem;
   line-height: 1.5;
+}
+
+.prelude-output {
+  background: #090e2a;
 }
 
 a[download] {
