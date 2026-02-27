@@ -202,3 +202,4 @@ When adding a new optimization family:
 
 - Root-shape class-law selection now dispatches deterministically by expression root bucket before fixed-point rule matching through root-kind tag checks (`CCompose`/`CMap`/boolean forms); this is an optimization of selection order only and does not change guard predicates, `ClassDispatch*` gating, or strict-decrease/cost policy.
 - `Other` is now an empty dispatch bucket because all active laws are root-specific (`CCompose`, `CMap`, boolean roots), so this is a scheduler-internal change and rewrite semantics are unchanged.
+- `And`/`Or` boolean dispatch now refines lookup with conservative-superset child-shape buckets: it gates only impossible candidate families before exact guard checks, so admissibility (`ClassDispatch*`, `class_law_rule_guard`, typed/effect/scope constraints) and fixed-point cost/policy behavior remain unchanged.
