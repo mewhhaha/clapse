@@ -168,12 +168,20 @@ The precomputed tables are deterministic, policy-agnostic, and only affect looku
 
 Class-law guard evaluation now caches before-cost signatures once per expression state during each rewrite pass and reuses them across candidate rule checks, reducing repeated signature work during fixed-point scheduling. This optimization changes only lookup/evaluation cost; rewrite semantics and class-law policies are unchanged.
 
+Scheduler execution also removes redundant internal work:
+
+- once `class_law_rule_guard_with_signature` succeeds for a `(rule, expr, signature)` step, the candidate rewrite now applies directly without a second guard pass on the same tuple.
+- post-rewrite redispatch no longer branches on dispatch-key equality when both branches select the same next rule bucket.
+
+These are execution-cost optimizations only; dispatch eligibility, strictness/cost policy, fixed-point bounds, and rewrite results are unchanged.
+
 State dispatch still uses root-kind first, then signature-family gating, then full guards; no `ClassDispatch*` eligibility or rewrite-policy semantics changed.
 `Other` is now an empty fallback bucket, and this is safe because all active laws are root-specific (`CCompose`, `CMap`, and boolean roots), so `Other` candidates are unreachable today. Rewrite semantics are unchanged.
 
 And/Or sub-dispatch adds a conservative-superset child-shape gate within boolean roots:
 - before checking per-rule candidates, `And`/`Or` expressions are grouped by child-shape family.
 - only buckets whose child-shape family could match are attempted; all remaining candidates still pass unchanged `class_law_rule_guard` and dispatch-mode checks.
+- `And`/`Or` child-shape checks now reuse one cached `(has_and, has_or)` pair per child root-kind instead of repeating root-kind case checks in each branch, and this changes only execution cost.
 - this is lookup pruning only: strictness/cost policy, dispatch-mode, fixed-point bounds, and rewrite outcomes are unchanged.
 
 This optimization does **not** change class-law policy behavior:

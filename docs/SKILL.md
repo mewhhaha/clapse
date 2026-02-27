@@ -86,6 +86,7 @@ The command returns a single compile response with:
   `examples/selfhost_behavior_corpus.json` when clause-demand semantics or
   declaration-order tie-break behavior changes.
 - Record class-law signature caching where applied: class-law pass signatures are cached as before-cost values once per expression state during each rewrite pass and reused across guard checks; this is a performance optimization with no rewrite-policy or semantics changes.
+- Record class-law scheduler micro-optimizations where applied: per-rule candidate rewrite now reuses the already-computed guard result (no duplicate guard pass on the same `(rule, expr, signature)`), and redispatch no longer branches on a dispatch-key equality check when both paths are identical; rewrite policy and semantics remain unchanged.
 - Keep strictness-mode derivation documented as dispatch-state/signature-family-driven: boolean class-law rewrites still require strict cost decrease, while compose/map rewrites continue to use bounded-growth policy only (`0`, `+1` only for map-fusion candidates); rewrite semantics unchanged.
 - Record dispatch-state-key refinement for scheduler redispatch: class-law in-pass keying now uses
   `(root-kind, signature-family)` and improves signature-aware selection correctness/performance.
@@ -254,3 +255,4 @@ Root-shape class-law dispatch now uses deterministic rule grouping by expression
 - Dispatch now also applies root-kind + signature-family pruning before member checks: Not/And/Or roots route only on `ClassMethodExprTypeBool` + pure effect, compose roots only on compose-pure, map roots only on functor-pure, while Bool/Var remain empty and `Other` is now empty.
 - `Other` is empty by construction because all current class-law families are root-specific (`CCompose`, `CMap`, boolean roots); this change is a scheduling/refinement swap only and does not alter rewrite semantics.
 - And/Or sub-dispatch now applies conservative-superset child-shape pruning before per-rule checks; it only shrinks impossible candidate families and leaves `class_law_rule_guard`, strictness cost policy, `ClassDispatch*` eligibility, and rewrite semantics unchanged.
+- And/Or sub-dispatch now also caches per-child root-shape flags once (`has_and/has_or` inputs) and reuses them across rule-group checks, which is execution-cost-only and does not change guard policy or rewrite outcomes.

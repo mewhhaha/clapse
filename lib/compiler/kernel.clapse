@@ -180,22 +180,8 @@ class_law_rules_for_dispatch_key_with_shape key expr =
                 CAnd left right ->
                   let left_root = class_method_expr_root_kind left
                   let right_root = class_method_expr_root_kind right
-                  let has_left_and =
-                    case left_root of
-                      ClassMethodExprRootKindAnd -> true
-                      _ -> false
-                  let has_right_and =
-                    case right_root of
-                      ClassMethodExprRootKindAnd -> true
-                      _ -> false
-                  let has_left_or =
-                    case left_root of
-                      ClassMethodExprRootKindOr -> true
-                      _ -> false
-                  let has_right_or =
-                    case right_root of
-                      ClassMethodExprRootKindOr -> true
-                      _ -> false
+                  let (has_left_and, has_left_or) = class_method_expr_child_root_shape_flags left_root
+                  let (has_right_and, has_right_or) = class_method_expr_child_root_shape_flags right_root
                   let has_and = has_left_and || has_right_and
                   let has_or = has_left_or || has_right_or
                   in case has_and of
@@ -216,22 +202,8 @@ class_law_rules_for_dispatch_key_with_shape key expr =
                 COr left right ->
                   let left_root = class_method_expr_root_kind left
                   let right_root = class_method_expr_root_kind right
-                  let has_left_and =
-                    case left_root of
-                      ClassMethodExprRootKindAnd -> true
-                      _ -> false
-                  let has_right_and =
-                    case right_root of
-                      ClassMethodExprRootKindAnd -> true
-                      _ -> false
-                  let has_left_or =
-                    case left_root of
-                      ClassMethodExprRootKindOr -> true
-                      _ -> false
-                  let has_right_or =
-                    case right_root of
-                      ClassMethodExprRootKindOr -> true
-                      _ -> false
+                  let (has_left_and, has_left_or) = class_method_expr_child_root_shape_flags left_root
+                  let (has_right_and, has_right_or) = class_method_expr_child_root_shape_flags right_root
                   let has_and = has_left_and || has_right_and
                   let has_or = has_left_or || has_right_or
                   in case has_and of
@@ -486,6 +458,12 @@ class_method_expr_root_kind expr =
     CBool _ -> ClassMethodExprRootKindBool
     CVar _ -> ClassMethodExprRootKindVar
     _ -> ClassMethodExprRootKindOther
+
+class_method_expr_child_root_shape_flags root_kind =
+  case root_kind of
+    ClassMethodExprRootKindAnd -> (true, false)
+    ClassMethodExprRootKindOr -> (false, true)
+    _ -> (false, false)
 
 class_law_rule_guard_with_signature rule expr signature =
   let is_bool_pure =
@@ -1053,7 +1031,7 @@ rewrite_class_law_rule_with_signature rule expr signature =
 apply_class_law_rule_once_with_signature rule expr signature before_cost strict_decrease =
   let candidate =
         case class_law_rule_guard_with_signature rule expr signature of
-          true -> rewrite_class_law_rule_with_signature rule expr signature
+          true -> rewrite_class_law_rule rule expr
           _ -> expr
       candidate_cost = class_method_expr_cost candidate
       cost_ok = class_law_expr_cost_ok expr candidate
@@ -1071,9 +1049,7 @@ rewrite_class_law_rules_once_list rules dispatch_key expr signature before_cost 
     ClassLawRuleListNode rule rest ->
       let expr1 = apply_class_law_rule_once_with_signature rule expr signature before_cost strict_decrease
       in case (expr1 == expr) of
-        true ->
-          let strict_decrease1 = class_law_dispatch_key_requires_strict_decrease dispatch_key
-          in rewrite_class_law_rules_once_list rest dispatch_key expr1 signature before_cost strict_decrease1
+        true -> rewrite_class_law_rules_once_list rest dispatch_key expr1 signature before_cost strict_decrease
         _ ->
           let signature1 = class_method_expr_signature expr1
           in
@@ -1083,21 +1059,13 @@ rewrite_class_law_rules_once_list rules dispatch_key expr signature before_cost 
           in
           let before_cost1 = class_method_expr_cost expr1
           in let strict_decrease1 = class_law_dispatch_key_requires_strict_decrease dispatch_key1
-      in case (dispatch_key1 == dispatch_key) of
-        true -> rewrite_class_law_rules_once_list
-          (class_law_rules_for_dispatch_key_with_shape dispatch_key1 expr1)
-          dispatch_key1
-          expr1
-          signature1
-          before_cost1
-          strict_decrease1
-        _ -> rewrite_class_law_rules_once_list
-              (class_law_rules_for_dispatch_key_with_shape dispatch_key1 expr1)
-              dispatch_key1
-              expr1
-              signature1
-              before_cost1
-              strict_decrease1
+          in rewrite_class_law_rules_once_list
+            (class_law_rules_for_dispatch_key_with_shape dispatch_key1 expr1)
+            dispatch_key1
+            expr1
+            signature1
+            before_cost1
+            strict_decrease1
 
 rewrite_class_law_expr_once expr =
   let expr1 = rewrite_bool_law_expr expr
