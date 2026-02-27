@@ -146,11 +146,14 @@ Current rule model used in the kernel rewrite path:
 
 Rule dispatch now first classifies the expression by root shape (for example `CCompose`, `CMap`, or boolean composition/operator shapes), then checks cached family signatures against candidate `ClassLawRule` buckets before probing members within the bucket.
 
-The scheduler now uses precomputed deterministic subset tables keyed by root kind (`compose`/`map`/`bool`) and signature family (`root-kind + signature`) for this dispatch decision, giving constant-time rule-group selection and reduced dispatch allocations while preserving candidate ordering within each bucket.
+The scheduler now uses precomputed deterministic subset tables keyed by the dispatch-state-key:
+`(root-kind, signature-family)` where `signature-family = root-kind + signature`.
+This gives constant-time, signature-aware rule-group selection and reduced dispatch allocations while preserving candidate ordering within each bucket.
 
 This gates impossible families early when the expression signature cannot match a rule family; candidates in excluded buckets are never checked, while `class_law_rule_guard` and policy gates remain unchanged.
 
-After a successful rewrite, the scheduler performs an immediate root-shape re-dispatch before the next fixed-point step so subsequent candidates are selected against the current expression root. This is a scheduling optimization only and preserves deterministic ordering semantics.
+After a successful rewrite, the scheduler performs an immediate redispatch using the current dispatch-state-key before the next fixed-point step so subsequent candidates are selected against the updated expression root/signature.
+This is a scheduler correction/performance optimization only and preserves deterministic ordering semantics.
 
 The precomputed tables are deterministic, policy-agnostic, and only affect lookup machinery; they do not alter dispatch eligibility, `class_law_rule_guard` outcomes, static/dynamic class dispatch gating, cost policy, or rewrite semantics.
 

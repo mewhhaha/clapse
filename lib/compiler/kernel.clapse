@@ -28,6 +28,11 @@ data ClassLawRule = LawComposeLeftIdentity | LawComposeRightIdentity | LawCompos
 data ClassMethodExprType = ClassMethodExprTypeBool | ClassMethodExprTypeFunctor | ClassMethodExprTypeCompose | ClassMethodExprTypeUnknown
 data ClassMethodExprEffect = ClassMethodExprEffectPure | ClassMethodExprEffectUnknown
 data ClassMethodExprSignature = ClassMethodExprSignature ClassMethodExprType ClassMethodExprEffect
+data ClassMethodExprSignatureFamily = ClassMethodExprSignatureFamilyBoolPure
+  | ClassMethodExprSignatureFamilyComposePure
+  | ClassMethodExprSignatureFamilyFunctorPure
+  | ClassMethodExprSignatureFamilyOther
+data ClassMethodExprDispatchKey = ClassMethodExprDispatchKey ClassMethodExprRootKind ClassMethodExprSignatureFamily
 data ClassLawRuleList = ClassLawRuleListNil | ClassLawRuleListNode ClassLawRule ClassLawRuleList
 data ClassMethodExprRootKind = ClassMethodExprRootKindNot | ClassMethodExprRootKindAnd | ClassMethodExprRootKindOr | ClassMethodExprRootKindCompose | ClassMethodExprRootKindMap | ClassMethodExprRootKindBool | ClassMethodExprRootKindVar | ClassMethodExprRootKindOther
 
@@ -119,6 +124,50 @@ class_method_expr_effect expr =
 
 class_method_expr_signature expr =
   ClassMethodExprSignature (class_method_expr_type expr) (class_method_expr_effect expr)
+
+class_method_expr_signature_family signature =
+  case signature of
+    ClassMethodExprSignature ClassMethodExprTypeBool ClassMethodExprEffectPure ->
+      ClassMethodExprSignatureFamilyBoolPure
+    ClassMethodExprSignature ClassMethodExprTypeCompose ClassMethodExprEffectPure ->
+      ClassMethodExprSignatureFamilyComposePure
+    ClassMethodExprSignature ClassMethodExprTypeFunctor ClassMethodExprEffectPure ->
+      ClassMethodExprSignatureFamilyFunctorPure
+    _ -> ClassMethodExprSignatureFamilyOther
+
+class_method_expr_dispatch_key root_kind signature =
+  ClassMethodExprDispatchKey root_kind (class_method_expr_signature_family signature)
+
+class_law_rules_for_dispatch_key key =
+  case key of
+    ClassMethodExprDispatchKey root_kind signature_family ->
+      case root_kind of
+        ClassMethodExprRootKindNot ->
+          case signature_family of
+            ClassMethodExprSignatureFamilyBoolPure -> class_law_rules_not
+            _ -> class_law_rules_empty
+        ClassMethodExprRootKindAnd ->
+          case signature_family of
+            ClassMethodExprSignatureFamilyBoolPure -> class_law_rules_and
+            _ -> class_law_rules_empty
+        ClassMethodExprRootKindOr ->
+          case signature_family of
+            ClassMethodExprSignatureFamilyBoolPure -> class_law_rules_or
+            _ -> class_law_rules_empty
+        ClassMethodExprRootKindCompose ->
+          case signature_family of
+            ClassMethodExprSignatureFamilyComposePure -> class_law_rules_compose
+            _ -> class_law_rules_empty
+        ClassMethodExprRootKindMap ->
+          case signature_family of
+            ClassMethodExprSignatureFamilyFunctorPure -> class_law_rules_map
+            _ -> class_law_rules_empty
+        ClassMethodExprRootKindBool ->
+          class_law_rules_empty
+        ClassMethodExprRootKindVar ->
+          class_law_rules_empty
+        ClassMethodExprRootKindOther ->
+          class_law_rules_full
 
 class_method_expr_signature_is_pure signature =
   case signature of
@@ -955,24 +1004,26 @@ apply_class_law_rule_once rule expr =
       before_cost = class_method_expr_cost expr
   in apply_class_law_rule_once_with_signature rule expr signature before_cost
 
-rewrite_class_law_rules_once_list rules root_kind expr signature before_cost =
+rewrite_class_law_rules_once_list rules dispatch_key expr signature before_cost =
   case rules of
     ClassLawRuleListNil -> expr
     ClassLawRuleListNode rule rest ->
       let expr1 = apply_class_law_rule_once_with_signature rule expr signature before_cost
       in case (expr1 == expr) of
-        true -> rewrite_class_law_rules_once_list rest root_kind expr1 signature before_cost
+        true -> rewrite_class_law_rules_once_list rest dispatch_key expr1 signature before_cost
         _ ->
           let signature1 = class_method_expr_signature expr1
           in
           let root_kind1 = class_method_expr_root_kind expr1
           in
+          let dispatch_key1 = class_method_expr_dispatch_key root_kind1 signature1
+          in
           let before_cost1 = class_method_expr_cost expr1
-      in case (root_kind1 == root_kind) of
-        true -> rewrite_class_law_rules_once_list rest root_kind1 expr1 signature1 before_cost1
-            _ -> rewrite_class_law_rules_once_list
-              (class_law_rules_for_state root_kind1 signature1)
-              root_kind1
+      in case (dispatch_key1 == dispatch_key) of
+        true -> rewrite_class_law_rules_once_list rest dispatch_key1 expr1 signature1 before_cost1
+        _ -> rewrite_class_law_rules_once_list
+              (class_law_rules_for_dispatch_key dispatch_key1)
+              dispatch_key1
               expr1
               signature1
               before_cost1
@@ -980,10 +1031,11 @@ rewrite_class_law_rules_once_list rules root_kind expr signature before_cost =
 rewrite_class_law_expr_once expr =
   let expr1 = rewrite_bool_law_expr expr
       signature1 = class_method_expr_signature expr1
+      dispatch_key1 = class_method_expr_dispatch_key (class_method_expr_root_kind expr1) signature1
       before_cost1 = class_method_expr_cost expr1
   in rewrite_class_law_rules_once_list
-    (class_law_rules_for_expr expr1 signature1)
-    (class_method_expr_root_kind expr1)
+    (class_law_rules_for_dispatch_key dispatch_key1)
+    dispatch_key1
     expr1
     signature1
     before_cost1
