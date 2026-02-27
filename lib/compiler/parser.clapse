@@ -11,6 +11,14 @@ data ClassEvidence = ClassEvidenceResolved | ClassEvidenceUnknown | ClassEvidenc
 parser_pure _ i _ = i
 parser_empty _ _ _ = -1
 
+parse_pos_to_maybe p =
+  case (p == -1) of
+    true -> Nothing
+    _ -> Just p
+
+parse_pos_from_maybe m =
+  maybe_with_default -1 m
+
 instance Functor parser where
   fmap = parser_map
 
@@ -38,15 +46,15 @@ class_dispatch_mode witness =
   case witness of
     ClassDispatchWitness mode -> mode
 
-class_dispatch_is_static mode =
-  case mode of
+class_dispatch_is_static dispatch =
+  case dispatch of
     ClassDispatchWitness ClassDispatchStatic -> true
-    _ -> false
+    ClassDispatchWitness ClassDispatchDynamic -> false
 
-class_dispatch_is_dynamic mode =
-  case mode of
+class_dispatch_is_dynamic dispatch =
+  case dispatch of
+    ClassDispatchWitness ClassDispatchStatic -> false
     ClassDispatchWitness ClassDispatchDynamic -> true
-    _ -> false
 
 class_evidence_from_fundep fundep_info =
   case fundep_info of
@@ -86,10 +94,9 @@ default_class_dispatch_from_evidence evidence =
 is_fail_pos p = (p == -1)
 
 parser_bind_with _dispatch p q src i len =
-  let next = p src i len
-  in case is_fail_pos next of
-    true -> -1
-    _ -> q src next len
+  let next_m = parse_pos_to_maybe (p src i len)
+      result_m = maybe_bind next_m (\next -> parse_pos_to_maybe (q src next len))
+  in parse_pos_from_maybe result_m
 
 parser_bind p q = parser_bind_with parser_dispatch_default p q
 
@@ -97,11 +104,10 @@ parser_then_with dispatch p q = parser_bind_with dispatch p q
 
 parser_then p q = parser_bind p q
 
-parser_map_with dispatch f p src i len =
-  let next = p src i len
-  in case is_fail_pos next of
-    true -> -1
-    _ -> f next
+parser_map_with _dispatch f p src i len =
+  let next_m = parse_pos_to_maybe (p src i len)
+      mapped = maybe_map f next_m
+  in parse_pos_from_maybe mapped
 
 parser_map f p = parser_map_with parser_dispatch_default f p
 
@@ -109,10 +115,9 @@ parser_ap_dispatch_with parser_dispatch p q src i len =
   parser_keep_right_with parser_dispatch p q src i len
 
 ap_with parser_dispatch evidence_a evidence_b fundep_info p q src i len =
-  let dispatch = infer_class_dispatch_applicative class_dispatch_static evidence_a evidence_b fundep_info
-  in case class_dispatch_mode dispatch of
-    ClassDispatchStatic -> parser_ap_dispatch_with parser_dispatch p q src i len
-    ClassDispatchDynamic -> parser_ap_dispatch_with parser_dispatch p q src i len
+  let _dispatch =
+        infer_class_dispatch_applicative class_dispatch_static evidence_a evidence_b fundep_info
+  in parser_ap_dispatch_with parser_dispatch p q src i len
 
 parser_ap_with dispatch p q src i len =
   ap_with dispatch ClassEvidenceResolved ClassEvidenceResolved class_fundep_metadata_default p q src i len
@@ -120,14 +125,13 @@ parser_ap_with dispatch p q src i len =
 parser_ap p q =
   ap_with parser_dispatch_default ClassEvidenceResolved ClassEvidenceResolved class_fundep_metadata_default p q
 
-parser_keep_left_with dispatch p q src i len =
-  let next = p src i len
-  in case is_fail_pos next of
-    true -> -1
-    _ ->
-      case is_fail_pos (q src next len) of
-        true -> -1
-        _ -> next
+parser_keep_left_with _dispatch p q src i len =
+  let next_m = parse_pos_to_maybe (p src i len)
+      kept_m =
+        maybe_bind
+          next_m
+          (\next -> maybe_map (\_ -> next) (parse_pos_to_maybe (q src next len)))
+  in parse_pos_from_maybe kept_m
 
 parser_keep_left p q = parser_keep_left_with parser_dispatch_default p q
 
@@ -138,14 +142,10 @@ parser_keep_right p q = parser_bind p q
 parser_or_with dispatch p q src i len =
   case dispatch of
     ParserDispatchDefault ->
-      let next = p src i len
-      in case is_fail_pos next of
-        true -> q src i len
-        _ -> next
+      let next_m = parse_pos_to_maybe (p src i len)
+      in maybe_with_default (q src i len) next_m
     ParserDispatchRightBiased ->
-      let next = q src i len
-      in case is_fail_pos next of
-        true -> p src i len
-        _ -> next
+      let next_m = parse_pos_to_maybe (q src i len)
+      in maybe_with_default (p src i len) next_m
 
 parser_or p q = parser_or_with parser_dispatch_default p q

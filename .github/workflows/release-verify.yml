@@ -67,7 +67,8 @@ jobs:
             artifacts/latest/clapse_compiler.wasm \
             artifacts/latest/seed-lock.json \
             scripts/wasm-behavior-fixture-map.json \
-            scripts/wasm-selfhost-artifact-fixture-map.json
+            scripts/wasm-selfhost-artifact-fixture-map.json \
+            lib/compiler/prelude.clapse
           do
             if [ ! -f "${path}" ]; then
               echo "missing required release input: ${path}" >&2
@@ -100,6 +101,7 @@ jobs:
               "${RELEASE_DIR}/clapse_compiler.wasm"
           deno compile -A --output "${RELEASE_DIR}/clapse-bin" scripts/clapse.mjs
           chmod +x "${RELEASE_DIR}/clapse-bin"
+          cp lib/compiler/prelude.clapse "${RELEASE_DIR}/prelude.clapse"
           cp scripts/wasm-behavior-fixture-map.json "${RELEASE_DIR}/wasm-behavior-fixture-map.json"
           cp scripts/wasm-selfhost-artifact-fixture-map.json "${RELEASE_DIR}/wasm-selfhost-artifact-fixture-map.json"
 
@@ -119,6 +121,7 @@ jobs:
             --cli-bin "${RELEASE_DIR}/clapse-bin" \
             --behavior-map "${RELEASE_DIR}/wasm-behavior-fixture-map.json" \
             --artifact-map "${RELEASE_DIR}/wasm-selfhost-artifact-fixture-map.json" \
+            --prelude-source "${RELEASE_DIR}/prelude.clapse" \
             --out "${RELEASE_DIR}/release-manifest.json" \
             --checksums "${RELEASE_DIR}/checksums.sha256"
 
@@ -145,6 +148,7 @@ jobs:
             ${{ steps.release_context.outputs.release_dir }}/clapse
             ${{ steps.release_context.outputs.release_dir }}/clapse-bin
             ${{ steps.release_context.outputs.release_dir }}/clapse_compiler.wasm
+            ${{ steps.release_context.outputs.release_dir }}/prelude.clapse
             ${{ steps.release_context.outputs.release_dir }}/wasm-behavior-fixture-map.json
             ${{ steps.release_context.outputs.release_dir }}/wasm-selfhost-artifact-fixture-map.json
             ${{ steps.release_context.outputs.release_dir }}/release-manifest.json

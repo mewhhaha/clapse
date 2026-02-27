@@ -1,5 +1,6 @@
 module compiler.lsp_kernel
 import compiler.prelude
+import compiler.scan
 import compiler.json_response
 export
   LspField
@@ -60,22 +61,6 @@ lsp_next_line_start request_handle line_end req_len =
     true -> req_len
     _ -> line_end + 1
 
-is_lsp_space_byte b =
-  let is_space_32 = (b == 32)
-      is_space_9 = (b == 9)
-      is_space_13 = (b == 13)
-  in is_space_32 || is_space_9 || is_space_13
-
-skip_ws_lsp request_handle i req_len = case (i < req_len) of
-  true -> skip_ws_lsp_step request_handle i req_len
-  _ -> req_len
-
-skip_ws_lsp_step request_handle i req_len =
-  let b = slice_get_u8 request_handle i
-  in case (is_lsp_space_byte b) of
-    true -> skip_ws_lsp request_handle (i + 1) req_len
-    _ -> i
-
 lsp_is_ident_start_byte b =
   let is_ascii_upper = (b >= 65) && (b <= 90)
       is_ascii_lower = (b >= 97) && (b <= 122)
@@ -85,7 +70,7 @@ lsp_is_ident_byte b =
   lsp_is_ident_start_byte b || (b >= 48 && b <= 57) || (b == 46)
 
 lsp_line_token request_handle line_start line_end =
-  let token_start = skip_ws_lsp request_handle line_start line_end
+  let token_start = scan_skip_ws request_handle line_start line_end
   in case (token_start >= line_end) of
     true -> LspFieldMissing
     _ ->
@@ -104,7 +89,7 @@ lsp_line_token request_handle line_start line_end =
         _ -> LspFieldMissing
 
 lsp_doc_content_range request_handle line_start line_end =
-  let i = skip_ws_lsp request_handle line_start line_end
+  let i = scan_skip_ws request_handle line_start line_end
   in case (i + 2 >= line_end) of
     true -> LspFieldMissing
     _ ->
@@ -143,7 +128,7 @@ lsp_strings_equal request_handle a_start a_len b_start b_len =
       in rec_eq request_handle 0 a_len a_start b_start
 
 lsp_find_symbol_field request_handle req_len =
-  let symbol_start = find_json_key_value_start request_handle 0 req_len "\"symbol\""
+  let symbol_start = scan_find_json_key_value_start request_handle 0 req_len "\"symbol\""
       symbol_end = case (symbol_start == req_len) of
         true -> req_len
         _ -> json_slice_end request_handle symbol_start req_len
@@ -159,7 +144,7 @@ lsp_lookup_symbol request_handle source_end symbol_start symbol_end line_start d
           next_line = lsp_next_line_start request_handle line_end source_end
           token = lsp_line_token request_handle line_start line_end
           doc = lsp_doc_content_range request_handle line_start line_end
-          is_blank = skip_ws_lsp request_handle line_start line_end == line_end
+          is_blank = scan_skip_ws request_handle line_start line_end == line_end
       in case token of
         LspFieldFound token_start token_end ->
           case lsp_has_declaration_sep request_handle token_end line_end token_end of

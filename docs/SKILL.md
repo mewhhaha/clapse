@@ -72,6 +72,9 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
   `just install` bundle `artifacts/latest/clapse_compiler.wasm` into
   `artifacts/bin/clapse` when available, with `CLAPSE_COMPILER_WASM_PATH` as an
   override.
+- Keep release bundle docs aligned with `just release-candidate` and `.github`
+  release verification outputs when release artifact membership changes (for
+  example when adding `prelude.clapse`).
 - Keep formatter behavior aligned with runtime behavior: canonical formatter
   normalization (string/comment-preserving whitespace collapse, 100-character
   max-width wrapping at ` => `, ` = `, ` -> `, ` >>= `, ` >> `, ` && `,

@@ -1,0 +1,169 @@
+module compiler.scan
+import compiler.prelude
+export
+  scan_is_space_byte
+  scan_skip_ws
+  scan_source_value_start_at
+  scan_source_value_start_at_colon
+  scan_source_value_start_at_quote
+  scan_source_value_start_at_quote_check
+  scan_matches_literal_at
+  scan_find_literal_start
+  scan_find_json_key_value_end
+  scan_find_json_key_value_start
+  scan_find_source_end
+  scan_find_source_end_limited
+  scan_find_source_end_scan_chunk_limited
+  scan_find_source_end_scan_state
+  scan_find_source_end_scan_state_next_i
+  scan_find_source_end_scan_state_next_parity
+  scan_find_source_end_scan_chunk
+  scan_max_source_scan_steps
+  scan_max_inline_request_len
+
+scan_is_space_byte b =
+  let is_space_32 = (b == 32)
+      is_space_9 = (b == 9)
+      is_space_10 = (b == 10)
+      is_space_13 = (b == 13)
+  in is_space_32 || is_space_9 || is_space_10 || is_space_13
+
+scan_skip_ws request_handle i req_len = case (i < req_len) of
+  true -> scan_skip_ws_step request_handle i req_len
+  _ -> req_len
+
+scan_skip_ws_step request_handle i req_len =
+  let b = slice_get_u8 request_handle i
+  in case (scan_is_space_byte b) of
+    true -> scan_skip_ws request_handle (i + 1) req_len
+    _ -> i
+
+scan_source_value_start_at request_handle key_end req_len =
+  let colon_at = scan_skip_ws request_handle key_end req_len
+  in case (colon_at < req_len) of
+    true -> scan_source_value_start_at_colon request_handle colon_at req_len
+    _ -> req_len
+
+scan_source_value_start_at_colon request_handle colon_at req_len =
+  case (slice_get_u8 request_handle colon_at == 58) of
+    true -> scan_source_value_start_at_quote request_handle colon_at req_len
+    _ -> req_len
+
+scan_source_value_start_at_quote request_handle colon_at req_len =
+  let quote_at = scan_skip_ws request_handle (colon_at + 1) req_len
+  in case (quote_at < req_len) of
+    true -> scan_source_value_start_at_quote_check request_handle quote_at req_len
+    _ -> req_len
+
+scan_source_value_start_at_quote_check request_handle quote_at req_len =
+  case (slice_get_u8 request_handle quote_at == 34) of
+    true -> quote_at + 1
+    _ -> req_len
+
+scan_matches_literal_at request_handle start lit j lit_len = case (j == lit_len) of
+  true -> true
+  _ ->
+    let req_byte = slice_get_u8 request_handle (start + j)
+        key_byte = slice_get_u8 lit j
+    in case (req_byte == key_byte) of
+      true -> scan_matches_literal_at request_handle start lit (j + 1) lit_len
+      _ -> false
+
+scan_find_literal_start request_handle i req_len lit lit_len = case (i + lit_len <= req_len) of
+  true -> scan_find_literal_start_step request_handle i req_len lit lit_len
+  _ -> req_len
+
+scan_find_literal_start_step request_handle i req_len lit lit_len =
+  case (scan_matches_literal_at request_handle i lit 0 lit_len) of
+    true -> i
+    _ -> scan_find_literal_start request_handle (i + 1) req_len lit lit_len
+
+scan_find_json_key_value_end request_handle i req_len key_txt =
+  let key = str_to_slice key_txt
+      key_len = slice_len key
+      key_start = scan_find_literal_start request_handle i req_len key key_len
+  in case (key_start == req_len) of
+    true -> -1
+    _ -> key_start + key_len
+
+scan_find_json_key_value_start request_handle i req_len key_txt =
+  let key_end = scan_find_json_key_value_end request_handle i req_len key_txt
+  in case (key_end == -1) of
+    true -> req_len
+    _ -> scan_source_value_start_at request_handle key_end req_len
+
+scan_find_source_end_scan_chunk = 64
+scan_max_source_scan_steps = 1024
+scan_max_inline_request_len = 32768
+
+scan_find_source_end request_handle i req_len slash_parity =
+  scan_find_source_end_limited request_handle i req_len slash_parity 0
+
+scan_find_source_end_scan_state i slash_parity =
+  case (slash_parity == 0) of
+    true -> -(i + 1)
+    _ -> -((i + 1) + scan_max_inline_request_len)
+
+scan_find_source_end_scan_state_next_i state =
+  let payload = -state
+  in case (payload > scan_max_inline_request_len) of
+    true -> payload - scan_max_inline_request_len - 1
+    _ -> payload - 1
+
+scan_find_source_end_scan_state_next_parity state =
+  let payload = -state
+  in case (payload > scan_max_inline_request_len) of
+    true -> 1
+    _ -> 0
+
+scan_find_source_end_scan_chunk_limited request_handle i slash_parity chunk_size offset =
+  case (offset == chunk_size) of
+    true -> scan_find_source_end_scan_state (i + offset) slash_parity
+    _ ->
+      let at = i + offset
+          b = slice_get_u8 request_handle at
+      in case (b == 92) (b == 34) of
+        true _ ->
+          scan_find_source_end_scan_chunk_limited
+            request_handle
+            i
+            (1 - slash_parity)
+            chunk_size
+            (offset + 1)
+        _ true ->
+          case (slash_parity == 0) of
+            true -> at
+            _ ->
+              scan_find_source_end_scan_chunk_limited
+                request_handle
+                i
+                0
+                chunk_size
+                (offset + 1)
+        _ _ ->
+          scan_find_source_end_scan_chunk_limited
+            request_handle
+            i
+            0
+            chunk_size
+            (offset + 1)
+
+scan_find_source_end_limited request_handle i req_len slash_parity steps =
+  case (steps == scan_max_source_scan_steps) of
+    true -> req_len
+    _ ->
+      case (i < 0) (i >= req_len) of
+        true _ -> req_len
+        _ true -> req_len
+        _ _ ->
+          let remaining = req_len - i
+              chunk_size = case (remaining <= scan_find_source_end_scan_chunk) of
+                true -> remaining
+                _ -> scan_find_source_end_scan_chunk
+              scan_state = scan_find_source_end_scan_chunk_limited request_handle i slash_parity chunk_size 0
+          in case (scan_state >= 0) of
+            true -> scan_state
+            _ ->
+              let next_i = scan_find_source_end_scan_state_next_i scan_state
+                  next_parity = scan_find_source_end_scan_state_next_parity scan_state
+              in scan_find_source_end_limited request_handle next_i req_len next_parity (steps + 1)

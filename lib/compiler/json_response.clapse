@@ -1,47 +1,22 @@
 module compiler.json_response
 import compiler.prelude
+import compiler.scan
 import host.clapse
+import compiler.json_response_helpers
 export
-  CompileRequestTag
-  copy_slice_literal
-  copy_slice_segment
   error_response_from_message
-  compile_not_implemented_response
-  compile_missing_input_path_response
-  compile_missing_input_source_response
-  compile_error_response
-  compile_source_start
-  compile_request_tag
   compile_response
-  selfhost_empty_response
-  selfhost_source_response
-  selfhost_ok_response_no_input_source
   selfhost_ok_response
   unknown_error_response
-  find_input_source_start
-  find_input_path_start
-  find_json_key_value_start
-  find_json_key_value_end
-  parse_json_key_value_end_to_start
-  source_value_start_at
-  source_value_start_at_colon
-  source_value_start_at_quote
-  source_value_start_at_quote_check
-  json_error_prefix
-  json_error_suffix
-  json_selfhost_prefix
-  json_selfhost_suffix
-  json_unknown_error
+  copy_slice_literal
+  copy_slice_segment
+  json_escape_extra_len
+  json_copy_escaped_segment
   json_response_with_literal_prefix_suffix
   json_response_with_slice_segment
   json_response_with_escaped_slice_segment
-  json_response_from_slice
+  find_input_source_start
   json_slice_end
-  json_escape_extra_len
-  json_copy_escaped_segment
-  max2
-  is_space_byte
-  skip_ws
 
 data CompileRequestTag = CompileRequestMissingPath | CompileRequestMissingSource | CompileRequestReady
 
@@ -55,277 +30,22 @@ json_selfhost_prefix = str_to_slice "{\"ok\":true,\"artifacts\":{\"merged_module
 json_selfhost_suffix = str_to_slice "\",\"type_info.txt\":\"KernelSelfhost\",\"type_info_error.txt\":\"\",\"lowered_ir.txt\":\"kernel:selfhost:lowered\",\"collapsed_ir.txt\":\"kernel:selfhost:collapsed\",\"exports.txt\":\"[ExportApi {exportName = \\\"main\\\", exportArity = 1}]\",\"wasm_stats.txt\":\"size_bytes=122\\nprefix_hex=0061736d0100000001130360017f017f60027f7f017f60037f7f7f017f020100\\n\"}}"
 json_unknown_error = str_to_slice "{\"ok\":false,\"error\":\"unsupported command\"}"
 
-copy_slice_literal request_handle ownership_mode out out_start txt =
-  copy_slice_segment request_handle ownership_mode txt 0 out out_start (slice_len txt) 0
-
-copy_slice_segment request_handle ownership_mode src src_start dst dst_start seg_len i = case (i == seg_len) of
-  true -> dst
-  _ ->
-    case (i + 16 <= seg_len) of
-      true ->
-        let b0 = slice_get_u8 src (src_start + i)
-            d0 = slice_set_u8_write request_handle ownership_mode dst (dst_start + i) b0
-            b1 = slice_get_u8 src (src_start + i + 1)
-            d1 = slice_set_u8_write request_handle ownership_mode d0 (dst_start + i + 1) b1
-            b2 = slice_get_u8 src (src_start + i + 2)
-            d2 = slice_set_u8_write request_handle ownership_mode d1 (dst_start + i + 2) b2
-            b3 = slice_get_u8 src (src_start + i + 3)
-            d3 = slice_set_u8_write request_handle ownership_mode d2 (dst_start + i + 3) b3
-            b4 = slice_get_u8 src (src_start + i + 4)
-            d4 = slice_set_u8_write request_handle ownership_mode d3 (dst_start + i + 4) b4
-            b5 = slice_get_u8 src (src_start + i + 5)
-            d5 = slice_set_u8_write request_handle ownership_mode d4 (dst_start + i + 5) b5
-            b6 = slice_get_u8 src (src_start + i + 6)
-            d6 = slice_set_u8_write request_handle ownership_mode d5 (dst_start + i + 6) b6
-            b7 = slice_get_u8 src (src_start + i + 7)
-            d7 = slice_set_u8_write request_handle ownership_mode d6 (dst_start + i + 7) b7
-            b8 = slice_get_u8 src (src_start + i + 8)
-            d8 = slice_set_u8_write request_handle ownership_mode d7 (dst_start + i + 8) b8
-            b9 = slice_get_u8 src (src_start + i + 9)
-            d9 = slice_set_u8_write request_handle ownership_mode d8 (dst_start + i + 9) b9
-            b10 = slice_get_u8 src (src_start + i + 10)
-            d10 = slice_set_u8_write request_handle ownership_mode d9 (dst_start + i + 10) b10
-            b11 = slice_get_u8 src (src_start + i + 11)
-            d11 = slice_set_u8_write request_handle ownership_mode d10 (dst_start + i + 11) b11
-            b12 = slice_get_u8 src (src_start + i + 12)
-            d12 = slice_set_u8_write request_handle ownership_mode d11 (dst_start + i + 12) b12
-            b13 = slice_get_u8 src (src_start + i + 13)
-            d13 = slice_set_u8_write request_handle ownership_mode d12 (dst_start + i + 13) b13
-            b14 = slice_get_u8 src (src_start + i + 14)
-            d14 = slice_set_u8_write request_handle ownership_mode d13 (dst_start + i + 14) b14
-            b15 = slice_get_u8 src (src_start + i + 15)
-            d15 = slice_set_u8_write request_handle ownership_mode d14 (dst_start + i + 15) b15
-        in copy_slice_segment request_handle ownership_mode src src_start d15 dst_start seg_len (i + 16)
-      _ ->
-        let b = slice_get_u8 src (src_start + i)
-            next = slice_set_u8_write request_handle ownership_mode dst (dst_start + i) b
-        in copy_slice_segment request_handle ownership_mode src src_start next dst_start seg_len (i + 1)
-
-json_escape_extra_len src start seg_len i extra = case (i == seg_len) of
-  true -> extra
-  _ ->
-    let b = slice_get_u8 src (start + i)
-    in case (b == 34) (b == 92) (b == 10) (b == 13) (b == 9) of
-      true _ _ _ _ -> json_escape_extra_len src start seg_len (i + 1) (extra + 1)
-      _ true _ _ _ -> json_escape_extra_len src start seg_len (i + 1) (extra + 1)
-      _ _ true _ _ -> json_escape_extra_len src start seg_len (i + 1) (extra + 1)
-      _ _ _ true _ -> json_escape_extra_len src start seg_len (i + 1) (extra + 1)
-      _ _ _ _ true -> json_escape_extra_len src start seg_len (i + 1) (extra + 1)
-      _ _ _ _ _ -> json_escape_extra_len src start seg_len (i + 1) extra
-
-json_copy_escaped_segment request_handle ownership_mode src start seg_len i dst dst_i = case (i == seg_len) of
-  true -> dst
-  _ ->
-  let b = slice_get_u8 src (start + i)
-    in case (b == 34) (b == 92) (b == 10) (b == 13) (b == 9) of
-      true _ _ _ _ ->
-        let d1 = slice_set_u8_write request_handle ownership_mode dst dst_i 92
-            d2 = slice_set_u8_write request_handle ownership_mode d1 (dst_i + 1) 34
-        in json_copy_escaped_segment request_handle ownership_mode src start seg_len (i + 1) d2 (dst_i + 2)
-      _ true _ _ _ ->
-        let d1 = slice_set_u8_write request_handle ownership_mode dst dst_i 92
-            d2 = slice_set_u8_write request_handle ownership_mode d1 (dst_i + 1) 92
-        in json_copy_escaped_segment request_handle ownership_mode src start seg_len (i + 1) d2 (dst_i + 2)
-      _ _ true _ _ ->
-        let d1 = slice_set_u8_write request_handle ownership_mode dst dst_i 92
-            d2 = slice_set_u8_write request_handle ownership_mode d1 (dst_i + 1) 110
-        in json_copy_escaped_segment request_handle ownership_mode src start seg_len (i + 1) d2 (dst_i + 2)
-      _ _ _ true _ ->
-        let d1 = slice_set_u8_write request_handle ownership_mode dst dst_i 92
-            d2 = slice_set_u8_write request_handle ownership_mode d1 (dst_i + 1) 114
-        in json_copy_escaped_segment request_handle ownership_mode src start seg_len (i + 1) d2 (dst_i + 2)
-      _ _ _ _ true ->
-        let d1 = slice_set_u8_write request_handle ownership_mode dst dst_i 92
-            d2 = slice_set_u8_write request_handle ownership_mode d1 (dst_i + 1) 116
-        in json_copy_escaped_segment request_handle ownership_mode src start seg_len (i + 1) d2 (dst_i + 2)
-      _ _ _ _ _ ->
-        let d1 = slice_set_u8_write request_handle ownership_mode dst dst_i b
-        in json_copy_escaped_segment request_handle ownership_mode src start seg_len (i + 1) d1 (dst_i + 1)
-
-json_response_with_literal_prefix_suffix request_handle ownership_mode prefix suffix =
-  let prefix_len = slice_len prefix
-      suffix_len = slice_len suffix
-      out = slice_new_u8 (prefix_len + suffix_len)
-      out1 = copy_slice_literal request_handle ownership_mode out 0 prefix
-  in copy_slice_literal request_handle ownership_mode out1 prefix_len suffix
-
-json_response_with_slice_segment request_handle ownership_mode prefix suffix src src_start src_len =
-  let prefix_len = slice_len prefix
-      suffix_len = slice_len suffix
-      total_len = prefix_len + src_len + suffix_len
-      out = slice_new_u8 total_len
-      out1 = copy_slice_literal request_handle ownership_mode out 0 prefix
-      out2 = copy_slice_segment request_handle ownership_mode src src_start out1 prefix_len src_len 0
-  in copy_slice_literal request_handle ownership_mode out2 (prefix_len + src_len) suffix
-
-json_response_with_escaped_slice_segment request_handle ownership_mode prefix suffix src src_start src_len =
-  let prefix_len = slice_len prefix
-      escaped_extra = json_escape_extra_len src src_start src_len 0 0
-      escaped_len = src_len + escaped_extra
-      suffix_len = slice_len suffix
-      total_len = prefix_len + escaped_len + suffix_len
-      out = slice_new_u8 total_len
-      out1 = copy_slice_literal request_handle ownership_mode out 0 prefix
-      out2 = json_copy_escaped_segment request_handle ownership_mode src src_start src_len 0 out1 prefix_len
-  in copy_slice_literal request_handle ownership_mode out2 (prefix_len + escaped_len) suffix
-
 json_response_from_slice request_handle ownership_mode literal =
   let out = slice_new_u8 (slice_len literal)
       out1 = copy_slice_literal request_handle ownership_mode out 0 literal
   in out1
 
-find_source_end_scan_chunk = 64
-max_source_scan_steps = 1024
-max_inline_request_len = 32768
-
-find_source_end request_handle i req_len slash_parity =
-  find_source_end_limited request_handle i req_len slash_parity 0
-
-find_source_end_scan_state i slash_parity =
-  case (slash_parity == 0) of
-    true -> -(i + 1)
-    _ -> -((i + 1) + max_inline_request_len)
-
-find_source_end_scan_state_next_i state =
-  let payload = -state
-  in case (payload > max_inline_request_len) of
-    true -> payload - max_inline_request_len - 1
-    _ -> payload - 1
-
-find_source_end_scan_state_next_parity state =
-  let payload = -state
-  in case (payload > max_inline_request_len) of
-    true -> 1
-    _ -> 0
-
-find_source_end_scan_chunk_limited request_handle i slash_parity chunk_size offset =
-  case (offset == chunk_size) of
-    true -> find_source_end_scan_state (i + offset) slash_parity
-    _ ->
-      let at = i + offset
-          b = slice_get_u8 request_handle at
-      in case (b == 92) (b == 34) of
-        true _ ->
-          find_source_end_scan_chunk_limited
-            request_handle
-            i
-            (1 - slash_parity)
-            chunk_size
-            (offset + 1)
-        _ true ->
-          case (slash_parity == 0) of
-            true -> at
-            _ ->
-              find_source_end_scan_chunk_limited
-                request_handle
-                i
-                0
-                chunk_size
-                (offset + 1)
-        _ _ ->
-          find_source_end_scan_chunk_limited
-            request_handle
-            i
-            0
-            chunk_size
-            (offset + 1)
-
-find_source_end_limited request_handle i req_len slash_parity steps =
-  case (steps == max_source_scan_steps) of
-    true -> req_len
-    _ ->
-      case (i < 0) (i >= req_len) of
-        true _ -> req_len
-        _ true -> req_len
-        _ _ ->
-          let remaining = req_len - i
-              chunk_size = case (remaining <= find_source_end_scan_chunk) of
-                true -> remaining
-                _ -> find_source_end_scan_chunk
-              scan_state = find_source_end_scan_chunk_limited request_handle i slash_parity chunk_size 0
-          in case (scan_state >= 0) of
-            true -> scan_state
-            _ ->
-              let next_i = find_source_end_scan_state_next_i scan_state
-                  next_parity = find_source_end_scan_state_next_parity scan_state
-              in find_source_end_limited request_handle next_i req_len next_parity (steps + 1)
-
-is_space_byte b =
-  let is_space_32 = (b == 32)
-      is_space_9 = (b == 9)
-      is_space_10 = (b == 10)
-      is_space_13 = (b == 13)
-  in is_space_32 || is_space_9 || is_space_10 || is_space_13
-
-skip_ws request_handle i req_len = case (i < req_len) of
-  true -> skip_ws_step request_handle i req_len
-  _ -> req_len
-
-skip_ws_step request_handle i req_len =
-  let b = slice_get_u8 request_handle i
-  in case (is_space_byte b) of
-    true -> skip_ws request_handle (i + 1) req_len
-    _ -> i
-
-source_value_start_at request_handle key_end req_len =
-  let colon_at = skip_ws request_handle key_end req_len
-  in case (colon_at < req_len) of
-    true -> source_value_start_at_colon request_handle colon_at req_len
-    _ -> req_len
-
-source_value_start_at_colon request_handle colon_at req_len =
-  case (slice_get_u8 request_handle colon_at == 58) of
-    true -> source_value_start_at_quote request_handle colon_at req_len
-    _ -> req_len
-
-source_value_start_at_quote request_handle colon_at req_len =
-  let quote_at = skip_ws request_handle (colon_at + 1) req_len
-  in case (quote_at < req_len) of
-    true -> source_value_start_at_quote_check request_handle quote_at req_len
-    _ -> req_len
-
-source_value_start_at_quote_check request_handle quote_at req_len =
-  case (slice_get_u8 request_handle quote_at == 34) of
-    true -> quote_at + 1
-    _ -> req_len
-
-matches_literal_at request_handle start lit j lit_len = case (j == lit_len) of
-  true -> true
-  _ ->
-    let req_byte = slice_get_u8 request_handle (start + j)
-        key_byte = slice_get_u8 lit j
-    in case (req_byte == key_byte) of
-      true -> matches_literal_at request_handle start lit (j + 1) lit_len
-      _ -> false
-
-find_literal_start request_handle i req_len lit lit_len = case (i + lit_len <= req_len) of
-  true -> find_literal_start_step request_handle i req_len lit lit_len
-  _ -> req_len
-
-find_literal_start_step request_handle i req_len lit lit_len =
-  case (matches_literal_at request_handle i lit 0 lit_len) of
-    true -> i
-    _ -> find_literal_start request_handle (i + 1) req_len lit lit_len
-
 parse_json_key_value_end request_handle i req_len key_txt =
-  let key = str_to_slice key_txt
-      key_len = slice_len key
-      key_start = find_literal_start request_handle i req_len key key_len
-  in case (key_start == req_len) of
+  let key_end = scan_find_json_key_value_end request_handle i req_len key_txt
+  in case (key_end == -1) of
     true -> -1
-    _ -> key_start + key_len
+    _ -> key_end
 
 parse_json_key_value_end_to_start request_handle i req_len =
-  source_value_start_at request_handle i req_len
+  scan_source_value_start_at request_handle i req_len
 
 find_json_key_value_start request_handle i req_len key_txt =
-  let parse_key = parser_bind
-        (parse_json_key_value_end request_handle i req_len key_txt)
-        (parse_json_key_value_end_to_start request_handle)
-      r = parse_key request_handle i req_len
-  in case (r == -1) of
-    true -> req_len
-    _ -> r
+  scan_find_json_key_value_start request_handle i req_len key_txt
 
 find_input_source_start request_handle i req_len =
   find_json_key_value_start request_handle i req_len "\"input_source\""
@@ -334,7 +54,7 @@ find_input_path_start request_handle i req_len =
   find_json_key_value_start request_handle i req_len "\"input_path\""
 
 json_slice_end request_handle source_start req_len =
-  let source_end_raw = find_source_end request_handle source_start req_len 0
+  let source_end_raw = scan_find_source_end request_handle source_start req_len 0
   in case (source_end_raw < source_start) (source_end_raw > req_len) of
     true _ -> source_start
     _ true -> req_len
@@ -378,12 +98,12 @@ compile_request_tag request_handle req_len =
 compile_input_path_end_for_request request_handle input_path_start req_len =
   case (input_path_start == req_len) of
     true -> req_len
-    _ -> find_source_end request_handle input_path_start req_len 0
+    _ -> scan_find_source_end request_handle input_path_start req_len 0
 
 compile_source_end_for_request request_handle source_start req_len =
   case (source_start == req_len) of
     true -> req_len
-    _ -> find_source_end request_handle source_start req_len 0
+    _ -> scan_find_source_end request_handle source_start req_len 0
 
 compile_response request_handle ownership_mode =
   let req_len = slice_len request_handle

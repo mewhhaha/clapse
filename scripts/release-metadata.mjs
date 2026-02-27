@@ -12,6 +12,7 @@ function parseArgs(argv) {
     cliBin: "",
     behaviorMap: "",
     artifactMap: "",
+    preludeSource: "",
     outPath: "out/releases/release-manifest.json",
     checksumsPath: "out/releases/checksums.sha256",
   };
@@ -25,6 +26,7 @@ function parseArgs(argv) {
     if (key === "--cli-bin") out.cliBin = val;
     if (key === "--behavior-map") out.behaviorMap = val;
     if (key === "--artifact-map") out.artifactMap = val;
+    if (key === "--prelude-source") out.preludeSource = val;
     if (key === "--out") out.outPath = val;
     if (key === "--checksums") out.checksumsPath = val;
     if (key.startsWith("--")) i += 1;
@@ -100,6 +102,7 @@ async function main() {
   requireArg("--compiler-wasm", cfg.compilerWasm);
   requireArg("--behavior-map", cfg.behaviorMap);
   requireArg("--artifact-map", cfg.artifactMap);
+  requireArg("--prelude-source", cfg.preludeSource);
 
   await Deno.mkdir(parentDir(cfg.outPath), { recursive: true });
   await Deno.mkdir(parentDir(cfg.checksumsPath), { recursive: true });
@@ -136,6 +139,7 @@ async function main() {
     artifacts: {
       compiler_wasm: await artifact(cfg.compilerWasm),
       ...(cfg.cliBin.length > 0 ? { cli_binary: await artifact(cfg.cliBin) } : {}),
+      prelude_source: await artifact(cfg.preludeSource),
       native_behavior_fixture_map: await artifact(cfg.behaviorMap),
       native_selfhost_artifact_fixture_map: await artifact(cfg.artifactMap),
     },
@@ -147,6 +151,7 @@ async function main() {
     ...(cfg.cliBin.length > 0 && manifest.artifacts.cli_binary
       ? [`${manifest.artifacts.cli_binary.sha256}  ${cfg.cliBin}`]
       : []),
+    `${manifest.artifacts.prelude_source.sha256}  ${cfg.preludeSource}`,
     `${manifest.artifacts.native_behavior_fixture_map.sha256}  ${cfg.behaviorMap}`,
     `${manifest.artifacts.native_selfhost_artifact_fixture_map.sha256}  ${cfg.artifactMap}`,
   ].join("\n") + "\n";

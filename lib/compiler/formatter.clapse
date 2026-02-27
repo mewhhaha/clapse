@@ -1,5 +1,6 @@
 module compiler.formatter
 import compiler.prelude
+import compiler.scan
 import compiler.json_response
 export format_ok_response
 
@@ -15,12 +16,16 @@ data MonadicLine = MonadicLineNil
     MonadicLine
 data ParsedLine = ParsedLine MonadicLine Int
 data ChainCollect = ChainCollect MonadicLine Int Int Int Int
+data FormatNonProgressError =
+  FormatNonProgressChainRegion
+  | FormatNonProgressCopyChainBody
+  | FormatNonProgressNormalizeMonadicLines
+data FormatNormalizeResult =
+  FormatNormalizeOk Int
+  | FormatNormalizeError FormatNonProgressError
 
 json_format_prefix = str_to_slice "{\"ok\":true,\"formatted\":\""
 json_format_suffix = str_to_slice "\"}"
-
-copy_slice_literal request_handle ownership_mode out out_start txt =
-  copy_slice_segment request_handle ownership_mode txt 0 out out_start (slice_len txt) 0
 
 
 is_space_byte b =
@@ -113,26 +118,24 @@ format_find_comment_start_loop request_handle line_start line_end i in_string es
           is_escape = b == format_escape_byte
           is_dash = b == format_dash_byte
           is_comment = is_dash && (at + 1 < line_end) && (slice_get_u8 request_handle (at + 1) == format_dash_byte)
-          has_string_escape = in_string && escaped
-          has_string_escape_char = in_string && !escaped && is_escape
-          has_string_quote = in_string && !escaped && is_quote
-          has_comment_start = !in_string && is_comment
-          has_enter_string = !in_string && is_quote
-      let comment_start_state =
-            case has_string_escape has_string_escape_char has_string_quote has_enter_string has_comment_start of
-              true _ _ _ _ -> 0
-              _ true _ _ _ -> 1
-              _ _ true _ _ -> 2
-              _ _ _ true _ -> 3
-              _ _ _ _ true -> 4
-              _ _ _ _ _ -> 5
-      in case comment_start_state of
-        0 -> format_find_comment_start_loop request_handle line_start line_end (i + 1) true false
-        1 -> format_find_comment_start_loop request_handle line_start line_end (i + 1) true true
-        2 -> format_find_comment_start_loop request_handle line_start line_end (i + 1) false false
-        3 -> format_find_comment_start_loop request_handle line_start line_end (i + 1) true false
-        4 -> Just at
-        _ -> format_find_comment_start_loop request_handle line_start line_end (i + 1) false false
+      in case in_string of
+        true ->
+          case escaped of
+            true -> format_find_comment_start_loop request_handle line_start line_end (i + 1) true false
+            _ ->
+              case is_escape of
+                true -> format_find_comment_start_loop request_handle line_start line_end (i + 1) true true
+                _ ->
+                  case is_quote of
+                    true -> format_find_comment_start_loop request_handle line_start line_end (i + 1) false false
+                    _ -> format_find_comment_start_loop request_handle line_start line_end (i + 1) true false
+        _ ->
+          case is_quote of
+            true -> format_find_comment_start_loop request_handle line_start line_end (i + 1) true false
+            _ ->
+              case is_comment of
+                true -> Just at
+                _ -> format_find_comment_start_loop request_handle line_start line_end (i + 1) false false
 
 format_find_comment_start request_handle line_start line_end =
   format_find_comment_start_loop request_handle line_start line_end 0 false false
@@ -228,82 +231,79 @@ format_find_wrap_token_loop request_handle source start len width i in_string es
           max_i = max2 width len
           is_quote = b == format_quote_byte
           is_escape = b == format_escape_byte
-          is_string_escape = in_string && escaped
-          is_string_escape_char = in_string && !escaped && is_escape
-          is_string_quote = in_string && !escaped && is_quote
-          is_entering_string = !in_string && is_quote
-      let wrap_token_state =
-            case is_string_escape is_string_escape_char is_string_quote is_entering_string of
-              true _ _ _ -> 0
-              _ true _ _ -> 1
-              _ _ true _ -> 2
-              _ _ _ true -> 3
-              _ _ _ _ -> 4
-      in case wrap_token_state of
-        0 -> format_find_wrap_token_loop request_handle source start len max_i (i + 1) false false best
-        1 -> format_find_wrap_token_loop request_handle source start len max_i (i + 1) true true best
-        2 -> format_find_wrap_token_loop request_handle source start len max_i (i + 1) false false best
-        3 -> format_find_wrap_token_loop request_handle source start len max_i (i + 1) true false best
+      in case in_string of
+        true ->
+          case escaped of
+            true -> format_find_wrap_token_loop request_handle source start len max_i (i + 1) true false best
+            _ ->
+              case is_escape of
+                true -> format_find_wrap_token_loop request_handle source start len max_i (i + 1) true true best
+                _ ->
+                  case is_quote of
+                    true -> format_find_wrap_token_loop request_handle source start len max_i (i + 1) false false best
+                    _ -> format_find_wrap_token_loop request_handle source start len max_i (i + 1) true false best
         _ ->
-          let has_space = (b == format_space_byte)
-              token1 =
-                has_space
-                && (i + 3 <= max_i)
-                && (slice_get_u8 request_handle (at + 1) == format_eq_byte)
-                && (slice_get_u8 request_handle (at + 2) == format_gt_byte)
-                && (slice_get_u8 request_handle (at + 3) == format_space_byte)
-              token2 =
-                has_space
-                && (i + 2 <= max_i)
-                && (slice_get_u8 request_handle (at + 1) == format_eq_byte)
-                && (slice_get_u8 request_handle (at + 2) == format_space_byte)
-              token3 =
-                has_space
-                && (i + 3 <= max_i)
-                && (slice_get_u8 request_handle (at + 1) == format_dash_byte)
-                && (slice_get_u8 request_handle (at + 2) == format_gt_byte)
-                && (slice_get_u8 request_handle (at + 3) == format_space_byte)
-              token4 =
-                has_space
-                && (i + 5 <= max_i)
-                && (slice_get_u8 request_handle (at + 1) == format_gt_byte)
-                && (slice_get_u8 request_handle (at + 2) == format_gt_byte)
-                && (slice_get_u8 request_handle (at + 3) == format_eq_byte)
-                && (slice_get_u8 request_handle (at + 4) == format_space_byte)
-              token5 =
-                has_space
-                && (i + 3 <= max_i)
-                && (slice_get_u8 request_handle (at + 1) == format_gt_byte)
-                && (slice_get_u8 request_handle (at + 2) == format_gt_byte)
-                && (slice_get_u8 request_handle (at + 3) == format_space_byte)
-              token6 =
-                has_space
-                && (i + 3 <= max_i)
-                && (slice_get_u8 request_handle (at + 1) == format_amp_byte)
-                && (slice_get_u8 request_handle (at + 2) == format_amp_byte)
-                && (slice_get_u8 request_handle (at + 3) == format_space_byte)
-              token7 =
-                has_space
-                && (i + 3 <= max_i)
-                && (slice_get_u8 request_handle (at + 1) == format_bar_byte)
-                && (slice_get_u8 request_handle (at + 2) == format_bar_byte)
-                && (slice_get_u8 request_handle (at + 3) == format_space_byte)
-          has_wrap_token = token1 || token2 || token3 || token4 || token5 || token6 || token7
-          in case has_wrap_token of
-            true -> format_find_wrap_token_loop request_handle source start len max_i (i + 1) false false i
-            _ -> format_find_wrap_token_loop request_handle source start len max_i (i + 1) false false best
+          case is_quote of
+            true -> format_find_wrap_token_loop request_handle source start len max_i (i + 1) true false best
+            _ ->
+              let has_space = (b == format_space_byte)
+                  token1 =
+                    has_space
+                    && (i + 3 <= max_i)
+                    && (slice_get_u8 request_handle (at + 1) == format_eq_byte)
+                    && (slice_get_u8 request_handle (at + 2) == format_gt_byte)
+                    && (slice_get_u8 request_handle (at + 3) == format_space_byte)
+                  token2 =
+                    has_space
+                    && (i + 2 <= max_i)
+                    && (slice_get_u8 request_handle (at + 1) == format_eq_byte)
+                    && (slice_get_u8 request_handle (at + 2) == format_space_byte)
+                  token3 =
+                    has_space
+                    && (i + 3 <= max_i)
+                    && (slice_get_u8 request_handle (at + 1) == format_dash_byte)
+                    && (slice_get_u8 request_handle (at + 2) == format_gt_byte)
+                    && (slice_get_u8 request_handle (at + 3) == format_space_byte)
+                  token4 =
+                    has_space
+                    && (i + 5 <= max_i)
+                    && (slice_get_u8 request_handle (at + 1) == format_gt_byte)
+                    && (slice_get_u8 request_handle (at + 2) == format_gt_byte)
+                    && (slice_get_u8 request_handle (at + 3) == format_eq_byte)
+                    && (slice_get_u8 request_handle (at + 4) == format_space_byte)
+                  token5 =
+                    has_space
+                    && (i + 3 <= max_i)
+                    && (slice_get_u8 request_handle (at + 1) == format_gt_byte)
+                    && (slice_get_u8 request_handle (at + 2) == format_gt_byte)
+                    && (slice_get_u8 request_handle (at + 3) == format_space_byte)
+                  token6 =
+                    has_space
+                    && (i + 3 <= max_i)
+                    && (slice_get_u8 request_handle (at + 1) == format_amp_byte)
+                    && (slice_get_u8 request_handle (at + 2) == format_amp_byte)
+                    && (slice_get_u8 request_handle (at + 3) == format_space_byte)
+                  token7 =
+                    has_space
+                    && (i + 3 <= max_i)
+                    && (slice_get_u8 request_handle (at + 1) == format_bar_byte)
+                    && (slice_get_u8 request_handle (at + 2) == format_bar_byte)
+                    && (slice_get_u8 request_handle (at + 3) == format_space_byte)
+                  has_wrap_token = token1 || token2 || token3 || token4 || token5 || token6 || token7
+              in case has_wrap_token of
+                true -> format_find_wrap_token_loop request_handle source start len max_i (i + 1) false false (Just i)
+                _ -> format_find_wrap_token_loop request_handle source start len max_i (i + 1) false false best
 
 format_find_wrap_break request_handle line start len width =
   let max_i = max2 width len
-      token = format_find_wrap_token_loop request_handle line start len max_i 0 false false -1
-      has_token = token >= 0
-    in case has_token of
-      true -> token
+      token = format_find_wrap_token_loop request_handle line start len max_i 0 false false Nothing
+    in case token of
+      Just i -> Just i
       _ -> format_find_wrap_whitespace request_handle line start len max_i
 
 format_find_wrap_whitespace request_handle source start len width =
   case (width <= 0) of
-    true -> -1
+    true -> Nothing
     _ ->
       let scan i best in_string escaped =
         case (i >= width || i >= len) of
@@ -314,27 +314,25 @@ format_find_wrap_whitespace request_handle source start len width =
                 is_quote = b == format_quote_byte
                 is_escape = b == format_escape_byte
                 is_space = format_is_space_or_tab b
-                is_string_escape = in_string && escaped
-                is_string_escape_char = in_string && !escaped && is_escape
-                is_string_quote = in_string && !escaped && is_quote
-                is_entering_string = !in_string && is_quote
-                is_whitespace = is_space
-                whitespace_state =
-                  case is_string_escape is_string_escape_char is_string_quote is_entering_string is_whitespace of
-                    true _ _ _ _ -> 0
-                    _ true _ _ _ -> 1
-                    _ _ true _ _ -> 2
-                    _ _ _ true _ -> 3
-                    _ _ _ _ true -> 4
-                    _ _ _ _ _ -> 5
-            in case whitespace_state of
-              0 -> scan (i + 1) best false false
-              1 -> scan (i + 1) best true false
-              2 -> scan (i + 1) best false false
-              3 -> scan (i + 1) best true false
-              4 -> scan (i + 1) i false false
-              _ -> scan (i + 1) best false false
-      in scan 0 -1 false false
+            in case in_string of
+              true ->
+                case escaped of
+                  true -> scan (i + 1) best true false
+                  _ ->
+                    case is_escape of
+                      true -> scan (i + 1) best true true
+                      _ ->
+                        case is_quote of
+                          true -> scan (i + 1) best false false
+                          _ -> scan (i + 1) best true false
+              _ ->
+                case is_quote of
+                  true -> scan (i + 1) best true false
+                  _ ->
+                    case is_space of
+                      true -> scan (i + 1) (Just i) false false
+                      _ -> scan (i + 1) best false false
+      in scan 0 Nothing false false
 
 format_emit_wrap_prefix request_handle ownership_mode line base_indent_len is_cont out out_i =
   let out1 = copy_slice_segment request_handle ownership_mode line 0 out out_i base_indent_len 0
@@ -360,14 +358,16 @@ format_wrap_line_loop request_handle ownership_mode line line_len base_indent_le
        0 -> slice_set_u8 request_handle ownership_mode out out_i format_newline_byte
        1 -> out_i
        _ ->
-         let avail = case is_cont of
+          let avail = case is_cont of
             true -> max2 1 (format_default_line_width - (base_indent_len + format_continuation_spaces))
             _ -> max2 1 (format_default_line_width - base_indent_len)
           first_break = format_find_wrap_break request_handle line source_start source_len avail
-          has_empty_break = first_break <= 0
+          has_empty_break = case first_break of
+            Just i -> i <= 0
+            _ -> true
           raw_chunk_len = case has_empty_break of
             true -> avail
-            _ -> first_break
+            _ -> maybe_with_default 0 first_break
           chunk_len = case (raw_chunk_len <= 0 || raw_chunk_len > source_len) of
             true -> max2 1 source_len
             _ -> raw_chunk_len
@@ -497,7 +497,7 @@ format_has_arrow request_handle start end =
 format_find_monadic_operator request_handle source start end i in_string escaped =
   let at = start + i
   in case (at >= end) of
-    true -> -1
+    true -> Nothing
     _ ->
       let b = slice_get_u8 request_handle at
           is_escape = b == format_escape_byte
@@ -528,7 +528,7 @@ format_find_monadic_operator request_handle source start end i in_string escaped
                 && (b == format_gt_byte)
                 && (slice_get_u8 request_handle (at + 1) == format_gt_byte)
              in case (is_bind3 || is_bind2) of
-               true -> start + i
+               true -> Just at
                _ -> format_find_monadic_operator request_handle source start end (i + 1) false false
 
 format_monadic_operator_length request_handle source op_start end =
@@ -551,9 +551,9 @@ format_parse_monadic_line request_handle source line_start line_end =
     _ ->
       let indent = format_leading_space_len request_handle line_start line_end 0
           op_pos = format_find_monadic_operator request_handle source line_start content_end 0 false false
-      in case (op_pos == -1) of
-        true -> ParsedLine MonadicLineNil 0
-        _ ->
+      in case op_pos of
+        Nothing -> ParsedLine MonadicLineNil 0
+        Just op_pos ->
           let op_len = format_monadic_operator_length request_handle source op_pos content_end
               rest_start = format_skip_spaces request_handle (op_pos + op_len) content_end
               rest_end = format_trim_right request_handle content_end rest_start
@@ -693,7 +693,7 @@ format_find_next_chain_operator request_handle source chain_end base_indent next
 
 format_find_chain_first_body_indent request_handle source body_start body_end op_indent =
   case (body_start >= body_end) of
-    true -> -1
+    true -> Nothing
     _ ->
       let line_end = format_line_end request_handle body_start body_end
           next = format_next_line_start line_end body_end
@@ -706,12 +706,12 @@ format_find_chain_first_body_indent request_handle source body_start body_end op
              true true -> 0
              _ _ -> 1
          in case body_indent_state of
-              0 -> indent
+              0 -> Just indent
               _ ->
                 let has_progress = next > body_start
                 in case has_progress of
                   true -> format_find_chain_first_body_indent request_handle source next body_end op_indent
-                  _ -> -1
+                  _ -> Nothing
 
 format_copy_chain_body request_handle source out out_i source_end op_indent first_body_indent normalized_body_indent body_start body_end =
   format_copy_chain_body_with_budget
@@ -729,10 +729,10 @@ format_copy_chain_body request_handle source out out_i source_end op_indent firs
 
 format_copy_chain_body_with_budget request_handle source out out_i source_end op_indent first_body_indent normalized_body_indent body_start body_end budget =
   case (budget <= 0) of
-    true -> format_nonprogress_copy_chain_body_error
+    true -> FormatNormalizeError FormatNonProgressCopyChainBody
     _ ->
       case (body_start >= body_end) of
-        true -> out_i
+        true -> FormatNormalizeOk out_i
         _ ->
           let line_end = format_line_end request_handle body_start body_end
               next = format_next_line_start line_end body_end
@@ -753,22 +753,28 @@ format_copy_chain_body_with_budget request_handle source out out_i source_end op
               has_progress = next > body_start
           in case has_progress of
             true ->
-              let out2 = format_copy_chain_body_with_budget
-                request_handle
-                source
-                out
-                out1
-                source_end
-                op_indent
-                first_body_indent
-                normalized_body_indent
-                next
-                body_end
-                (budget - 1)
-              in case (out2 < 0) of
-                true -> out2
-                _ -> out2
-            _ -> out1
+              case (out1 < 0) of
+                true -> FormatNormalizeError FormatNonProgressNormalizeMonadicLines
+                _ ->
+                  let out2 = format_copy_chain_body_with_budget
+                    request_handle
+                    source
+                    out
+                    out1
+                    source_end
+                    op_indent
+                    first_body_indent
+                    normalized_body_indent
+                    next
+                    body_end
+                    (budget - 1)
+                  in case out2 of
+                    FormatNormalizeError err -> FormatNormalizeError err
+                    FormatNormalizeOk out2_i -> FormatNormalizeOk out2_i
+            _ ->
+              case (out1 < 0) of
+                true -> FormatNormalizeError FormatNonProgressNormalizeMonadicLines
+                _ -> FormatNormalizeOk out1
 
 format_normalize_chain_region request_handle source source_len out out_i i chain_end base_indent =
   format_normalize_chain_region_with_budget
@@ -784,10 +790,10 @@ format_normalize_chain_region request_handle source source_len out out_i i chain
 
 format_normalize_chain_region_with_budget request_handle source source_len out out_i i chain_end base_indent budget =
   case (budget <= 0) of
-    true -> format_nonprogress_chain_region_error
+    true -> FormatNormalizeError FormatNonProgressChainRegion
     _ ->
       case (i >= chain_end) of
-        true -> out_i
+        true -> FormatNormalizeOk out_i
         _ ->
           let line_end = format_line_end request_handle i source_len
               next = format_next_line_start line_end source_len
@@ -799,13 +805,14 @@ format_normalize_chain_region_with_budget request_handle source source_len out o
                   next_op = format_find_next_chain_operator request_handle source chain_end base_indent body_start
                   first_body_indent = format_find_chain_first_body_indent request_handle source body_start next_op op_indent
                   has_next_progress = next_op > body_start && next_op <= chain_end
-                  is_missing_body_indent = first_body_indent < 0
-                  is_body_indent_missing = is_missing_body_indent
               in case has_next_progress of
-                false -> out1
+                false ->
+                  case (out1 < 0) of
+                    true -> FormatNormalizeError FormatNonProgressNormalizeMonadicLines
+                    _ -> FormatNormalizeOk out1
                 _ ->
-                  case is_body_indent_missing of
-                    true ->
+                  case first_body_indent of
+                    Nothing ->
                       let out2 = format_normalize_chain_region_with_budget
                           request_handle
                           source
@@ -816,11 +823,11 @@ format_normalize_chain_region_with_budget request_handle source source_len out o
                           chain_end
                           base_indent
                           (budget - 1)
-                      in case (out2 < 0) of
-                        true -> out2
-                        _ -> out2
-                    _ ->
-                          let relative_body_indent = max2 1 (first_body_indent - op_indent)
+                      in case out2 of
+                        FormatNormalizeError err -> FormatNormalizeError err
+                        FormatNormalizeOk out2_i -> FormatNormalizeOk out2_i
+                    Just first_body_indent ->
+                      let relative_body_indent = max2 1 (first_body_indent - op_indent)
                           normalized_body_indent = base_indent + relative_body_indent
                           out2 = format_copy_chain_body_with_budget
                             request_handle
@@ -834,19 +841,19 @@ format_normalize_chain_region_with_budget request_handle source source_len out o
                             body_start
                             next_op
                             (budget - 1)
-                          in case (out2 < 0) of
-                            true -> out2
-                            _ ->
-                              format_normalize_chain_region_with_budget
-                                request_handle
-                                source
-                                source_len
-                                out
-                                out2
-                                next_op
-                                chain_end
-                                base_indent
-                                (budget - 1)
+                      in case out2 of
+                        FormatNormalizeError err -> FormatNormalizeError err
+                        FormatNormalizeOk out2_i ->
+                          format_normalize_chain_region_with_budget
+                            request_handle
+                            source
+                            source_len
+                            out
+                            out2_i
+                            next_op
+                            chain_end
+                            base_indent
+                            (budget - 1)
             ParsedLine MonadicLineNil _ ->
               format_normalize_chain_region_with_budget
                 request_handle
@@ -871,10 +878,10 @@ format_normalize_monadic_lines request_handle source source_len out out_i i =
 
 format_normalize_monadic_lines_with_budget request_handle source source_len out out_i i budget =
   case (budget <= 0) of
-    true -> format_nonprogress_normalize_monadic_lines_error
+    true -> FormatNormalizeError FormatNonProgressNormalizeMonadicLines
     _ ->
       case (i >= source_len) of
-        true -> out_i
+        true -> FormatNormalizeOk out_i
         _ ->
           let line_end = format_line_end request_handle i source_len
               next_i = case (line_end < source_len) of true -> line_end + 1 _ -> line_end
@@ -885,7 +892,7 @@ format_normalize_monadic_lines_with_budget request_handle source source_len out 
                     true -> slice_set_u8 request_handle OwnershipRewriteLinear out out1 format_newline_byte
                     _ -> out1
               in case (out2 < 0) of
-                true -> out2
+                true -> FormatNormalizeError FormatNonProgressNormalizeMonadicLines
                 _ -> format_normalize_monadic_lines_with_budget request_handle source source_len out out2 next_i (budget - 1)
             ParsedLine (MonadicLineNode _ _ base_indent _ _ _ _) flags ->
               let has_first_lambda = flags == 1 || flags == 3
@@ -911,16 +918,19 @@ format_normalize_monadic_lines_with_budget request_handle source source_len out 
                  in case normalize_chain_state of
                    0 ->
                      let out1 = format_normalize_chain_region request_handle source source_len out out_i i normalized_chain_end base_indent
-                     in case (out1 < 0) of
-                       true -> out1
-                       _ -> format_normalize_monadic_lines_with_budget request_handle source source_len out out1 normalized_chain_end (budget - 1)
+                     in case out1 of
+                       FormatNormalizeError err -> FormatNormalizeError err
+                       FormatNormalizeOk out1_i ->
+                         case (out1_i < 0) of
+                           true -> FormatNormalizeError FormatNonProgressNormalizeMonadicLines
+                           _ -> format_normalize_monadic_lines_with_budget request_handle source source_len out out1_i normalized_chain_end (budget - 1)
                    _ ->
                      let copy_len = case (normalized_chain_end > i) of
                            true -> normalized_chain_end - i
                            _ -> next_i - i
                          out1 = format_copy_segment request_handle OwnershipRewriteLinear source i out out_i copy_len
                      in case (out1 < 0) of
-                       true -> out1
+                       true -> FormatNormalizeError FormatNonProgressNormalizeMonadicLines
                        _ -> format_normalize_monadic_lines_with_budget request_handle source source_len out out1 normalized_chain_end (budget - 1)
 
 format_normalize_source request_handle source source_len out out_i =
@@ -930,251 +940,25 @@ format_normalize_source request_handle source source_len out out_i =
       normalized_len = format_normalize_source_lines request_handle OwnershipRewriteLinear decoded decoded_len normalized 0 0
       monadic = slice_new_u8 (normalized_len * 2 + format_default_line_width * 4)
       monadic_len = format_normalize_monadic_lines request_handle normalized normalized_len monadic 0 0
-  in case (monadic_len < 0) of
-    true -> monadic_len
-    _ -> format_copy_segment request_handle OwnershipRewriteLinear monadic 0 out out_i monadic_len
+  in case monadic_len of
+    FormatNormalizeError err -> FormatNormalizeError err
+    FormatNormalizeOk monadic_len_i ->
+      case (monadic_len_i < 0) of
+        true -> FormatNormalizeError FormatNonProgressNormalizeMonadicLines
+        _ -> FormatNormalizeOk (format_copy_segment request_handle OwnershipRewriteLinear monadic 0 out out_i monadic_len_i)
 
 find_source_start request_handle i req_len =
-  find_json_key_value_start request_handle i req_len "\"source\""
+  scan_find_json_key_value_start request_handle i req_len "\"source\""
 
-find_input_source_start request_handle i req_len =
-  find_json_key_value_start request_handle i req_len "\"input_source\""
-
-find_input_path_start request_handle i req_len =
-  find_json_key_value_start request_handle i req_len "\"input_path\""
-
-max_source_scan_steps = 1024
-max_inline_request_len = 32768
-max_inline_validation_request_len = 2048
-find_source_end_scan_chunk = 64
 format_nonprogress_guard_limit = 1024
-format_nonprogress_chain_region_error = -1001
-format_nonprogress_copy_chain_body_error = -1002
-format_nonprogress_normalize_monadic_lines_error = -1003
 
-format_nonprogress_error_message code =
-  case code of
-    format_nonprogress_chain_region_error -> "format non-progress recursion in format_normalize_chain_region"
-    format_nonprogress_copy_chain_body_error -> "format non-progress recursion in format_copy_chain_body"
-    format_nonprogress_normalize_monadic_lines_error -> "format non-progress recursion in format_normalize_monadic_lines"
+format_nonprogress_error_message error =
+  case error of
+    FormatNonProgressChainRegion -> "format non-progress recursion in format_normalize_chain_region"
+    FormatNonProgressCopyChainBody -> "format non-progress recursion in format_copy_chain_body"
+    FormatNonProgressNormalizeMonadicLines -> "format non-progress recursion in format_normalize_monadic_lines"
     _ -> "format non-progress recursion detected in monadic formatter"
 
-find_source_end request_handle i req_len slash_parity =
-  find_source_end_limited request_handle i req_len slash_parity 0
-
-find_source_end_scan_state i slash_parity =
-  case (slash_parity == 0) of
-    true -> -(i + 1)
-    _ -> -((i + 1) + max_inline_request_len)
-
-find_source_end_scan_state_next_i state =
-  let payload = -state
-  in case (payload > max_inline_request_len) of
-    true -> payload - max_inline_request_len - 1
-    _ -> payload - 1
-
-find_source_end_scan_state_next_parity state =
-  let payload = -state
-  in case (payload > max_inline_request_len) of
-    true -> 1
-    _ -> 0
-
-find_source_end_scan_chunk_limited request_handle i slash_parity chunk_size offset =
-  case (offset == chunk_size) of
-    true -> find_source_end_scan_state (i + offset) slash_parity
-    _ ->
-          let at = i + offset
-              b = slice_get_u8 request_handle at
-              is_backslash = b == format_backslash_byte
-              is_quote = b == format_quote_byte
-              has_quote_or_escape = is_backslash || is_quote
-              is_even_parity = slash_parity == 0
-          let quote_state =
-                case has_quote_or_escape is_even_parity of
-                  true _ -> 0
-                  _ true -> 1
-                  _ _ -> 2
-          in case quote_state of
-            0 ->
-              find_source_end_scan_chunk_limited
-                request_handle
-                i
-                (1 - slash_parity)
-                chunk_size
-                (offset + 1)
-            1 -> at
-            _ ->
-              find_source_end_scan_chunk_limited
-                request_handle
-                i
-                0
-                chunk_size
-                (offset + 1)
-
-find_source_end_limited request_handle i req_len slash_parity steps =
-  let is_scan_limit_reached = steps == max_source_scan_steps
-  in case is_scan_limit_reached of
-    true -> req_len
-    _ ->
-      let has_invalid_position = (i < 0) || (i >= req_len)
-          should_stop_scan = is_scan_limit_reached || has_invalid_position
-      in case should_stop_scan of
-        true -> req_len
-        _ ->
-          let remaining = req_len - i
-              chunk_size = case (remaining <= find_source_end_scan_chunk) of
-                true -> remaining
-                _ -> find_source_end_scan_chunk
-              scan_state = find_source_end_scan_chunk_limited request_handle i slash_parity chunk_size 0
-              has_found_boundary = scan_state >= 0
-          in case has_found_boundary of
-            true -> scan_state
-            _ ->
-              let next_i = find_source_end_scan_state_next_i scan_state
-                  next_parity = find_source_end_scan_state_next_parity scan_state
-              in find_source_end_limited request_handle next_i req_len next_parity (steps + 1)
-
-
-slice_set_u8_write request_handle ownership_mode target start value =
-  slice_set_u8 target start value
-
-copy_slice_segment request_handle ownership_mode src src_start dst dst_start seg_len i = case (i == seg_len) of
-  true -> dst
-  _ ->
-    case (i + 16 <= seg_len) of
-      true ->
-        let b0 = slice_get_u8 src (src_start + i)
-            d0 = slice_set_u8_write request_handle ownership_mode dst (dst_start + i) b0
-            b1 = slice_get_u8 src (src_start + i + 1)
-            d1 = slice_set_u8_write request_handle ownership_mode d0 (dst_start + i + 1) b1
-            b2 = slice_get_u8 src (src_start + i + 2)
-            d2 = slice_set_u8_write request_handle ownership_mode d1 (dst_start + i + 2) b2
-            b3 = slice_get_u8 src (src_start + i + 3)
-            d3 = slice_set_u8_write request_handle ownership_mode d2 (dst_start + i + 3) b3
-            b4 = slice_get_u8 src (src_start + i + 4)
-            d4 = slice_set_u8_write request_handle ownership_mode d3 (dst_start + i + 4) b4
-            b5 = slice_get_u8 src (src_start + i + 5)
-            d5 = slice_set_u8_write request_handle ownership_mode d4 (dst_start + i + 5) b5
-            b6 = slice_get_u8 src (src_start + i + 6)
-            d6 = slice_set_u8_write request_handle ownership_mode d5 (dst_start + i + 6) b6
-            b7 = slice_get_u8 src (src_start + i + 7)
-            d7 = slice_set_u8_write request_handle ownership_mode d6 (dst_start + i + 7) b7
-            b8 = slice_get_u8 src (src_start + i + 8)
-            d8 = slice_set_u8_write request_handle ownership_mode d7 (dst_start + i + 8) b8
-            b9 = slice_get_u8 src (src_start + i + 9)
-            d9 = slice_set_u8_write request_handle ownership_mode d8 (dst_start + i + 9) b9
-            b10 = slice_get_u8 src (src_start + i + 10)
-            d10 = slice_set_u8_write request_handle ownership_mode d9 (dst_start + i + 10) b10
-            b11 = slice_get_u8 src (src_start + i + 11)
-            d11 = slice_set_u8_write request_handle ownership_mode d10 (dst_start + i + 11) b11
-            b12 = slice_get_u8 src (src_start + i + 12)
-            d12 = slice_set_u8_write request_handle ownership_mode d11 (dst_start + i + 12) b12
-            b13 = slice_get_u8 src (src_start + i + 13)
-            d13 = slice_set_u8_write request_handle ownership_mode d12 (dst_start + i + 13) b13
-            b14 = slice_get_u8 src (src_start + i + 14)
-            d14 = slice_set_u8_write request_handle ownership_mode d13 (dst_start + i + 14) b14
-            b15 = slice_get_u8 src (src_start + i + 15)
-            d15 = slice_set_u8_write request_handle ownership_mode d14 (dst_start + i + 15) b15
-        in copy_slice_segment request_handle ownership_mode src src_start d15 dst_start seg_len (i + 16)
-      _ ->
-        let b = slice_get_u8 src (src_start + i)
-            next = slice_set_u8_write request_handle ownership_mode dst (dst_start + i) b
-        in copy_slice_segment request_handle ownership_mode src src_start next dst_start seg_len (i + 1)
-
-json_escape_extra_len src start seg_len i extra = case (i == seg_len) of
-  true -> extra
-  _ ->
-      let b = slice_get_u8 src (start + i)
-          is_quote = b == format_quote_byte
-          is_backslash = b == format_backslash_byte
-          is_newline = b == format_newline_byte
-          is_carriage = b == format_carriage_return_byte
-      is_tab = b == format_tab_byte
-      needs_escape = is_quote || is_backslash || is_newline || is_carriage || is_tab
-    in case needs_escape of
-      true -> json_escape_extra_len src start seg_len (i + 1) (extra + 1)
-      _ -> json_escape_extra_len src start seg_len (i + 1) extra
-
-json_copy_escaped_segment request_handle ownership_mode src start seg_len i dst dst_i = case (i == seg_len) of
-  true -> dst
-  _ ->
-  let b = slice_get_u8 src (start + i)
-      is_quote = b == format_quote_byte
-      is_backslash = b == format_backslash_byte
-      is_newline = b == format_newline_byte
-      is_carriage = b == format_carriage_return_byte
-      is_tab = b == format_tab_byte
-      needs_escape = is_quote || is_backslash || is_newline || is_carriage || is_tab
-      in case needs_escape of
-        true ->
-        let escaped_state =
-              case is_quote is_backslash is_newline is_carriage is_tab of
-                true _ _ _ _ -> 0
-                _ true _ _ _ -> 1
-                _ _ true _ _ -> 2
-                _ _ _ true _ -> 3
-                _ _ _ _ true -> 4
-                _ _ _ _ _ -> 5
-            escaped_byte = case escaped_state of
-              0 -> format_quote_byte
-              1 -> format_backslash_byte
-              2 -> format_escape_n_byte
-              3 -> format_escape_r_byte
-              4 -> format_escape_t_byte
-              _ -> format_backslash_byte
-        in
-        let d1 = slice_set_u8_write request_handle ownership_mode dst dst_i format_backslash_byte
-            d2 = slice_set_u8_write request_handle ownership_mode d1 (dst_i + 1) escaped_byte
-        in json_copy_escaped_segment request_handle ownership_mode src start seg_len (i + 1) d2 (dst_i + 2)
-      _ ->
-        let d1 = slice_set_u8_write request_handle ownership_mode dst dst_i b
-        in json_copy_escaped_segment request_handle ownership_mode src start seg_len (i + 1) d1 (dst_i + 1)
-
-json_slice_end request_handle source_start req_len =
-  let source_end_raw = find_source_end request_handle source_start req_len 0
-      is_shorter_than_start = source_end_raw < source_start
-      is_longer_than_end = source_end_raw > req_len
-      source_end_state =
-        case is_shorter_than_start is_longer_than_end of
-          true _ -> 0
-          _ true -> 1
-          _ _ -> 2
-  in case source_end_state of
-       0 -> source_start
-       1 -> req_len
-       _ -> source_end_raw
-
-json_response_with_literal_prefix_suffix request_handle ownership_mode prefix suffix =
-  let prefix_len = slice_len prefix
-      suffix_len = slice_len suffix
-      out = slice_new_u8 (prefix_len + suffix_len)
-      out1 = copy_slice_literal request_handle ownership_mode out 0 prefix
-  in copy_slice_literal request_handle ownership_mode out1 prefix_len suffix
-
-json_response_with_slice_segment request_handle ownership_mode prefix suffix src src_start src_len =
-  let prefix_len = slice_len prefix
-      suffix_len = slice_len suffix
-      total_len = prefix_len + src_len + suffix_len
-      out = slice_new_u8 total_len
-      out1 = copy_slice_literal request_handle ownership_mode out 0 prefix
-      out2 = copy_slice_segment request_handle ownership_mode src src_start out1 prefix_len src_len 0
-  in copy_slice_literal request_handle ownership_mode out2 (prefix_len + src_len) suffix
-
-json_response_with_escaped_slice_segment request_handle ownership_mode prefix suffix src src_start src_len =
-  let prefix_len = slice_len prefix
-      escaped_extra = json_escape_extra_len src src_start src_len 0 0
-      escaped_len = src_len + escaped_extra
-      suffix_len = slice_len suffix
-      total_len = prefix_len + escaped_len + suffix_len
-      out = slice_new_u8 total_len
-      out1 = copy_slice_literal request_handle ownership_mode out 0 prefix
-      out2 = json_copy_escaped_segment request_handle ownership_mode src src_start src_len 0 out1 prefix_len
-  in copy_slice_literal request_handle ownership_mode out2 (prefix_len + escaped_len) suffix
-
-json_response_from_slice request_handle ownership_mode literal =
-  let out = slice_new_u8 (slice_len literal)
-      out1 = copy_slice_literal request_handle ownership_mode out 0 literal
-  in out1
 
 format_empty_response request_handle ownership_mode =
   json_response_with_literal_prefix_suffix request_handle ownership_mode json_format_prefix json_format_suffix
@@ -1183,11 +967,11 @@ format_source_response request_handle ownership_mode source_start req_len =
   let source_end = json_slice_end request_handle source_start req_len
       source_len = source_end - source_start
       formatted = slice_new_u8 (source_len * 2 + format_default_line_width * 8)
-      formatted_len = format_normalize_source request_handle source_start source_len formatted 0
-  in case (formatted_len < 0) of
-    true ->
-      error_response_from_message request_handle ownership_mode (format_nonprogress_error_message formatted_len)
-    _ ->
+      format_result = format_normalize_source request_handle source_start source_len formatted 0
+  in case format_result of
+    FormatNormalizeError err ->
+      error_response_from_message request_handle ownership_mode (format_nonprogress_error_message err)
+    FormatNormalizeOk formatted_len ->
       json_response_with_escaped_slice_segment
         request_handle
         ownership_mode

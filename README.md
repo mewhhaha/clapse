@@ -111,13 +111,14 @@ just release-candidate out=out/releases-ci
 
 `release-candidate` does all release gates in one pass:
 
-- builds `clapse_compiler.wasm` + bridge artifact + compiled CLI binary (`clapse-bin`) in a versioned directory
+- builds `clapse_compiler.wasm`, packaged prelude source (`lib/compiler/prelude.clapse`), and compiled CLI binary (`clapse-bin`) in a versioned directory
 - runs strict wasm selfhost parity (`selfhost-check-wasm`)
 - regenerates fixture maps and requires byte-for-byte parity against:
   - `scripts/wasm-behavior-fixture-map.json`
   - `scripts/wasm-selfhost-artifact-fixture-map.json`
 - emits:
   - `release-manifest.json` (version, commit, toolchain, artifact hashes/sizes)
+  - `prelude.clapse` (canonical compiler prelude source snapshot)
   - `checksums.sha256` (reproducible checksum list)
 
 Custom operator declarations:
