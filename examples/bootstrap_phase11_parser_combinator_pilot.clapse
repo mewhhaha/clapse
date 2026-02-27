@@ -81,10 +81,14 @@ if2 p t f = case p of
 and2 a b = if2 a b false
 not2 a = if2 a false true
 
-bool_and a b = and2 a b
-bool_or a b = case a of
-  false -> b
-  true -> true
+bool_and false _ = false
+bool_and _ false = false
+bool_and _ _ = true
+
+bool_or true _ = true
+bool_or _ true = true
+bool_or _ _ = false
+
 bool_not b = case b of
   true -> false
   false -> true

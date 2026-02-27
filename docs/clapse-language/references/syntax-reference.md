@@ -237,8 +237,8 @@ not x && y || z
 - `>` => `gt` (infix 4)
 - `>=` => `ge` (infix 4)
 - `not` => `bool_not` via the compiler-prelude alias `not`
-- `&&` => `and` (infixr 3)
-- `||` => `or` (infixr 2, declaration usually `infixr 2 ||` in prelude/custom modules)
+- `&&` (infixr 3)
+- `||` (infixr 2)
 
 Custom operators:
 
@@ -253,6 +253,18 @@ The compiler prelude also defines the shared boolean class in Haskell-like namin
 
 ```haskell
 data bool = true<1> | false<0>
+data Unit = Unit
+data Lazy a = Lazy : (Unit -> a) -> Lazy a
+
+-- `~a` is the source-level signature marker for lazy parameters.
+-- Current runtime lowering still uses the internal `Lazy a` box.
+
+force : Lazy a -> a
+force l = case l of Lazy thunk -> thunk Unit
+
+lazy : (Unit -> a) -> Lazy a
+lazy thunk = Lazy thunk
+
 class Boolean b where
   not : b -> b
   and : b -> b -> b
@@ -261,34 +273,52 @@ class Boolean b where
   implies : b -> b -> b
   && : b -> b -> b
   || : b -> b -> b
-  && = and
-  || = or
   xor a b = or (and a (not b)) (and (not a) b)
   implies a b = or (not a) b
 
 instance Boolean bool where
-  not b = case b of
-    true -> false
-    false -> true
-  and a b = case a b of
-    true true -> true
-    _ _ -> false
-  or a b = case a b of
-    false false -> false
-    _ _ -> true
-  xor a b = case a b of
-    true false -> true
-    false true -> true
-    _ _ -> false
-  implies a b = case a b of
-    true false -> false
-    _ _ -> true
+  not true = false
+  not false = true
+
+  and false _ = false
+  and _ false = false
+  and _ _ = true
+
+  or true _ = true
+  or _ true = true
+  or _ _ = false
+
+  xor true false = true
+  xor false true = true
+  xor _ _ = false
+
+  implies true false = false
+  implies _ _ = true
+
+  && false _ = false
+  && _ false = false
+  && _ _ = true
+
+  || true _ = true
+  || _ true = true
+  || _ _ = false
 
 infixr 3 &&
 infixr 2 ||
 ```
 
-`Boolean` supplies the `bool` laws (identity, annihilation, and double-negation) with the default `bool` instance. `&&` and `||` are class methods (defaulting to `and`/`or`), and `xor`/`implies` are available as boolean methods.
+`Boolean` supplies the `bool` laws (identity, annihilation, and double-negation) with the default `bool` instance. `&&` and `||` are class methods with signatures `b -> b -> b`, and the default `bool` instance defines short-circuit-like behavior through constructor-driven clauses. `xor`/`implies` are available as boolean methods.
+
+Pattern-demand semantics with `_`
+
+- `_` is a wildcard binder (it does not bind a variable name).
+- In clause matching, wildcard positions introduce no demand for that argument position.
+- The matcher may reorder argument tests to reduce demand, but must remain deterministic:
+  - preserve clause priority (top-to-bottom),
+  - choose the next demanded argument by a fixed strategy,
+  - break ties by source argument order (left-to-right).
+- This wildcard-demand behavior is separate from explicit laziness:
+  `~` and `force` remain the surface for guaranteed lazy API boundaries.
 
 Custom declarations override builtins for matching operator tokens.
 

@@ -34,6 +34,20 @@ export function fail(message) {
 }
 
 export function failWithError(err) {
-  const message = err instanceof Error ? err.message : String(err);
-  fail(message);
+  if (err instanceof Error) {
+    const debugStackRaw = isDeno
+      ? String(Deno.env.get("CLAPSE_DEBUG_STACK") ?? "").toLowerCase()
+      : "";
+    const debugStackEnabled = debugStackRaw === "1" || debugStackRaw === "true" || debugStackRaw === "yes";
+    if (debugStackEnabled && typeof err.stack === "string" && err.stack.length > 0) {
+      console.error(err.stack);
+      if (isDeno) {
+        Deno.exit(1);
+      }
+      process.exit(1);
+    }
+    fail(err.message);
+    return;
+  }
+  fail(String(err));
 }

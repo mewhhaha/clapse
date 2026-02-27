@@ -34,6 +34,12 @@ jobs:
           CLAPSE_COMPILER_WASM_PATH: artifacts/latest/clapse_compiler.wasm
         run: deno run -A scripts/validate-docs.mjs
 
+      - name: Validate wildcard demand
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          CLAPSE_COMPILER_WASM_PATH: artifacts/latest/clapse_compiler.wasm
+        run: deno run -A scripts/wildcard-demand-check.mjs
+
       - name: Resolve release context
         id: release_context
         if: startsWith(github.ref, 'refs/tags/v')

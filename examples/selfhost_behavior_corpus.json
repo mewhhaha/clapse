@@ -152,6 +152,21 @@
       "args": [123, 1],
       "expect": "trap"
     },
+    {
+      "entry": "examples/wildcard_demand_behavior_regressions.clapse",
+      "export": "main_wildcard_not_force",
+      "args": []
+    },
+    {
+      "entry": "examples/wildcard_demand_behavior_regressions.clapse",
+      "export": "main_priority_after_reorder",
+      "args": []
+    },
+    {
+      "entry": "examples/wildcard_demand_behavior_regressions.clapse",
+      "export": "main_ordered_demand",
+      "args": []
+    },
     { "entry": "examples/wasm_main.clapse", "export": "main", "args": [7] },
     {
       "entry": "examples/wasm_struct_get_mismatch.clapse",

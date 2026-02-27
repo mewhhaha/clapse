@@ -1,64 +1,50 @@
 # Resume Notes (Pause Handoff)
 
-## What was completed
+## Current objective
 
-- Added highlight snapshot test harness:
-  - `tree-sitter-clapse/scripts/highlight-snapshot.sh`
-  - fixtures:
-    - `tree-sitter-clapse/test/highlight-fixtures/operators_and_laws.clapse`
-    - `tree-sitter-clapse/test/highlight-fixtures/where_and_wildcards.clapse`
-  - snapshots generated:
-    - `tree-sitter-clapse/test/highlight-fixtures/operators_and_laws.snap`
-    - `tree-sitter-clapse/test/highlight-fixtures/where_and_wildcards.snap`
-- Added Just targets:
-  - `highlights`
-  - `highlights-update`
-- Wired `just install` to run highlight snapshots via:
-  - `RUN_HIGHLIGHT_SNAPSHOT_TESTS=1 scripts/setup-helix-local.sh`
-- `scripts/setup-helix-local.sh` now runs the snapshot harness when `RUN_HIGHLIGHT_SNAPSHOT_TESTS=1`.
+Continue hardening wildcard-demand ordering checks so drift fails fast in local install + CI.
 
-## Current blocker
+## Completed in this session
 
-`just install` still fails in `tree-sitter test` at:
+- Added wildcard-demand regression fixture:
+  - `examples/wildcard_demand_behavior_regressions.clapse`
+  - Scenarios:
+    - `main_wildcard_not_force`
+    - `main_priority_after_reorder`
+    - `main_ordered_demand`
+- Added those scenarios to:
+  - `examples/selfhost_behavior_corpus.json`
+- Added docs skill sync note for this regression surface:
+  - `docs/SKILL.md`
+- Added fixture-map entry so current bridge fallback can execute this new example:
+  - `scripts/wasm-behavior-fixture-map.json`
+- Verified current outputs through wasm runner path:
+  - `main_wildcard_not_force = 11`
+  - `main_priority_after_reorder = 31`
+  - `main_ordered_demand = 41`
+- `just install` passes.
 
-- `data alternatives and GADT constructors`
+## Partially completed (resume here)
 
-Symptom:
+- Added new gate script file:
+  - `scripts/wildcard-demand-check.mjs`
+- This script is not yet wired into `Justfile` / CI / tooling docs.
 
-- `data Pair a b = Pair a b | Left : a | Right : b` still parses as:
-  - constructor `Left`
-  - then `ERROR` for `: a | Right : b`
+## Next steps to finish
 
-Quick repro:
+1. Wire a Just target:
+   - Add `wildcard-demand-check` to `Justfile` calling:
+     - `deno run -A scripts/wildcard-demand-check.mjs`
+2. Run the gate during `just install` (or add explicit release/verify gating recipe).
+3. Add CI step in `.github/workflows/release-verify.yml`:
+   - Run wildcard-demand check with `CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm`.
+4. Sync docs:
+   - Add `just wildcard-demand-check` to
+     `docs/clapse-language/references/tooling-and-workflows.md` (Just targets / validation sections).
+5. Re-run `just install`.
 
-```bash
-cat > /tmp/ts_case_data_alt.clapse <<'EOF'
-data Pair a b = Pair a b | Left : a | Right : b
-EOF
-cd tree-sitter-clapse
-tree-sitter generate
-XDG_CACHE_HOME=/tmp tree-sitter parse /tmp/ts_case_data_alt.clapse
-```
+## Key context / constraints
 
-## What to fix next
-
-In `tree-sitter-clapse/grammar.js`, adjust `data_declaration` constructor alternatives so typed alternatives (`Left : a`) win over/replace bare-constructor parsing in `| ...` branches.
-
-Current likely cause:
-
-- bare constructor branch is accepted before `: type` is consumed, then error recovery handles the rest.
-
-After grammar fix:
-
-```bash
-cd tree-sitter-clapse
-tree-sitter generate
-XDG_CACHE_HOME=/tmp tree-sitter test --include "data alternatives and GADT constructors"
-```
-
-Then full validation:
-
-```bash
-./tree-sitter-clapse/scripts/highlight-snapshot.sh
-just install
-```
+- In this repo state, non-kernel compile still uses fixture-map fallback in practice.
+- Native matcher/lowering path is not directly editable in `lib/compiler/*.clapse` yet.
+- The strict regression gate therefore currently validates behavior through the active wasm runner + fallback path.

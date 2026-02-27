@@ -1,5 +1,5 @@
 module compiler.prelude
-export id, compose, map_replace_default, ap_default, then_m_default, keep_left_default, keep_right_default, alt_default, map_replace, then_m, keep_left, keep_right, alt, not, and, or, xor, implies, Functor, Applicative, Monad, Alternative, Boolean
+export id, compose, map_replace_default, ap_default, then_m_default, keep_left_default, keep_right_default, alt_default, map_replace, then_m, keep_left, keep_right, alt, Unit, Lazy, force, lazy, not, and, or, xor, implies, byte, char, Boolean, Functor, Applicative, Monad, Alternative
 
 infixl 1 >>=
 infixl 1 >>
@@ -60,6 +60,33 @@ law Monad right_identity = bind m pure => m
 law Monad associativity = bind (bind m f) g => bind m (\x -> bind (f x) g)
 law Monad then_default = then_m m n => then_m_default m n
 
+data ByteIntent
+data CharIntent
+data Unit = Unit
+
+data Lazy a = Lazy : (Unit -> a) -> Lazy a
+
+force l =
+  case l of
+    Lazy thunk -> thunk Unit
+
+lazy thunk = Lazy thunk
+
+class AsByte a where
+  as_byte : ByteIntent -> a -> a
+
+class AsChar a where
+  as_char : CharIntent -> a -> a
+
+byte x = as_byte ByteIntent x
+char x = as_char CharIntent x
+
+instance AsByte i64 where
+  as_byte _ x = x
+
+instance AsChar i64 where
+  as_char _ x = x
+
 class Alternative f where
   empty : f a
   append : f a -> f a -> f a
@@ -95,8 +122,28 @@ law Boolean or_annihilation = or x true => true
 law Boolean double_negation = not (not x) => x
 
 instance Boolean bool where
-  not b = case b of true -> false; false -> true
-  and a b = case a b of true true -> true; _ _ -> false
-  or a b = case a b of false false -> false; _ _ -> true
-  xor a b = case a b of true false -> true; false true -> true; _ _ -> false
-  implies a b = case a b of true false -> false; _ _ -> true
+  not true = false
+  not false = true
+
+  and false _ = false
+  and _ false = false
+  and _ _ = true
+
+  or true _ = true
+  or _ true = true
+  or _ _ = false
+
+  xor true false = true
+  xor false true = true
+  xor _ _ = false
+
+  implies true false = false
+  implies _ _ = true
+
+  && false _ = false
+  && _ false = false
+  && _ _ = true
+
+  || true _ = true
+  || _ true = true
+  || _ _ = false

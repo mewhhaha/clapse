@@ -14,6 +14,11 @@
       "name": "monadic-chain-style",
       "input": "examples/formatter-golden-fixtures/monadic-chain.input.clapse",
       "expected": "examples/formatter-golden-fixtures/monadic-chain.expected.clapse"
+    },
+    {
+      "name": "collapse-inline-spacing",
+      "input": "examples/formatter-golden-fixtures/collapse-inline-spacing.input.clapse",
+      "expected": "examples/formatter-golden-fixtures/collapse-inline-spacing.expected.clapse"
     }
   ]
 }

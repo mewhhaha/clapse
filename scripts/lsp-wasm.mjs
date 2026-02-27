@@ -3,6 +3,7 @@
 import { failWithError } from "./runtime-env.mjs";
 import {
   callCompilerWasm,
+  decodeWasmBase64,
   validateCompilerWasmAbi,
 } from "./wasm-compiler-abi.mjs";
 
@@ -16,6 +17,7 @@ function toPath(url) {
 
 const PROJECT_CONFIG_FILE = "clapse.json";
 const projectConfigCache = new Map();
+const projectPluginWasmCache = new Map();
 
 function uriToPath(uri) {
   if (typeof uri !== "string" || uri.length === 0) {
@@ -49,7 +51,22 @@ function normalizeIncludeValue(value) {
   }
   return value
     .map((item) => String(item).trim())
-    .filter((name) => name.length > 0);
+  .filter((name) => name.length > 0);
+}
+
+function normalizePluginDirs(value, configDir) {
+  const rawPluginDirs = normalizeIncludeValue(value);
+  const pluginDirs = [];
+  const seen = new Set();
+  for (const rawDir of rawPluginDirs) {
+    const resolved = resolveModuleDir(rawDir, configDir);
+    if (resolved.length === 0 || seen.has(resolved)) {
+      continue;
+    }
+    seen.add(resolved);
+    pluginDirs.push(resolved);
+  }
+  return pluginDirs;
 }
 
 function normalizePath(path) {
@@ -105,8 +122,10 @@ function parseProjectConfigText(raw, sourcePath) {
   if (typeof raw !== "string" || raw.length === 0) {
     return {
       moduleSearchDirs: new Set(),
+      pluginDirs: new Set(),
       moduleResolutionCache: new Map(),
       sourcePath,
+      raw: null,
     };
   }
 
@@ -116,16 +135,20 @@ function parseProjectConfigText(raw, sourcePath) {
   } catch {
     return {
       moduleSearchDirs: new Set(),
+      pluginDirs: new Set(),
       moduleResolutionCache: new Map(),
       sourcePath,
+      raw: null,
     };
   }
 
   if (data === null || typeof data !== "object") {
     return {
       moduleSearchDirs: new Set(),
+      pluginDirs: new Set(),
       moduleResolutionCache: new Map(),
       sourcePath,
+      raw: data,
     };
   }
 
@@ -133,13 +156,118 @@ function parseProjectConfigText(raw, sourcePath) {
   const moduleSearchDirs = normalizeIncludeValue(data.include)
     .map((path) => resolveModuleDir(path, configDir))
     .filter((path) => path.length > 0);
+  const pluginDirs = normalizePluginDirs(data.plugins, configDir);
 
   return {
     moduleSearchDirs: new Set(moduleSearchDirs),
+    pluginDirs: new Set(pluginDirs),
     moduleResolutionCache: new Map(),
     sourcePath,
     raw: data,
   };
+}
+
+async function collectClapseFilesRecursively(rootDir, out, seen = new Set()) {
+  const normalized = normalizePath(rootDir);
+  if (normalized.length === 0 || seen.has(normalized)) {
+    return;
+  }
+  seen.add(normalized);
+  let entries = [];
+  try {
+    for await (const entry of Deno.readDir(normalized)) {
+      entries.push(entry);
+    }
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const child = `${normalized}/${entry.name}`;
+    if (entry.isDirectory) {
+      await collectClapseFilesRecursively(child, out, seen);
+      continue;
+    }
+    if (entry.isFile && child.endsWith(".clapse")) {
+      out.push(child);
+    }
+  }
+}
+
+async function compilePluginWasm(wasmPath, pluginSourcePath, outputPath, inputSource) {
+  const response = await callCompilerWasm(wasmPath, {
+    command: "compile",
+    input_path: pluginSourcePath,
+    input_source: inputSource,
+    plugin_wasm_paths: [],
+  });
+  if (
+    !response || typeof response !== "object" || response.ok !== true
+  ) {
+    const err = typeof response?.error === "string"
+      ? response.error
+      : `plugin compile failed for ${pluginSourcePath}`;
+    throw new Error(err);
+  }
+  if (typeof response.wasm_base64 !== "string" || response.wasm_base64.length === 0) {
+    throw new Error(`plugin compile produced empty wasm for ${pluginSourcePath}`);
+  }
+  const outDir = outputPath.includes("/")
+    ? outputPath.slice(0, outputPath.lastIndexOf("/"))
+    : "";
+  if (outDir.length > 0) {
+    await Deno.mkdir(outDir, { recursive: true });
+  }
+  await Deno.writeFile(outputPath, decodeWasmBase64(response.wasm_base64));
+}
+
+async function compileProjectPlugins(wasmPath, config) {
+  const pluginDirs = (config?.pluginDirs instanceof Set)
+    ? Array.from(config.pluginDirs)
+    : [];
+  if (pluginDirs.length === 0) {
+    return [];
+  }
+  const pluginSources = [];
+  const seenDirs = new Set();
+  const sortedDirs = [...new Set(pluginDirs)].sort((a, b) => a.localeCompare(b, "en"));
+  for (const pluginDir of sortedDirs) {
+    await collectClapseFilesRecursively(pluginDir, pluginSources, seenDirs);
+  }
+
+  const uniquePluginSources = [...new Set(pluginSources)].sort((a, b) => a.localeCompare(b, "en"));
+  const pluginWasmPaths = [];
+  for (const pluginSource of uniquePluginSources) {
+    const outputPath = pluginSource.endsWith(".clapse")
+      ? pluginSource.replace(/\.clapse$/u, ".wasm")
+      : `${pluginSource}.wasm`;
+    const pluginSourceText = await Deno.readTextFile(pluginSource);
+    await compilePluginWasm(wasmPath, pluginSource, outputPath, pluginSourceText);
+    pluginWasmPaths.push(outputPath);
+  }
+  return pluginWasmPaths;
+}
+
+async function resolveProjectPluginWasmPaths(config, wasmPath) {
+  const pluginDirs = (config?.pluginDirs instanceof Set)
+    ? Array.from(config.pluginDirs)
+    : [];
+  if (pluginDirs.length === 0) {
+    return [];
+  }
+  const cacheKey = String(config?.sourcePath ?? "");
+  if (projectPluginWasmCache.has(cacheKey)) {
+    return projectPluginWasmCache.get(cacheKey);
+  }
+  const inFlight = (async () => {
+    return compileProjectPlugins(wasmPath, config);
+  })();
+  projectPluginWasmCache.set(cacheKey, inFlight);
+  try {
+    return await inFlight;
+  } catch (err) {
+    projectPluginWasmCache.delete(cacheKey);
+    throw err;
+  }
 }
 
 async function resolveProjectConfig(uri, rootHint) {
@@ -434,6 +562,63 @@ function buildFunctionDocIndex(text) {
   };
 }
 
+function declarationRangeFromSignature(sourceText, symbol, signature) {
+  const signatureLine = String(signature);
+  if (signatureLine.length === 0) {
+    return null;
+  }
+  const lines = sourceText.split("\n");
+  for (let line = 0; line < lines.length; line += 1) {
+    if (lines[line].trim() !== signatureLine.trim()) {
+      continue;
+    }
+    const start = lines[line].indexOf(symbol);
+    if (start < 0) {
+      continue;
+    }
+    return {
+      uri: null,
+      range: {
+        start: { line, character: start },
+        end: { line, character: start + symbol.length },
+      },
+    };
+  }
+  return null;
+}
+
+async function requestKernelSymbolIndex(wasmPath, source) {
+  const response = await callCompilerWasm(wasmPath, {
+    command: "lsp-symbol-index",
+    input_source: source,
+  });
+  return response;
+}
+
+async function requestKernelHover(wasmPath, uri, source, symbol) {
+  const response = await callCompilerWasm(wasmPath, {
+    command: "lsp-hover",
+    input_source: source,
+    symbol,
+  });
+  if (response && response.ok === true && String(response.backend ?? "") === "clapse") {
+    return response;
+  }
+  return null;
+}
+
+async function requestKernelDefinition(wasmPath, uri, source, symbol) {
+  const response = await callCompilerWasm(wasmPath, {
+    command: "lsp-definition",
+    input_source: source,
+    symbol,
+  });
+  if (response && response.ok === true && String(response.backend ?? "") === "clapse") {
+    return response;
+  }
+  return null;
+}
+
 function isIdentChar(ch) {
   return /[A-Za-z0-9_$.']/u.test(ch);
 }
@@ -472,10 +657,12 @@ async function formatSource(wasmPath, uri, source) {
 }
 
 async function compileDiagnostics(wasmPath, uri, source, config) {
+  const pluginWasmPaths = await resolveProjectPluginWasmPaths(config, wasmPath);
   const response = await callCompilerWasm(wasmPath, {
     command: "compile",
     input_path: uri,
     input_source: source,
+    plugin_wasm_paths: pluginWasmPaths,
   });
   const scopeDiagnostics = await scopeDiagnosticsForSource(source, config);
   if (response && typeof response === "object" && response.ok === true) {
@@ -484,6 +671,13 @@ async function compileDiagnostics(wasmPath, uri, source, config) {
   const message = response && typeof response.error === "string"
     ? response.error
     : "compile failed";
+  const normalizedMessage = message.toLowerCase();
+  if (
+    normalizedMessage.includes("native compile not implemented") ||
+    normalizedMessage.includes("host compile recursion detected")
+  ) {
+    return scopeDiagnostics;
+  }
   const parsed = parseLineError(message);
   const diagnostics = [...scopeDiagnostics];
   if (parsed) {
@@ -651,6 +845,7 @@ export async function runLspServer() {
   await validateCompilerWasmAbi(wasmPath);
   const docs = new Map();
   const docIndex = new Map();
+  const coreSymbolIndex = new Map();
   const docConfigs = new Map();
   let workspaceRootPath = "";
   let shutdownRequested = false;
@@ -697,7 +892,17 @@ export async function runLspServer() {
         const text = msg.params?.textDocument?.text ?? "";
         if (typeof uri === "string") {
           docs.set(uri, String(text));
+          coreSymbolIndex.set(uri, null);
           docIndex.set(uri, buildFunctionDocIndex(String(text)));
+          requestKernelSymbolIndex(wasmPath, String(text)).then((response) => {
+            if (response && response.ok === true && typeof response.symbols === "string") {
+              coreSymbolIndex.set(uri, response.symbols);
+            } else {
+              coreSymbolIndex.delete(uri);
+            }
+          }).catch(() => {
+            coreSymbolIndex.delete(uri);
+          });
           const config = await resolveProjectConfig(uri, workspaceRootPath);
           docConfigs.set(uri, config);
           const diagnostics = await compileDiagnostics(
@@ -722,7 +927,17 @@ export async function runLspServer() {
         ) {
           const text = String(changes[changes.length - 1].text ?? "");
           docs.set(uri, text);
+          coreSymbolIndex.set(uri, null);
           docIndex.set(uri, buildFunctionDocIndex(text));
+          requestKernelSymbolIndex(wasmPath, text).then((response) => {
+            if (response && response.ok === true && typeof response.symbols === "string") {
+              coreSymbolIndex.set(uri, response.symbols);
+            } else {
+              coreSymbolIndex.delete(uri);
+            }
+          }).catch(() => {
+            coreSymbolIndex.delete(uri);
+          });
           const config = docConfigs.get(uri) ?? await resolveProjectConfig(uri, workspaceRootPath);
           const diagnostics = await compileDiagnostics(wasmPath, uri, text, config);
           await sendNotification("textDocument/publishDiagnostics", {
@@ -750,6 +965,7 @@ export async function runLspServer() {
         if (typeof uri === "string") {
           docs.delete(uri);
           docIndex.delete(uri);
+          coreSymbolIndex.delete(uri);
           docConfigs.delete(uri);
           await sendNotification("textDocument/publishDiagnostics", {
             uri,
@@ -783,6 +999,7 @@ export async function runLspServer() {
           return;
         }
         const index = docIndex.get(uri) ?? null;
+        const source = docs.get(uri) ?? "";
         if (index === null) {
           await sendResponse(id, null);
           return;
@@ -791,6 +1008,23 @@ export async function runLspServer() {
         if (symbol.length === 0) {
           await sendResponse(id, null);
           return;
+        }
+        const coreResp = await requestKernelHover(wasmPath, uri, source, symbol);
+        if (coreResp && coreResp.found === true && typeof coreResp.signature === "string") {
+          const foundRange = declarationRangeFromSignature(source, symbol, coreResp.signature);
+          const signature = coreResp.signature.trim();
+          const doc = typeof coreResp.doc === "string" ? coreResp.doc.trim() : "";
+          const contents = doc.length > 0
+            ? `### ${symbol}\n\n${doc}`
+            : `### ${symbol}\n\n\`\`\`clapse\n${signature}\n\`\`\``;
+          if (foundRange !== null && foundRange.range !== undefined) {
+            await sendResponse(id, {
+              contents: { kind: "markdown", value: contents },
+              range: foundRange.range,
+              backend: "clapse",
+            });
+            return;
+          }
         }
         const entry = index.declarations.get(symbol);
         if (!entry || typeof symbol !== "string") {
@@ -828,8 +1062,20 @@ export async function runLspServer() {
           await sendResponse(id, []);
           return;
         }
+        const coreResp = await requestKernelDefinition(wasmPath, uri, docs.get(uri) ?? "", token.symbol);
+        if (coreResp && coreResp.found === true && typeof coreResp.signature === "string") {
+          const foundRange = declarationRangeFromSignature(docs.get(uri) ?? "", token.symbol, coreResp.signature);
+          if (foundRange !== null && foundRange.range !== undefined) {
+            await sendResponse(id, [{
+              uri,
+              range: foundRange.range,
+              backend: "clapse",
+            }]);
+            return;
+          }
+        }
         const declaration = token.declaration;
-        if (declaration === undefined) {
+        if (declaration === undefined || declaration === null) {
           await sendResponse(id, []);
           return;
         }

@@ -11,6 +11,18 @@ collapse into minimal WASM-oriented code.
 - Stack-first lowered IR and verifier-gated collapsed IR.
 - WASM-only backend, targeting WebAssembly 3.0 feature set.
 
+## Architecture
+
+- JS/TS is the host I/O boundary: it resolves CLI args, environment, and
+  file I/O, then dispatches JSON request payloads into the Clapse kernel.
+- Kernel semantics live in Wasm and return normalized JSON responses; JS/TS should
+  not own compiler semantics.
+- Kernel module map (current):
+  - `bootstrap_phase9_compiler_kernel`: command dispatch and bridge orchestration.
+  - `compiler.json_response`: shared request/response JSON encoding contract.
+  - `compiler.formatter`: formatter behavior.
+  - `compiler.lsp_kernel`: LSP command handling and payload shaping.
+
 ## Core syntax
 
 Top-level declarations are line-oriented; function bodies can continue on
@@ -71,8 +83,21 @@ just clapse-bin
     `out/clapse_compiler.wasm`.
   - transitional bridge artifact (`out/clapse_compiler_bridge.wasm`) is only
     allowed when `CLAPSE_ALLOW_BRIDGE=1`.
+  - set `CLAPSE_DEBUG_STACK=1` to print full JS/Wasm stack traces on runtime
+    failures.
 - `bench` currently routes through the wasm runner behind the same deno
   frontend.
+
+Wasm stack debug helper:
+
+```bash
+CLAPSE_DEBUG_STACK=1 ./artifacts/bin/clapse format lib/compiler/prelude.clapse 2> /tmp/clapse.stack
+deno run -A scripts/wasm-stack-map.mjs --wasm artifacts/latest/clapse_compiler.wasm < /tmp/clapse.stack
+```
+
+`scripts/wasm-stack-map.mjs` now reports name provenance as `function_name_source`
+(`name-section`, `clapse.funcmap`, or `unresolved`) in both header and offset
+records.
 
 Release/version pipeline for compiler artifacts:
 

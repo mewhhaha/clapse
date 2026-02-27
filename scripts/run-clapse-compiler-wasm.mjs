@@ -226,6 +226,35 @@ async function fileExists(path) {
   }
 }
 
+async function materializeEmbeddedCompilerWasm(allowBridge) {
+  const embeddedCandidates = allowBridge
+    ? [
+      new URL("../artifacts/latest/clapse_compiler.wasm", import.meta.url),
+      new URL("../artifacts/latest/clapse_compiler_bridge.wasm", import.meta.url),
+      new URL("../out/clapse_compiler.wasm", import.meta.url),
+      new URL("../out/clapse_compiler_bridge.wasm", import.meta.url),
+    ]
+    : [
+      new URL("../artifacts/latest/clapse_compiler.wasm", import.meta.url),
+      new URL("../out/clapse_compiler.wasm", import.meta.url),
+    ];
+  for (const candidateUrl of embeddedCandidates) {
+    try {
+      const wasmBytes = await Deno.readFile(candidateUrl);
+      if (wasmBytes.length === 0) continue;
+      const tmpPath = await Deno.makeTempFile({
+        prefix: "clapse-embedded-compiler-",
+        suffix: ".wasm",
+      });
+      await Deno.writeFile(tmpPath, wasmBytes);
+      return tmpPath;
+    } catch {
+      // keep searching
+    }
+  }
+  return "";
+}
+
 async function resolveCompilerWasmPath() {
   const fromEnv = Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "";
   if (fromEnv.length > 0) {
@@ -250,7 +279,7 @@ async function resolveCompilerWasmPath() {
       return candidate;
     }
   }
-  return "";
+  return materializeEmbeddedCompilerWasm(allowBridge);
 }
 
 function usage() {
@@ -273,6 +302,7 @@ function usage() {
     "  3) artifacts/latest/clapse_compiler_bridge.wasm (with CLAPSE_ALLOW_BRIDGE=1)",
     "  4) out/clapse_compiler.wasm",
     "  5) out/clapse_compiler_bridge.wasm (only with CLAPSE_ALLOW_BRIDGE=1)",
+    "  6) embedded compiler wasm bundled in the clapse binary",
     "",
     "Required compiler wasm ABI:",
     "  export memory or __memory",
@@ -565,6 +595,23 @@ function isCompilerKernelPath(inputPath) {
   );
 }
 
+function envFlag(name, defaultValue = false) {
+  const raw = Deno.env.get(name);
+  if (raw === undefined || raw === null || raw.length === 0) {
+    return defaultValue;
+  }
+  const normalized = raw.toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
+function allowKernelFixedPointFallback() {
+  return envFlag("CLAPSE_ALLOW_KERNEL_FIXED_POINT", true);
+}
+
+function requireNativeCompile() {
+  return envFlag("CLAPSE_REQUIRE_NATIVE_COMPILE", false);
+}
+
 async function writeCompileArtifacts(outputPath, response) {
   const wasmBytes = decodeWasmBase64(response.wasm_base64);
   const outputDir = outputPath.includes("/")
@@ -606,6 +653,9 @@ async function tryCompileFallbackStrategies(
   outputPath,
 ) {
   if (isCompilerKernelPath(inputPath)) {
+    if (!allowKernelFixedPointFallback()) {
+      return "";
+    }
     await writeCompilerFixedPointArtifacts(wasmPath, inputSource, outputPath);
     return "fixed-point";
   }
@@ -642,9 +692,10 @@ async function writeSelfhostArtifacts(outDir, artifacts) {
 async function compileViaWasm(wasmPath, inputPath, outputPath, options = {}) {
   const inputBytes = await Deno.readFile(inputPath);
   const inputSource = new TextDecoder().decode(inputBytes);
+  const isKernelCompile = isCompilerKernelPath(inputPath);
   const pluginWasmPaths = Array.isArray(options.pluginWasmPaths)
     ? options.pluginWasmPaths
-    : (!options.skipPluginCompilation
+    : (!options.skipPluginCompilation && !isKernelCompile
       ? await compilePluginsWasm(wasmPath, inputPath)
       : []);
   try {
@@ -663,6 +714,11 @@ async function compileViaWasm(wasmPath, inputPath, outputPath, options = {}) {
         outputPath,
       );
       if (strategy.length > 0) {
+        if (requireNativeCompile()) {
+          throw new Error(
+            `native wasm compile unavailable for ${inputPath}; fallback strategy '${strategy}' is disabled by CLAPSE_REQUIRE_NATIVE_COMPILE=1`,
+          );
+        }
         console.error(
           `[clapse] native wasm compile returned stub artifact; using ${strategy} compile path`,
         );
@@ -681,6 +737,11 @@ async function compileViaWasm(wasmPath, inputPath, outputPath, options = {}) {
       outputPath,
     );
     if (strategy.length > 0) {
+      if (requireNativeCompile()) {
+        throw new Error(
+          `native wasm compile failed for ${inputPath}; fallback strategy '${strategy}' is disabled by CLAPSE_REQUIRE_NATIVE_COMPILE=1`,
+        );
+      }
       const reason = err instanceof Error ? err.message : String(err);
       console.error(
         `[clapse] native wasm compile failed (${reason}); using ${strategy} compile path`,
@@ -765,174 +826,44 @@ function decodeFormatResponse(response, ctx) {
   return response.formatted;
 }
 
-function stripLineComment(line) {
-  const commentStart = line.indexOf("--");
-  return commentStart >= 0 ? line.slice(0, commentStart) : line;
-}
-
-function leadingIndent(line) {
-  return line.match(/^[ \t]*/u)?.[0] ?? "";
-}
-
-function hasNonWhitespaceContent(line) {
-  return stripLineComment(line).trim().length > 0;
-}
-
-function setIndent(line, indent) {
-  return `${" ".repeat(indent)}${line.trimStart()}`;
-}
-
-function parseMonadicChainLine(line) {
-  const effective = stripLineComment(line);
-  if (effective.trim().length === 0) return null;
-  const match = effective.match(
-    /^(?<indent>[ \t]*)(?<before>.*?)(>>=|>>)\s*(?<rest>.*)$/u,
-  );
-  if (!match?.groups) return null;
-  const op = match[3] ?? "";
-  if (op.length === 0) return null;
-  const before = match.groups.before.trim();
-  const rest = match.groups.rest.trim();
-  const startsWithOperator = effective.trimStart().startsWith(op);
-  if (!startsWithOperator && before.length === 0) return null;
-  if (rest.length === 0) return null;
-  const hasLambdaArrow = /\\.*->/u.test(rest);
-  const isMultilineLambda = op === ">>=" && /^\\.*->\s*$/u.test(rest);
-  return {
-    indent: leadingIndent(line).length,
-    op,
-    hasLambdaArrow,
-    isMultilineLambda,
-  };
-}
-
-function normalizeProceduralMonadicChains(formatted) {
-  const lines = formatted.split(/\r?\n/u);
-  for (let i = 0; i < lines.length; i += 1) {
-    const first = parseMonadicChainLine(lines[i]);
-    if (!first) {
-      continue;
-    }
-
-    const chainOperatorIndices = [i];
-    let sawLambdaBind = first.op === ">>=" && first.hasLambdaArrow;
-    let sawMultilineLambda = first.op === ">>=" && first.isMultilineLambda;
-    const baseIndent = first.indent;
-    let j = i + 1;
-    while (j < lines.length) {
-      const candidate = parseMonadicChainLine(lines[j]);
-      const hasContent = hasNonWhitespaceContent(lines[j]);
-      if (candidate) {
-        if (candidate.indent >= baseIndent) {
-          chainOperatorIndices.push(j);
-          if (candidate.op === ">>=" && candidate.hasLambdaArrow) {
-            sawLambdaBind = true;
-          }
-          if (candidate.op === ">>=" && candidate.isMultilineLambda) {
-            sawMultilineLambda = true;
-          }
-          j += 1;
-          continue;
-        }
-      }
-      if (!hasContent) {
-        j += 1;
-        continue;
-      }
-      const lineIndent = leadingIndent(lines[j]).length;
-      if (lineIndent <= baseIndent) {
-        break;
-      }
-      j += 1;
-    }
-    const chainEnd = j;
-    if (chainOperatorIndices.length < 2 || !sawLambdaBind || sawMultilineLambda) {
-      continue;
-    }
-
-    for (let k = 0; k < chainOperatorIndices.length; k += 1) {
-      const opIndex = chainOperatorIndices[k];
-      const parsed = parseMonadicChainLine(lines[opIndex]);
-      if (!parsed) continue;
-
-      const opIndent = parsed.indent;
-      lines[opIndex] = setIndent(lines[opIndex], baseIndent);
-
-      const bodyStart = opIndex + 1;
-      const bodyEnd = k + 1 < chainOperatorIndices.length
-        ? chainOperatorIndices[k + 1]
-        : chainEnd;
-      let firstBodyIndent = -1;
-      for (let b = bodyStart; b < bodyEnd; b += 1) {
-        if (!hasNonWhitespaceContent(lines[b])) continue;
-        const indent = leadingIndent(lines[b]).length;
-        if (indent > opIndent) {
-          firstBodyIndent = indent;
-          break;
-        }
-      }
-      if (firstBodyIndent < 0) {
-        continue;
-      }
-
-      const relativeBodyIndent = Math.max(1, firstBodyIndent - opIndent);
-      const normalizedBodyIndent = baseIndent + relativeBodyIndent;
-      const shift = normalizedBodyIndent - firstBodyIndent;
-
-      for (let b = bodyStart; b < bodyEnd; b += 1) {
-        if (!hasNonWhitespaceContent(lines[b])) continue;
-        const indent = leadingIndent(lines[b]).length;
-        if (indent <= opIndent) continue;
-        lines[b] = setIndent(lines[b], indent + shift);
-      }
-    }
-    i = chainEnd - 1;
-  }
-  return lines.join("\n");
+async function formatRequestWithFallback(wasmPath, request, _source, ctx) {
+  const response = await callCompilerWasm(wasmPath, request);
+  return decodeFormatResponse(response, ctx);
 }
 
 async function formatViaWasm(wasmPath, args) {
   if (args.length === 2 && args[1] === "--stdin") {
     const src = await readAllStdin();
-    const response = await callCompilerWasm(wasmPath, {
+    const formatted = await formatRequestWithFallback(wasmPath, {
       command: "format",
       mode: "stdout",
       input_path: "<stdin>",
       source: src,
-    });
-    const formatted = normalizeProceduralMonadicChains(
-      decodeFormatResponse(response, "stdin"),
-    );
+    }, src, "stdin");
     await Deno.stdout.write(new TextEncoder().encode(formatted));
     return;
   }
   if (args.length === 3 && args[1] === "--write") {
     const path = args[2];
     const src = await Deno.readTextFile(path);
-    const response = await callCompilerWasm(wasmPath, {
+    const formatted = await formatRequestWithFallback(wasmPath, {
       command: "format",
       mode: "write",
       input_path: path,
       source: src,
-    });
-    const formatted = normalizeProceduralMonadicChains(
-      decodeFormatResponse(response, path),
-    );
+    }, src, path);
     await Deno.writeTextFile(path, formatted);
     return;
   }
   if (args.length === 2) {
     const path = args[1];
     const src = await Deno.readTextFile(path);
-    const response = await callCompilerWasm(wasmPath, {
+    const formatted = await formatRequestWithFallback(wasmPath, {
       command: "format",
       mode: "stdout",
       input_path: path,
       source: src,
-    });
-    const formatted = normalizeProceduralMonadicChains(
-      decodeFormatResponse(response, path),
-    );
+    }, src, path);
     await Deno.stdout.write(new TextEncoder().encode(formatted));
     return;
   }
@@ -962,7 +893,7 @@ export async function runWithArgs(rawArgs = cliArgs()) {
   }
   if (wasmPath.length === 0) {
     throw new Error(
-      "compiler-wasm engine requires CLAPSE_COMPILER_WASM_PATH or out/clapse_compiler.wasm/out/clapse_compiler_bridge.wasm",
+      "compiler-wasm engine requires CLAPSE_COMPILER_WASM_PATH, embedded compiler wasm, or artifacts/latest|out compiler wasm files",
     );
   }
   if (!(await fileExists(wasmPath))) {
@@ -994,6 +925,7 @@ export async function runWithArgs(rawArgs = cliArgs()) {
     if (args.length > 2 || (args.length === 2 && args[1] !== "--stdio")) {
       throw new Error("usage: lsp [--stdio]");
     }
+    Deno.env.set("CLAPSE_COMPILER_WASM_PATH", wasmPath);
     await runLspServer();
     return;
   }

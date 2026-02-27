@@ -7,6 +7,17 @@ const textDecoder = new TextDecoder();
 
 const FRAME_TIMEOUT_MS = 5000;
 
+function envFlag(name, defaultValue = false) {
+  const raw = Deno.env.get(name);
+  if (raw === undefined || raw === null || raw.length === 0) {
+    return defaultValue;
+  }
+  const normalized = raw.toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
+const REQUIRE_CORE_BACKENDS = envFlag("CLAPSE_EXPECT_CORE_LSP_BACKENDS", false);
+
 function getWasmPath() {
   const allowBridge =
     (Deno.env.get("CLAPSE_ALLOW_BRIDGE") ?? "").toLowerCase() === "1" ||
@@ -195,6 +206,14 @@ function codeActionExpectationPass(actual, expectation) {
   return true;
 }
 
+function backendExpectationPass(actual, expectation) {
+  if (expectation === undefined) {
+    return true;
+  }
+  const resolved = typeof actual === "string" ? actual : "js";
+  return resolved === expectation;
+}
+
 function prepareRenameExpectationPass(actual, expectation) {
   if (expectation === undefined) {
     return true;
@@ -261,6 +280,36 @@ function documentSymbolsExpectationPass(actual, expectation) {
   }
   if (typeof expectation.containsName === "string") {
     return actual.some((item) => String(item?.name ?? "") === expectation.containsName);
+  }
+  return true;
+}
+
+function formattingExpectationPass(actual, expectation, source) {
+  if (expectation === undefined) {
+    return true;
+  }
+  if (!Array.isArray(actual)) {
+    return false;
+  }
+  if (expectation === null) {
+    return actual.length === 0;
+  }
+  if (
+    typeof expectation.expectedEditCount === "number" &&
+    actual.length !== expectation.expectedEditCount
+  ) {
+    return false;
+  }
+  if (expectation.sameAsSource === true) {
+    return actual.length === 1 && String(actual[0]?.newText ?? "") === source;
+  }
+  if (typeof expectation.exactText === "string") {
+    return actual.length > 0 && String(actual[0]?.newText ?? "") === expectation.exactText;
+  }
+  if (typeof expectation.contains === "string") {
+    return actual.some((edit) =>
+      String(edit?.newText ?? "").includes(expectation.contains)
+    );
   }
   return true;
 }
@@ -475,12 +524,17 @@ async function run() {
       const prepareRenameExpectation = scenario?.prepareRenameExpectation;
       const renameReq = scenario?.rename;
       const renameExpectation = scenario?.renameExpectation;
+      const expectedBackends = REQUIRE_CORE_BACKENDS
+        ? scenario?.expectedBackends
+        : undefined;
       const referencesReq = scenario?.references;
       const referencesExpectation = scenario?.referencesExpectation;
       const documentSymbolsReq = scenario?.documentSymbols;
       const documentSymbolsExpectation = scenario?.documentSymbolsExpectation;
       const codeActionReq = scenario?.codeAction;
       const codeActionExpectation = scenario?.codeActionExpectation;
+      const formattingReq = scenario?.formatting;
+      const formattingExpectation = scenario?.formattingExpectation;
       const sourceFile = String(scenario?.sourceFile ?? `main.clapse`);
       const projectConfig = scenario?.projectConfig ?? null;
       const projectFiles = scenario?.projectFiles;
@@ -537,6 +591,8 @@ async function run() {
         ? actualDiagnosticCount === expected
         : actualDiagnosticCount >= expected;
       const hoverPass = hoverExpectationPass(hoverResp, hoverExpectation);
+      const hoverBackend = hoverResp?.backend ?? "js";
+      const hoverBackendPass = backendExpectationPass(hoverBackend, expectedBackends?.hover);
 
       let definitionResp = null;
       let definitionPass = true;
@@ -553,6 +609,8 @@ async function run() {
           uri,
         );
       }
+      const definitionBackend = definitionResp?.backend ?? "js";
+      const definitionBackendPass = backendExpectationPass(definitionBackend, expectedBackends?.definition);
 
       let renameResp = null;
       let renamePass = true;
@@ -632,14 +690,31 @@ async function run() {
         codeActionPass = codeActionExpectationPass(codeActionResp, codeActionExpectation);
       }
 
+      let formattingResp = null;
+      let formattingPass = true;
+      if (formattingReq === true || formattingExpectation !== undefined) {
+        formattingResp = await sendRequest("textDocument/formatting", {
+          textDocument: { uri },
+          options: { tabSize: 2, insertSpaces: true },
+        });
+        formattingPass = formattingExpectationPass(
+          formattingResp,
+          formattingExpectation,
+          source,
+        );
+      }
+
       const pass = diagnosticsPass &&
         hoverPass &&
+        hoverBackendPass &&
         definitionPass &&
+        definitionBackendPass &&
         prepareRenamePass &&
         renamePass &&
         referencesPass &&
         documentSymbolsPass &&
-        codeActionPass;
+        codeActionPass &&
+        formattingPass;
 
       const result = {
         name,
@@ -654,12 +729,16 @@ async function run() {
         hover: {
           expectation: hoverExpectation,
           actual: hoverResp,
+          backend: hoverBackend,
+          backendPass: hoverBackendPass,
           passed: hoverPass,
         },
         definition: {
           request: definitionReq ?? null,
           expectation: definitionExpectation ?? null,
           actual: definitionResp,
+          backend: definitionBackend,
+          backendPass: definitionBackendPass,
           passed: definitionPass,
         },
         rename: {
@@ -692,6 +771,12 @@ async function run() {
           actual: codeActionResp,
           passed: codeActionPass,
         },
+        formatting: {
+          request: formattingReq ?? null,
+          expectation: formattingExpectation ?? null,
+          actual: formattingResp,
+          passed: formattingPass,
+        },
         pass,
       };
 
@@ -707,8 +792,14 @@ async function run() {
         if (!hoverPass) {
           failures.push("hover expectation mismatch");
         }
+        if (!hoverBackendPass) {
+          failures.push(`hover backend mismatch: expected ${expectedBackends?.hover}, got ${hoverBackend}`);
+        }
         if (!definitionPass) {
           failures.push("definition expectation mismatch");
+        }
+        if (!definitionBackendPass) {
+          failures.push(`definition backend mismatch: expected ${expectedBackends?.definition}, got ${definitionBackend}`);
         }
         if (!renamePass) {
           failures.push("rename expectation mismatch");
@@ -724,6 +815,9 @@ async function run() {
         }
         if (!codeActionPass) {
           failures.push("code action expectation mismatch");
+        }
+        if (!formattingPass) {
+          failures.push("formatting expectation mismatch");
         }
         result.failure = {
           message: failures.join("; "),

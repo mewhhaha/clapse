@@ -19,3 +19,4 @@ examples/parser_attribute_pain_points.clapse
 examples/util/base.clapse
 examples/util/json.clapse
 examples/util/slice_scan.clapse
+examples/formatter-idempotence-edge.clapse

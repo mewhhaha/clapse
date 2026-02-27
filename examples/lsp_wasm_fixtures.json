@@ -10,6 +10,11 @@
       "expectedDiagnostics": 0,
       "hoverExpectation": {
         "contains": "id x = x"
+      },
+      "formatting": true,
+      "formattingExpectation": {
+        "expectedEditCount": 1,
+        "sameAsSource": true
       }
     },
     {
@@ -40,6 +45,10 @@
       "definitionExpectation": {
         "line": 0,
         "character": 0
+      },
+      "expectedBackends": {
+        "hover": "clapse",
+        "definition": "clapse"
       },
       "prepareRename": {
         "line": 1,
@@ -89,6 +98,25 @@
       "hoverExpectation": {
         "contains": "Map over a functor value."
       }
+    },
+    {
+      "name": "definition_missing_symbol_has_diagnostics",
+      "source": "import Missing\nmain x = x\n",
+      "sourceFile": "src/main.clapse",
+      "hover": {
+        "line": 0,
+        "character": 7
+      },
+      "expectedDiagnosticsAtLeast": 1,
+      "projectConfig": {
+        "include": ["src"]
+      },
+      "hoverExpectation": null,
+      "definition": {
+        "line": 0,
+        "character": 7
+      },
+      "definitionExpectation": null
     },
     {
       "name": "scoped_import_allowed",

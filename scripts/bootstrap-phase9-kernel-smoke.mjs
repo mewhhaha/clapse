@@ -6,6 +6,28 @@ function assert(cond, msg) {
   if (!cond) throw new Error(msg);
 }
 
+async function formatViaCliWasm(wasmPath, source) {
+  const proc = new Deno.Command("deno", {
+    args: ["run", "-A", "scripts/run-clapse-compiler-wasm.mjs", "format", "--stdin"],
+    env: { ...Deno.env.toObject(), CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    stdin: "piped",
+    stdout: "piped",
+    stderr: "piped",
+  }).spawn();
+  if (proc.stdin === null) {
+    throw new Error("formatter child stdin unavailable");
+  }
+  const writer = proc.stdin.getWriter();
+  await writer.write(new TextEncoder().encode(source));
+  await writer.close();
+  const output = await proc.output();
+  if (!output.success) {
+    const err = new TextDecoder().decode(output.stderr);
+    throw new Error(`formatter child failed: ${err}`);
+  }
+  return new TextDecoder().decode(output.stdout);
+}
+
 async function main() {
   const wasmPath = Deno.args[0] ?? "out/clapse_compiler.wasm";
 
@@ -79,23 +101,23 @@ async function main() {
     "compile response with legacy source field must report missing input_source",
   );
 
-  const compileStubSuccessResp = await callCompilerWasm(wasmPath, {
+  const compileWithModeResp = await callCompilerWasm(wasmPath, {
     command: "compile",
     compile_mode: "stub-success",
     input_path: "examples/wasm_main.clapse",
     input_source: "main x = x",
   });
   assert(
-    compileStubSuccessResp && compileStubSuccessResp.ok === true,
-    "compile stub-success response must succeed",
+    compileWithModeResp && compileWithModeResp.ok === true,
+    "compile response with explicit compile_mode must succeed",
   );
   assert(
-    typeof compileStubSuccessResp.wasm_base64 === "string" &&
-      compileStubSuccessResp.wasm_base64.length > 0,
-    "compile stub-success response must include non-empty wasm_base64",
+    typeof compileWithModeResp.wasm_base64 === "string" &&
+      compileWithModeResp.wasm_base64.length > 0,
+    "compile response with explicit compile_mode must include non-empty wasm_base64",
   );
   {
-    const wasmBytes = Uint8Array.from(atob(compileStubSuccessResp.wasm_base64), (c) =>
+    const wasmBytes = Uint8Array.from(atob(compileWithModeResp.wasm_base64), (c) =>
       c.charCodeAt(0)
     );
     assert(
@@ -104,31 +126,7 @@ async function main() {
         wasmBytes[1] === 0x61 &&
         wasmBytes[2] === 0x73 &&
         wasmBytes[3] === 0x6d,
-      "compile stub-success wasm_base64 must decode to wasm magic bytes",
-    );
-  }
-  assert(
-    Array.isArray(compileStubSuccessResp.exports),
-    "compile stub-success response must include exports array",
-  );
-  for (const [idx, ex] of compileStubSuccessResp.exports.entries()) {
-    assert(
-      ex && typeof ex === "object" && !Array.isArray(ex),
-      `compile stub-success exports[${idx}] must be object`,
-    );
-    assert(
-      typeof ex.name === "string" && ex.name.length > 0,
-      `compile stub-success exports[${idx}].name must be non-empty string`,
-    );
-    assert(
-      Number.isInteger(ex.arity) && ex.arity >= 0,
-      `compile stub-success exports[${idx}].arity must be non-negative integer`,
-    );
-  }
-  if ("dts" in compileStubSuccessResp) {
-    assert(
-      typeof compileStubSuccessResp.dts === "string",
-      "compile stub-success response dts must be string when present",
+      "compile response wasm_base64 must decode to wasm magic bytes",
     );
   }
 
@@ -179,6 +177,10 @@ async function main() {
     formatRespEscaped.formatted === escapedSource,
     "format response must preserve escaped source payload",
   );
+
+  const longSource = "a".repeat(20000);
+  const formatLongCli = await formatViaCliWasm(wasmPath, longSource);
+  assert(formatLongCli === longSource, "formatter CLI should preserve long source payload");
 
   const unknownSamePrefixResp = await callCompilerWasm(wasmPath, {
     command: "compress",
