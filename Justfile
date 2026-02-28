@@ -14,7 +14,13 @@ clapse-bin:
   deno compile -A "${include_args[@]}" --output artifacts/bin/clapse scripts/clapse.mjs
 
 compile input output='out/module.wasm': clapse-bin
-  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" ./artifacts/bin/clapse compile {{input}} {{output}}
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" ./artifacts/bin/clapse compile-native {{input}} {{output}}
+
+compile-native input output='out/module.wasm': clapse-bin
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" ./artifacts/bin/clapse compile-native {{input}} {{output}}
+
+compile-native-debug input output='out/module.wasm' artifacts='out':
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/run-clapse-compiler-wasm.mjs compile-native-debug {{input}} {{output}} {{artifacts}}
 
 format file: clapse-bin
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" ./artifacts/bin/clapse format {{file}}
@@ -35,12 +41,19 @@ docs-validate:
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/validate-docs.mjs
 
 pre-tag-verify:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  probe_hops="${CLAPSE_NATIVE_SELFHOST_PROBE_HOPS:-2}"
+  just bootstrap-strict-native-seed artifacts/strict-native/seed.wasm artifacts/strict-native/seed.meta.json
+  verify_wasm="${CLAPSE_COMPILER_WASM_PATH:-artifacts/strict-native/seed.wasm}"
   deno run -A scripts/guard-no-host-surface.mjs
-  deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}"
+  deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "${verify_wasm}"
   deno run -A scripts/check-pass-manifest.mjs
-  deno run -A scripts/record-kernel-smoke.mjs
-  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" just docs-validate
-  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" just lsp-wasm-fixtures
+  CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-compile-smoke
+  CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" deno run -A scripts/native-selfhost-probe.mjs --wasm "${verify_wasm}" --hops "${probe_hops}"
+  CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" deno run -A scripts/record-kernel-smoke.mjs
+  CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just docs-validate
+  CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just lsp-wasm-fixtures
   just semantics-check
 
 ci-local:
@@ -55,6 +68,100 @@ browser-compiler-wasm-check wasm='artifacts/latest/clapse_compiler.wasm':
 
 pass-manifest-check:
   deno run -A scripts/check-pass-manifest.mjs
+
+native-compile-smoke:
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/compile-native-smoke.mjs
+
+native-selfhost-probe wasm='artifacts/latest/clapse_compiler.wasm' hops='1':
+  deno run -A scripts/native-selfhost-probe.mjs --wasm {{wasm}} --hops {{hops}}
+
+native-boundary-strict-smoke:
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/native-boundary-strict-smoke.mjs
+
+native-boundary-strict-seed-scan:
+  deno run -A scripts/strict-native-seed-scan.mjs
+
+bootstrap-strict-native-seed out='artifacts/strict-native/seed.wasm' meta='artifacts/strict-native/seed.meta.json':
+  #!/usr/bin/env bash
+  set -euo pipefail
+  out_path="{{out}}"
+  meta_path="{{meta}}"
+  probe_hops="${CLAPSE_STRICT_NATIVE_SEED_PROBE_HOPS:-2}"
+  if [[ -s "$out_path" ]] && deno run -A scripts/native-selfhost-probe.mjs --wasm "$out_path" --hops "$probe_hops" >/dev/null 2>&1; then
+    echo "bootstrap-strict-native-seed: retaining existing selfhost-capable seed at $out_path"
+    if [[ ! -s "$meta_path" ]]; then
+      mkdir -p "$(dirname "$meta_path")"
+      printf '%s\n' \
+        '{' \
+        "  \"generated_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"," \
+        '  "tool": "Justfile bootstrap-strict-native-seed",' \
+        '  "mode": "native-bootstrap-retain-existing-seed",' \
+        "  \"bootstrap\": {\"wasm\": \"$out_path\"}" \
+        '}' \
+        > "$meta_path"
+    fi
+  else
+    CLAPSE_STRICT_NATIVE_SEED_PROBE_HOPS="$probe_hops" deno run -A scripts/build-strict-native-seed.mjs --out "$out_path" --meta "$meta_path"
+  fi
+
+bootstrap-compiler out='artifacts/latest/clapse_compiler.wasm':
+  #!/usr/bin/env bash
+  set -euo pipefail
+  bootstrap_seed="${CLAPSE_BOOTSTRAP_COMPILER_WASM_PATH:-${CLAPSE_COMPILER_WASM_PATH:-}}"
+  strict_seed_path="${CLAPSE_BOOTSTRAP_STRICT_NATIVE_SEED_PATH:-artifacts/strict-native/seed.wasm}"
+  if [[ -z "$bootstrap_seed" ]]; then
+    if [[ -s "$strict_seed_path" ]]; then
+      bootstrap_seed="$strict_seed_path"
+    else
+      echo "bootstrap-compiler: missing non-empty bootstrap compiler wasm; set CLAPSE_BOOTSTRAP_COMPILER_WASM_PATH/CLAPSE_COMPILER_WASM_PATH or provide strict seed at CLAPSE_BOOTSTRAP_STRICT_NATIVE_SEED_PATH (${strict_seed_path})" >&2
+      exit 1
+    fi
+  fi
+  if [[ ! -s "$bootstrap_seed" ]]; then
+    echo "bootstrap-compiler: bootstrap compiler wasm not found or empty: $bootstrap_seed" >&2
+    exit 1
+  fi
+  out_path="{{out}}"
+  mkdir -p "$(dirname "$out_path")"
+  out_dts="${out_path%.wasm}.d.ts"
+  probe_hops="${CLAPSE_BOOTSTRAP_NATIVE_SELFHOST_PROBE_HOPS:-2}"
+  compile_ok=0
+  if CLAPSE_COMPILER_WASM_PATH="$bootstrap_seed" deno run -A scripts/run-clapse-compiler-wasm.mjs compile-native lib/compiler/kernel.clapse "$out_path"; then
+    if deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "$out_path" && deno run -A scripts/native-selfhost-probe.mjs --wasm "$out_path" --hops "$probe_hops"; then
+      compile_ok=1
+    else
+      echo "bootstrap-compiler: kernel self-compile produced compiler wasm that failed browser ABI or self-host probe; treating as compile failure" >&2
+    fi
+  fi
+  if [[ "$compile_ok" != "1" ]]; then
+    echo "bootstrap-compiler: kernel self-compile failed self-host probe; attempting native seed retention from bootstrap seed: $bootstrap_seed" >&2
+    if deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "$bootstrap_seed" && deno run -A scripts/native-selfhost-probe.mjs --wasm "$bootstrap_seed" --hops "$probe_hops"; then
+      if [[ "$bootstrap_seed" != "$out_path" ]]; then
+        cp "$bootstrap_seed" "$out_path"
+      fi
+      seed_dts="${bootstrap_seed%.wasm}.d.ts"
+      if [[ -s "$seed_dts" ]]; then
+        if [[ "$seed_dts" != "$out_dts" ]]; then
+          cp "$seed_dts" "$out_dts"
+        fi
+      else
+        printf '%s\n' \
+          'export declare function clapse_run(request_handle: number): number;' \
+          'export declare function main(arg0: number): number;' \
+          > "$out_dts"
+      fi
+      compile_ok=1
+      echo "bootstrap-compiler: retained bootstrap seed artifact at $out_path (kernel self-compile result was non-transitive)" >&2
+    else
+      echo "bootstrap-compiler: kernel self-compile failed from bootstrap seed: $bootstrap_seed" >&2
+      exit 1
+    fi
+  fi
+  [[ -s "$out_path" ]] || { echo "bootstrap-compiler: expected output wasm missing: $out_path" >&2; exit 1; }
+  [[ -s "$out_dts" ]] || { echo "bootstrap-compiler: expected output d.ts missing: $out_dts" >&2; exit 1; }
+  deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "$out_path"
+  deno run -A scripts/native-selfhost-probe.mjs --wasm "$out_path" --hops "$probe_hops"
+  CLAPSE_COMPILER_WASM_PATH="$out_path" just native-compile-smoke
 
 fib-memo-plugin-smoke:
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/fib-memo-plugin-smoke.mjs
@@ -78,24 +185,11 @@ install:
   #!/usr/bin/env bash
   set -euo pipefail
   mkdir -p artifacts/latest artifacts/bin
-  compiler_path="${CLAPSE_COMPILER_WASM_PATH:-}"
-  if [[ -z "$compiler_path" ]]; then
-    if [[ -s artifacts/latest/clapse_compiler.wasm ]]; then
-      compiler_path="artifacts/latest/clapse_compiler.wasm"
-    elif [[ -s out/clapse_compiler.wasm ]]; then
-      compiler_path="out/clapse_compiler.wasm"
-    else
-      echo "install: missing non-empty compiler wasm; set CLAPSE_COMPILER_WASM_PATH or build out/clapse_compiler.wasm" >&2
-      exit 1
-    fi
-  fi
-  if [[ ! -s "$compiler_path" ]]; then
-    echo "install: compiler wasm not found or empty: $compiler_path" >&2
-    exit 1
-  fi
-  if [[ "$compiler_path" != "artifacts/latest/clapse_compiler.wasm" ]]; then
-    cp "$compiler_path" artifacts/latest/clapse_compiler.wasm
-  fi
+  just bootstrap-strict-native-seed artifacts/strict-native/seed.wasm artifacts/strict-native/seed.meta.json
+  just bootstrap-compiler out/clapse_compiler.install.wasm
+  cp out/clapse_compiler.install.wasm artifacts/latest/clapse_compiler.wasm
+  cp out/clapse_compiler.install.d.ts artifacts/latest/clapse_compiler.d.ts
+  deno run -A scripts/check-browser-compiler-wasm.mjs --wasm artifacts/latest/clapse_compiler.wasm
   if [[ "${CLAPSE_RUN_WILDCARD_DEMAND_CHECK:-0}" == "1" ]]; then
     just semantics-check
   fi
@@ -111,8 +205,8 @@ release-candidate out='out/releases':
   release_dir="{{out}}/${release_id}"
   compiler_wasm="${release_dir}/clapse_compiler.wasm"
   compiler_dts="${release_dir}/clapse_compiler.d.ts"
-  compiler_source="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}"
-  compiler_source_dts="${compiler_source%.wasm}.d.ts"
+  bootstrap_seed="${CLAPSE_BOOTSTRAP_COMPILER_WASM_PATH:-${CLAPSE_COMPILER_WASM_PATH:-}}"
+  strict_seed_path="${CLAPSE_BOOTSTRAP_STRICT_NATIVE_SEED_PATH:-artifacts/strict-native/seed.wasm}"
   cli_bin="${release_dir}/clapse-bin"
   cli_bin_linux_x64="${release_dir}/clapse-bin-linux-x64"
   cli_bin_linux_arm64="${release_dir}/clapse-bin-linux-arm64"
@@ -123,11 +217,19 @@ release-candidate out='out/releases':
   artifact_map="${release_dir}/wasm-selfhost-artifact-fixture-map.json"
   prelude_source="${release_dir}/prelude.clapse"
   mkdir -p "${release_dir}"
-  [[ -s "${compiler_source}" ]] || { echo "missing compiler source wasm: ${compiler_source}" >&2; exit 1; }
-  [[ -s "${compiler_source_dts}" ]] || { echo "missing compiler source d.ts: ${compiler_source_dts}" >&2; exit 1; }
-  deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "${compiler_source}"
-  cp "${compiler_source}" "${compiler_wasm}"
-  cp "${compiler_source_dts}" "${compiler_dts}"
+  just bootstrap-strict-native-seed artifacts/strict-native/seed.wasm artifacts/strict-native/seed.meta.json
+  if [[ -z "${bootstrap_seed}" ]]; then
+    if [[ -s "${strict_seed_path}" ]]; then
+      bootstrap_seed="${strict_seed_path}"
+    else
+      echo "release-candidate: missing bootstrap compiler wasm; set CLAPSE_BOOTSTRAP_COMPILER_WASM_PATH/CLAPSE_COMPILER_WASM_PATH or provide strict seed at CLAPSE_BOOTSTRAP_STRICT_NATIVE_SEED_PATH (${strict_seed_path})" >&2
+      exit 1
+    fi
+  fi
+  [[ -s "${bootstrap_seed}" ]] || { echo "release-candidate: bootstrap compiler wasm missing: ${bootstrap_seed}" >&2; exit 1; }
+  CLAPSE_BOOTSTRAP_COMPILER_WASM_PATH="${bootstrap_seed}" just bootstrap-compiler "${compiler_wasm}"
+  [[ -s "${compiler_wasm}" ]] || { echo "release-candidate: compiled compiler wasm missing: ${compiler_wasm}" >&2; exit 1; }
+  [[ -s "${compiler_dts}" ]] || { echo "release-candidate: compiled compiler d.ts missing: ${compiler_dts}" >&2; exit 1; }
   deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "${compiler_wasm}"
   deno compile -A --output "${cli_bin}" scripts/clapse.mjs
   chmod +x "${cli_bin}"

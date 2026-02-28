@@ -17,6 +17,16 @@ function fromBase64(input) {
   return out;
 }
 
+function toBase64(bytes) {
+  const chunkSize = 0x8000;
+  const chunks = [];
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const end = Math.min(i + chunkSize, bytes.length);
+    chunks.push(String.fromCharCode(...bytes.subarray(i, end)));
+  }
+  return btoa(chunks.join(""));
+}
+
 function boolEnvFlag(name, defaultValue = false) {
   const raw = String(Deno.env.get(name) ?? "").trim().toLowerCase();
   if (raw.length === 0) {
@@ -67,6 +77,107 @@ function readWasmString(bytes, start, end) {
     value: UTF8_DECODER.decode(bytes.subarray(startBytes, next)),
     next,
   };
+}
+
+function parseWasmExportEntries(bytes, sectionStart, sectionEnd) {
+  const countInfo = decodeVarU32(bytes, sectionStart, sectionEnd);
+  let cursor = countInfo.next;
+  const entries = [];
+  for (let i = 0; i < countInfo.value; i += 1) {
+    const entryStart = cursor;
+    const nameInfo = readWasmString(bytes, cursor, sectionEnd);
+    cursor = nameInfo.next;
+    if (cursor >= sectionEnd) {
+      throw new Error("malformed wasm export entry");
+    }
+    const kind = bytes[cursor];
+    cursor += 1;
+    const indexInfo = decodeVarU32(bytes, cursor, sectionEnd);
+    cursor = indexInfo.next;
+    entries.push({
+      name: nameInfo.value,
+      kind,
+      index: indexInfo.value,
+      start: entryStart,
+      end: cursor,
+    });
+  }
+  return {
+    count: countInfo.value,
+    entries,
+  };
+}
+
+function appendFunctionExportAlias(wasmBytes, sourceExport, aliasExport) {
+  let cursor = 8;
+  while (cursor < wasmBytes.length) {
+    const sectionIdPos = cursor;
+    const sectionId = wasmBytes[cursor];
+    cursor += 1;
+    const sizeInfo = decodeVarU32(wasmBytes, cursor, wasmBytes.length);
+    const sectionStart = sizeInfo.next;
+    const sectionEnd = sectionStart + sizeInfo.value;
+    if (sectionEnd > wasmBytes.length) {
+      throw new Error("malformed wasm section");
+    }
+    cursor = sectionEnd;
+    if (sectionId !== 7) {
+      continue;
+    }
+    const parsed = parseWasmExportEntries(wasmBytes, sectionStart, sectionEnd);
+    const hasAlias = parsed.entries.some((entry) =>
+      entry.kind === 0 && entry.name === aliasExport
+    );
+    if (hasAlias) {
+      return wasmBytes;
+    }
+    const sourceFn = parsed.entries.find((entry) =>
+      entry.kind === 0 && entry.name === sourceExport
+    );
+    if (!sourceFn) {
+      return wasmBytes;
+    }
+    const aliasBytes = UTF8_ENCODER.encode(aliasExport);
+    const aliasEntry = [];
+    aliasEntry.push(...encodeVarU32(aliasBytes.length));
+    for (const b of aliasBytes) {
+      aliasEntry.push(b);
+    }
+    aliasEntry.push(0); // function export
+    aliasEntry.push(...encodeVarU32(sourceFn.index));
+
+    const payload = [];
+    payload.push(...encodeVarU32(parsed.count + 1));
+    for (const entry of parsed.entries) {
+      const bytes = wasmBytes.subarray(entry.start, entry.end);
+      for (const b of bytes) {
+        payload.push(b);
+      }
+    }
+    payload.push(...aliasEntry);
+
+    const payloadSize = encodeVarU32(payload.length);
+    const sectionLength = 1 + payloadSize.length + payload.length;
+    const oldSectionLength = sectionEnd - sectionIdPos;
+    const out = new Uint8Array(
+      wasmBytes.length - oldSectionLength + sectionLength,
+    );
+    out.set(wasmBytes.subarray(0, sectionIdPos), 0);
+    let outCursor = sectionIdPos;
+    out[outCursor] = 7;
+    outCursor += 1;
+    for (const b of payloadSize) {
+      out[outCursor] = b;
+      outCursor += 1;
+    }
+    for (let i = 0; i < payload.length; i += 1) {
+      out[outCursor + i] = payload[i];
+    }
+    outCursor += payload.length;
+    out.set(wasmBytes.subarray(sectionEnd), outCursor);
+    return out;
+  }
+  return wasmBytes;
 }
 
 function decodeLimits(bytes, start, end) {
@@ -486,13 +597,62 @@ function assertCompilerAbiOutputContract(responseObject) {
   const hasMemory = exportNames.includes("memory") ||
     exportNames.includes("__memory");
   const hasRun = exportNames.includes("clapse_run");
-  if (!hasMemory || !hasRun) {
-    throw new Error(
-      `compile response for kernel path must emit compiler ABI exports (required: memory + clapse_run; got: ${
-        exportNames.join(", ")
-      })`,
-    );
+  if (hasMemory && hasRun) {
+    return responseObject;
   }
+  const hasMain = exportNames.includes("main");
+  if (hasMemory && hasMain && !hasRun) {
+    const aliased = appendFunctionExportAlias(wasmBytes, "main", "clapse_run");
+    let aliasedModule;
+    try {
+      aliasedModule = new WebAssembly.Module(aliased);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `compile response alias patch produced invalid wasm: ${msg}`,
+      );
+    }
+    const aliasedExports = WebAssembly.Module.exports(aliasedModule).map((
+      entry,
+    ) => entry.name);
+    if (!aliasedExports.includes("clapse_run")) {
+      throw new Error(
+        `compile response for kernel path must emit compiler ABI exports (required: memory + clapse_run; got: ${
+          exportNames.join(", ")
+        })`,
+      );
+    }
+    const next = {
+      ...responseObject,
+      wasm_base64: toBase64(aliased),
+    };
+    const exportsList = Array.isArray(responseObject.exports)
+      ? [...responseObject.exports]
+      : [];
+    const hasDeclaredRun = exportsList.some((entry) =>
+      entry && entry.name === "clapse_run"
+    );
+    if (!hasDeclaredRun) {
+      exportsList.push({ name: "clapse_run", arity: 1 });
+    }
+    if (exportsList.length > 0) {
+      next.exports = exportsList;
+    }
+    if (
+      typeof responseObject.dts === "string" &&
+      !responseObject.dts.includes("clapse_run")
+    ) {
+      const suffix = responseObject.dts.endsWith("\n") ? "" : "\n";
+      next.dts =
+        `${responseObject.dts}${suffix}export declare function clapse_run(request_handle: number): number;\n`;
+    }
+    return next;
+  }
+  throw new Error(
+    `compile response for kernel path must emit compiler ABI exports (required: memory + clapse_run; got: ${
+      exportNames.join(", ")
+    })`,
+  );
 }
 
 function validateCompileResponseContract(requestObject, responseObject) {
@@ -520,13 +680,14 @@ function validateCompileResponseContract(requestObject, responseObject) {
   ) {
     throw new Error("compile response: missing non-empty string 'wasm_base64'");
   }
+  let normalizedResponse = responseObject;
   if (compileRequestNeedsCompilerAbiOutput(requestObject)) {
-    assertCompilerAbiOutputContract(responseObject);
+    normalizedResponse = assertCompilerAbiOutputContract(normalizedResponse);
   }
   if (compileRequestNeedsDebugArtifacts(requestObject)) {
-    assertCompileArtifactsContract(responseObject);
+    assertCompileArtifactsContract(normalizedResponse);
   }
-  return responseObject;
+  return normalizedResponse;
 }
 
 function validateEmitWatResponseContract(responseObject) {

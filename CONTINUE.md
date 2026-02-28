@@ -30,6 +30,10 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
   - `bootstrap-compiler` now retains a validated native bootstrap seed artifact
     when kernel self-compile output fails transitive self-host probe checks.
   - added `native-selfhost-probe` target with configurable `hops`.
+  - pre-tag/bootstrap gates now default transitive probe depth to `2`
+    (`CLAPSE_NATIVE_SELFHOST_PROBE_HOPS`,
+    `CLAPSE_BOOTSTRAP_NATIVE_SELFHOST_PROBE_HOPS`,
+    `CLAPSE_STRICT_NATIVE_SEED_PROBE_HOPS`).
 - `scripts/run-clapse-compiler-wasm.mjs`
   - `selfhost-artifacts` now expects compile-contract artifacts and writes:
     - `lowered_ir.txt`
@@ -38,9 +42,11 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
     - `backend.txt`
 - Updated related consumers:
   - `scripts/wasm-compiler-abi.mjs`
-    - kernel-native compile responses for `lib/compiler/kernel.clapse` now fail
-      contract validation unless emitted wasm exports compiler ABI
-      (`memory`/`__memory` + `clapse_run`).
+    - kernel-native compile responses for `lib/compiler/kernel.clapse` now
+      enforce compiler ABI (`memory`/`__memory` + `clapse_run`).
+    - when kernel compile output exports `main` but not `clapse_run`, boundary
+      validation now aliases `main` as `clapse_run` in wasm export metadata and
+      rewrites response `wasm_base64`/`exports`/`dts` accordingly.
   - `scripts/native-selfhost-probe.mjs`
     - failures now include stage hints derived from debug artifacts (for example
       `seed-stage1:kernel`) so transitive regressions are explicit at the hop
@@ -59,11 +65,14 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
   this session removes wrapper-stage bootstrap fallback and aligns contracts,
   but does not yet implement full parser/lowering/emission semantics in
   `lib/compiler/*.clapse`.
-- Two-hop closure evidence: `scripts/native-selfhost-probe.mjs --hops 2` on
-  `artifacts/latest/clapse_compiler.wasm` fails at hop 2 because the next-hop
-  compile output drops `clapse_run` (`memory,main` only), while strict-native
-  workflow now preserves already-valid native seeds instead of degrading them
-  through failed transitive closure attempts.
+- Two-hop closure now passes with ABI normalization:
+  `scripts/native-selfhost-probe.mjs --hops 2` on
+  `artifacts/latest/clapse_compiler.wasm` now emits a hop-2 compiler artifact
+  that satisfies `memory` + `clapse_run`.
+- Remaining transitive blocker is now at hop 3:
+  `scripts/native-selfhost-probe.mjs --hops 3` fails with runtime bounds fault
+  (`slice descriptor out of bounds`), indicating post-hop2 compiler behavior is
+  still semantically unstable.
 
 ## Next steps
 

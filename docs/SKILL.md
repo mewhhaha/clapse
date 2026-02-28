@@ -322,12 +322,18 @@ The command returns a single compile response with:
   `emit-wat` succeeds natively. `just native-boundary-strict-seed-scan` runs the
   same strict contract checks across local compiler wasm candidates and reports
   the first failing reasons for each candidate set.
-  `scripts/wasm-compiler-abi.mjs` now hard-fails kernel-native compile responses
-  for `lib/compiler/kernel.clapse` unless emitted wasm exports compiler ABI
-  (`memory` or `__memory`, plus `clapse_run`) so transitive regressions stop at
-  the JS boundary with explicit errors. `scripts/native-selfhost-probe.mjs` now
-  supports `--hops <n>` (default `1`) for transitive closure probes;
-  `just native-selfhost-probe` forwards this.
+  `scripts/wasm-compiler-abi.mjs` now enforces kernel compiler ABI for
+  `lib/compiler/kernel.clapse` (`memory` or `__memory`, plus `clapse_run`).
+  When responses export `main` but not `clapse_run`, the JS boundary normalizes
+  wasm exports by aliasing `main` as `clapse_run` and updates response
+  metadata (`wasm_base64`/`exports`/`dts`) before returning. Responses still
+  hard-fail when ABI normalization cannot produce a valid compiler export
+  surface. `scripts/native-selfhost-probe.mjs` now supports `--hops <n>`
+  (default `1`) for transitive closure probes;
+  `just native-selfhost-probe` forwards this. Release/bootstrap gates now use
+  two-hop defaults (`CLAPSE_NATIVE_SELFHOST_PROBE_HOPS`,
+  `CLAPSE_BOOTSTRAP_NATIVE_SELFHOST_PROBE_HOPS`,
+  `CLAPSE_STRICT_NATIVE_SEED_PROBE_HOPS`) unless explicitly overridden.
   `just bootstrap-strict-native-seed` is the canonical local generator for a
   strict-native bootstrap seed artifact (`artifacts/strict-native/seed.wasm`) in
   native-first mode: compile kernel through bootstrap wasm and probe selfhost
