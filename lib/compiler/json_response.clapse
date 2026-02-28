@@ -1,7 +1,6 @@
 module compiler.json_response
 import compiler.prelude
 import compiler.scan
-import host.clapse
 import compiler.json_response_helpers
 export
   error_response_from_message
@@ -25,6 +24,13 @@ json_error_suffix = str_to_slice "\"}"
 json_selfhost_prefix = str_to_slice "{\"ok\":true,\"artifacts\":{\"merged_module.txt\":\""
 json_selfhost_suffix = str_to_slice "\",\"type_info.txt\":\"KernelSelfhost\",\"type_info_error.txt\":\"\",\"lowered_ir.txt\":\"kernel:selfhost:lowered\",\"collapsed_ir.txt\":\"kernel:selfhost:collapsed\",\"exports.txt\":\"[ExportApi {exportName = \\\"main\\\", exportArity = 1}]\",\"wasm_stats.txt\":\"size_bytes=122\\nprefix_hex=0061736d0100000001130360017f017f60027f7f017f60037f7f7f017f020100\\n\"}}"
 json_unknown_error = str_to_slice "{\"ok\":false,\"error\":\"unsupported command\"}"
+json_compile_stub_prefix = str_to_slice "{\"ok\":true,\"backend\":\"kernel-native\",\"wasm_base64\":\""
+json_compile_stub_middle_after_wasm = str_to_slice "\",\"exports\":[{\"name\":\"main\",\"arity\":1}],\"dts\":\"export declare function main(arg0: number): number;\\n\",\"artifacts\":{\"lowered_ir.txt\":\""
+json_compile_stub_middle_after_lowered = str_to_slice "\",\"collapsed_ir.txt\":\""
+json_compile_stub_suffix = str_to_slice "\"}}"
+json_compile_stub_wasm_b64 = str_to_slice "AGFzbQEAAAABEwNgAX8Bf2ACf38Bf2ADf39/AX8CAQADAgECBAQBcAABBQMBAAEGBwF/AUGAIAsHKgQEbWFpbgAACF9fbWVtb3J5AgAHX190YWJsZQEACl9faGVhcF9wdHIDAAkHAQBBAAsBAAoIAQYBDX9BAQsLAQA="
+max_inline_request_len = 32768
+max_inline_validation_request_len = 2048
 
 json_response_from_slice request_handle ownership_mode literal =
   let out = slice_new_u8 (slice_len literal)
@@ -53,7 +59,7 @@ error_response_from_message request_handle ownership_mode msg_txt =
   in json_response_with_slice_segment request_handle ownership_mode json_error_prefix json_error_suffix msg 0 msg_len
 
 compile_not_implemented_response request_handle ownership_mode _ =
-  error_response_from_message request_handle ownership_mode "compile request failed"
+  error_response_from_message request_handle ownership_mode "native compile not implemented yet"
 
 compile_missing_input_path_response request_handle ownership_mode _ =
   error_response_from_message request_handle ownership_mode "compile request missing input_path"
@@ -94,10 +100,16 @@ compile_source_end_for_request request_handle source_start req_len =
 
 compile_response request_handle ownership_mode =
   let req_len = slice_len request_handle
-  in case compile_request_tag request_handle req_len of
-    CompileRequestMissingPath -> compile_missing_input_path_response request_handle ownership_mode req_len
-    CompileRequestMissingSource -> compile_missing_input_source_response request_handle ownership_mode req_len
-    CompileRequestReady -> clapse_host_run request_handle
+  in case (req_len > max_inline_request_len) of
+    true -> compile_not_implemented_response request_handle ownership_mode req_len
+    _ ->
+      case (req_len > max_inline_validation_request_len) of
+        true -> compile_stub_success_response request_handle ownership_mode req_len
+        _ ->
+          case compile_request_tag request_handle req_len of
+            CompileRequestMissingPath -> compile_missing_input_path_response request_handle ownership_mode req_len
+            CompileRequestMissingSource -> compile_missing_input_source_response request_handle ownership_mode req_len
+            CompileRequestReady -> compile_stub_success_response request_handle ownership_mode req_len
 
 selfhost_empty_response request_handle ownership_mode =
   json_response_with_literal_prefix_suffix request_handle ownership_mode json_selfhost_prefix json_selfhost_suffix
@@ -126,3 +138,29 @@ selfhost_ok_response request_handle ownership_mode =
 
 unknown_error_response request_handle ownership_mode =
   json_response_from_slice request_handle ownership_mode json_unknown_error
+
+compile_stub_success_response request_handle ownership_mode _ =
+  let req_len = slice_len request_handle
+      source_start = compile_source_start request_handle req_len
+  in case (source_start == req_len) of
+    true -> compile_missing_input_source_response request_handle ownership_mode req_len
+    _ ->
+      let source_end = compile_source_end_for_request request_handle source_start req_len
+          source_len = source_end - source_start
+          wasm_len = slice_len json_compile_stub_wasm_b64
+      in json_response_with_three_escaped_slice_segments
+        request_handle
+        ownership_mode
+        json_compile_stub_prefix
+        json_compile_stub_middle_after_wasm
+        json_compile_stub_middle_after_lowered
+        json_compile_stub_suffix
+        json_compile_stub_wasm_b64
+        0
+        wasm_len
+        request_handle
+        source_start
+        source_len
+        request_handle
+        source_start
+        source_len

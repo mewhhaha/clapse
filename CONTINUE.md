@@ -11,8 +11,10 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
   - `CommandSelfhost` now aliases `compile_response` directly.
   - `selfhost-artifacts` follows the same kernel-native compile contract path.
 - `lib/compiler/json_response.clapse`
-  - compile-ready requests still route through `clapse_host_run`; kernel source
-    does not yet own full compile/lowering/emission semantics.
+  - compile-ready requests now route through kernel-local stub compile response
+    shaping (no `clapse_host_run` delegation in source path).
+  - response now carries `backend`, `wasm_base64`, `exports`, `dts`, and
+    source-derived `artifacts.lowered_ir.txt` / `collapsed_ir.txt`.
 - `scripts/build-strict-native-seed.mjs`
   - strict seed generation is now native-only fail-closed.
   - wrapper fallback mode is removed from execution path (no wrapper recovery on

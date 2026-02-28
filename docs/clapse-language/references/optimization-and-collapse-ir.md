@@ -8,7 +8,8 @@
 4. Dispatch to per-command response builders with both staged request and request-derived policy.
 5. Return command response:
    - compile/format/selfhost/lsp still flow through kernel handlers
-   - compile with ready input still delegates to host bridge after kernel staging (`clapse_host_run`)
+   - compile with ready input now returns kernel-local stub compile response
+     after kernel staging (no source-side host bridge delegation)
 
 ### Unified wasm+IR compile-debug command
 
@@ -21,7 +22,8 @@ This runs a unified one-step compile path and emits the same artifacts:
 
 Current kernel-native compile behavior:
 
-- `compile_response` delegates to `clapse_host_run` for `CompileRequestReady` only.
+- `compile_response` is source-local in `compiler.json_response` and emits
+  kernel-native JSON payload stubs for `CompileRequestReady`.
 - command dispatch runs after staging; the request is **passthrough** through the kernel pipeline
   and is not rewritten before handler selection.
 - `collapse_pipeline` and ownership policy derivation are both request-scoped and deterministic.
