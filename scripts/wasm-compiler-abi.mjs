@@ -1,23 +1,11 @@
-import { decodeInt, encodeInt, makeRuntime } from "./wasm-runtime.mjs";
+import { makeRuntime } from "./wasm-runtime.mjs";
 
 const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder();
-const MAX_TAGGED_INT = 1073741823;
-const MIN_TAGGED_INT = -1073741824;
-const HOST_COMPILE_DEPTH_ENV = "CLAPSE_HOST_COMPILE_DEPTH";
-const CLAPSE_FUNC_MAP_ENV = "CLAPSE_DEBUG_FUNC_MAP";
+const CLAPSE_WASM_TAIL_CALL_ENV = "CLAPSE_EMIT_WASM_TAIL_CALLS";
 const COMPILE_DEBUG_ARTIFACT_FILES = [
   "lowered_ir.txt",
   "collapsed_ir.txt",
-];
-const SELFHOST_ARTIFACT_FILES = [
-  "merged_module.txt",
-  "type_info.txt",
-  "type_info_error.txt",
-  "lowered_ir.txt",
-  "collapsed_ir.txt",
-  "exports.txt",
-  "wasm_stats.txt",
 ];
 
 function fromBase64(input) {
@@ -163,13 +151,21 @@ function parseWasmFunctionMetadata(bytes) {
             throw new Error("malformed wasm custom name subsection");
           }
           if (subsectionId === 1) {
-            const nameCountInfo = decodeVarU32(bytes, subsectionStart, subsectionEnd);
+            const nameCountInfo = decodeVarU32(
+              bytes,
+              subsectionStart,
+              subsectionEnd,
+            );
             let nameCursor = nameCountInfo.next;
             for (let i = 0; i < nameCountInfo.value; i += 1) {
               const indexInfo = decodeVarU32(bytes, nameCursor, subsectionEnd);
               const fnIndex = indexInfo.value;
               nameCursor = indexInfo.next;
-              const fnNameInfo = readWasmString(bytes, nameCursor, subsectionEnd);
+              const fnNameInfo = readWasmString(
+                bytes,
+                nameCursor,
+                subsectionEnd,
+              );
               if (!wasmNameByIndex.has(fnIndex)) {
                 wasmNameByIndex.set(fnIndex, fnNameInfo.value);
               }
@@ -192,7 +188,8 @@ function parseWasmFunctionMetadata(bytes) {
 
 function appendClapseFuncMap(wasmBytes) {
   const metadata = parseWasmFunctionMetadata(wasmBytes);
-  const totalFunctionCount = metadata.importFunctionCount + metadata.functionSectionCount;
+  const totalFunctionCount = metadata.importFunctionCount +
+    metadata.functionSectionCount;
   const payload = [];
   const sectionNameBytes = UTF8_ENCODER.encode("clapse.funcmap");
   payload.push(...encodeVarU32(sectionNameBytes.length));
@@ -228,18 +225,117 @@ function appendClapseFuncMap(wasmBytes) {
   return final;
 }
 
-function wantsDebugClapseFuncMap(request) {
-  const mode = String(request?.compile_mode ?? "").toLowerCase();
-  return boolEnvFlag(CLAPSE_FUNC_MAP_ENV, false)
-    || mode === "funcmap"
-    || mode === "emit-funcmap"
-    || mode === "debug-funcmap"
-    || mode === "debug";
+function tryDecodeTailCallSuffix(bytes, opIndex, suffixEndExclusive) {
+  const opcode = bytes[opIndex];
+  if (opcode !== 0x10 && opcode !== 0x11) {
+    return null;
+  }
+  let cursor = opIndex + 1;
+  const firstImmediate = decodeVarU32(bytes, cursor, suffixEndExclusive);
+  cursor = firstImmediate.next;
+  if (opcode === 0x11) {
+    const secondImmediate = decodeVarU32(bytes, cursor, suffixEndExclusive);
+    cursor = secondImmediate.next;
+  }
+  if (cursor !== suffixEndExclusive) {
+    return null;
+  }
+  return opcode;
 }
 
-function wantsCompileDebugArtifacts(request) {
-  const mode = String(request?.compile_mode ?? "").toLowerCase().trim();
-  return mode === "debug" || mode === "debug-funcmap";
+function rewriteTailCallSuffixInBody(bytes, exprStart, funcEndIndex) {
+  if (funcEndIndex <= exprStart) {
+    return 0;
+  }
+  if (bytes[funcEndIndex] !== 0x0b) {
+    return 0;
+  }
+  const suffixCandidates = [funcEndIndex];
+  if (funcEndIndex > exprStart && bytes[funcEndIndex - 1] === 0x0f) {
+    suffixCandidates.push(funcEndIndex - 1);
+  }
+  for (const suffixEnd of suffixCandidates) {
+    const minScanIndex = Math.max(exprStart, suffixEnd - 12);
+    for (let opIndex = suffixEnd - 1; opIndex >= minScanIndex; opIndex -= 1) {
+      let opcode;
+      try {
+        opcode = tryDecodeTailCallSuffix(bytes, opIndex, suffixEnd);
+      } catch {
+        opcode = null;
+      }
+      if (opcode === null) {
+        continue;
+      }
+      if (opcode === 0x10) {
+        bytes[opIndex] = 0x12; // return_call
+      } else {
+        bytes[opIndex] = 0x13; // return_call_indirect
+      }
+      return 1;
+    }
+  }
+  return 0;
+}
+
+function rewriteWasmTailCallOpcodesUnsafe(wasmBytes) {
+  const rewritten = new Uint8Array(wasmBytes);
+  let rewrites = 0;
+  let cursor = 8;
+  while (cursor < rewritten.length) {
+    const sectionId = rewritten[cursor];
+    cursor += 1;
+    const sizeInfo = decodeVarU32(rewritten, cursor, rewritten.length);
+    const sectionStart = sizeInfo.next;
+    const sectionEnd = sectionStart + sizeInfo.value;
+    if (sectionEnd > rewritten.length) {
+      throw new Error("malformed wasm section");
+    }
+    if (sectionId === 10) {
+      const functionCountInfo = decodeVarU32(
+        rewritten,
+        sectionStart,
+        sectionEnd,
+      );
+      let codeCursor = functionCountInfo.next;
+      for (let i = 0; i < functionCountInfo.value; i += 1) {
+        const bodySizeInfo = decodeVarU32(rewritten, codeCursor, sectionEnd);
+        const bodyStart = bodySizeInfo.next;
+        const bodyEnd = bodyStart + bodySizeInfo.value;
+        if (bodyEnd > sectionEnd) {
+          throw new Error("malformed wasm function body");
+        }
+        const localDeclCountInfo = decodeVarU32(rewritten, bodyStart, bodyEnd);
+        let exprStart = localDeclCountInfo.next;
+        for (let j = 0; j < localDeclCountInfo.value; j += 1) {
+          const localCountInfo = decodeVarU32(rewritten, exprStart, bodyEnd);
+          exprStart = localCountInfo.next;
+          if (exprStart >= bodyEnd) {
+            throw new Error("malformed wasm local declaration");
+          }
+          exprStart += 1; // value type byte
+        }
+        rewrites += rewriteTailCallSuffixInBody(
+          rewritten,
+          exprStart,
+          bodyEnd - 1,
+        );
+        codeCursor = bodyEnd;
+      }
+    }
+    cursor = sectionEnd;
+  }
+  return { wasmBytes: rewritten, rewrites };
+}
+
+export function rewriteWasmTailCallOpcodes(wasmBytes) {
+  if (!boolEnvFlag(CLAPSE_WASM_TAIL_CALL_ENV, true)) {
+    return { wasmBytes, rewrites: 0 };
+  }
+  try {
+    return rewriteWasmTailCallOpcodesUnsafe(wasmBytes);
+  } catch {
+    return { wasmBytes, rewrites: 0 };
+  }
 }
 
 function assertFn(instance, name) {
@@ -261,409 +357,19 @@ function assertCompilerExports(instance) {
   assertFn(instance, "clapse_run");
 }
 
-function decodeSliceBytes(memory, handle) {
-  const ptr = handle >>> 0;
-  const view = new DataView(memory.buffer);
-  if (ptr + 8 > memory.buffer.byteLength) {
-    throw new Error(`request slice descriptor out of bounds: ${ptr}`);
-  }
-  const dataPtr = view.getUint32(ptr, true);
-  const len = view.getInt32(ptr + 4, true);
-  if (len < 0 || dataPtr + len > memory.buffer.byteLength) {
-    throw new Error(
-      `invalid request slice descriptor: ptr=${dataPtr} len=${len}`,
-    );
-  }
-  return new Uint8Array(memory.buffer, dataPtr, len);
-}
-
-function fileExistsSync(path) {
-  try {
-    const stat = Deno.statSync(path);
-    return stat.isFile;
-  } catch {
-    return false;
-  }
-}
-
-function isBridgeWasmPath(path) {
-  const fileName = String(path).toLowerCase();
-  return fileName.includes("bridge") && fileName.endsWith(".wasm");
-}
-
-function resolveHostNativeCompilerWasmPath() {
-  const envPath = String(Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "").trim();
-  if (envPath.length > 0 && !isBridgeWasmPath(envPath) && fileExistsSync(envPath)) {
-    return envPath;
-  }
-  const fallbackCandidates = [
-    "out/clapse_compiler.wasm",
-    "artifacts/latest/clapse_compiler.wasm",
-  ];
-  for (const candidate of fallbackCandidates) {
-    if (fileExistsSync(candidate)) {
-      return candidate;
-    }
-  }
-  return "";
-}
-
-function coerceStringArray(value) {
-  if (!Array.isArray(value)) return [];
-  const out = [];
-  for (const item of value) {
-    if (typeof item === "string" && item.length > 0) {
-      out.push(item);
-    }
-  }
-  return out;
-}
-
-function parseRequestString(request, key) {
-  const value = request[key];
-  return typeof value === "string" ? value : "";
-}
-
-function currentHostCompileDepth() {
-  const raw = String(Deno.env.get(HOST_COMPILE_DEPTH_ENV) ?? "0").trim();
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return 0;
-  }
-  return parsed;
-}
-
-function runHostCompileNative(request) {
-  const depth = currentHostCompileDepth();
-  if (depth > 1) {
-    return {
-      ok: false,
-      error:
-        "host compile recursion detected; compiler artifact still requires host compile backend",
-    };
-  }
-  const compilerPath = resolveHostNativeCompilerWasmPath();
-  if (!compilerPath) {
-    return {
-      ok: false,
-      error: "host compile bridge requires a native compiler artifact; set CLAPSE_COMPILER_WASM_PATH",
-    };
-  }
-  const requestHandle = {
-    command: "compile",
-    input_path: request.input_path,
-    input_source: request.input_source,
-    plugin_wasm_paths: coerceStringArray(request.plugin_wasm_paths),
-  };
-  const procEnv = { ...Deno.env.toObject() };
-  procEnv[HOST_COMPILE_DEPTH_ENV] = String(depth + 1);
-  const runScript = new URL("./run-clapse-compiler-wasm.mjs", import.meta.url).pathname;
-  const sourcePath = Deno.makeTempFileSync({
-    prefix: "clapse-host-compile-source-",
-    suffix: ".clapse",
-  });
-  const outPath = Deno.makeTempFileSync({
-    prefix: "clapse-host-compile-",
-    suffix: ".wasm",
-  });
-  const outDtsPath = outPath.replace(/\.wasm$/u, ".d.ts");
-  const debugArtifactsDir = Deno.makeTempDirSync({
-    prefix: "clapse-host-compile-debug-artifacts-",
-  });
-  try {
-    try {
-      Deno.writeTextFileSync(sourcePath, requestHandle.input_source);
-    } catch {
-      return {
-        ok: false,
-        error: `host compile bridge failed to write temporary source for ${String(requestHandle.input_path ?? "<unknown>")}`,
-      };
-    }
-    const proc = new Deno.Command("deno", {
-      args: ["run", "-A", runScript, "compile", sourcePath, outPath],
-      env: procEnv,
-      stdout: "piped",
-      stderr: "piped",
-    });
-    const procOut = proc.outputSync();
-    if (!procOut.success) {
-      const stderrTail = UTF8_DECODER.decode(procOut.stderr).trim();
-      const stdoutTail = UTF8_DECODER.decode(procOut.stdout).trim();
-      return {
-        ok: false,
-        error: `host compile command failed (exit ${procOut.code}): ${stderrTail || stdoutTail || "empty output"}`,
-      };
-    }
-    let wasmBytes;
-    try {
-      wasmBytes = Deno.readFileSync(outPath);
-    } catch {
-      return {
-        ok: false,
-        error: `host compile command did not produce ${outPath}`,
-      };
-    }
-    let dts = "export {}";
-    try {
-      dts = Deno.readTextFileSync(outDtsPath);
-    } catch {
-      // keep export {} fallback
-    }
-    let outputWasmBase64;
-    try {
-      outputWasmBase64 = toBase64(wasmBytes);
-    } catch {
-      return {
-        ok: false,
-        error: "host compile command produced malformed wasm artifact",
-      };
-    }
-    if (outputWasmBase64.length === 0) {
-      return {
-        ok: false,
-        error: "host compile command produced empty wasm artifact",
-      };
-    }
-    if (wantsDebugClapseFuncMap(request)) {
-      try {
-        const responseBytes = fromBase64(outputWasmBase64);
-        const withFuncMap = appendClapseFuncMap(responseBytes);
-        outputWasmBase64 = toBase64(withFuncMap);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return {
-          ok: false,
-          error: `host compile funcmap injection failed: ${msg}`,
-        };
-      }
-    }
-    let debugArtifacts = null;
-    if (wantsCompileDebugArtifacts(request)) {
-      const selfhostProc = new Deno.Command("deno", {
-        args: [
-          "run",
-          "-A",
-          runScript,
-          "selfhost-artifacts",
-          sourcePath,
-          debugArtifactsDir,
-        ],
-        env: procEnv,
-        stdout: "piped",
-        stderr: "piped",
-      });
-      const selfhostOut = selfhostProc.outputSync();
-      if (!selfhostOut.success) {
-        const stderrTail = UTF8_DECODER.decode(selfhostOut.stderr).trim();
-        const stdoutTail = UTF8_DECODER.decode(selfhostOut.stdout).trim();
-        return {
-          ok: false,
-          error:
-            `host debug-artifacts command failed (exit ${selfhostOut.code}): ${stderrTail || stdoutTail || "empty output"}`,
-        };
-      }
-      const collected = {};
-      for (const key of COMPILE_DEBUG_ARTIFACT_FILES) {
-        const filePath = `${debugArtifactsDir}/${key}`;
-        try {
-          collected[key] = Deno.readTextFileSync(filePath);
-        } catch {
-          return {
-            ok: false,
-            error:
-              `host debug-artifacts command did not produce ${key}`,
-          };
-        }
-      }
-      debugArtifacts = collected;
-    }
-    return {
-      ok: true,
-      wasm_base64: outputWasmBase64,
-      exports: [],
-      dts,
-      ...(debugArtifacts === null ? {} : { artifacts: debugArtifacts }),
-    };
-  } finally {
-    try {
-      Deno.removeSync(sourcePath);
-    } catch {
-      // best effort cleanup
-    }
-    try {
-      Deno.removeSync(outPath);
-    } catch {
-      // best effort cleanup
-    }
-    try {
-      Deno.removeSync(outDtsPath);
-    } catch {
-      // best effort cleanup
-    }
-    try {
-      Deno.removeSync(debugArtifactsDir, { recursive: true });
-    } catch {
-      // best effort cleanup
-    }
-  }
-}
-
-function toBase64(bytes) {
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 1) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
-
-function runHostCompile(request) {
-  const inputPath = parseRequestString(request, "input_path");
-  if (typeof request.input_source !== "string") {
-    return {
-      ok: false,
-      error: `host compile bridge requires string input_source (input=${inputPath})`,
-    };
-  }
-  const inputSource = request.input_source;
-  return runHostCompileNative({
-    ...request,
-    input_path: inputPath,
-    input_source: inputSource,
-  });
-}
-
-function runHostFormat(request) {
-  const inputPath = String(request.input_path ?? "");
-  const mode = String(request.mode ?? "stdout");
-  return {
-    ok: false,
-    error:
-      `host format bridge is removed (input=${inputPath}, mode=${mode}); use native wasm compiler artifact`,
-    input_path: inputPath,
-    mode,
-  };
-}
-
-function runHostSelfhostArtifacts(request) {
-  const inputPath = String(request.input_path ?? "");
-  return {
-    ok: false,
-    error:
-      `host selfhost-artifacts bridge is removed (input=${inputPath}); use native wasm compiler artifact`,
-  };
-}
-
-function runHostClapseRequest(request) {
-  if (!request || typeof request !== "object") {
-    return { ok: false, error: "invalid request object" };
-  }
-  const command = String(request.command ?? "");
-  if (command === "compile") {
-    return runHostCompile(request);
-  }
-  if (command === "selfhost-artifacts") {
-    return runHostSelfhostArtifacts(request);
-  }
-  if (command === "format") {
-    return runHostFormat(request);
-  }
-  return { ok: false, error: `unsupported command: ${command}` };
-}
-
-function createHostImportObject(runtime, getInstanceRef) {
-  const emptySlice = () => runtime.alloc_slice_u8(new Uint8Array(0));
-
-  const runHostRequest = (requestHandle) => {
-    const instanceRef = getInstanceRef();
-    if (instanceRef === null) {
-      throw new Error(
-        "compiler wasm host bridge called before instance initialization",
-      );
-    }
-    const memory = instanceRef.exports.__memory ?? instanceRef.exports.memory;
-    if (!(memory instanceof WebAssembly.Memory)) {
-      throw new Error(
-        "compiler wasm missing memory export during host bridge call",
-      );
-    }
-    const requestBytes = decodeSliceBytes(memory, requestHandle | 0);
-    const requestText = UTF8_DECODER.decode(requestBytes);
-    let requestObj;
-    try {
-      requestObj = JSON.parse(requestText);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      requestObj = { command: "invalid", parse_error: message };
-    }
-    const responseObj = runHostClapseRequest(requestObj);
-    const responseBytes = UTF8_ENCODER.encode(JSON.stringify(responseObj));
-    return runtime.alloc_slice_u8(responseBytes);
-  };
-
-  const hostReadFile = (pathHandle) => {
-    const instanceRef = getInstanceRef();
-    if (instanceRef === null) {
-      return emptySlice();
-    }
-    const memory = instanceRef.exports.__memory ?? instanceRef.exports.memory;
-    if (!(memory instanceof WebAssembly.Memory)) {
-      return emptySlice();
-    }
-    let path = "";
-    try {
-      const pathBytes = decodeSliceBytes(memory, pathHandle | 0);
-      path = UTF8_DECODER.decode(pathBytes);
-    } catch {
-      return emptySlice();
-    }
-    try {
-      const fileBytes = Deno.readFileSync(path);
-      return runtime.alloc_slice_u8(fileBytes);
-    } catch {
-      return emptySlice();
-    }
-  };
-
-  const hostUnixTimeMs = (seedTagged) => {
-    let seed = 0;
-    try {
-      seed = decodeInt(seedTagged | 0);
-    } catch {
-      seed = 0;
-    }
-    const span = MAX_TAGGED_INT - MIN_TAGGED_INT + 1;
-    const now = Date.now();
-    const payload = ((((now + seed) % span) + span) % span) + MIN_TAGGED_INT;
-    return encodeInt(payload);
-  };
-
-  return {
-    clapse_run: runHostRequest,
-    clapse_host_run: runHostRequest,
-    read_file: hostReadFile,
-    unix_time_ms: hostUnixTimeMs,
-  };
-}
-
 async function loadCompilerWasm(path) {
   const wasmBytes = await Deno.readFile(path);
   const module = await WebAssembly.compile(wasmBytes);
   const imports = WebAssembly.Module.imports(module);
-  const isBridge = imports.some((imp) =>
-    imp.module === "host" && imp.name === "clapse_run"
-  );
-  if (isBridge) {
+  const hostImports = imports.filter((imp) => imp.module === "host");
+  if (hostImports.length > 0) {
+    const hostImportList = hostImports.map((imp) => imp.name).join(", ");
     throw new Error(
-      "bridge compiler wasm detected; use clapse_compiler.wasm without host bridge support",
+      `bridge compiler wasm detected (host imports: ${hostImportList}); use clapse_compiler.wasm without host bridge support`,
     );
   }
   const runtime = makeRuntime();
-  let instanceRef = null;
-  const hostImports = {
-    host: createHostImportObject(runtime, () => instanceRef),
-  };
-  const instance = await WebAssembly.instantiate(module, hostImports);
-  instanceRef = instance;
+  const instance = await WebAssembly.instantiate(module, {});
   assertCompilerExports(instance);
   const memoryExport = instance.exports.__memory ?? instance.exports.memory;
   runtime.state.memory = memoryExport;
@@ -685,6 +391,160 @@ function decodeResponseBytes(runtime, responseHandle) {
   }
 }
 
+function assertObject(value, context) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${context}: expected object`);
+  }
+}
+
+function requestCommand(requestObject) {
+  return String(requestObject?.command ?? "").trim().toLowerCase();
+}
+
+function compileMode(requestObject) {
+  return String(requestObject?.compile_mode ?? "").trim().toLowerCase();
+}
+
+function isCompileLikeRequest(requestObject) {
+  if (!requestObject || typeof requestObject !== "object") {
+    return false;
+  }
+  const cmd = requestCommand(requestObject);
+  return cmd === "compile" || cmd === "compile-debug" ||
+    cmd === "selfhost-artifacts";
+}
+
+function isEmitWatRequest(requestObject) {
+  if (!requestObject || typeof requestObject !== "object") {
+    return false;
+  }
+  return requestCommand(requestObject) === "emit-wat";
+}
+
+function compileRequestNeedsDebugArtifacts(requestObject) {
+  const command = requestCommand(requestObject);
+  if (command === "compile-debug") {
+    return true;
+  }
+  const mode = compileMode(requestObject);
+  return mode === "debug" || mode === "kernel-debug" ||
+    mode === "native-debug" || mode === "debug-funcmap";
+}
+
+function normalizeContractPath(path) {
+  return String(path ?? "").trim().replaceAll("\\", "/");
+}
+
+function isCompilerKernelInputPath(requestObject) {
+  const inputPath = normalizeContractPath(requestObject?.input_path);
+  if (inputPath.length === 0) {
+    return false;
+  }
+  return inputPath === "lib/compiler/kernel.clapse" ||
+    inputPath.endsWith("/lib/compiler/kernel.clapse");
+}
+
+function compileRequestNeedsCompilerAbiOutput(requestObject) {
+  const mode = compileMode(requestObject);
+  return mode === "kernel-native" && isCompilerKernelInputPath(requestObject);
+}
+
+function assertCompileArtifactsContract(responseObject) {
+  const artifacts = responseObject.artifacts;
+  assertObject(artifacts, "compile response.artifacts");
+  const missing = [];
+  for (const file of COMPILE_DEBUG_ARTIFACT_FILES) {
+    if (typeof artifacts[file] !== "string") {
+      missing.push(file);
+    }
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `compile response.artifacts missing debug keys: ${missing.join(", ")}`,
+    );
+  }
+}
+
+function assertCompilerAbiOutputContract(responseObject) {
+  let wasmBytes;
+  try {
+    wasmBytes = decodeWasmBase64(responseObject.wasm_base64);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`compile response wasm_base64 decode failed: ${msg}`);
+  }
+  let module;
+  try {
+    module = new WebAssembly.Module(wasmBytes);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`compile response wasm_base64 is not valid wasm: ${msg}`);
+  }
+  const exportNames = WebAssembly.Module.exports(module).map((entry) =>
+    entry.name
+  );
+  const hasMemory = exportNames.includes("memory") ||
+    exportNames.includes("__memory");
+  const hasRun = exportNames.includes("clapse_run");
+  if (!hasMemory || !hasRun) {
+    throw new Error(
+      `compile response for kernel path must emit compiler ABI exports (required: memory + clapse_run; got: ${
+        exportNames.join(", ")
+      })`,
+    );
+  }
+}
+
+function validateCompileResponseContract(requestObject, responseObject) {
+  assertObject(responseObject, "compile response");
+  if (typeof responseObject.ok !== "boolean") {
+    throw new Error("compile response: missing boolean 'ok'");
+  }
+  if (responseObject.ok !== true) {
+    return responseObject;
+  }
+  if (
+    typeof responseObject.backend !== "string" ||
+    responseObject.backend.length === 0
+  ) {
+    throw new Error("compile response: missing non-empty string 'backend'");
+  }
+  if (responseObject.backend !== "kernel-native") {
+    throw new Error(
+      `compile response: unsupported backend '${responseObject.backend}' (expected kernel-native)`,
+    );
+  }
+  if (
+    typeof responseObject.wasm_base64 !== "string" ||
+    responseObject.wasm_base64.length === 0
+  ) {
+    throw new Error("compile response: missing non-empty string 'wasm_base64'");
+  }
+  if (compileRequestNeedsCompilerAbiOutput(requestObject)) {
+    assertCompilerAbiOutputContract(responseObject);
+  }
+  if (compileRequestNeedsDebugArtifacts(requestObject)) {
+    assertCompileArtifactsContract(responseObject);
+  }
+  return responseObject;
+}
+
+function validateEmitWatResponseContract(responseObject) {
+  assertObject(responseObject, "emit-wat response");
+  if (typeof responseObject.ok !== "boolean") {
+    throw new Error("emit-wat response: missing boolean 'ok'");
+  }
+  if (responseObject.ok !== true) {
+    return responseObject;
+  }
+  if (
+    typeof responseObject.wat !== "string" || responseObject.wat.length === 0
+  ) {
+    throw new Error("emit-wat response: missing non-empty string 'wat'");
+  }
+  return responseObject;
+}
+
 export async function callCompilerWasm(path, requestObject) {
   const { instance, runtime } = await loadCompilerWasm(path);
   const run = assertFn(instance, "clapse_run");
@@ -696,7 +556,14 @@ export async function callCompilerWasm(path, requestObject) {
       `compiler wasm returned invalid response handle: ${responseHandle}`,
     );
   }
-  return decodeResponseBytes(runtime, responseHandle);
+  const response = decodeResponseBytes(runtime, responseHandle);
+  if (isCompileLikeRequest(requestObject)) {
+    return validateCompileResponseContract(requestObject, response);
+  }
+  if (isEmitWatRequest(requestObject)) {
+    return validateEmitWatResponseContract(response);
+  }
+  return response;
 }
 
 export async function inspectCompilerWasmAbi(path) {
