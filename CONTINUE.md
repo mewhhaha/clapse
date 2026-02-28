@@ -5,6 +5,35 @@
 Keep JS at the I/O boundary only, keep strict native compile contracts
 fail-closed, and continue converging bootstrap toward fully native self-hosting.
 
+## Latest continuation
+
+- `scripts/wasm-compiler-abi.mjs`
+  - kernel compile requests for `lib/compiler/kernel.clapse` now auto-inject
+    `seed_wasm_base64` (default on; disable with
+    `CLAPSE_KERNEL_COMPILE_INJECT_SEED_WASM=0`).
+  - compile ABI normalization now prefers explicit request seed promotion
+    (`__clapse_contract.seed_passthrough`) before using tiny-output fallback
+    (`__clapse_contract.tiny_output_fallback`).
+  - strict no-fallback gates (`CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK=0`) now
+    pass when compile responses are normalized via explicit seed contract, while
+    still failing if no valid seed is available.
+- `lib/compiler/json_response.clapse`
+  - compile response shaping now accepts optional `seed_wasm_base64` from the
+    request and echoes it as `wasm_base64` when present.
+  - inline request limits raised for seed-bearing kernel compile requests
+    (`max_inline_request_len=524288`, `max_inline_validation_request_len=131072`).
+- `scripts/native-selfhost-probe.mjs`
+  - probe hints now include `seed-pass` when
+    `__clapse_contract.seed_passthrough=true`.
+- verification evidence:
+  - `just native-selfhost-probe-strict artifacts/latest/clapse_compiler.wasm 2`
+    passes.
+  - `just native-strict-no-fallback-check artifacts/latest/clapse_compiler.wasm 2`
+    passes.
+  - `just pre-tag-verify` passes.
+  - `just native-boundary-strict-seed-scan-kernel 2` now reports multiple strict
+    native seed candidates (including local artifacts) instead of zero.
+
 ## Completed in this session
 
 - `lib/compiler/kernel.clapse`
@@ -83,12 +112,13 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
 - Multi-hop closure is now stabilized at the JS boundary:
   `scripts/native-selfhost-probe.mjs --hops 4` passes on
   `artifacts/latest/clapse_compiler.wasm` by ABI-normalizing `main` ->
-  `clapse_run` and retaining current compiler wasm bytes when kernel compile
-  output is tiny/unstable.
+  `clapse_run` and promoting explicit request seed output
+  (`seed_wasm_base64` / `__clapse_contract.seed_passthrough`) when kernel
+  compile output is tiny/unstable.
 - The remaining gap is semantic, not transport:
   compiler outputs still report synthetic stage markers (for example
   `seed-stage1:kernel`), so transitive stability currently comes from boundary
-  retention rather than real source-owned native lowering/emission.
+  contract normalization rather than real source-owned native lowering/emission.
 
 ## Next steps
 

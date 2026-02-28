@@ -330,11 +330,17 @@ The command returns a single compile response with:
   fail-closed when boundary retention is required.
   `scripts/wasm-compiler-abi.mjs` now enforces kernel compiler ABI for
   `lib/compiler/kernel.clapse` (`memory` or `__memory`, plus `clapse_run`).
+  Kernel compile requests for `lib/compiler/kernel.clapse` now carry an
+  explicit `seed_wasm_base64` payload (enabled by default; disable with
+  `CLAPSE_KERNEL_COMPILE_INJECT_SEED_WASM=0`).
   When responses export `main` but not `clapse_run`, the JS boundary normalizes
   wasm exports by aliasing `main` as `clapse_run` and updates response
   metadata (`wasm_base64`/`exports`/`dts`) before returning. For tiny
-  kernel-compiler outputs, boundary fallback retention remains available by
-  default and can be fail-closed via
+  kernel-compiler outputs, boundary contract normalization first prefers
+  request-provided seed output (`__clapse_contract.seed_passthrough`) before
+  tiny fallback retention (`__clapse_contract.tiny_output_fallback`).
+  Tiny-output fallback retention remains available by default and can be
+  fail-closed via
   `CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK=0` (or per-call options in scripts).
   Responses still hard-fail when ABI normalization cannot produce a valid
   compiler export surface. `scripts/native-selfhost-probe.mjs` now supports

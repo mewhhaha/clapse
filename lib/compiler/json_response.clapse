@@ -27,8 +27,9 @@ json_unknown_error = str_to_slice "{\"ok\":false,\"error\":\"unsupported command
 json_compile_stub_prefix = str_to_slice "{\"ok\":true,\"backend\":\"kernel-native\",\"wasm_base64\":\""
 json_compile_stub_suffix = str_to_slice "\",\"exports\":[{\"name\":\"main\",\"arity\":1}],\"dts\":\"export declare function main(arg0: number): number;\\n\",\"artifacts\":{\"lowered_ir.txt\":\"kernel:compile:lowered\",\"collapsed_ir.txt\":\"kernel:compile:collapsed\"}}"
 json_compile_stub_wasm_b64 = str_to_slice "AGFzbQEAAAABEwNgAX8Bf2ACf38Bf2ADf39/AX8CAQADAgECBAQBcAABBQMBAAEGBwF/AUGAIAsHKgQEbWFpbgAACF9fbWVtb3J5AgAHX190YWJsZQEACl9faGVhcF9wdHIDAAkHAQBBAAsBAAoIAQYBDX9BAQsLAQA="
-max_inline_request_len = 32768
-max_inline_validation_request_len = 2048
+compile_seed_wasm_key = "\"seed_wasm_base64\""
+max_inline_request_len = 524288
+max_inline_validation_request_len = 131072
 
 json_response_from_slice request_handle ownership_mode literal =
   let out = slice_new_u8 (slice_len literal)
@@ -70,6 +71,9 @@ compile_error_response request_handle ownership_mode = compile_not_implemented_r
 compile_source_start request_handle req_len =
   find_input_source_start request_handle 0 req_len
 
+compile_seed_wasm_start request_handle req_len =
+  find_json_key_value_start request_handle 0 req_len compile_seed_wasm_key
+
 compile_request_tag request_handle req_len =
   let input_path_start = find_input_path_start request_handle 0 req_len
       source_start = compile_source_start request_handle req_len
@@ -95,6 +99,11 @@ compile_source_end_for_request request_handle source_start req_len =
   case (source_start == req_len) of
     true -> req_len
     _ -> scan_find_source_end request_handle source_start req_len 0
+
+compile_seed_wasm_end_for_request request_handle seed_start req_len =
+  case (seed_start == req_len) of
+    true -> req_len
+    _ -> json_slice_end request_handle seed_start req_len
 
 compile_response request_handle ownership_mode =
   let req_len = slice_len request_handle
@@ -143,12 +152,33 @@ compile_stub_success_response request_handle ownership_mode _ =
   in case (source_start == req_len) of
     true -> compile_missing_input_source_response request_handle ownership_mode req_len
     _ ->
-      let wasm_len = slice_len json_compile_stub_wasm_b64
-      in json_response_with_escaped_slice_segment
+      let seed_start = compile_seed_wasm_start request_handle req_len
+      in case (seed_start == req_len) of
+        true -> compile_stub_default_response request_handle ownership_mode
+        _ -> compile_seed_success_response request_handle ownership_mode seed_start req_len
+
+compile_stub_default_response request_handle ownership_mode =
+  let wasm_len = slice_len json_compile_stub_wasm_b64
+  in json_response_with_escaped_slice_segment
+    request_handle
+    ownership_mode
+    json_compile_stub_prefix
+    json_compile_stub_suffix
+    json_compile_stub_wasm_b64
+    0
+    wasm_len
+
+compile_seed_success_response request_handle ownership_mode seed_start req_len =
+  let seed_end = compile_seed_wasm_end_for_request request_handle seed_start req_len
+      seed_len = seed_end - seed_start
+  in case (seed_len > 0) of
+    true ->
+      json_response_with_escaped_slice_segment
         request_handle
         ownership_mode
         json_compile_stub_prefix
         json_compile_stub_suffix
-        json_compile_stub_wasm_b64
-        0
-        wasm_len
+        request_handle
+        seed_start
+        seed_len
+    _ -> compile_stub_default_response request_handle ownership_mode

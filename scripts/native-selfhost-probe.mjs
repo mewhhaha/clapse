@@ -79,6 +79,9 @@ function fallbackHintFromResponse(response) {
   if (contract.tiny_output_fallback === true) {
     tags.push("tiny-fallback");
   }
+  if (contract.seed_passthrough === true) {
+    tags.push("seed-pass");
+  }
   return tags.join("+");
 }
 

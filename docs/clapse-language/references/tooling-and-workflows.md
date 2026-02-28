@@ -105,6 +105,10 @@ deno run -A scripts/clapse.mjs bench [iterations]
     directly from compiler responses.
   - `just native-boundary-strict-smoke-no-fallback` runs the same gate with
     JS ABI tiny-output fallback disabled.
+  - kernel compile requests for `lib/compiler/kernel.clapse` now inject
+    `seed_wasm_base64` by default (`CLAPSE_KERNEL_COMPILE_INJECT_SEED_WASM=0`
+    disables injection), and boundary metadata may report
+    `__clapse_contract.seed_passthrough` when that explicit seed is promoted.
   - `just native-selfhost-probe-strict [wasm=...] [hops=...]` runs selfhost
     probe with tiny-output fallback disabled and fail-closed.
   - `just native-strict-no-fallback-check [wasm=...] [hops=...]` chains
