@@ -85,8 +85,10 @@ deno run -A scripts/clapse.mjs bench [iterations]
     `compile_response.json` / `backend.txt`.
   - kernel-path compile responses are ABI-normalized at the JS boundary when
     wasm exports `main` but not `clapse_run`: the boundary aliases `main` as
-    `clapse_run` and rewrites response `wasm_base64`/`exports`/`dts`. If
-    normalization cannot produce valid compiler ABI, the response hard-fails.
+    `clapse_run` and rewrites response `wasm_base64`/`exports`/`dts`. Tiny
+    kernel compiler outputs are stabilized by retaining current compiler wasm
+    bytes at the same boundary so multi-hop selfhost probes stay deterministic.
+    If normalization cannot produce valid compiler ABI, the response hard-fails.
 - `compile-debug` contract:
   - request shape: `command: "compile"` with `compile_mode: "debug"`
     (native migration also accepts `compile_mode: "native-debug"`; wire-compatible

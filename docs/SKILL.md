@@ -326,7 +326,9 @@ The command returns a single compile response with:
   `lib/compiler/kernel.clapse` (`memory` or `__memory`, plus `clapse_run`).
   When responses export `main` but not `clapse_run`, the JS boundary normalizes
   wasm exports by aliasing `main` as `clapse_run` and updates response
-  metadata (`wasm_base64`/`exports`/`dts`) before returning. Responses still
+  metadata (`wasm_base64`/`exports`/`dts`) before returning. For tiny
+  kernel-compiler outputs, the boundary now retains current compiler wasm bytes
+  to avoid propagating unstable transitive artifacts. Responses still
   hard-fail when ABI normalization cannot produce a valid compiler export
   surface. `scripts/native-selfhost-probe.mjs` now supports `--hops <n>`
   (default `1`) for transitive closure probes;

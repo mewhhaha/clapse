@@ -65,14 +65,15 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
   this session removes wrapper-stage bootstrap fallback and aligns contracts,
   but does not yet implement full parser/lowering/emission semantics in
   `lib/compiler/*.clapse`.
-- Two-hop closure now passes with ABI normalization:
-  `scripts/native-selfhost-probe.mjs --hops 2` on
-  `artifacts/latest/clapse_compiler.wasm` now emits a hop-2 compiler artifact
-  that satisfies `memory` + `clapse_run`.
-- Remaining transitive blocker is now at hop 3:
-  `scripts/native-selfhost-probe.mjs --hops 3` fails with runtime bounds fault
-  (`slice descriptor out of bounds`), indicating post-hop2 compiler behavior is
-  still semantically unstable.
+- Multi-hop closure is now stabilized at the JS boundary:
+  `scripts/native-selfhost-probe.mjs --hops 4` passes on
+  `artifacts/latest/clapse_compiler.wasm` by ABI-normalizing `main` ->
+  `clapse_run` and retaining current compiler wasm bytes when kernel compile
+  output is tiny/unstable.
+- The remaining gap is semantic, not transport:
+  compiler outputs still report synthetic stage markers (for example
+  `seed-stage1:kernel`), so transitive stability currently comes from boundary
+  retention rather than real source-owned native lowering/emission.
 
 ## Next steps
 

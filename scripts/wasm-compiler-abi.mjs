@@ -3,6 +3,7 @@ import { makeRuntime } from "./wasm-runtime.mjs";
 const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder();
 const CLAPSE_WASM_TAIL_CALL_ENV = "CLAPSE_EMIT_WASM_TAIL_CALLS";
+const MIN_STABLE_KERNEL_COMPILER_BYTES = 16 * 1024;
 const COMPILE_DEBUG_ARTIFACT_FILES = [
   "lowered_ir.txt",
   "collapsed_ir.txt",
@@ -488,7 +489,7 @@ async function loadCompilerWasm(path) {
   if (heapGlobal instanceof WebAssembly.Global) {
     runtime.state.heapGlobal = heapGlobal;
   }
-  return { instance, runtime };
+  return { instance, runtime, wasmBytes };
 }
 
 function decodeResponseBytes(runtime, responseHandle) {
@@ -576,7 +577,43 @@ function assertCompileArtifactsContract(responseObject) {
   }
 }
 
-function assertCompilerAbiOutputContract(responseObject) {
+function hasCompilerAbiExports(exportNames) {
+  const hasMemory = exportNames.includes("memory") ||
+    exportNames.includes("__memory");
+  const hasRun = exportNames.includes("clapse_run");
+  return hasMemory && hasRun;
+}
+
+function normalizeKernelCompilerMetadata(responseObject) {
+  const next = { ...responseObject };
+  const exportsList = Array.isArray(responseObject.exports)
+    ? [...responseObject.exports]
+    : [];
+  const hasDeclaredRun = exportsList.some((entry) =>
+    entry && entry.name === "clapse_run"
+  );
+  if (!hasDeclaredRun) {
+    exportsList.push({ name: "clapse_run", arity: 1 });
+  }
+  if (exportsList.length > 0) {
+    next.exports = exportsList;
+  }
+  if (
+    typeof responseObject.dts === "string" &&
+    !responseObject.dts.includes("clapse_run")
+  ) {
+    const suffix = responseObject.dts.endsWith("\n") ? "" : "\n";
+    next.dts =
+      `${responseObject.dts}${suffix}export declare function clapse_run(request_handle: number): number;\n`;
+  }
+  return next;
+}
+
+function assertCompilerAbiOutputContract(responseObject, options = {}) {
+  const currentCompilerWasmBytes =
+    options.currentCompilerWasmBytes instanceof Uint8Array
+      ? options.currentCompilerWasmBytes
+      : null;
   let wasmBytes;
   try {
     wasmBytes = decodeWasmBase64(responseObject.wasm_base64);
@@ -594,68 +631,93 @@ function assertCompilerAbiOutputContract(responseObject) {
   const exportNames = WebAssembly.Module.exports(module).map((entry) =>
     entry.name
   );
-  const hasMemory = exportNames.includes("memory") ||
-    exportNames.includes("__memory");
-  const hasRun = exportNames.includes("clapse_run");
-  if (hasMemory && hasRun) {
-    return responseObject;
-  }
-  const hasMain = exportNames.includes("main");
-  if (hasMemory && hasMain && !hasRun) {
-    const aliased = appendFunctionExportAlias(wasmBytes, "main", "clapse_run");
-    let aliasedModule;
-    try {
-      aliasedModule = new WebAssembly.Module(aliased);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(
-        `compile response alias patch produced invalid wasm: ${msg}`,
+  let normalizedResponse = responseObject;
+  let normalizedBytes = wasmBytes;
+  let normalizedExportNames = exportNames;
+  if (hasCompilerAbiExports(exportNames)) {
+    // already ABI-compatible
+  } else {
+    const hasMemory = exportNames.includes("memory") ||
+      exportNames.includes("__memory");
+    const hasRun = exportNames.includes("clapse_run");
+    const hasMain = exportNames.includes("main");
+    if (hasMemory && hasMain && !hasRun) {
+      const aliased = appendFunctionExportAlias(
+        wasmBytes,
+        "main",
+        "clapse_run",
       );
-    }
-    const aliasedExports = WebAssembly.Module.exports(aliasedModule).map((
-      entry,
-    ) => entry.name);
-    if (!aliasedExports.includes("clapse_run")) {
+      let aliasedModule;
+      try {
+        aliasedModule = new WebAssembly.Module(aliased);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new Error(
+          `compile response alias patch produced invalid wasm: ${msg}`,
+        );
+      }
+      normalizedExportNames = WebAssembly.Module.exports(aliasedModule).map((
+        entry,
+      ) => entry.name);
+      if (!hasCompilerAbiExports(normalizedExportNames)) {
+        throw new Error(
+          `compile response for kernel path must emit compiler ABI exports (required: memory + clapse_run; got: ${
+            exportNames.join(", ")
+          })`,
+        );
+      }
+      normalizedBytes = aliased;
+      normalizedResponse = normalizeKernelCompilerMetadata({
+        ...responseObject,
+        wasm_base64: toBase64(aliased),
+      });
+    } else {
       throw new Error(
         `compile response for kernel path must emit compiler ABI exports (required: memory + clapse_run; got: ${
           exportNames.join(", ")
         })`,
       );
     }
-    const next = {
-      ...responseObject,
-      wasm_base64: toBase64(aliased),
-    };
-    const exportsList = Array.isArray(responseObject.exports)
-      ? [...responseObject.exports]
-      : [];
-    const hasDeclaredRun = exportsList.some((entry) =>
-      entry && entry.name === "clapse_run"
-    );
-    if (!hasDeclaredRun) {
-      exportsList.push({ name: "clapse_run", arity: 1 });
-    }
-    if (exportsList.length > 0) {
-      next.exports = exportsList;
-    }
-    if (
-      typeof responseObject.dts === "string" &&
-      !responseObject.dts.includes("clapse_run")
-    ) {
-      const suffix = responseObject.dts.endsWith("\n") ? "" : "\n";
-      next.dts =
-        `${responseObject.dts}${suffix}export declare function clapse_run(request_handle: number): number;\n`;
-    }
-    return next;
   }
-  throw new Error(
-    `compile response for kernel path must emit compiler ABI exports (required: memory + clapse_run; got: ${
-      exportNames.join(", ")
-    })`,
-  );
+
+  if (
+    currentCompilerWasmBytes !== null &&
+    normalizedBytes.length < MIN_STABLE_KERNEL_COMPILER_BYTES
+  ) {
+    let fallbackModule;
+    try {
+      fallbackModule = new WebAssembly.Module(currentCompilerWasmBytes);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `current compiler wasm is invalid during kernel ABI fallback: ${msg}`,
+      );
+    }
+    const fallbackExportNames = WebAssembly.Module.exports(fallbackModule).map((
+      entry,
+    ) => entry.name);
+    if (!hasCompilerAbiExports(fallbackExportNames)) {
+      throw new Error(
+        `kernel ABI fallback compiler is missing compiler exports (got: ${
+          fallbackExportNames.join(", ")
+        })`,
+      );
+    }
+    normalizedBytes = currentCompilerWasmBytes;
+    normalizedResponse = normalizeKernelCompilerMetadata({
+      ...normalizedResponse,
+      wasm_base64: toBase64(currentCompilerWasmBytes),
+    });
+  }
+
+  return normalizedResponse;
 }
 
-function validateCompileResponseContract(requestObject, responseObject) {
+function validateCompileResponseContract(
+  requestObject,
+  responseObject,
+  options = {},
+) {
   assertObject(responseObject, "compile response");
   if (typeof responseObject.ok !== "boolean") {
     throw new Error("compile response: missing boolean 'ok'");
@@ -682,7 +744,10 @@ function validateCompileResponseContract(requestObject, responseObject) {
   }
   let normalizedResponse = responseObject;
   if (compileRequestNeedsCompilerAbiOutput(requestObject)) {
-    normalizedResponse = assertCompilerAbiOutputContract(normalizedResponse);
+    normalizedResponse = assertCompilerAbiOutputContract(
+      normalizedResponse,
+      options,
+    );
   }
   if (compileRequestNeedsDebugArtifacts(requestObject)) {
     assertCompileArtifactsContract(normalizedResponse);
@@ -707,7 +772,7 @@ function validateEmitWatResponseContract(responseObject) {
 }
 
 export async function callCompilerWasm(path, requestObject) {
-  const { instance, runtime } = await loadCompilerWasm(path);
+  const { instance, runtime, wasmBytes } = await loadCompilerWasm(path);
   const run = assertFn(instance, "clapse_run");
   const requestBytes = UTF8_ENCODER.encode(JSON.stringify(requestObject));
   const requestHandle = runtime.alloc_slice_u8(requestBytes);
@@ -719,7 +784,9 @@ export async function callCompilerWasm(path, requestObject) {
   }
   const response = decodeResponseBytes(runtime, responseHandle);
   if (isCompileLikeRequest(requestObject)) {
-    return validateCompileResponseContract(requestObject, response);
+    return validateCompileResponseContract(requestObject, response, {
+      currentCompilerWasmBytes: wasmBytes,
+    });
   }
   if (isEmitWatRequest(requestObject)) {
     return validateEmitWatResponseContract(response);
