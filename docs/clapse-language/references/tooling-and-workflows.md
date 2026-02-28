@@ -116,6 +116,12 @@ deno run -A scripts/clapse.mjs bench [iterations]
     Set `CLAPSE_STRICT_NATIVE_REQUIRE_NO_BOUNDARY_FALLBACK=1` (or pass
     `--require-no-boundary-fallback`) to fail candidates that only pass through
     JS ABI tiny-output fallback.
+    Set `--kernel-selfhost-hops <n>` (or
+    `CLAPSE_STRICT_NATIVE_KERNEL_SELFHOST_HOPS=<n>`) to require kernel
+    selfhost closure across `n` compile hops during scan.
+  - `just native-boundary-strict-seed-scan-kernel [hops=...]` runs the seed
+    scan with no-boundary-fallback and kernel selfhost-hop enforcement over
+    local roots (`artifacts`, `out`, `out=out`).
   - `just bootstrap-strict-native-seed` is the canonical local generator for a
     strict-native bootstrap seed artifact when no suitable seed is available.
     Set `CLAPSE_STRICT_NATIVE_REQUIRE_NO_BOUNDARY_FALLBACK=1` (or pass
@@ -148,6 +154,7 @@ Current targets in `Justfile`:
 - `just native-boundary-strict-smoke-no-fallback`
 - `just native-strict-no-fallback-check [wasm=...] [hops=...]`
 - `just native-boundary-strict-seed-scan`
+- `just native-boundary-strict-seed-scan-kernel [hops=...]`
 - `just bootstrap-strict-native-seed [out=...] [meta=...]`
 - `just bootstrap-compiler [out=...]`
 - `just semantics-check`

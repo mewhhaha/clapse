@@ -92,6 +92,9 @@ native-strict-no-fallback-check wasm='artifacts/latest/clapse_compiler.wasm' hop
 native-boundary-strict-seed-scan:
   deno run -A scripts/strict-native-seed-scan.mjs
 
+native-boundary-strict-seed-scan-kernel hops='2':
+  CLAPSE_STRICT_NATIVE_REQUIRE_NO_BOUNDARY_FALLBACK=1 deno run -A scripts/strict-native-seed-scan.mjs --no-default-roots --scan-root artifacts --scan-root out --scan-root out=out --require-no-boundary-fallback --kernel-selfhost-hops {{hops}}
+
 bootstrap-strict-native-seed out='artifacts/strict-native/seed.wasm' meta='artifacts/strict-native/seed.meta.json':
   #!/usr/bin/env bash
   set -euo pipefail

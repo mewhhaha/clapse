@@ -41,6 +41,8 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
     - `native-selfhost-probe-strict`
     - `native-boundary-strict-smoke-no-fallback`
     - `native-strict-no-fallback-check`
+    - `native-boundary-strict-seed-scan-kernel`
+      (`scripts/strict-native-seed-scan.mjs --kernel-selfhost-hops` support).
 - `scripts/run-clapse-compiler-wasm.mjs`
   - `selfhost-artifacts` now expects compile-contract artifacts and writes:
     - `lowered_ir.txt`
