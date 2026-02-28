@@ -25,7 +25,9 @@ json_selfhost_prefix = str_to_slice "{\"ok\":true,\"artifacts\":{\"merged_module
 json_selfhost_suffix = str_to_slice "\",\"type_info.txt\":\"KernelSelfhost\",\"type_info_error.txt\":\"\",\"lowered_ir.txt\":\"kernel:selfhost:lowered\",\"collapsed_ir.txt\":\"kernel:selfhost:collapsed\",\"exports.txt\":\"[ExportApi {exportName = \\\"main\\\", exportArity = 1}]\",\"wasm_stats.txt\":\"size_bytes=122\\nprefix_hex=0061736d0100000001130360017f017f60027f7f017f60037f7f7f017f020100\\n\"}}"
 json_unknown_error = str_to_slice "{\"ok\":false,\"error\":\"unsupported command\"}"
 json_compile_stub_prefix = str_to_slice "{\"ok\":true,\"backend\":\"kernel-native\",\"wasm_base64\":\""
-json_compile_stub_suffix = str_to_slice "\",\"exports\":[{\"name\":\"main\",\"arity\":1}],\"dts\":\"export declare function main(arg0: number): number;\\n\",\"artifacts\":{\"lowered_ir.txt\":\"kernel:compile:lowered\",\"collapsed_ir.txt\":\"kernel:compile:collapsed\"}}"
+json_compile_stub_middle_wasm_to_lowered = str_to_slice "\",\"exports\":[{\"name\":\"main\",\"arity\":1}],\"dts\":\"export declare function main(arg0: number): number;\\n\",\"artifacts\":{\"lowered_ir.txt\":\""
+json_compile_stub_middle_lowered_to_collapsed = str_to_slice "\",\"collapsed_ir.txt\":\""
+json_compile_stub_suffix = str_to_slice "\"}}"
 json_compile_stub_wasm_b64 = str_to_slice "AGFzbQEAAAABEwNgAX8Bf2ACf38Bf2ADf39/AX8CAQADAgECBAQBcAABBQMBAAEGBwF/AUGAIAsHKgQEbWFpbgAACF9fbWVtb3J5AgAHX190YWJsZQEACl9faGVhcF9wdHIDAAkHAQBBAAsBAAoIAQYBDX9BAQsLAQA="
 compile_seed_wasm_key = "\"seed_wasm_base64\""
 max_inline_request_len = 524288
@@ -154,31 +156,68 @@ compile_stub_success_response request_handle ownership_mode _ =
     _ ->
       let seed_start = compile_seed_wasm_start request_handle req_len
       in case (seed_start == req_len) of
-        true -> compile_stub_default_response request_handle ownership_mode
-        _ -> compile_seed_success_response request_handle ownership_mode seed_start req_len
+        true -> compile_stub_default_response request_handle ownership_mode source_start req_len
+        _ -> compile_seed_success_response request_handle ownership_mode seed_start source_start req_len
 
-compile_stub_default_response request_handle ownership_mode =
+compile_stub_default_response request_handle ownership_mode source_start req_len =
   let wasm_len = slice_len json_compile_stub_wasm_b64
-  in json_response_with_escaped_slice_segment
+      source_len = compile_source_len_for_request request_handle source_start req_len
+  in compile_success_response_with_segments
     request_handle
     ownership_mode
     json_compile_stub_prefix
-    json_compile_stub_suffix
     json_compile_stub_wasm_b64
     0
     wasm_len
+    request_handle
+    source_start
+    source_len
 
-compile_seed_success_response request_handle ownership_mode seed_start req_len =
+compile_seed_success_response request_handle ownership_mode seed_start source_start req_len =
   let seed_end = compile_seed_wasm_end_for_request request_handle seed_start req_len
       seed_len = seed_end - seed_start
+      source_len = compile_source_len_for_request request_handle source_start req_len
   in case (seed_len > 0) of
     true ->
-      json_response_with_escaped_slice_segment
+      compile_success_response_with_segments
         request_handle
         ownership_mode
         json_compile_stub_prefix
-        json_compile_stub_suffix
         request_handle
         seed_start
         seed_len
-    _ -> compile_stub_default_response request_handle ownership_mode
+        request_handle
+        source_start
+        source_len
+    _ -> compile_stub_default_response request_handle ownership_mode source_start req_len
+
+compile_source_len_for_request request_handle source_start req_len =
+  let source_end = compile_source_end_for_request request_handle source_start req_len
+  in source_end - source_start
+
+compile_success_response_with_segments
+  request_handle
+  ownership_mode
+  prefix
+  wasm_src
+  wasm_start
+  wasm_len
+  source_src
+  source_start
+  source_len =
+  json_response_with_three_escaped_slice_segments
+    request_handle
+    ownership_mode
+    prefix
+    json_compile_stub_middle_wasm_to_lowered
+    json_compile_stub_middle_lowered_to_collapsed
+    json_compile_stub_suffix
+    wasm_src
+    wasm_start
+    wasm_len
+    source_src
+    source_start
+    source_len
+    source_src
+    source_start
+    source_len

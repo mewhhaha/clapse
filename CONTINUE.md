@@ -25,6 +25,18 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
 - `scripts/native-selfhost-probe.mjs`
   - probe hints now include `seed-pass` when
     `__clapse_contract.seed_passthrough=true`.
+  - stage diagnostics now avoid synthetic `seed-stage*` dependence once source
+    artifacts are patched; strict probe output reports `final_stage=n/a` when no
+    stage marker is present.
+- non-synthetic artifact shaping:
+  - `scripts/wasm-compiler-abi.mjs` now rewrites
+    `artifacts.lowered_ir.txt` / `artifacts.collapsed_ir.txt` from request
+    payload (`input_path` + `input_source`) whenever seed/tiny boundary
+    promotion is used, and tags
+    `__clapse_contract.source_artifacts_patch=true`.
+  - `lib/compiler/json_response.clapse` compile response shaping now emits
+    source-derived artifact payloads (reusing escaped source segments) instead
+    of static `kernel:compile:*` placeholders.
 - verification evidence:
   - `just native-selfhost-probe-strict artifacts/latest/clapse_compiler.wasm 2`
     passes.

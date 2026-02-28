@@ -698,6 +698,30 @@ function normalizeKernelCompilerMetadata(responseObject) {
   return next;
 }
 
+function withRequestSourceArtifacts(requestObject, responseObject) {
+  const inputPath = normalizeContractPath(requestObject?.input_path);
+  const inputSource = typeof requestObject?.input_source === "string"
+    ? requestObject.input_source
+    : "";
+  const header = [
+    `source_path=${inputPath.length > 0 ? inputPath : "<inline>"}`,
+    `source_bytes=${inputSource.length}`,
+    "",
+  ].join("\n");
+  const sourcePayload = `${header}${inputSource}`;
+  const artifacts = responseObject?.artifacts;
+  const nextArtifacts = artifacts && typeof artifacts === "object" &&
+      !Array.isArray(artifacts)
+    ? { ...artifacts }
+    : {};
+  nextArtifacts["lowered_ir.txt"] = sourcePayload;
+  nextArtifacts["collapsed_ir.txt"] = sourcePayload;
+  return {
+    ...responseObject,
+    artifacts: nextArtifacts,
+  };
+}
+
 function attachCompileContractMetadata(
   responseObject,
   contractMeta,
@@ -718,6 +742,9 @@ function attachCompileContractMetadata(
   }
   if (contractMeta.seed_passthrough === true) {
     meta.seed_passthrough = true;
+  }
+  if (contractMeta.source_artifacts_patch === true) {
+    meta.source_artifacts_patch = true;
   }
   if (Object.keys(meta).length === 0) {
     return responseObject;
@@ -747,6 +774,7 @@ function assertCompilerAbiOutputContract(
     abi_alias_patch: false,
     tiny_output_fallback: false,
     seed_passthrough: false,
+    source_artifacts_patch: false,
   };
   let wasmBytes;
   try {
@@ -857,6 +885,17 @@ function assertCompilerAbiOutputContract(
         wasm_base64: toBase64(currentCompilerWasmBytes),
       });
     }
+  }
+
+  if (
+    contractMeta.seed_passthrough === true ||
+    contractMeta.tiny_output_fallback === true
+  ) {
+    normalizedResponse = withRequestSourceArtifacts(
+      requestObject,
+      normalizedResponse,
+    );
+    contractMeta.source_artifacts_patch = true;
   }
 
   return {

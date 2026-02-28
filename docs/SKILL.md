@@ -339,6 +339,10 @@ The command returns a single compile response with:
   kernel-compiler outputs, boundary contract normalization first prefers
   request-provided seed output (`__clapse_contract.seed_passthrough`) before
   tiny fallback retention (`__clapse_contract.tiny_output_fallback`).
+  When either path is used, debug artifacts are rewritten from the real request
+  payload (`input_path` + `input_source`) and tagged with
+  `__clapse_contract.source_artifacts_patch` so seed-stage placeholders are not
+  surfaced as compile IR output.
   Tiny-output fallback retention remains available by default and can be
   fail-closed via
   `CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK=0` (or per-call options in scripts).

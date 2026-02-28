@@ -82,6 +82,9 @@ function fallbackHintFromResponse(response) {
   if (contract.seed_passthrough === true) {
     tags.push("seed-pass");
   }
+  if (contract.source_artifacts_patch === true) {
+    tags.push("source-artifacts");
+  }
   return tags.join("+");
 }
 

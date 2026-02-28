@@ -109,6 +109,10 @@ deno run -A scripts/clapse.mjs bench [iterations]
     `seed_wasm_base64` by default (`CLAPSE_KERNEL_COMPILE_INJECT_SEED_WASM=0`
     disables injection), and boundary metadata may report
     `__clapse_contract.seed_passthrough` when that explicit seed is promoted.
+    In these promoted/fallback paths, compile artifacts are rewritten from
+    request source payload and tagged via
+    `__clapse_contract.source_artifacts_patch` to avoid placeholder stage
+    markers in `lowered_ir.txt` / `collapsed_ir.txt`.
   - `just native-selfhost-probe-strict [wasm=...] [hops=...]` runs selfhost
     probe with tiny-output fallback disabled and fail-closed.
   - `just native-strict-no-fallback-check [wasm=...] [hops=...]` chains
