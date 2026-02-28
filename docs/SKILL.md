@@ -322,6 +322,10 @@ The command returns a single compile response with:
   `emit-wat` succeeds natively. `just native-boundary-strict-seed-scan` runs the
   same strict contract checks across local compiler wasm candidates and reports
   the first failing reasons for each candidate set.
+  `just native-boundary-strict-smoke-no-fallback`,
+  `just native-selfhost-probe-strict`, and
+  `just native-strict-no-fallback-check` disable JS ABI tiny-output fallback and
+  fail-closed when boundary retention is required.
   `scripts/wasm-compiler-abi.mjs` now enforces kernel compiler ABI for
   `lib/compiler/kernel.clapse` (`memory` or `__memory`, plus `clapse_run`).
   When responses export `main` but not `clapse_run`, the JS boundary normalizes

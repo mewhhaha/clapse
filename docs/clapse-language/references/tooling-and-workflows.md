@@ -103,6 +103,13 @@ deno run -A scripts/clapse.mjs bench [iterations]
   - `just native-boundary-strict-smoke` requires kernel-native compile contract
     fields (`backend` + debug artifacts) plus native `emit-wat` support
     directly from compiler responses.
+  - `just native-boundary-strict-smoke-no-fallback` runs the same gate with
+    JS ABI tiny-output fallback disabled.
+  - `just native-selfhost-probe-strict [wasm=...] [hops=...]` runs selfhost
+    probe with tiny-output fallback disabled and fail-closed.
+  - `just native-strict-no-fallback-check [wasm=...] [hops=...]` chains
+    compile smoke + boundary smoke + selfhost probe under strict no-fallback
+    settings.
   - `just native-boundary-strict-seed-scan` scans local wasm artifacts (and
     sibling `../clapse2/artifacts/releases` when present) and reports which
     compiler seeds, if any, satisfy strict compile + emit-wat contract checks.
@@ -136,7 +143,10 @@ Current targets in `Justfile`:
 - `just pass-manifest-check`
 - `just native-compile-smoke`
 - `just native-selfhost-probe [wasm=...] [hops=...]`
+- `just native-selfhost-probe-strict [wasm=...] [hops=...]`
 - `just native-boundary-strict-smoke`
+- `just native-boundary-strict-smoke-no-fallback`
+- `just native-strict-no-fallback-check [wasm=...] [hops=...]`
 - `just native-boundary-strict-seed-scan`
 - `just bootstrap-strict-native-seed [out=...] [meta=...]`
 - `just bootstrap-compiler [out=...]`

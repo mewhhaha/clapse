@@ -75,8 +75,19 @@ native-compile-smoke:
 native-selfhost-probe wasm='artifacts/latest/clapse_compiler.wasm' hops='1':
   deno run -A scripts/native-selfhost-probe.mjs --wasm {{wasm}} --hops {{hops}}
 
+native-selfhost-probe-strict wasm='artifacts/latest/clapse_compiler.wasm' hops='1':
+  CLAPSE_NATIVE_SELFHOST_FAIL_ON_BOUNDARY_FALLBACK=1 CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK=0 deno run -A scripts/native-selfhost-probe.mjs --wasm {{wasm}} --hops {{hops}} --fail-on-boundary-fallback
+
 native-boundary-strict-smoke:
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/native-boundary-strict-smoke.mjs
+
+native-boundary-strict-smoke-no-fallback:
+  CLAPSE_NATIVE_BOUNDARY_FAIL_ON_FALLBACK=1 CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK=0 CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/native-boundary-strict-smoke.mjs
+
+native-strict-no-fallback-check wasm='artifacts/latest/clapse_compiler.wasm' hops='1':
+  CLAPSE_NATIVE_COMPILE_SMOKE_FAIL_ON_FALLBACK=1 CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK=0 CLAPSE_COMPILER_WASM_PATH="{{wasm}}" deno run -A scripts/compile-native-smoke.mjs
+  CLAPSE_NATIVE_BOUNDARY_FAIL_ON_FALLBACK=1 CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK=0 CLAPSE_COMPILER_WASM_PATH="{{wasm}}" deno run -A scripts/native-boundary-strict-smoke.mjs
+  CLAPSE_NATIVE_SELFHOST_FAIL_ON_BOUNDARY_FALLBACK=1 CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK=0 deno run -A scripts/native-selfhost-probe.mjs --wasm {{wasm}} --hops {{hops}} --fail-on-boundary-fallback
 
 native-boundary-strict-seed-scan:
   deno run -A scripts/strict-native-seed-scan.mjs

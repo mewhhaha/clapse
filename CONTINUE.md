@@ -37,6 +37,10 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
     (`CLAPSE_NATIVE_SELFHOST_PROBE_HOPS`,
     `CLAPSE_BOOTSTRAP_NATIVE_SELFHOST_PROBE_HOPS`,
     `CLAPSE_STRICT_NATIVE_SEED_PROBE_HOPS`).
+  - added strict no-fallback diagnostics targets:
+    - `native-selfhost-probe-strict`
+    - `native-boundary-strict-smoke-no-fallback`
+    - `native-strict-no-fallback-check`
 - `scripts/run-clapse-compiler-wasm.mjs`
   - `selfhost-artifacts` now expects compile-contract artifacts and writes:
     - `lowered_ir.txt`
