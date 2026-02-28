@@ -61,6 +61,14 @@ function decodeBase64(raw) {
   return out;
 }
 
+function hasSyntheticArtifactMarkers(value) {
+  if (typeof value !== "string") {
+    return true;
+  }
+  return value.includes("kernel:compile:") ||
+    /seed-stage[0-9]+:[^)\s"]+/u.test(value);
+}
+
 async function run() {
   const wasmPath = resolveWasmPath();
   const failOnFallback = boolEnvFlag(FAIL_ON_FALLBACK_ENV, false);
@@ -152,6 +160,22 @@ async function run() {
     typeof artifacts["collapsed_ir.txt"] === "string" &&
       artifacts["collapsed_ir.txt"].length > 0,
     "compile-native-smoke: collapsed_ir.txt should be non-empty",
+  );
+  assert(
+    !hasSyntheticArtifactMarkers(artifacts["lowered_ir.txt"]),
+    "compile-native-smoke: lowered_ir.txt should not contain synthetic placeholder markers",
+  );
+  assert(
+    !hasSyntheticArtifactMarkers(artifacts["collapsed_ir.txt"]),
+    "compile-native-smoke: collapsed_ir.txt should not contain synthetic placeholder markers",
+  );
+  assert(
+    artifacts["lowered_ir.txt"].includes("main x = x"),
+    "compile-native-smoke: lowered_ir.txt should include request source content",
+  );
+  assert(
+    artifacts["collapsed_ir.txt"].includes("main x = x"),
+    "compile-native-smoke: collapsed_ir.txt should include request source content",
   );
   console.log("compile-native-smoke: PASS");
 }

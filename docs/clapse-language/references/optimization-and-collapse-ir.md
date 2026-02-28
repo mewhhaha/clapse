@@ -8,8 +8,8 @@
 4. Dispatch to per-command response builders with both staged request and request-derived policy.
 5. Return command response:
    - compile/format/selfhost/lsp still flow through kernel handlers
-   - compile with ready input now returns kernel-local stub compile response
-     after kernel staging (no source-side host bridge delegation)
+   - compile with ready input returns kernel-local compile response after
+     kernel staging (no source-side host bridge delegation)
 
 ### Unified wasm+IR compile-debug command
 
@@ -23,9 +23,10 @@ This runs a unified one-step compile path and emits the same artifacts:
 Current kernel-native compile behavior:
 
 - `compile_response` is source-local in `compiler.json_response` and emits
-  kernel-native JSON payload stubs for `CompileRequestReady`.
-- compile stub artifacts are fixed kernel markers (`kernel:compile:*`) rather
-  than request-source echoes.
+  kernel-native JSON payloads for `CompileRequestReady`.
+- compile debug artifacts (`lowered_ir.txt`, `collapsed_ir.txt`) are now
+  source-derived payloads; synthetic placeholder markers
+  (`kernel:compile:*`, `seed-stage*`) are rejected by strict-native gates.
 - `selfhost-artifacts` dispatches to `selfhost_ok_response` in kernel routing
   and returns required debug artifact keys directly.
 - command dispatch runs after staging; the request is **passthrough** through the kernel pipeline

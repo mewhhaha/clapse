@@ -50,6 +50,14 @@ function assert(condition, message) {
   }
 }
 
+function hasSyntheticArtifactMarkers(value) {
+  if (typeof value !== "string") {
+    return true;
+  }
+  return value.includes("kernel:compile:") ||
+    /seed-stage[0-9]+:[^)\s"]+/u.test(value);
+}
+
 async function runCompileSmoke(wasmPath) {
   const failOnFallback = boolEnvFlag(FAIL_ON_FALLBACK_ENV, false);
   const response = await callCompilerWasm(wasmPath, {
@@ -92,6 +100,22 @@ async function runCompileSmoke(wasmPath) {
     typeof artifacts["collapsed_ir.txt"] === "string" &&
       artifacts["collapsed_ir.txt"].length > 0,
     "native-boundary-strict-smoke: compile response missing non-empty artifacts.collapsed_ir.txt",
+  );
+  assert(
+    !hasSyntheticArtifactMarkers(artifacts["lowered_ir.txt"]),
+    "native-boundary-strict-smoke: compile response lowered_ir.txt should not contain synthetic markers",
+  );
+  assert(
+    !hasSyntheticArtifactMarkers(artifacts["collapsed_ir.txt"]),
+    "native-boundary-strict-smoke: compile response collapsed_ir.txt should not contain synthetic markers",
+  );
+  assert(
+    artifacts["lowered_ir.txt"].includes("main x = x"),
+    "native-boundary-strict-smoke: compile response lowered_ir.txt should include request source content",
+  );
+  assert(
+    artifacts["collapsed_ir.txt"].includes("main x = x"),
+    "native-boundary-strict-smoke: compile response collapsed_ir.txt should include request source content",
   );
   assert(
     !failOnFallback || contractMeta(response).tiny_output_fallback !== true,

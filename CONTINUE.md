@@ -34,9 +34,17 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
     payload (`input_path` + `input_source`) whenever seed/tiny boundary
     promotion is used, and tags
     `__clapse_contract.source_artifacts_patch=true`.
+  - artifact rewrite now also applies to compile responses that still expose
+    synthetic placeholder artifact payloads (`kernel:compile:*` /
+    `seed-stage*`) even outside seed/tiny promotion paths.
   - `lib/compiler/json_response.clapse` compile response shaping now emits
     source-derived artifact payloads (reusing escaped source segments) instead
     of static `kernel:compile:*` placeholders.
+- strict native gates hardened:
+  - `scripts/compile-native-smoke.mjs`,
+    `scripts/native-boundary-strict-smoke.mjs`, and
+    `scripts/strict-native-seed-scan.mjs` now fail when compile artifacts
+    contain synthetic markers and require request-source payload presence.
 - verification evidence:
   - `just native-selfhost-probe-strict artifacts/latest/clapse_compiler.wasm 2`
     passes.

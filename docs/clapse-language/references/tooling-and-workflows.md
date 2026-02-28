@@ -99,10 +99,13 @@ deno run -A scripts/clapse.mjs bench [iterations]
   - known placeholder stub compile payloads are rejected by native/debug compile
     commands in the runner.
   - this contract is native-only; host-bridge compile execution is rejected.
-- strict native boundary gate:
+  - strict native boundary gate:
   - `just native-boundary-strict-smoke` requires kernel-native compile contract
     fields (`backend` + debug artifacts) plus native `emit-wat` support
     directly from compiler responses.
+    The compile artifact contract now rejects synthetic marker payloads
+    (`kernel:compile:*`, `seed-stage*`) and requires request-source content in
+    `lowered_ir.txt` / `collapsed_ir.txt`.
   - `just native-boundary-strict-smoke-no-fallback` runs the same gate with
     JS ABI tiny-output fallback disabled.
   - kernel compile requests for `lib/compiler/kernel.clapse` now inject

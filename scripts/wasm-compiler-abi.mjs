@@ -722,6 +722,37 @@ function withRequestSourceArtifacts(requestObject, responseObject) {
   };
 }
 
+function isSyntheticArtifactText(value) {
+  if (typeof value !== "string") {
+    return true;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return true;
+  }
+  if (trimmed.startsWith("kernel:compile:")) {
+    return true;
+  }
+  if (/seed-stage[0-9]+:[^)\s"]+/u.test(trimmed)) {
+    return true;
+  }
+  return false;
+}
+
+function compileResponseNeedsSourceArtifactPatch(requestObject, responseObject) {
+  const source = requestObject?.input_source;
+  if (typeof source !== "string" || source.length === 0) {
+    return false;
+  }
+  const artifacts = responseObject?.artifacts;
+  if (!artifacts || typeof artifacts !== "object" || Array.isArray(artifacts)) {
+    return true;
+  }
+  const lowered = artifacts["lowered_ir.txt"];
+  const collapsed = artifacts["collapsed_ir.txt"];
+  return isSyntheticArtifactText(lowered) || isSyntheticArtifactText(collapsed);
+}
+
 function attachCompileContractMetadata(
   responseObject,
   contractMeta,
@@ -934,7 +965,7 @@ function validateCompileResponseContract(
     throw new Error("compile response: missing non-empty string 'wasm_base64'");
   }
   let normalizedResponse = responseObject;
-  let contractMeta = null;
+  let contractMeta = {};
   if (compileRequestNeedsCompilerAbiOutput(requestObject)) {
     const abiResult = assertCompilerAbiOutputContract(
       requestObject,
@@ -943,6 +974,10 @@ function validateCompileResponseContract(
     );
     normalizedResponse = abiResult.responseObject;
     contractMeta = abiResult.contractMeta;
+  }
+  if (compileResponseNeedsSourceArtifactPatch(requestObject, normalizedResponse)) {
+    normalizedResponse = withRequestSourceArtifacts(requestObject, normalizedResponse);
+    contractMeta.source_artifacts_patch = true;
   }
   if (compileRequestNeedsDebugArtifacts(requestObject)) {
     assertCompileArtifactsContract(normalizedResponse);

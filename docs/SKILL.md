@@ -322,6 +322,9 @@ The command returns a single compile response with:
   `emit-wat` succeeds natively. `just native-boundary-strict-seed-scan` runs the
   same strict contract checks across local compiler wasm candidates and reports
   the first failing reasons for each candidate set.
+  These strict checks now reject synthetic compile artifact markers
+  (`kernel:compile:*`, `seed-stage*`) and require request-source content in
+  `lowered_ir.txt` / `collapsed_ir.txt`.
   `just native-boundary-strict-seed-scan-kernel [hops=...]` adds kernel
   selfhost-hop closure checks during the scan.
   `just native-boundary-strict-smoke-no-fallback`,

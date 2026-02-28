@@ -148,6 +148,14 @@ function hasCompilerLikeExports(exportNames) {
   return hasMemory && hasRun;
 }
 
+function hasSyntheticArtifactMarkers(value) {
+  if (!nonEmptyString(value)) {
+    return true;
+  }
+  return value.includes("kernel:compile:") ||
+    /seed-stage[0-9]+:[^)\s"]+/u.test(value);
+}
+
 async function probeKernelSelfhostClosure(
   path,
   hops,
@@ -321,6 +329,24 @@ async function probeStrictNative(path, requireNoBoundaryFallback) {
   }
   if (!nonEmptyString(compileArtifacts["collapsed_ir.txt"])) {
     return { ok: false, reason: "compile-artifacts-collapsed_ir-missing" };
+  }
+  if (hasSyntheticArtifactMarkers(compileArtifacts["lowered_ir.txt"])) {
+    return { ok: false, reason: "compile-artifacts-lowered_ir-synthetic" };
+  }
+  if (hasSyntheticArtifactMarkers(compileArtifacts["collapsed_ir.txt"])) {
+    return { ok: false, reason: "compile-artifacts-collapsed_ir-synthetic" };
+  }
+  if (!compileArtifacts["lowered_ir.txt"].includes("main x = x")) {
+    return {
+      ok: false,
+      reason: "compile-artifacts-lowered_ir-missing-source-content",
+    };
+  }
+  if (!compileArtifacts["collapsed_ir.txt"].includes("main x = x")) {
+    return {
+      ok: false,
+      reason: "compile-artifacts-collapsed_ir-missing-source-content",
+    };
   }
 
   let emitResponse;
