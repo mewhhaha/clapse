@@ -118,6 +118,9 @@ deno run -A scripts/clapse.mjs bench [iterations]
     markers in `lowered_ir.txt` / `collapsed_ir.txt`.
   - `just native-selfhost-probe-strict [wasm=...] [hops=...]` runs selfhost
     probe with tiny-output fallback disabled and fail-closed.
+    Probe pass output now includes `final_hints=...` to surface active boundary
+    contract normalization tags (`seed-pass`, `source-artifacts`,
+    `tiny-fallback`, `abi-alias`).
   - `just native-strict-no-fallback-check [wasm=...] [hops=...]` chains
     compile smoke + boundary smoke + selfhost probe under strict no-fallback
     settings.

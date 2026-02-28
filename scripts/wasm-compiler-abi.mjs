@@ -753,6 +753,14 @@ function compileResponseNeedsSourceArtifactPatch(requestObject, responseObject) 
   return isSyntheticArtifactText(lowered) || isSyntheticArtifactText(collapsed);
 }
 
+function promoteSeedCompilerWasmResponse(responseObject, seedBytes, contractMeta) {
+  contractMeta.seed_passthrough = true;
+  return normalizeKernelCompilerMetadata({
+    ...responseObject,
+    wasm_base64: toBase64(seedBytes),
+  });
+}
+
 function attachCompileContractMetadata(
   responseObject,
   contractMeta,
@@ -827,16 +835,38 @@ function assertCompilerAbiOutputContract(
   let normalizedResponse = responseObject;
   let normalizedBytes = wasmBytes;
   let normalizedExportNames = exportNames;
-  if (hasCompilerAbiExports(exportNames)) {
+  if (
+    requestSeedCompilerWasmBytes !== null &&
+    normalizedBytes.length < MIN_STABLE_KERNEL_COMPILER_BYTES
+  ) {
+    normalizedBytes = requestSeedCompilerWasmBytes;
+    normalizedResponse = promoteSeedCompilerWasmResponse(
+      normalizedResponse,
+      requestSeedCompilerWasmBytes,
+      contractMeta,
+    );
+    try {
+      const promotedModule = new WebAssembly.Module(normalizedBytes);
+      normalizedExportNames = WebAssembly.Module.exports(promotedModule).map((
+        entry,
+      ) => entry.name);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `promoted seed compiler wasm is invalid: ${msg}`,
+      );
+    }
+  }
+  if (hasCompilerAbiExports(normalizedExportNames)) {
     // already ABI-compatible
   } else {
-    const hasMemory = exportNames.includes("memory") ||
-      exportNames.includes("__memory");
-    const hasRun = exportNames.includes("clapse_run");
-    const hasMain = exportNames.includes("main");
+    const hasMemory = normalizedExportNames.includes("memory") ||
+      normalizedExportNames.includes("__memory");
+    const hasRun = normalizedExportNames.includes("clapse_run");
+    const hasMain = normalizedExportNames.includes("main");
     if (hasMemory && hasMain && !hasRun) {
       const aliased = appendFunctionExportAlias(
-        wasmBytes,
+        normalizedBytes,
         "main",
         "clapse_run",
       );
@@ -855,7 +885,7 @@ function assertCompilerAbiOutputContract(
       if (!hasCompilerAbiExports(normalizedExportNames)) {
         throw new Error(
           `compile response for kernel path must emit compiler ABI exports (required: memory + clapse_run; got: ${
-            exportNames.join(", ")
+            normalizedExportNames.join(", ")
           })`,
         );
       }
@@ -868,7 +898,7 @@ function assertCompilerAbiOutputContract(
     } else {
       throw new Error(
         `compile response for kernel path must emit compiler ABI exports (required: memory + clapse_run; got: ${
-          exportNames.join(", ")
+          normalizedExportNames.join(", ")
         })`,
       );
     }
@@ -880,11 +910,11 @@ function assertCompilerAbiOutputContract(
   ) {
     if (requestSeedCompilerWasmBytes !== null) {
       normalizedBytes = requestSeedCompilerWasmBytes;
-      contractMeta.seed_passthrough = true;
-      normalizedResponse = normalizeKernelCompilerMetadata({
-        ...normalizedResponse,
-        wasm_base64: toBase64(requestSeedCompilerWasmBytes),
-      });
+      normalizedResponse = promoteSeedCompilerWasmResponse(
+        normalizedResponse,
+        requestSeedCompilerWasmBytes,
+        contractMeta,
+      );
     } else if (!allowTinyKernelOutputFallback) {
       throw new Error(
         `compile response for kernel path was too small (${normalizedBytes.length} bytes); boundary fallback is disabled (${CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK_ENV}=0)`,

@@ -291,6 +291,7 @@ async function runProbe(wasmPath, inputPath, hops, failOnBoundaryFallback) {
   let compilerPath = wasmPath;
   let finalBytes = new Uint8Array();
   let finalStageHint = "";
+  let finalFallbackHint = "";
   for (let hop = 1; hop <= hops; hop += 1) {
     const hopResult = await compileKernel(
       compilerPath,
@@ -301,6 +302,7 @@ async function runProbe(wasmPath, inputPath, hops, failOnBoundaryFallback) {
     );
     finalBytes = hopResult.bytes;
     finalStageHint = hopResult.stageHint;
+    finalFallbackHint = hopResult.fallbackHint;
     if (hop < hops) {
       const nextPath = await Deno.makeTempFile({
         prefix: "clapse-native-selfhost-hop-",
@@ -321,7 +323,9 @@ async function runProbe(wasmPath, inputPath, hops, failOnBoundaryFallback) {
   console.log(
     `native-selfhost-probe: PASS (${wasmPath} -> ${inputPath}; hops=${hops}; output_bytes=${finalBytes.length}; final_stage=${
       finalStageHint || "n/a"
-    }; strict_fallback=${failOnBoundaryFallback ? "on" : "off"})`,
+    }; final_hints=${finalFallbackHint || "n/a"}; strict_fallback=${
+      failOnBoundaryFallback ? "on" : "off"
+    })`,
   );
 }
 

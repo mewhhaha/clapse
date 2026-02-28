@@ -45,6 +45,13 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
     `scripts/native-boundary-strict-smoke.mjs`, and
     `scripts/strict-native-seed-scan.mjs` now fail when compile artifacts
     contain synthetic markers and require request-source payload presence.
+- seed promotion ordering tightened:
+  - `scripts/wasm-compiler-abi.mjs` now promotes explicit request seed before
+    ABI alias fallback for tiny kernel compile outputs. In strict no-fallback
+    probe runs this removes `abi-alias` from common seed-promotion hints.
+  - `scripts/native-selfhost-probe.mjs` pass output now reports
+    `final_hints=...` (for example `seed-pass+source-artifacts`) to make active
+    boundary normalization explicit per run.
 - verification evidence:
   - `just native-selfhost-probe-strict artifacts/latest/clapse_compiler.wasm 2`
     passes.

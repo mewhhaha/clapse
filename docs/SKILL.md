@@ -342,6 +342,9 @@ The command returns a single compile response with:
   kernel-compiler outputs, boundary contract normalization first prefers
   request-provided seed output (`__clapse_contract.seed_passthrough`) before
   tiny fallback retention (`__clapse_contract.tiny_output_fallback`).
+  Seed-promotion now occurs before ABI alias fallback for tiny kernel outputs,
+  so strict probe hints should prefer `seed-pass`/`source-artifacts` without
+  `abi-alias` in the common seed path.
   When either path is used, debug artifacts are rewritten from the real request
   payload (`input_path` + `input_source`) and tagged with
   `__clapse_contract.source_artifacts_patch` so seed-stage placeholders are not
