@@ -24,6 +24,10 @@ Current kernel-native compile behavior:
 
 - `compile_response` is source-local in `compiler.json_response` and emits
   kernel-native JSON payload stubs for `CompileRequestReady`.
+- compile stub artifacts are fixed kernel markers (`kernel:compile:*`) rather
+  than request-source echoes.
+- `selfhost-artifacts` dispatches to `selfhost_ok_response` in kernel routing
+  and returns required debug artifact keys directly.
 - command dispatch runs after staging; the request is **passthrough** through the kernel pipeline
   and is not rewritten before handler selection.
 - `collapse_pipeline` and ownership policy derivation are both request-scoped and deterministic.

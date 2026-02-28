@@ -6,16 +6,20 @@ const DEFAULT_COMPILER_WASM_PATH = "artifacts/latest/clapse_compiler.wasm";
 const DEFAULT_INPUT_PATH = "lib/compiler/kernel.clapse";
 const MIN_OUTPUT_BYTES = 4096;
 const DEFAULT_HOPS = 1;
+const FAIL_ON_BOUNDARY_FALLBACK_ENV =
+  "CLAPSE_NATIVE_SELFHOST_FAIL_ON_BOUNDARY_FALLBACK";
+const ALLOW_KERNEL_ABI_FALLBACK_ENV = "CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK";
 
 function usage() {
   return [
     "Usage:",
-    "  deno run -A scripts/native-selfhost-probe.mjs [--wasm <path>] [--input <path>] [--hops <n>]",
+    "  deno run -A scripts/native-selfhost-probe.mjs [--wasm <path>] [--input <path>] [--hops <n>] [--fail-on-boundary-fallback]",
     "",
     "Checks:",
     "  - compiler wasm can compile kernel source in kernel-native mode",
     "  - compile response is ok with backend=kernel-native",
     "  - emitted wasm is non-trivial and exports compiler ABI (memory + clapse_run)",
+    "  - optional strict mode fails when ABI tiny-output fallback is used",
     "  - repeated for N hops when --hops is set (default 1)",
   ].join("\n");
 }
@@ -50,10 +54,52 @@ function formatWithStage(msg, stageHint) {
   return `${msg} [${stageHint}]`;
 }
 
+function boolEnvFlag(name, defaultValue = false) {
+  const raw = String(Deno.env.get(name) ?? "").trim().toLowerCase();
+  if (raw.length === 0) {
+    return defaultValue;
+  }
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
+function responseContractMeta(response) {
+  const raw = response?.__clapse_contract;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {};
+  }
+  return raw;
+}
+
+function fallbackHintFromResponse(response) {
+  const contract = responseContractMeta(response);
+  const tags = [];
+  if (contract.abi_alias_patch === true) {
+    tags.push("abi-alias");
+  }
+  if (contract.tiny_output_fallback === true) {
+    tags.push("tiny-fallback");
+  }
+  return tags.join("+");
+}
+
+function formatWithHints(msg, stageHint, fallbackHint) {
+  const hints = [stageHint, fallbackHint].filter((item) =>
+    typeof item === "string" && item.length > 0
+  );
+  if (hints.length === 0) {
+    return msg;
+  }
+  return `${msg} [${hints.join(";")}]`;
+}
+
 function parseArgs(argv) {
   let wasmPath = DEFAULT_COMPILER_WASM_PATH;
   let inputPath = DEFAULT_INPUT_PATH;
   let hops = DEFAULT_HOPS;
+  let failOnBoundaryFallback = boolEnvFlag(
+    FAIL_ON_BOUNDARY_FALLBACK_ENV,
+    false,
+  );
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--help" || arg === "-h") {
@@ -88,9 +134,13 @@ function parseArgs(argv) {
       i += 1;
       continue;
     }
+    if (arg === "--fail-on-boundary-fallback") {
+      failOnBoundaryFallback = true;
+      continue;
+    }
     fail(`unknown argument: ${arg}`);
   }
-  return { wasmPath, inputPath, hops };
+  return { wasmPath, inputPath, hops, failOnBoundaryFallback };
 }
 
 function assertCompilerLikeOutput(bytes, hopIndex, stageHint) {
@@ -141,7 +191,13 @@ function assertCompilerLikeOutput(bytes, hopIndex, stageHint) {
   }
 }
 
-async function compileKernel(wasmPath, inputPath, inputSource, hopIndex) {
+async function compileKernel(
+  wasmPath,
+  inputPath,
+  inputSource,
+  hopIndex,
+  failOnBoundaryFallback,
+) {
   let response;
   try {
     response = await callCompilerWasm(wasmPath, {
@@ -150,6 +206,12 @@ async function compileKernel(wasmPath, inputPath, inputSource, hopIndex) {
       input_path: inputPath,
       input_source: inputSource,
       plugin_wasm_paths: [],
+    }, {
+      withContractMetadata: true,
+      allowTinyKernelOutputFallback: boolEnvFlag(
+        ALLOW_KERNEL_ABI_FALLBACK_ENV,
+        true,
+      ),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -179,6 +241,19 @@ async function compileKernel(wasmPath, inputPath, inputSource, hopIndex) {
     fail(`hop ${hopIndex}: compile response missing non-empty wasm_base64`);
   }
   const stageHint = stageHintFromResponse(response);
+  const fallbackHint = fallbackHintFromResponse(response);
+  if (
+    failOnBoundaryFallback &&
+    responseContractMeta(response).tiny_output_fallback === true
+  ) {
+    fail(
+      formatWithHints(
+        `hop ${hopIndex}: compile response used boundary tiny-output fallback`,
+        stageHint,
+        fallbackHint,
+      ),
+    );
+  }
 
   let bytes;
   try {
@@ -186,17 +261,18 @@ async function compileKernel(wasmPath, inputPath, inputSource, hopIndex) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     fail(
-      formatWithStage(
+      formatWithHints(
         `hop ${hopIndex}: failed to decode compile response wasm_base64: ${msg}`,
         stageHint,
+        fallbackHint,
       ),
     );
   }
   assertCompilerLikeOutput(bytes, hopIndex, stageHint);
-  return { bytes, stageHint };
+  return { bytes, stageHint, fallbackHint };
 }
 
-async function runProbe(wasmPath, inputPath, hops) {
+async function runProbe(wasmPath, inputPath, hops, failOnBoundaryFallback) {
   let inputSource = "";
   try {
     inputSource = await Deno.readTextFile(inputPath);
@@ -215,6 +291,7 @@ async function runProbe(wasmPath, inputPath, hops) {
       inputPath,
       inputSource,
       hop,
+      failOnBoundaryFallback,
     );
     finalBytes = hopResult.bytes;
     finalStageHint = hopResult.stageHint;
@@ -238,9 +315,11 @@ async function runProbe(wasmPath, inputPath, hops) {
   console.log(
     `native-selfhost-probe: PASS (${wasmPath} -> ${inputPath}; hops=${hops}; output_bytes=${finalBytes.length}; final_stage=${
       finalStageHint || "n/a"
-    })`,
+    }; strict_fallback=${failOnBoundaryFallback ? "on" : "off"})`,
   );
 }
 
-const { wasmPath, inputPath, hops } = parseArgs(Deno.args);
-await runProbe(wasmPath, inputPath, hops);
+const { wasmPath, inputPath, hops, failOnBoundaryFallback } = parseArgs(
+  Deno.args,
+);
+await runProbe(wasmPath, inputPath, hops, failOnBoundaryFallback);

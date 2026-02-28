@@ -3,12 +3,13 @@ import compiler.parser
 import compiler.prelude
 import compiler.formatter
 import compiler.json_response
+import compiler.emitter
 import compiler.scan
 import compiler.lsp_kernel
 import host.clapse
 export clapse_run
 
-data CommandTag = CommandCompile | CommandFormat | CommandSelfhost
+data CommandTag = CommandCompile | CommandEmitWat | CommandFormat | CommandSelfhost
   | CommandLspSymbolIndex | CommandLspHover | CommandLspDefinition | CommandUnknown
 data MonadicLine = MonadicLineNil
   | MonadicLineNode
@@ -1439,18 +1440,24 @@ command_tag_at request_handle value_start req_len =
   case parse_command_tag request_handle value_start req_len "compile" CommandCompile of
     Just tag -> Just tag
     _ ->
-      case parse_command_tag request_handle value_start req_len "format" CommandFormat of
+      case parse_command_tag request_handle value_start req_len "emit-wat" CommandEmitWat of
         Just tag -> Just tag
         _ ->
-          case parse_command_tag request_handle value_start req_len "selfhost-artifacts" CommandSelfhost of
+          case parse_command_tag request_handle value_start req_len "emit-wasm-text" CommandEmitWat of
             Just tag -> Just tag
             _ ->
-              case parse_command_tag request_handle value_start req_len "lsp-symbol-index" CommandLspSymbolIndex of
+              case parse_command_tag request_handle value_start req_len "format" CommandFormat of
                 Just tag -> Just tag
                 _ ->
-                  case parse_command_tag request_handle value_start req_len "lsp-hover" CommandLspHover of
+                  case parse_command_tag request_handle value_start req_len "selfhost-artifacts" CommandSelfhost of
                     Just tag -> Just tag
-                    _ -> parse_command_tag request_handle value_start req_len "lsp-definition" CommandLspDefinition
+                    _ ->
+                      case parse_command_tag request_handle value_start req_len "lsp-symbol-index" CommandLspSymbolIndex of
+                        Just tag -> Just tag
+                        _ ->
+                          case parse_command_tag request_handle value_start req_len "lsp-hover" CommandLspHover of
+                            Just tag -> Just tag
+                            _ -> parse_command_tag request_handle value_start req_len "lsp-definition" CommandLspDefinition
 
 find_command_tag request_handle i req_len =
   let value_start = scan_find_json_key_value_start request_handle i req_len "\"command\""
@@ -1473,6 +1480,7 @@ clapse_run request_handle =
       tag = command_tag tagged_request
   in case tag of
     CommandCompile -> compile_response tagged_request ownership_mode
+    CommandEmitWat -> emit_wat_response tagged_request ownership_mode
     CommandFormat -> format_ok_response tagged_request ownership_mode
     CommandSelfhost -> selfhost_ok_response tagged_request ownership_mode
     CommandLspSymbolIndex -> lsp_symbol_index_response tagged_request ownership_mode (slice_len tagged_request)

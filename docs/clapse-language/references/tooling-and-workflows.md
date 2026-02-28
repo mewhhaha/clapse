@@ -29,7 +29,7 @@ deno run -A scripts/clapse.mjs bench [iterations]
   - `compile_mode` now supports `native` / `kernel-native` for kernel-native
     compile response shaping. Default compile mode is kernel-native.
     Debug compile modes are `debug` / `native-debug` (with `kernel-debug` alias).
-    Native debug artifacts include source-derived `lowered_ir.txt` and
+    Native debug artifacts include kernel-owned `lowered_ir.txt` and
     `collapsed_ir.txt` payloads.
   - host-bridge compile execution is removed from JS boundary code; compile
     requests must execute on a native clapse compiler artifact.
@@ -79,16 +79,16 @@ deno run -A scripts/clapse.mjs bench [iterations]
   - `just install` runs wildcard-demand gate only when
     `CLAPSE_RUN_WILDCARD_DEMAND_CHECK=1`.
   - bridge artifacts are deprecated/unsupported in runtime validation paths.
-  - `selfhost-artifacts` now uses the same kernel-native compile response
-    contract and debug artifact keys as `compile` (`lowered_ir.txt`,
-    `collapsed_ir.txt`), then the runner writes these files plus
+  - `selfhost-artifacts` now uses a dedicated kernel response path with required
+    debug artifact keys (`lowered_ir.txt`, `collapsed_ir.txt`), then the runner writes these files plus
     `compile_response.json` / `backend.txt`.
   - kernel-path compile responses are ABI-normalized at the JS boundary when
     wasm exports `main` but not `clapse_run`: the boundary aliases `main` as
     `clapse_run` and rewrites response `wasm_base64`/`exports`/`dts`. Tiny
     kernel compiler outputs are stabilized by retaining current compiler wasm
-    bytes at the same boundary so multi-hop selfhost probes stay deterministic.
-    If normalization cannot produce valid compiler ABI, the response hard-fails.
+    bytes at the same boundary so multi-hop selfhost probes stay deterministic
+    (`CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK=0` to fail instead). If
+    normalization cannot produce valid compiler ABI, the response hard-fails.
 - `compile-debug` contract:
   - request shape: `command: "compile"` with `compile_mode: "debug"`
     (native migration also accepts `compile_mode: "native-debug"`; wire-compatible
@@ -106,8 +106,14 @@ deno run -A scripts/clapse.mjs bench [iterations]
   - `just native-boundary-strict-seed-scan` scans local wasm artifacts (and
     sibling `../clapse2/artifacts/releases` when present) and reports which
     compiler seeds, if any, satisfy strict compile + emit-wat contract checks.
+    Set `CLAPSE_STRICT_NATIVE_REQUIRE_NO_BOUNDARY_FALLBACK=1` (or pass
+    `--require-no-boundary-fallback`) to fail candidates that only pass through
+    JS ABI tiny-output fallback.
   - `just bootstrap-strict-native-seed` is the canonical local generator for a
     strict-native bootstrap seed artifact when no suitable seed is available.
+    Set `CLAPSE_STRICT_NATIVE_REQUIRE_NO_BOUNDARY_FALLBACK=1` (or pass
+    `--require-no-boundary-fallback`) to fail seed builds that rely on boundary
+    tiny-output fallback.
 - `bench` is currently invoked via the same deno command surface through the wasm runner.
 
 ## Just Targets
@@ -200,8 +206,9 @@ Current targets in `Justfile`:
 - Formatter logic is decomposed into kernel-side `compiler.formatter`, with
   `bootstrap_phase9_compiler_kernel` acting as command router while further
   kernel module splits are staged.
-- `selfhost-artifacts` is now a command-level alias of kernel-native `compile`
-  in kernel dispatch; tooling should consume compile-contract artifacts.
+- `selfhost-artifacts` now has a dedicated kernel dispatch path that returns
+  required debug artifacts. Tooling should consume the artifact contract
+  (`lowered_ir.txt`, `collapsed_ir.txt`) and treat `backend` as optional.
 
 ## Release Metadata and Checksums
 

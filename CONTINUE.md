@@ -8,13 +8,14 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
 ## Completed in this session
 
 - `lib/compiler/kernel.clapse`
-  - `CommandSelfhost` now aliases `compile_response` directly.
-  - `selfhost-artifacts` follows the same kernel-native compile contract path.
+  - `CommandSelfhost` now routes to `selfhost_ok_response` directly.
+  - `selfhost-artifacts` no longer aliases compile dispatch in source.
 - `lib/compiler/json_response.clapse`
   - compile-ready requests now route through kernel-local stub compile response
     shaping (no `clapse_host_run` delegation in source path).
   - response now carries `backend`, `wasm_base64`, `exports`, `dts`, and
-    source-derived `artifacts.lowered_ir.txt` / `collapsed_ir.txt`.
+    kernel-owned marker artifacts (`kernel:compile:lowered`,
+    `kernel:compile:collapsed`).
 - `scripts/build-strict-native-seed.mjs`
   - strict seed generation is now native-only fail-closed.
   - wrapper fallback mode is removed from execution path (no wrapper recovery on
@@ -49,10 +50,16 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
     - when kernel compile output exports `main` but not `clapse_run`, boundary
       validation now aliases `main` as `clapse_run` in wasm export metadata and
       rewrites response `wasm_base64`/`exports`/`dts` accordingly.
+    - `selfhost-artifacts` responses now have a dedicated response validator
+      (artifact contract) instead of compile-contract validation.
+    - kernel ABI tiny-output fallback can now be fail-closed with
+      `CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK=0`.
   - `scripts/native-selfhost-probe.mjs`
     - failures now include stage hints derived from debug artifacts (for example
       `seed-stage1:kernel`) so transitive regressions are explicit at the hop
       that collapses.
+    - strict mode now supports
+      `--fail-on-boundary-fallback` / `CLAPSE_NATIVE_SELFHOST_FAIL_ON_BOUNDARY_FALLBACK=1`.
   - `scripts/selfhost-diff.mjs`
   - `scripts/selfhost-parser-parity.mjs`
   - `scripts/bootstrap-phase9-kernel-smoke.mjs`

@@ -3,6 +3,8 @@ import { makeRuntime } from "./wasm-runtime.mjs";
 const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder();
 const CLAPSE_WASM_TAIL_CALL_ENV = "CLAPSE_EMIT_WASM_TAIL_CALLS";
+const CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK_ENV =
+  "CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK";
 const MIN_STABLE_KERNEL_COMPILER_BYTES = 16 * 1024;
 const COMPILE_DEBUG_ARTIFACT_FILES = [
   "lowered_ir.txt",
@@ -522,8 +524,14 @@ function isCompileLikeRequest(requestObject) {
     return false;
   }
   const cmd = requestCommand(requestObject);
-  return cmd === "compile" || cmd === "compile-debug" ||
-    cmd === "selfhost-artifacts";
+  return cmd === "compile" || cmd === "compile-debug";
+}
+
+function isSelfhostArtifactsRequest(requestObject) {
+  if (!requestObject || typeof requestObject !== "object") {
+    return false;
+  }
+  return requestCommand(requestObject) === "selfhost-artifacts";
 }
 
 function isEmitWatRequest(requestObject) {
@@ -609,11 +617,45 @@ function normalizeKernelCompilerMetadata(responseObject) {
   return next;
 }
 
+function attachCompileContractMetadata(
+  responseObject,
+  contractMeta,
+  options = {},
+) {
+  if (options.withContractMetadata !== true) {
+    return responseObject;
+  }
+  if (!contractMeta || typeof contractMeta !== "object") {
+    return responseObject;
+  }
+  const meta = {};
+  if (contractMeta.abi_alias_patch === true) {
+    meta.abi_alias_patch = true;
+  }
+  if (contractMeta.tiny_output_fallback === true) {
+    meta.tiny_output_fallback = true;
+  }
+  if (Object.keys(meta).length === 0) {
+    return responseObject;
+  }
+  return {
+    ...responseObject,
+    __clapse_contract: meta,
+  };
+}
+
 function assertCompilerAbiOutputContract(responseObject, options = {}) {
   const currentCompilerWasmBytes =
     options.currentCompilerWasmBytes instanceof Uint8Array
       ? options.currentCompilerWasmBytes
       : null;
+  const allowTinyKernelOutputFallback =
+    options.allowTinyKernelOutputFallback !==
+      false;
+  const contractMeta = {
+    abi_alias_patch: false,
+    tiny_output_fallback: false,
+  };
   let wasmBytes;
   try {
     wasmBytes = decodeWasmBase64(responseObject.wasm_base64);
@@ -667,6 +709,7 @@ function assertCompilerAbiOutputContract(responseObject, options = {}) {
         );
       }
       normalizedBytes = aliased;
+      contractMeta.abi_alias_patch = true;
       normalizedResponse = normalizeKernelCompilerMetadata({
         ...responseObject,
         wasm_base64: toBase64(aliased),
@@ -684,6 +727,11 @@ function assertCompilerAbiOutputContract(responseObject, options = {}) {
     currentCompilerWasmBytes !== null &&
     normalizedBytes.length < MIN_STABLE_KERNEL_COMPILER_BYTES
   ) {
+    if (!allowTinyKernelOutputFallback) {
+      throw new Error(
+        `compile response for kernel path was too small (${normalizedBytes.length} bytes); boundary fallback is disabled (${CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK_ENV}=0)`,
+      );
+    }
     let fallbackModule;
     try {
       fallbackModule = new WebAssembly.Module(currentCompilerWasmBytes);
@@ -704,13 +752,17 @@ function assertCompilerAbiOutputContract(responseObject, options = {}) {
       );
     }
     normalizedBytes = currentCompilerWasmBytes;
+    contractMeta.tiny_output_fallback = true;
     normalizedResponse = normalizeKernelCompilerMetadata({
       ...normalizedResponse,
       wasm_base64: toBase64(currentCompilerWasmBytes),
     });
   }
 
-  return normalizedResponse;
+  return {
+    responseObject: normalizedResponse,
+    contractMeta,
+  };
 }
 
 function validateCompileResponseContract(
@@ -743,16 +795,23 @@ function validateCompileResponseContract(
     throw new Error("compile response: missing non-empty string 'wasm_base64'");
   }
   let normalizedResponse = responseObject;
+  let contractMeta = null;
   if (compileRequestNeedsCompilerAbiOutput(requestObject)) {
-    normalizedResponse = assertCompilerAbiOutputContract(
+    const abiResult = assertCompilerAbiOutputContract(
       normalizedResponse,
       options,
     );
+    normalizedResponse = abiResult.responseObject;
+    contractMeta = abiResult.contractMeta;
   }
   if (compileRequestNeedsDebugArtifacts(requestObject)) {
     assertCompileArtifactsContract(normalizedResponse);
   }
-  return normalizedResponse;
+  return attachCompileContractMetadata(
+    normalizedResponse,
+    contractMeta,
+    options,
+  );
 }
 
 function validateEmitWatResponseContract(responseObject) {
@@ -771,7 +830,19 @@ function validateEmitWatResponseContract(responseObject) {
   return responseObject;
 }
 
-export async function callCompilerWasm(path, requestObject) {
+function validateSelfhostArtifactsResponseContract(responseObject) {
+  assertObject(responseObject, "selfhost-artifacts response");
+  if (typeof responseObject.ok !== "boolean") {
+    throw new Error("selfhost-artifacts response: missing boolean 'ok'");
+  }
+  if (responseObject.ok !== true) {
+    return responseObject;
+  }
+  assertCompileArtifactsContract(responseObject);
+  return responseObject;
+}
+
+export async function callCompilerWasm(path, requestObject, options = {}) {
   const { instance, runtime, wasmBytes } = await loadCompilerWasm(path);
   const run = assertFn(instance, "clapse_run");
   const requestBytes = UTF8_ENCODER.encode(JSON.stringify(requestObject));
@@ -783,9 +854,19 @@ export async function callCompilerWasm(path, requestObject) {
     );
   }
   const response = decodeResponseBytes(runtime, responseHandle);
+  if (isSelfhostArtifactsRequest(requestObject)) {
+    return validateSelfhostArtifactsResponseContract(response);
+  }
   if (isCompileLikeRequest(requestObject)) {
+    const allowTinyKernelOutputFallback =
+      options.allowTinyKernelOutputFallback ===
+          undefined
+        ? boolEnvFlag(CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK_ENV, true)
+        : options.allowTinyKernelOutputFallback === true;
     return validateCompileResponseContract(requestObject, response, {
       currentCompilerWasmBytes: wasmBytes,
+      allowTinyKernelOutputFallback,
+      withContractMetadata: options.withContractMetadata === true,
     });
   }
   if (isEmitWatRequest(requestObject)) {

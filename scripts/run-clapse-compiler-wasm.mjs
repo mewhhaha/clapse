@@ -3,10 +3,10 @@
 import { cliArgs, failWithError } from "./runtime-env.mjs";
 import { runLspServer } from "./lsp-wasm.mjs";
 import {
+  appendClapseFuncMap,
   callCompilerWasm,
   decodeWasmBase64,
-  appendClapseFuncMap,
-  inspectCompilerWasmAbi,
+  rewriteWasmTailCallOpcodes,
   validateCompilerWasmAbi,
 } from "./wasm-compiler-abi.mjs";
 
@@ -164,7 +164,11 @@ async function readClapseProjectConfig(startPath = "") {
   return { pluginDirs: [] };
 }
 
-async function collectClapseFilesRecursively(rootDir, out = [], seen = new Set()) {
+async function collectClapseFilesRecursively(
+  rootDir,
+  out = [],
+  seen = new Set(),
+) {
   const normalized = normalizePath(rootDir);
   if (normalized.length === 0 || seen.has(normalized)) {
     return out;
@@ -273,7 +277,10 @@ function usage() {
     "",
     "Supported commands:",
     "  compile <input.clapse> [output.wasm]",
+    "  compile-native <input.clapse> [output.wasm]",
+    "  compile-native-debug <input.clapse> [output.wasm] [artifacts-dir]",
     "  compile-debug <input.clapse> [output.wasm] [artifacts-dir]",
+    "  emit-wat <input.clapse> [output.wat]",
     "  selfhost-artifacts <input.clapse> <out-dir>",
     "  format <file>",
     "  format --write <file>",
@@ -295,17 +302,14 @@ function usage() {
 }
 
 const SELFHOST_ARTIFACT_FILES = [
-  "merged_module.txt",
-  "type_info.txt",
-  "type_info_error.txt",
   "lowered_ir.txt",
   "collapsed_ir.txt",
-  "exports.txt",
-  "wasm_stats.txt",
+  "compile_response.json",
+  "backend.txt",
 ];
 const COMPILE_DEBUG_ARTIFACT_FILES = ["lowered_ir.txt", "collapsed_ir.txt"];
 
-function shouldFallbackSelfhostArtifactsResponse(response, inputSource) {
+function isPlaceholderSelfhostArtifactsResponse(response) {
   if (!response || typeof response !== "object" || Array.isArray(response)) {
     return true;
   }
@@ -317,31 +321,15 @@ function shouldFallbackSelfhostArtifactsResponse(response, inputSource) {
     return true;
   }
   for (const file of SELFHOST_ARTIFACT_FILES) {
-    if (typeof artifacts[file] !== "string") {
+    if (file === "compile_response.json" || file === "backend.txt") {
+      continue;
+    }
+    if (typeof artifacts[file] !== "string" || artifacts[file].length === 0) {
       return true;
     }
   }
-  const lowered = artifacts["lowered_ir.txt"];
-  const collapsed = artifacts["collapsed_ir.txt"];
-  if (lowered.length === 0 && collapsed.length === 0) {
-    return true;
-  }
-  if (
-    artifacts["type_info.txt"] === "Nothing" &&
-    artifacts["type_info_error.txt"] === "Nothing"
-  ) {
-    return true;
-  }
-  const nonMergedAllEmpty = SELFHOST_ARTIFACT_FILES
-    .filter((file) => file !== "merged_module.txt")
-    .every((file) => artifacts[file].length === 0);
-  if (!nonMergedAllEmpty) {
-    return false;
-  }
-  const mergedModule = artifacts["merged_module.txt"];
-  return mergedModule.length === 0 || mergedModule === inputSource;
+  return false;
 }
-
 
 function renderTypeScriptBindings(exportsList) {
   if (!Array.isArray(exportsList) || exportsList.length === 0) {
@@ -388,10 +376,23 @@ function decodeCompileResponse(response, inputPath) {
     throw new Error("compile response: missing boolean 'ok'");
   }
   if (response.ok !== true) {
-    const err = typeof response.error === "string"
-      ? response.error
-      : `compile error in ${inputPath}`;
-    throw new Error(err);
+    const mode = String(response.backend ?? "unknown");
+    const backend = mode.length > 0 && mode !== "unknown"
+      ? ` [backend=${mode}]`
+      : "";
+    const rawError = response.error;
+    const err = rawError === undefined
+      ? "unknown compiler error"
+      : typeof rawError === "string"
+      ? rawError
+      : (() => {
+        try {
+          return JSON.stringify(rawError);
+        } catch {
+          return String(rawError);
+        }
+      })();
+    throw new Error(`compile${backend} failed for ${inputPath}: ${err}`);
   }
   if (
     typeof response.wasm_base64 !== "string" ||
@@ -415,8 +416,43 @@ function decodeCompileResponse(response, inputPath) {
   return response;
 }
 
+function decodeSelfhostArtifactsResponse(response, inputPath) {
+  assertObject(response, "selfhost-artifacts response");
+  if (typeof response.ok !== "boolean") {
+    throw new Error("selfhost-artifacts response: missing boolean 'ok'");
+  }
+  if (response.ok !== true) {
+    const rawError = response.error;
+    const err = rawError === undefined
+      ? "unknown compiler error"
+      : typeof rawError === "string"
+      ? rawError
+      : (() => {
+        try {
+          return JSON.stringify(rawError);
+        } catch {
+          return String(rawError);
+        }
+      })();
+    throw new Error(`selfhost-artifacts failed for ${inputPath}: ${err}`);
+  }
+  const artifacts = collectCompileDebugArtifacts(
+    response.artifacts,
+    "selfhost-artifacts response",
+  );
+  const backend =
+    typeof response.backend === "string" && response.backend.length > 0
+      ? response.backend
+      : "kernel-selfhost";
+  return {
+    response: { ...response, backend },
+    artifacts,
+  };
+}
+
 function shouldInjectFuncMapInFixedPointArtifacts() {
-  const raw = String(Deno.env.get("CLAPSE_DEBUG_FUNC_MAP") ?? "").trim().toLowerCase();
+  const raw = String(Deno.env.get("CLAPSE_DEBUG_FUNC_MAP") ?? "").trim()
+    .toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes";
 }
 
@@ -426,8 +462,13 @@ function isCompilerKernelPath(inputPath) {
     normalized.endsWith("/lib/compiler/kernel.clapse");
 }
 
-async function writeCompileArtifacts(outputPath, response) {
+async function writeCompileArtifacts(outputPath, response, options = {}) {
   let wasmBytes = decodeWasmBase64(response.wasm_base64);
+  const skipTailCallRewrite = options.skipTailCallRewrite === true;
+  if (!skipTailCallRewrite) {
+    const tailCallRewrite = rewriteWasmTailCallOpcodes(wasmBytes);
+    wasmBytes = tailCallRewrite.wasmBytes;
+  }
   if (shouldInjectFuncMapInFixedPointArtifacts()) {
     try {
       wasmBytes = appendClapseFuncMap(wasmBytes);
@@ -454,7 +495,7 @@ async function writeCompileArtifacts(outputPath, response) {
 
 async function writeSelfhostArtifacts(outDir, artifacts) {
   await Deno.mkdir(outDir, { recursive: true });
-  for (const file of SELFHOST_ARTIFACT_FILES) {
+  for (const file of ["lowered_ir.txt", "collapsed_ir.txt"]) {
     const value = artifacts[file];
     if (value === undefined || typeof value !== "string") {
       throw new Error(
@@ -480,7 +521,9 @@ function collectCompileDebugArtifacts(artifacts, contextLabel) {
   }
   if (missing.length > 0) {
     throw new Error(
-      `${contextLabel} missing required debug artifacts. Expected response.artifacts keys: ${COMPILE_DEBUG_ARTIFACT_FILES.join(", ")}.`,
+      `${contextLabel} missing required debug artifacts. Expected response.artifacts keys: ${
+        COMPILE_DEBUG_ARTIFACT_FILES.join(", ")
+      }.`,
     );
   }
   return out;
@@ -491,29 +534,19 @@ function readCompileDebugArtifacts(response) {
   if (!artifacts || typeof artifacts !== "object" || Array.isArray(artifacts)) {
     return null;
   }
-  return collectCompileDebugArtifacts(artifacts, "compile response for compile_mode debug");
+  return collectCompileDebugArtifacts(
+    artifacts,
+    "compile response for compile_mode debug",
+  );
 }
 
-async function readCompileDebugArtifactsViaSelfhost(wasmPath, inputPath, inputSource) {
-  const response = await callCompilerWasm(wasmPath, {
-    command: "selfhost-artifacts",
-    input_path: inputPath,
-    input_source: inputSource,
-  });
-  assertObject(response, `selfhost-artifacts response for compile_mode debug (${inputPath})`);
-  if (typeof response.ok !== "boolean") {
-    throw new Error(`selfhost-artifacts response for compile_mode debug (${inputPath}) missing boolean 'ok'`);
+function isKnownStubCompileArtifact(wasmBytes, response) {
+  if (!(wasmBytes instanceof Uint8Array) || wasmBytes.length !== 122) {
+    return false;
   }
-  if (!response.ok) {
-    const err = typeof response.error === "string"
-      ? response.error
-      : `selfhost-artifacts error in ${inputPath}`;
-    throw new Error(err);
-  }
-  return collectCompileDebugArtifacts(
-    response.artifacts,
-    `selfhost-artifacts response for compile_mode debug (${inputPath})`,
-  );
+  const exportsList = Array.isArray(response?.exports) ? response.exports : [];
+  const dts = typeof response?.dts === "string" ? response.dts.trim() : "";
+  return exportsList.length === 0 && (dts.length === 0 || dts === "export {}");
 }
 
 async function writeCompileDebugArtifacts(artifactsDir, artifacts) {
@@ -541,19 +574,48 @@ async function compileViaWasm(wasmPath, inputPath, outputPath, options = {}) {
     input_source: inputSource,
     plugin_wasm_paths: pluginWasmPaths,
   };
-  if (typeof options.compileMode === "string" && options.compileMode.length > 0) {
+  if (
+    typeof options.compileMode === "string" && options.compileMode.length > 0
+  ) {
     request.compile_mode = options.compileMode;
   }
   const response = await callCompilerWasm(wasmPath, request);
   const decodedResponse = decodeCompileResponse(response, inputPath);
+  const decodedWasmBytes = decodeWasmBase64(decodedResponse.wasm_base64);
+  const compileMode = typeof options.compileMode === "string"
+    ? options.compileMode
+    : "";
+  const isNativeCompileMode = compileMode === "kernel-native" ||
+    compileMode === "native-debug" ||
+    compileMode === "debug";
+  if (isNativeCompileMode && decodedResponse.backend !== "kernel-native") {
+    throw new Error(
+      `compile response for ${inputPath} returned backend=${decodedResponse.backend}; expected backend=kernel-native`,
+    );
+  }
+  if (isNativeCompileMode) {
+    if (decodedWasmBytes.length < 4096) {
+      throw new Error(
+        `compile response for ${inputPath} is a stub artifact; configure a native clapse compiler wasm and remove stub fallback mode`,
+      );
+    }
+  }
+  if (isNativeCompileMode) {
+    if (isKnownStubCompileArtifact(decodedWasmBytes, decodedResponse)) {
+      throw new Error(
+        `compile response for ${inputPath} is a known placeholder stub artifact; configure a native clapse compiler wasm and remove stub fallback mode`,
+      );
+    }
+  }
   let debugArtifacts;
-  if (typeof options.artifactsDir === "string" && options.artifactsDir.length > 0) {
+  const hasArtifactsDir = typeof options.artifactsDir === "string" &&
+    options.artifactsDir.length > 0;
+  const requireCompileArtifacts = options.requireCompileArtifacts === true;
+  if (hasArtifactsDir) {
     debugArtifacts = readCompileDebugArtifacts(decodedResponse);
-    if (debugArtifacts === null) {
-      debugArtifacts = await readCompileDebugArtifactsViaSelfhost(
-        wasmPath,
-        inputPath,
-        inputSource,
+    if (requireCompileArtifacts && debugArtifacts === null) {
+      throw new Error(
+        `compile response for ${inputPath} missing required debug artifacts object`,
       );
     }
   }
@@ -565,32 +627,32 @@ async function compileViaWasm(wasmPath, inputPath, outputPath, options = {}) {
 
 async function writeSelfhostArtifactsViaWasm(wasmPath, inputPath, outDir) {
   const inputSource = await Deno.readTextFile(inputPath);
-  const request = {
+  const response = await callCompilerWasm(wasmPath, {
     command: "selfhost-artifacts",
+    compile_mode: "kernel-native",
     input_path: inputPath,
     input_source: inputSource,
-  };
-  const response = await callCompilerWasm(wasmPath, request);
-  const isPlaceholderResponse =
-    response?.ok === true && shouldFallbackSelfhostArtifactsResponse(response, inputSource);
+    plugin_wasm_paths: [],
+  });
+  const decoded = decodeSelfhostArtifactsResponse(response, inputPath);
+  const decodedResponse = decoded.response;
+  const debugArtifacts = decoded.artifacts;
+  const isPlaceholderResponse = decodedResponse.ok === true &&
+    isPlaceholderSelfhostArtifactsResponse(decodedResponse);
   if (isPlaceholderResponse) {
     throw new Error(
       `selfhost-artifacts response for ${inputPath} is placeholder/incomplete; expected native kernel artifacts`,
     );
   }
-  assertObject(response, "selfhost-artifacts response");
-  if (typeof response.ok !== "boolean") {
-    throw new Error("selfhost-artifacts response: missing boolean 'ok'");
-  }
-  if (response.ok !== true) {
-    const err = typeof response?.error === "string"
-      ? response.error
-      : `selfhost-artifacts error in ${inputPath}`;
-    throw new Error(err);
-  }
-  const artifacts = response.artifacts;
-  assertObject(artifacts, "selfhost-artifacts response.artifacts");
-  await writeSelfhostArtifacts(outDir, artifacts);
+  await writeSelfhostArtifacts(outDir, debugArtifacts);
+  await Deno.writeTextFile(
+    `${outDir}/compile_response.json`,
+    `${JSON.stringify(decodedResponse, null, 2)}\n`,
+  );
+  await Deno.writeTextFile(
+    `${outDir}/backend.txt`,
+    `${String(decodedResponse.backend ?? "")}\n`,
+  );
 }
 
 async function readAllStdin() {
@@ -626,6 +688,47 @@ function decodeFormatResponse(response, ctx) {
     throw new Error("format response: missing string 'formatted'");
   }
   return response.formatted;
+}
+
+function decodeEmitWatResponse(response, ctx) {
+  assertObject(response, "emit-wat response");
+  if (typeof response.ok !== "boolean") {
+    throw new Error("emit-wat response: missing boolean 'ok'");
+  }
+  if (!response.ok) {
+    const err = typeof response.error === "string"
+      ? response.error
+      : `emit-wat error: ${ctx}`;
+    throw new Error(err);
+  }
+  if (typeof response.wat !== "string") {
+    throw new Error("emit-wat response: missing string 'wat'");
+  }
+  return response.wat;
+}
+
+async function emitWatViaWasm(wasmPath, args) {
+  if (args.length < 2 || args.length > 3) {
+    throw new Error("usage: emit-wat <input.clapse> [output.wat]");
+  }
+  const inputPath = args[1];
+  const inputSource = await Deno.readTextFile(inputPath);
+  const response = await callCompilerWasm(wasmPath, {
+    command: "emit-wat",
+    input_path: inputPath,
+    input_source: inputSource,
+  });
+  const wat = decodeEmitWatResponse(response, inputPath);
+  if (args.length === 3) {
+    const outputPath = args[2];
+    const outputDir = pathDir(outputPath);
+    if (outputDir.length > 0 && outputDir !== ".") {
+      await Deno.mkdir(outputDir, { recursive: true });
+    }
+    await Deno.writeTextFile(outputPath, wat);
+    return;
+  }
+  await Deno.stdout.write(new TextEncoder().encode(wat));
 }
 
 function stripFrameTokenPunctuation(rawToken) {
@@ -715,12 +818,16 @@ function buildFormatterStackMapHint(wasmPath, err) {
   return [
     "",
     `[clapse] formatter wasm stack offsets: ${offsetCsv}`,
-    `[clapse] map with: deno run -A scripts/wasm-stack-map.mjs --wasm ${JSON.stringify(wasmPath)} --offsets ${offsetCsv}`,
+    `[clapse] map with: deno run -A scripts/wasm-stack-map.mjs --wasm ${
+      JSON.stringify(wasmPath)
+    } --offsets ${offsetCsv}`,
   ].join("\n");
 }
 
 function isFormatterStackIdentityFallbackEnabled() {
-  const raw = String(Deno.env.get("CLAPSE_FORMAT_STACK_IDENTITY_FALLBACK") ?? "")
+  const raw = String(
+    Deno.env.get("CLAPSE_FORMAT_STACK_IDENTITY_FALLBACK") ?? "",
+  )
     .trim()
     .toLowerCase();
   if (raw === "0" || raw === "false" || raw === "off" || raw === "no") {
@@ -735,7 +842,9 @@ async function formatRequestWithFallback(wasmPath, request, source, ctx) {
     return decodeFormatResponse(response, ctx);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const isStackOverflow = message.includes("Maximum call stack size exceeded");
+    const isStackOverflow = message.includes(
+      "Maximum call stack size exceeded",
+    );
     if (isStackOverflow) {
       const hint = buildFormatterStackMapHint(wasmPath, err);
       if (isFormatterStackIdentityFallbackEnabled()) {
@@ -759,36 +868,51 @@ async function formatRequestWithFallback(wasmPath, request, source, ctx) {
 async function formatViaWasm(wasmPath, args) {
   if (args.length === 2 && args[1] === "--stdin") {
     const src = await readAllStdin();
-    const formatted = await formatRequestWithFallback(wasmPath, {
-      command: "format",
-      mode: "stdout",
-      input_path: "<stdin>",
-      source: src,
-    }, src, "stdin");
+    const formatted = await formatRequestWithFallback(
+      wasmPath,
+      {
+        command: "format",
+        mode: "stdout",
+        input_path: "<stdin>",
+        source: src,
+      },
+      src,
+      "stdin",
+    );
     await Deno.stdout.write(new TextEncoder().encode(formatted));
     return;
   }
   if (args.length === 3 && args[1] === "--write") {
     const path = args[2];
     const src = await Deno.readTextFile(path);
-    const formatted = await formatRequestWithFallback(wasmPath, {
-      command: "format",
-      mode: "write",
-      input_path: path,
-      source: src,
-    }, src, path);
+    const formatted = await formatRequestWithFallback(
+      wasmPath,
+      {
+        command: "format",
+        mode: "write",
+        input_path: path,
+        source: src,
+      },
+      src,
+      path,
+    );
     await Deno.writeTextFile(path, formatted);
     return;
   }
   if (args.length === 2) {
     const path = args[1];
     const src = await Deno.readTextFile(path);
-    const formatted = await formatRequestWithFallback(wasmPath, {
-      command: "format",
-      mode: "stdout",
-      input_path: path,
-      source: src,
-    }, src, path);
+    const formatted = await formatRequestWithFallback(
+      wasmPath,
+      {
+        command: "format",
+        mode: "stdout",
+        input_path: path,
+        source: src,
+      },
+      src,
+      path,
+    );
     await Deno.stdout.write(new TextEncoder().encode(formatted));
     return;
   }
@@ -833,7 +957,49 @@ export async function runWithArgs(rawArgs = cliArgs()) {
     }
     const inputPath = args[1];
     const outputPath = args[2] ?? inputPath.replace(/\.clapse$/u, ".wasm");
-    await compileViaWasm(wasmPath, inputPath, outputPath);
+    const compileEngine = String(Deno.env.get("CLAPSE_COMPILE_ENGINE") ?? "")
+      .trim()
+      .toLowerCase();
+    if (
+      compileEngine.length > 0 && compileEngine !== "native" &&
+      compileEngine !== "kernel-native"
+    ) {
+      throw new Error(
+        `unsupported CLAPSE_COMPILE_ENGINE=${compileEngine}; set kernel-native or unset CLAPSE_COMPILE_ENGINE`,
+      );
+    }
+    await compileViaWasm(wasmPath, inputPath, outputPath, {
+      compileMode: "kernel-native",
+    });
+    return;
+  }
+  if (args[0] === "compile-native") {
+    if (args.length < 2 || args.length > 3) {
+      throw new Error("usage: compile-native <input.clapse> [output.wasm]");
+    }
+    const inputPath = args[1];
+    const outputPath = args[2] ?? inputPath.replace(/\.clapse$/u, ".wasm");
+    await compileViaWasm(wasmPath, inputPath, outputPath, {
+      compileMode: "kernel-native",
+    });
+    return;
+  }
+  if (args[0] === "compile-native-debug") {
+    if (args.length < 2 || args.length > 4) {
+      throw new Error(
+        "usage: compile-native-debug <input.clapse> [output.wasm] [artifacts-dir]",
+      );
+    }
+    const inputPath = args[1];
+    const outputPath = args[2] ?? inputPath.replace(/\.clapse$/u, ".wasm");
+    const defaultArtifactsDir = pathDir(outputPath);
+    const artifactsDir = args[3] ??
+      (defaultArtifactsDir.length > 0 ? defaultArtifactsDir : ".");
+    await compileViaWasm(wasmPath, inputPath, outputPath, {
+      compileMode: "native-debug",
+      requireCompileArtifacts: true,
+      artifactsDir,
+    });
     return;
   }
   if (args[0] === "compile-debug") {
@@ -845,11 +1011,17 @@ export async function runWithArgs(rawArgs = cliArgs()) {
     const inputPath = args[1];
     const outputPath = args[2] ?? inputPath.replace(/\.clapse$/u, ".wasm");
     const defaultArtifactsDir = pathDir(outputPath);
-    const artifactsDir = args[3] ?? (defaultArtifactsDir.length > 0 ? defaultArtifactsDir : ".");
+    const artifactsDir = args[3] ??
+      (defaultArtifactsDir.length > 0 ? defaultArtifactsDir : ".");
     await compileViaWasm(wasmPath, inputPath, outputPath, {
       compileMode: "debug",
+      requireCompileArtifacts: true,
       artifactsDir,
     });
+    return;
+  }
+  if (args[0] === "emit-wat") {
+    await emitWatViaWasm(wasmPath, args);
     return;
   }
   if (args[0] === "format") {

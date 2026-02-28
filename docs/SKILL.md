@@ -276,8 +276,8 @@ The command returns a single compile response with:
 - Keep selfhost artifact docs aligned with runtime behavior: JS no longer
   patches placeholder selfhost payloads. If the kernel returns a
   placeholder/incomplete `selfhost-artifacts` response, the command now fails
-  explicitly. Kernel `selfhost-artifacts` now aliases kernel-native `compile`
-  response contract and writes `lowered_ir.txt` / `collapsed_ir.txt` plus
+  explicitly. Kernel `selfhost-artifacts` now uses its dedicated source-side
+  response path and writes `lowered_ir.txt` / `collapsed_ir.txt` plus
   `compile_response.json` / `backend.txt` at the runner boundary.
 - Smoke expectations are native-only:
   `scripts/bootstrap-phase9-kernel-smoke.mjs` and
@@ -302,9 +302,9 @@ The command returns a single compile response with:
   and returns an explicit compile error when absent. Kernel-native compile
   responses that decode to tiny placeholder wasm are treated as hard errors in
   native compile/debug flows. Kernel-native debug artifacts now populate both
-  `lowered_ir.txt` and `collapsed_ir.txt` from source-derived payloads
-  (bounded), replacing the prior fixed collapsed placeholder in this migration
-  path. JS no longer synthesizes debug artifacts via `selfhost-artifacts`
+  `lowered_ir.txt` and `collapsed_ir.txt` from kernel-owned compile markers in
+  this migration path (not request-source echoes). JS no longer synthesizes
+  debug artifacts via `selfhost-artifacts`
   fallback: `compile-debug` / `compile-native-debug` now require compile
   response `artifacts` directly from the native kernel response.
   `just bootstrap-compiler` now enforces both `just native-compile-smoke` and
@@ -327,11 +327,15 @@ The command returns a single compile response with:
   When responses export `main` but not `clapse_run`, the JS boundary normalizes
   wasm exports by aliasing `main` as `clapse_run` and updates response
   metadata (`wasm_base64`/`exports`/`dts`) before returning. For tiny
-  kernel-compiler outputs, the boundary now retains current compiler wasm bytes
-  to avoid propagating unstable transitive artifacts. Responses still
-  hard-fail when ABI normalization cannot produce a valid compiler export
-  surface. `scripts/native-selfhost-probe.mjs` now supports `--hops <n>`
+  kernel-compiler outputs, boundary fallback retention remains available by
+  default and can be fail-closed via
+  `CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK=0` (or per-call options in scripts).
+  Responses still hard-fail when ABI normalization cannot produce a valid
+  compiler export surface. `scripts/native-selfhost-probe.mjs` now supports
+  `--hops <n>`
   (default `1`) for transitive closure probes;
+  `--fail-on-boundary-fallback` / `CLAPSE_NATIVE_SELFHOST_FAIL_ON_BOUNDARY_FALLBACK=1`
+  can enforce no tiny-output retention during probe verification.
   `just native-selfhost-probe` forwards this. Release/bootstrap gates now use
   two-hop defaults (`CLAPSE_NATIVE_SELFHOST_PROBE_HOPS`,
   `CLAPSE_BOOTSTRAP_NATIVE_SELFHOST_PROBE_HOPS`,
