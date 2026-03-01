@@ -194,6 +194,7 @@ const UTF8_DECODER = new TextDecoder();
 const WASM_PAGE_SIZE = 65536;
 const HOST_ALLOC_GUARD_BYTES = 16 * WASM_PAGE_SIZE;
 const SLICE_DESC_SIZE = 8;
+const WASM_TEXT_MAX_BYTES = 262144;
 
 const DEFAULT_SOURCE = `identity x = x
 
@@ -823,6 +824,7 @@ async function runCompile({ forceFormat = false } = {}) {
         const wasmBytes = decodeWasmBase64(wasmBase64);
         setDownloadLink(tag, wasmBytes);
         const exportsList = normalizeExports(compileResponse.exports);
+        const wasmText = formatWasmText(compileResponse, wasmBytes);
         elements.compileOutput.textContent = [
           `ok: true`,
           `release: ${tag}`,
@@ -836,7 +838,9 @@ async function runCompile({ forceFormat = false } = {}) {
                 .map((entry) => `${entry.name}/${entry.arity}`)
                 .join(", ")}`
             : "exports: (none)",
-          "wasm_payload: binary (download link available)",
+          "",
+          "wasm_text",
+          wasmText,
         ].join("\n");
       }
     } else {
@@ -1416,6 +1420,39 @@ function decodeWasmBase64(input) {
     out[i] = raw.charCodeAt(i);
   }
   return out;
+}
+
+function formatWasmText(response, wasmBytes) {
+  const text = response?.wasm_text;
+  if (typeof text === "string" && text.length > 0) {
+    return text;
+  }
+  return formatWasmHexDump(wasmBytes, WASM_TEXT_MAX_BYTES);
+}
+
+function formatWasmHexDump(bytes, maxBytes) {
+  const limit =
+    Number.isInteger(maxBytes) && maxBytes > 0
+      ? Math.min(maxBytes, bytes.length)
+      : bytes.length;
+  const view = bytes.subarray(0, limit);
+  const lines = [];
+
+  for (let offset = 0; offset < view.length; offset += 16) {
+    const chunk = view.subarray(offset, offset + 16);
+    const hex = Array.from(chunk, (value) =>
+      value.toString(16).padStart(2, "0"),
+    ).join(" ");
+    lines.push(`${offset.toString(16).padStart(8, "0")}  ${hex}`);
+  }
+
+  if (lines.length === 0) {
+    lines.push("(empty wasm)");
+  }
+  if (limit < bytes.length) {
+    lines.push(`... truncated ${bytes.length - limit} byte(s)`);
+  }
+  return lines.join("\n");
 }
 
 function fnv1aHex(bytes) {
