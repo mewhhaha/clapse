@@ -966,11 +966,6 @@ async function runWasmMain(wasmBytes) {
     throw new Error("main export is not callable.");
   }
   const paramCount = Number.isInteger(main.length) ? main.length : null;
-  if (Number.isInteger(paramCount) && paramCount > 0) {
-    throw new Error(
-      `main export expects ${paramCount} argument(s) in wasm output runtime.`,
-    );
-  }
   return { value: main(), paramCount };
 }
 
