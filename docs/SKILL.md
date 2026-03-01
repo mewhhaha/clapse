@@ -77,6 +77,12 @@ To run strict producer gates in bootstrap-seed mode, use
 `just native-strict-producer-check-wasm-seed [wasm] [hops] [source_version]`.
 To enforce source-version transitivity on raw producer output, use
 `just native-source-version-propagation-gate [wasm] [hops] [source_version]`.
+When `lib/compiler/native_compile.clapse` is unavailable (for example release
+verification on branches that do not ship that file), source-version
+propagation gate now falls back to the observed
+`kernel compile __clapse_contract.source_version`. Override source path with
+`CLAPSE_NATIVE_COMPILE_SOURCE_PATH` or force token with
+`CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED`.
 
 Or directly:
 

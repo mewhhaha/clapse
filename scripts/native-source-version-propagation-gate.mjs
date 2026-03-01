@@ -7,9 +7,10 @@ const DEFAULT_INPUT_PATH = "lib/compiler/kernel.clapse";
 const DEFAULT_HOPS = 2;
 const DEFAULT_COMPILE_MODE = "kernel-native";
 const MIN_COMPILER_BYTES = 4096;
-const NATIVE_COMPILE_SOURCE_PATH = "lib/compiler/native_compile.clapse";
+const DEFAULT_NATIVE_COMPILE_SOURCE_PATH = "lib/compiler/native_compile.clapse";
 const REQUIRED_SOURCE_VERSION_ENV = "CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED";
 const EXPECTED_COMPILE_CONTRACT_VERSION = "native-v1";
+const NATIVE_COMPILE_SOURCE_PATH_ENV = "CLAPSE_NATIVE_COMPILE_SOURCE_PATH";
 
 function usage() {
   return [
@@ -116,14 +117,26 @@ function parseArgs(argv) {
   };
 }
 
-async function extractSourceVersionFromNativeCompile() {
+function resolveNativeCompileSourcePath() {
+  const overridden = String(Deno.env.get(NATIVE_COMPILE_SOURCE_PATH_ENV) ?? "")
+    .trim();
+  if (nonEmptyString(overridden)) {
+    return overridden;
+  }
+  return DEFAULT_NATIVE_COMPILE_SOURCE_PATH;
+}
+
+async function tryExtractSourceVersionFromNativeCompile(sourcePath) {
   let sourceText = "";
   try {
-    sourceText = await Deno.readTextFile(NATIVE_COMPILE_SOURCE_PATH);
+    sourceText = await Deno.readTextFile(sourcePath);
   } catch (err) {
+    if (err instanceof Deno.errors.NotFound) {
+      return "";
+    }
     const msg = err instanceof Error ? err.message : String(err);
     fail(
-      `failed reading ${NATIVE_COMPILE_SOURCE_PATH} while resolving required source version (${msg})`,
+      `failed reading ${sourcePath} while resolving required source version (${msg})`,
     );
   }
   const escapedMatch = sourceText.match(
@@ -147,11 +160,14 @@ async function extractSourceVersionFromNativeCompile() {
     return plainMatch[1];
   }
   fail(
-    `could not resolve __clapse_contract.source_version from ${NATIVE_COMPILE_SOURCE_PATH}`,
+    `could not resolve __clapse_contract.source_version from ${sourcePath}`,
   );
 }
 
-async function resolveRequiredSourceVersion(cliSourceVersion) {
+async function resolveRequiredSourceVersion(
+  cliSourceVersion,
+  observedSourceVersion,
+) {
   if (nonEmptyString(cliSourceVersion)) {
     return cliSourceVersion;
   }
@@ -160,7 +176,19 @@ async function resolveRequiredSourceVersion(cliSourceVersion) {
   if (nonEmptyString(envVersion)) {
     return envVersion;
   }
-  return extractSourceVersionFromNativeCompile();
+  const sourcePath = resolveNativeCompileSourcePath();
+  const fromNativeCompile = await tryExtractSourceVersionFromNativeCompile(
+    sourcePath,
+  );
+  if (nonEmptyString(fromNativeCompile)) {
+    return fromNativeCompile;
+  }
+  if (nonEmptyString(observedSourceVersion)) {
+    return observedSourceVersion;
+  }
+  fail(
+    `could not resolve required source version (set --source-version, ${REQUIRED_SOURCE_VERSION_ENV}, or provide ${sourcePath})`,
+  );
 }
 
 function parseCompileContract(response, context) {
@@ -218,7 +246,6 @@ function assertCompilerAbi(moduleBytes, context) {
 async function compileKernelWithCompilerWasm(
   wasmPath,
   inputPath,
-  requiredSourceVersion,
 ) {
   let inputSource = "";
   try {
@@ -263,11 +290,6 @@ async function compileKernelWithCompilerWasm(
     fail("kernel compile response missing non-empty wasm_base64");
   }
   const contract = parseCompileContract(response, "kernel compile");
-  if (contract.sourceVersion !== requiredSourceVersion) {
-    fail(
-      `kernel compile source_version mismatch (expected ${requiredSourceVersion}, got ${contract.sourceVersion})`,
-    );
-  }
 
   let compilerBytes;
   try {
@@ -322,14 +344,19 @@ async function runRawProbe(probeWasmPath, hops, requiredSourceVersion) {
 
 async function main() {
   const opts = parseArgs(Deno.args);
-  const requiredSourceVersion = await resolveRequiredSourceVersion(
-    opts.sourceVersion,
-  );
   const compileResult = await compileKernelWithCompilerWasm(
     opts.wasmPath,
     opts.inputPath,
-    requiredSourceVersion,
   );
+  const requiredSourceVersion = await resolveRequiredSourceVersion(
+    opts.sourceVersion,
+    compileResult.sourceVersion,
+  );
+  if (compileResult.sourceVersion !== requiredSourceVersion) {
+    fail(
+      `kernel compile source_version mismatch (expected ${requiredSourceVersion}, got ${compileResult.sourceVersion})`,
+    );
+  }
 
   let outPath = opts.outPath;
   let isTempOut = false;

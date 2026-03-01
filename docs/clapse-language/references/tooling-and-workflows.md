@@ -207,7 +207,9 @@ deno run -A scripts/clapse.mjs bench [iterations]
     `scripts/native-producer-raw-probe.mjs` under required source-version
     gating plus emit-wat source/template parity. If `source_version` is omitted and
     `CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED` is unset, the gate derives the
-    required token from `lib/compiler/native_compile.clapse`.
+    required token from `lib/compiler/native_compile.clapse`; when that file is
+    unavailable it falls back to the observed `kernel compile` contract token.
+    Set `CLAPSE_NATIVE_COMPILE_SOURCE_PATH` to override source lookup path.
 - `bench` is currently invoked via the same deno command surface through the wasm runner.
 
 ## Just Targets
