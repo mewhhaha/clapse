@@ -8,6 +8,8 @@ export
   json_response_with_literal_prefix_suffix
   json_response_with_slice_segment
   json_response_with_escaped_slice_segment
+  json_response_with_two_escaped_slice_segments
+  json_response_with_three_escaped_slice_segments
 
 slice_set_u8_write request_handle ownership_mode target start value =
   slice_set_u8 target start value
@@ -125,3 +127,76 @@ json_response_with_escaped_slice_segment request_handle ownership_mode prefix su
       out1 = copy_slice_literal request_handle ownership_mode out 0 prefix
       out2 = json_copy_escaped_segment request_handle ownership_mode src src_start src_len 0 out1 prefix_len
   in copy_slice_literal request_handle ownership_mode out2 (prefix_len + escaped_len) suffix
+
+json_response_with_two_escaped_slice_segments
+  request_handle
+  ownership_mode
+  prefix
+  middle
+  suffix
+  src_a
+  src_a_start
+  src_a_len
+  src_b
+  src_b_start
+  src_b_len =
+  let prefix_len = slice_len prefix
+      middle_len = slice_len middle
+      suffix_len = slice_len suffix
+      escaped_extra_a = json_escape_extra_len src_a src_a_start src_a_len 0 0
+      escaped_extra_b = json_escape_extra_len src_b src_b_start src_b_len 0 0
+      escaped_len_a = src_a_len + escaped_extra_a
+      escaped_len_b = src_b_len + escaped_extra_b
+      total_len = prefix_len + escaped_len_a + middle_len + escaped_len_b + suffix_len
+      out = slice_new_u8 total_len
+      out1 = copy_slice_literal request_handle ownership_mode out 0 prefix
+      out2 = json_copy_escaped_segment request_handle ownership_mode src_a src_a_start src_a_len 0 out1 prefix_len
+      middle_at = prefix_len + escaped_len_a
+      out3 = copy_slice_literal request_handle ownership_mode out2 middle_at middle
+      second_at = middle_at + middle_len
+      out4 = json_copy_escaped_segment request_handle ownership_mode src_b src_b_start src_b_len 0 out3 second_at
+      suffix_at = second_at + escaped_len_b
+  in copy_slice_literal request_handle ownership_mode out4 suffix_at suffix
+
+json_response_with_three_escaped_slice_segments
+  request_handle
+  ownership_mode
+  prefix
+  middle_ab
+  middle_bc
+  suffix
+  src_a
+  src_a_start
+  src_a_len
+  src_b
+  src_b_start
+  src_b_len
+  src_c
+  src_c_start
+  src_c_len =
+  let prefix_len = slice_len prefix
+      middle_ab_len = slice_len middle_ab
+      middle_bc_len = slice_len middle_bc
+      suffix_len = slice_len suffix
+      escaped_extra_a = json_escape_extra_len src_a src_a_start src_a_len 0 0
+      escaped_extra_b = json_escape_extra_len src_b src_b_start src_b_len 0 0
+      escaped_extra_c = json_escape_extra_len src_c src_c_start src_c_len 0 0
+      escaped_len_a = src_a_len + escaped_extra_a
+      escaped_len_b = src_b_len + escaped_extra_b
+      escaped_len_c = src_c_len + escaped_extra_c
+      total_len =
+        prefix_len + escaped_len_a + middle_ab_len + escaped_len_b +
+        middle_bc_len + escaped_len_c + suffix_len
+      out = slice_new_u8 total_len
+      out1 = copy_slice_literal request_handle ownership_mode out 0 prefix
+      out2 = json_copy_escaped_segment request_handle ownership_mode src_a src_a_start src_a_len 0 out1 prefix_len
+      middle_ab_at = prefix_len + escaped_len_a
+      out3 = copy_slice_literal request_handle ownership_mode out2 middle_ab_at middle_ab
+      second_at = middle_ab_at + middle_ab_len
+      out4 = json_copy_escaped_segment request_handle ownership_mode src_b src_b_start src_b_len 0 out3 second_at
+      middle_bc_at = second_at + escaped_len_b
+      out5 = copy_slice_literal request_handle ownership_mode out4 middle_bc_at middle_bc
+      third_at = middle_bc_at + middle_bc_len
+      out6 = json_copy_escaped_segment request_handle ownership_mode src_c src_c_start src_c_len 0 out5 third_at
+      suffix_at = third_at + escaped_len_c
+  in copy_slice_literal request_handle ownership_mode out6 suffix_at suffix

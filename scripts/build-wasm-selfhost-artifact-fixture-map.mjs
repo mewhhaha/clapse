@@ -5,13 +5,10 @@ import { cliArgs, failWithError } from "./runtime-env.mjs";
 const UTF8_DECODER = new TextDecoder();
 
 const SELFHOST_ARTIFACT_FILES = [
-  "merged_module.txt",
-  "type_info.txt",
-  "type_info_error.txt",
   "lowered_ir.txt",
   "collapsed_ir.txt",
-  "exports.txt",
-  "wasm_stats.txt",
+  "compile_response.json",
+  "backend.txt",
 ];
 
 function usage() {

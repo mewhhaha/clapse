@@ -15,6 +15,12 @@ const DEFAULT_BOOTSTRAP_HELP =
   "CLAPSE_BOOTSTRAP_COMPILER_WASM_PATH | CLAPSE_COMPILER_WASM_PATH | CLAPSE_BOOTSTRAP_STRICT_NATIVE_SEED_PATH | artifacts/strict-native/seed.wasm | artifacts/latest/clapse_compiler.wasm";
 const REQUIRE_NO_BOUNDARY_FALLBACK_ENV =
   "CLAPSE_STRICT_NATIVE_REQUIRE_NO_BOUNDARY_FALLBACK";
+const REQUIRED_SOURCE_VERSION_ENV = "CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED";
+const EXPECTED_COMPILE_CONTRACT_VERSION = "native-v1";
+const PRODUCER_CONTRACT_KEYS = new Set([
+  "source_version",
+  "compile_contract_version",
+]);
 
 function usage() {
   return [
@@ -28,6 +34,8 @@ function usage() {
     `  --input <path>            input compiler source for seed compile (default: ${DEFAULT_INPUT_PATH})`,
     `  --compile-mode <mode>     compile mode for seed build (default: ${DEFAULT_COMPILE_MODE})`,
     `  --probe-hops <n>          selfhost probe compile hops (default: ${DEFAULT_PROBE_HOPS})`,
+    "  --require-source-version <token>",
+    `                           require compile responses to report __clapse_contract.source_version=<token> (env: ${REQUIRED_SOURCE_VERSION_ENV})`,
     "  --require-no-boundary-fallback",
     `                           fail when kernel compile uses JS ABI tiny-output fallback (env: ${REQUIRE_NO_BOUNDARY_FALLBACK_ENV}=1)`,
     "  --no-meta                 skip metadata output",
@@ -100,6 +108,9 @@ function parseArgs(argv) {
     REQUIRE_NO_BOUNDARY_FALLBACK_ENV,
     false,
   );
+  let requireSourceVersion = String(
+    Deno.env.get(REQUIRED_SOURCE_VERSION_ENV) ?? "",
+  ).trim();
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -171,6 +182,15 @@ function parseArgs(argv) {
       requireNoBoundaryFallback = true;
       continue;
     }
+    if (arg === "--require-source-version") {
+      const value = argv[i + 1] ?? "";
+      if (value.length === 0) {
+        throw new Error("missing value for --require-source-version");
+      }
+      requireSourceVersion = value;
+      i += 1;
+      continue;
+    }
     if (arg === "--keep-temp") {
       keepTemp = true;
       continue;
@@ -188,6 +208,7 @@ function parseArgs(argv) {
     probeHops,
     keepTemp,
     requireNoBoundaryFallback,
+    requireSourceVersion,
   };
 }
 
@@ -205,6 +226,58 @@ function contractMeta(response) {
     return {};
   }
   return raw;
+}
+
+function nonEmptyString(value) {
+  return typeof value === "string" && value.length > 0;
+}
+
+function boundaryFallbackContractKeys(response) {
+  const contract = contractMeta(response);
+  const keys = [];
+  for (const [key, value] of Object.entries(contract)) {
+    if (PRODUCER_CONTRACT_KEYS.has(key)) {
+      continue;
+    }
+    if (
+      value === false || value === null || value === 0 ||
+      (typeof value === "string" && value.length === 0)
+    ) {
+      continue;
+    }
+    keys.push(key);
+  }
+  return keys;
+}
+
+function parseProducerContract(response, context, requireSourceVersion) {
+  const contract = contractMeta(response);
+  const sourceVersion = contract.source_version;
+  if (!nonEmptyString(sourceVersion)) {
+    throw new Error(
+      `${context}: missing __clapse_contract.source_version`,
+    );
+  }
+  const compileContractVersion = contract.compile_contract_version;
+  if (compileContractVersion !== EXPECTED_COMPILE_CONTRACT_VERSION) {
+    throw new Error(
+      `${context}: compile_contract_version must be ${EXPECTED_COMPILE_CONTRACT_VERSION} (got ${
+        String(compileContractVersion ?? "<missing>")
+      })`,
+    );
+  }
+  if (
+    nonEmptyString(requireSourceVersion) &&
+    sourceVersion !== requireSourceVersion
+  ) {
+    throw new Error(
+      `${context}: source_version mismatch (expected ${requireSourceVersion}, got ${sourceVersion})`,
+    );
+  }
+  return {
+    sourceVersion,
+    compileContractVersion,
+  };
 }
 
 function pathDir(path) {
@@ -293,7 +366,6 @@ async function compileNativeCandidate(opts, inputSource) {
     plugin_wasm_paths: [],
   }, {
     withContractMetadata: true,
-    allowTinyKernelOutputFallback: !opts.requireNoBoundaryFallback,
   });
 
   if (!response || typeof response !== "object" || Array.isArray(response)) {
@@ -312,14 +384,22 @@ async function compileNativeCandidate(opts, inputSource) {
       }; expected kernel-native`,
     );
   }
+  const fallbackKeys = boundaryFallbackContractKeys(response);
   if (
     opts.requireNoBoundaryFallback &&
-    contractMeta(response).tiny_output_fallback === true
+    fallbackKeys.length > 0
   ) {
     throw new Error(
-      "bootstrap compile used JS ABI tiny-output fallback while strict no-boundary-fallback mode is enabled",
+      `bootstrap compile exposed boundary fallback contract metadata while strict no-boundary-fallback mode is enabled (${
+        fallbackKeys.join(",")
+      })`,
     );
   }
+  const producerContract = parseProducerContract(
+    response,
+    "bootstrap compile",
+    opts.requireSourceVersion,
+  );
 
   const wasmBytes = decodeWasmBase64(response.wasm_base64);
   const module = await WebAssembly.compile(wasmBytes);
@@ -332,7 +412,14 @@ async function compileNativeCandidate(opts, inputSource) {
     : renderTypeScriptBindings(
       Array.isArray(response.exports) ? response.exports : [],
     );
-  return { response, wasmBytes, exportNames, dts };
+  return {
+    response,
+    wasmBytes,
+    exportNames,
+    dts,
+    sourceVersion: producerContract.sourceVersion,
+    compileContractVersion: producerContract.compileContractVersion,
+  };
 }
 
 async function probeSelfhostCompile(
@@ -341,11 +428,14 @@ async function probeSelfhostCompile(
   inputSource,
   probeHops,
   requireNoBoundaryFallback,
+  requireSourceVersion,
 ) {
   const tempCompilers = [];
   let compilerPath = wasmPath;
   let finalBytes = new Uint8Array();
   let finalExports = [];
+  let firstSourceVersion = "";
+  let firstCompileContractVersion = "";
   try {
     for (let hop = 1; hop <= probeHops; hop += 1) {
       let response;
@@ -358,7 +448,6 @@ async function probeSelfhostCompile(
           plugin_wasm_paths: [],
         }, {
           withContractMetadata: true,
-          allowTinyKernelOutputFallback: !requireNoBoundaryFallback,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -385,13 +474,40 @@ async function probeSelfhostCompile(
           }`,
         };
       }
+      const fallbackKeys = boundaryFallbackContractKeys(response);
       if (
         requireNoBoundaryFallback &&
-        contractMeta(response).tiny_output_fallback === true
+        fallbackKeys.length > 0
       ) {
         return {
           ok: false,
-          reason: `hop-${hop}-boundary-tiny-output-fallback`,
+          reason: `hop-${hop}-boundary-fallback-contract-meta:${
+            fallbackKeys.join(",")
+          }`,
+        };
+      }
+      let producerContract;
+      try {
+        producerContract = parseProducerContract(
+          response,
+          `hop-${hop}`,
+          requireSourceVersion,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          ok: false,
+          reason: `hop-${hop}-producer-contract-invalid: ${msg}`,
+        };
+      }
+      if (firstSourceVersion.length === 0) {
+        firstSourceVersion = producerContract.sourceVersion;
+        firstCompileContractVersion = producerContract.compileContractVersion;
+      } else if (producerContract.sourceVersion !== firstSourceVersion) {
+        return {
+          ok: false,
+          reason:
+            `hop-${hop}-source-version-changed:${firstSourceVersion}->${producerContract.sourceVersion}`,
         };
       }
       try {
@@ -462,6 +578,8 @@ async function probeSelfhostCompile(
   return {
     ok: true,
     hops: probeHops,
+    source_version: firstSourceVersion,
+    compile_contract_version: firstCompileContractVersion,
     output_bytes: finalBytes.length,
     output_exports: finalExports,
   };
@@ -503,6 +621,7 @@ async function main() {
       inputSource,
       opts.probeHops,
       opts.requireNoBoundaryFallback,
+      opts.requireSourceVersion,
     );
 
     if (!nativeProbe.ok) {
@@ -510,6 +629,11 @@ async function main() {
         `native candidate failed selfhost probe: ${
           String(nativeProbe.reason ?? "unknown-native-probe-failure")
         }`,
+      );
+    }
+    if (nativeProbe.source_version !== nativeCandidate.sourceVersion) {
+      throw new Error(
+        `native candidate source_version mismatch between bootstrap compile and selfhost probe (${nativeCandidate.sourceVersion} -> ${nativeProbe.source_version})`,
       );
     }
     selectedWasmBytes = nativeCandidate.wasmBytes;
@@ -536,6 +660,9 @@ async function main() {
           compile_mode: opts.compileMode,
           probe_hops: opts.probeHops,
           require_no_boundary_fallback: opts.requireNoBoundaryFallback,
+          required_source_version: nonEmptyString(opts.requireSourceVersion)
+            ? opts.requireSourceVersion
+            : null,
         },
         probes: {
           native_candidate: nativeProbe,
@@ -548,6 +675,8 @@ async function main() {
           size_bytes: selectedWasmBytes.length,
           sha256: await sha256Hex(selectedWasmBytes),
           exports: selectedExports,
+          source_version: nativeCandidate.sourceVersion,
+          compile_contract_version: nativeCandidate.compileContractVersion,
         },
       };
       await ensureParentDir(opts.outMeta);
@@ -564,7 +693,7 @@ async function main() {
     }
 
     console.log(
-      `build-strict-native-seed: wrote ${opts.outWasm} (bootstrap=${opts.bootstrapWasm}, mode=${selectedMode})`,
+      `build-strict-native-seed: wrote ${opts.outWasm} (bootstrap=${opts.bootstrapWasm}, mode=${selectedMode}, source_version=${nativeCandidate.sourceVersion})`,
     );
   } catch (err) {
     if (opts.keepTemp) {

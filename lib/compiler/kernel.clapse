@@ -3,6 +3,7 @@ import compiler.parser
 import compiler.prelude
 import compiler.formatter
 import compiler.json_response
+import compiler.native_compile
 import compiler.emitter
 import compiler.scan
 import compiler.lsp_kernel
@@ -1479,7 +1480,7 @@ clapse_run request_handle =
       ownership_mode = collapse_pipeline_slice_ownership_mode tagged_request
       tag = command_tag tagged_request
   in case tag of
-    CommandCompile -> compile_response tagged_request ownership_mode
+    CommandCompile -> compile_native_response tagged_request ownership_mode
     CommandEmitWat -> emit_wat_response tagged_request ownership_mode
     CommandFormat -> format_ok_response tagged_request ownership_mode
     CommandSelfhost -> selfhost_ok_response tagged_request ownership_mode

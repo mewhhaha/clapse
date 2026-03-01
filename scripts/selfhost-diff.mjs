@@ -1,13 +1,10 @@
 #!/usr/bin/env -S deno run -A
 
 const FILES = [
-  "merged_module.txt",
-  "type_info.txt",
-  "type_info_error.txt",
   "lowered_ir.txt",
   "collapsed_ir.txt",
-  "exports.txt",
-  "wasm_stats.txt",
+  "compile_response.json",
+  "backend.txt",
 ];
 
 const UTF8_ENCODER = new TextEncoder();
@@ -71,19 +68,10 @@ function fnv1a32Hex(input) {
 function isPlaceholderArtifactSet(artifacts) {
   const lowered = artifacts["lowered_ir.txt"];
   const collapsed = artifacts["collapsed_ir.txt"];
-  const typeInfo = artifacts["type_info.txt"];
-  const typeInfoError = artifacts["type_info_error.txt"];
-  const wasmStats = artifacts["wasm_stats.txt"];
-  if (
-    typeof lowered !== "string" || typeof collapsed !== "string" ||
-    typeof typeInfo !== "string" || typeof typeInfoError !== "string" ||
-    typeof wasmStats !== "string"
-  ) {
+  if (typeof lowered !== "string" || typeof collapsed !== "string") {
     return false;
   }
-  return lowered.length === 0 && collapsed.length === 0 &&
-    typeInfo === "Nothing" && typeInfoError === "Nothing" &&
-    wasmStats.includes("prefix_hex=0061736d010000000113...020100");
+  return lowered.length === 0 || collapsed.length === 0;
 }
 
 async function runShell(cmd) {

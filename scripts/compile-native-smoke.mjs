@@ -2,20 +2,15 @@
 
 import { callCompilerWasm } from "./wasm-compiler-abi.mjs";
 
-const FAIL_ON_FALLBACK_ENV = "CLAPSE_NATIVE_COMPILE_SMOKE_FAIL_ON_FALLBACK";
+const PRODUCER_CONTRACT_KEYS = new Set([
+  "source_version",
+  "compile_contract_version",
+]);
 
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
-}
-
-function boolEnvFlag(name, defaultValue = false) {
-  const raw = String(Deno.env.get(name) ?? "").trim().toLowerCase();
-  if (raw.length === 0) {
-    return defaultValue;
-  }
-  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
 
 function contractMeta(response) {
@@ -24,6 +19,24 @@ function contractMeta(response) {
     return {};
   }
   return raw;
+}
+
+function boundaryFallbackContractKeys(response) {
+  const contract = contractMeta(response);
+  const keys = [];
+  for (const [key, value] of Object.entries(contract)) {
+    if (PRODUCER_CONTRACT_KEYS.has(key)) {
+      continue;
+    }
+    if (
+      value === false || value === null || value === 0 ||
+      (typeof value === "string" && value.length === 0)
+    ) {
+      continue;
+    }
+    keys.push(key);
+  }
+  return keys;
 }
 
 function fileExists(path) {
@@ -71,9 +84,10 @@ function hasSyntheticArtifactMarkers(value) {
 
 async function run() {
   const wasmPath = resolveWasmPath();
-  const failOnFallback = boolEnvFlag(FAIL_ON_FALLBACK_ENV, false);
+  const probeToken = `native-compile-smoke-${crypto.randomUUID()}`;
   const inputSource = [
     "main x = x",
+    `-- ${probeToken}`,
     "",
   ].join("\n");
   const defaultResponse = await callCompilerWasm(wasmPath, {
@@ -83,7 +97,6 @@ async function run() {
     plugin_wasm_paths: [],
   }, {
     withContractMetadata: true,
-    allowTinyKernelOutputFallback: !failOnFallback,
   });
   assert(
     defaultResponse && typeof defaultResponse === "object",
@@ -109,7 +122,6 @@ async function run() {
     plugin_wasm_paths: [],
   }, {
     withContractMetadata: true,
-    allowTinyKernelOutputFallback: !failOnFallback,
   });
   assert(
     response && typeof response === "object",
@@ -147,9 +159,12 @@ async function run() {
     artifacts && typeof artifacts === "object",
     "compile-native-smoke: missing artifacts object",
   );
+  const fallbackKeys = boundaryFallbackContractKeys(response);
   assert(
-    !failOnFallback || contractMeta(response).tiny_output_fallback !== true,
-    "compile-native-smoke: compile response used JS ABI tiny-output fallback in strict mode",
+    fallbackKeys.length === 0,
+    `compile-native-smoke: compile response includes fallback contract marker(s): ${
+      fallbackKeys.join(",")
+    }`,
   );
   assert(
     typeof artifacts["lowered_ir.txt"] === "string" &&
@@ -176,6 +191,14 @@ async function run() {
   assert(
     artifacts["collapsed_ir.txt"].includes("main x = x"),
     "compile-native-smoke: collapsed_ir.txt should include request source content",
+  );
+  assert(
+    artifacts["lowered_ir.txt"].includes(probeToken),
+    "compile-native-smoke: lowered_ir.txt should include request source probe token",
+  );
+  assert(
+    artifacts["collapsed_ir.txt"].includes(probeToken),
+    "compile-native-smoke: collapsed_ir.txt should include request source probe token",
   );
   console.log("compile-native-smoke: PASS");
 }

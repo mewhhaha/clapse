@@ -168,26 +168,27 @@ async function main() {
 
   const selfhostResp = await callCompilerWasm(wasmPath, {
     command: "selfhost-artifacts",
+    compile_mode: "kernel-native",
     input_path: "examples/wasm_main.clapse",
     input_source: "main x = x",
+    plugin_wasm_paths: [],
   });
   assert(
     selfhostResp && selfhostResp.ok === true,
     "selfhost-artifacts response must succeed",
   );
   assert(
-    selfhostResp.artifacts && typeof selfhostResp.artifacts === "object",
-    "selfhost-artifacts response must include artifacts object",
+    selfhostResp.backend === "kernel-native",
+    "selfhost-artifacts response must include kernel-native backend",
+  );
+  assert(
+    typeof selfhostResp.wasm_base64 === "string" && selfhostResp.wasm_base64.length > 0,
+    "selfhost-artifacts response must include non-empty wasm_base64",
   );
   for (
     const key of [
-      "merged_module.txt",
-      "type_info.txt",
-      "type_info_error.txt",
       "lowered_ir.txt",
       "collapsed_ir.txt",
-      "exports.txt",
-      "wasm_stats.txt",
     ]
   ) {
     assert(

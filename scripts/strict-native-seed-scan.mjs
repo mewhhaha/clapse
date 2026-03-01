@@ -10,6 +10,10 @@ const DEFAULT_KERNEL_SELFHOST_HOPS = 0;
 const REQUIRE_NO_BOUNDARY_FALLBACK_ENV =
   "CLAPSE_STRICT_NATIVE_REQUIRE_NO_BOUNDARY_FALLBACK";
 const KERNEL_SELFHOST_HOPS_ENV = "CLAPSE_STRICT_NATIVE_KERNEL_SELFHOST_HOPS";
+const PRODUCER_CONTRACT_KEYS = new Set([
+  "source_version",
+  "compile_contract_version",
+]);
 
 function usage() {
   return [
@@ -126,6 +130,24 @@ function contractMeta(response) {
   return raw;
 }
 
+function boundaryFallbackContractKeys(response) {
+  const contract = contractMeta(response);
+  const keys = [];
+  for (const [key, value] of Object.entries(contract)) {
+    if (PRODUCER_CONTRACT_KEYS.has(key)) {
+      continue;
+    }
+    if (
+      value === false || value === null || value === 0 ||
+      (typeof value === "string" && value.length === 0)
+    ) {
+      continue;
+    }
+    keys.push(key);
+  }
+  return keys;
+}
+
 function decodeWasmBase64(raw) {
   if (!nonEmptyString(raw)) {
     throw new Error("missing non-empty wasm_base64");
@@ -179,7 +201,6 @@ async function probeKernelSelfhostClosure(
           plugin_wasm_paths: [],
         }, {
           withContractMetadata: true,
-          allowTinyKernelOutputFallback: !requireNoBoundaryFallback,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -214,11 +235,11 @@ async function probeKernelSelfhostClosure(
       }
       if (
         requireNoBoundaryFallback &&
-        contractMeta(response).tiny_output_fallback === true
+        boundaryFallbackContractKeys(response).length > 0
       ) {
         return {
           ok: false,
-          reason: `kernel-hop-${hop}-compile-boundary-tiny-output-fallback`,
+          reason: `kernel-hop-${hop}-compile-boundary-contract-meta`,
         };
       }
       let wasmBytes;
@@ -285,7 +306,6 @@ async function probeStrictNative(path, requireNoBoundaryFallback) {
       plugin_wasm_paths: [],
     }, {
       withContractMetadata: true,
-      allowTinyKernelOutputFallback: !requireNoBoundaryFallback,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -313,9 +333,9 @@ async function probeStrictNative(path, requireNoBoundaryFallback) {
   }
   if (
     requireNoBoundaryFallback &&
-    contractMeta(compileResponse).tiny_output_fallback === true
+    boundaryFallbackContractKeys(compileResponse).length > 0
   ) {
-    return { ok: false, reason: "compile-boundary-tiny-output-fallback" };
+    return { ok: false, reason: "compile-boundary-contract-meta" };
   }
   const compileArtifacts = compileResponse.artifacts;
   if (

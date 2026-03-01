@@ -13,6 +13,10 @@ function usage() {
     "",
     "Commands:",
     "  compile <input.clapse> [output.wasm]",
+    "  compile-native <input.clapse> [output.wasm] (alias: compile_native)",
+    "  compile-native-debug <input.clapse> [output.wasm] [artifacts-dir] (alias: compile_native_debug)",
+    "  compile-debug <input.clapse> [output.wasm] [artifacts-dir] (alias: compile_debug)",
+    "  emit-wat <input.clapse> [output.wat]",
     "  selfhost-artifacts <input.clapse> <out-dir>",
     "  format <file>",
     "  format --write <file>",
@@ -33,7 +37,9 @@ function normalizeArgs(args) {
   for (const arg of args) {
     if (arg === "--wasm") continue;
     if (arg === "--host") {
-      throw new Error("--host is no longer supported; use wasm compiler artifacts");
+      throw new Error(
+        "--host is no longer supported; use wasm compiler artifacts",
+      );
     }
     out.push(arg);
   }
@@ -51,7 +57,9 @@ async function main() {
     return;
   }
   if (args[0] === "bench") {
-    throw new Error("bench command moved out of clapse frontend; run wasm-specific benches directly");
+    throw new Error(
+      "bench command moved out of clapse frontend; run wasm-specific benches directly",
+    );
   }
   await runWithArgs(args);
 }

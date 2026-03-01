@@ -8,7 +8,10 @@ const MIN_OUTPUT_BYTES = 4096;
 const DEFAULT_HOPS = 1;
 const FAIL_ON_BOUNDARY_FALLBACK_ENV =
   "CLAPSE_NATIVE_SELFHOST_FAIL_ON_BOUNDARY_FALLBACK";
-const ALLOW_KERNEL_ABI_FALLBACK_ENV = "CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK";
+const PRODUCER_CONTRACT_KEYS = new Set([
+  "source_version",
+  "compile_contract_version",
+]);
 
 function usage() {
   return [
@@ -19,7 +22,7 @@ function usage() {
     "  - compiler wasm can compile kernel source in kernel-native mode",
     "  - compile response is ok with backend=kernel-native",
     "  - emitted wasm is non-trivial and exports compiler ABI (memory + clapse_run)",
-    "  - optional strict mode fails when ABI tiny-output fallback is used",
+    "  - optional strict mode fails when boundary fallback contract markers are present",
     "  - repeated for N hops when --hops is set (default 1)",
   ].join("\n");
 }
@@ -70,6 +73,23 @@ function responseContractMeta(response) {
   return raw;
 }
 
+function boundaryFallbackContractKeys(contract) {
+  const keys = [];
+  for (const [key, value] of Object.entries(contract)) {
+    if (PRODUCER_CONTRACT_KEYS.has(key)) {
+      continue;
+    }
+    if (
+      value === false || value === null || value === 0 ||
+      (typeof value === "string" && value.length === 0)
+    ) {
+      continue;
+    }
+    keys.push(key);
+  }
+  return keys;
+}
+
 function fallbackHintFromResponse(response) {
   const contract = responseContractMeta(response);
   const tags = [];
@@ -84,6 +104,12 @@ function fallbackHintFromResponse(response) {
   }
   if (contract.source_artifacts_patch === true) {
     tags.push("source-artifacts");
+  }
+  if (
+    tags.length === 0 &&
+    boundaryFallbackContractKeys(contract).length > 0
+  ) {
+    tags.push("contract-meta");
   }
   return tags.join("+");
 }
@@ -214,10 +240,6 @@ async function compileKernel(
       plugin_wasm_paths: [],
     }, {
       withContractMetadata: true,
-      allowTinyKernelOutputFallback: boolEnvFlag(
-        ALLOW_KERNEL_ABI_FALLBACK_ENV,
-        true,
-      ),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -248,13 +270,17 @@ async function compileKernel(
   }
   const stageHint = stageHintFromResponse(response);
   const fallbackHint = fallbackHintFromResponse(response);
+  const contractMeta = responseContractMeta(response);
+  const fallbackContractKeys = boundaryFallbackContractKeys(contractMeta);
   if (
     failOnBoundaryFallback &&
-    responseContractMeta(response).tiny_output_fallback === true
+    fallbackContractKeys.length > 0
   ) {
     fail(
       formatWithHints(
-        `hop ${hopIndex}: compile response used boundary tiny-output fallback`,
+        `hop ${hopIndex}: compile response included boundary fallback contract metadata (${
+          fallbackContractKeys.join(",")
+        })`,
         stageHint,
         fallbackHint,
       ),

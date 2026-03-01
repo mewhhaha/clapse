@@ -2,15 +2,10 @@
 
 import { callCompilerWasm } from "./wasm-compiler-abi.mjs";
 
-const FAIL_ON_FALLBACK_ENV = "CLAPSE_NATIVE_BOUNDARY_FAIL_ON_FALLBACK";
-
-function boolEnvFlag(name, defaultValue = false) {
-  const raw = String(Deno.env.get(name) ?? "").trim().toLowerCase();
-  if (raw.length === 0) {
-    return defaultValue;
-  }
-  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
-}
+const PRODUCER_CONTRACT_KEYS = new Set([
+  "source_version",
+  "compile_contract_version",
+]);
 
 function contractMeta(response) {
   const raw = response?.__clapse_contract;
@@ -18,6 +13,24 @@ function contractMeta(response) {
     return {};
   }
   return raw;
+}
+
+function boundaryFallbackContractKeys(response) {
+  const contract = contractMeta(response);
+  const keys = [];
+  for (const [key, value] of Object.entries(contract)) {
+    if (PRODUCER_CONTRACT_KEYS.has(key)) {
+      continue;
+    }
+    if (
+      value === false || value === null || value === 0 ||
+      (typeof value === "string" && value.length === 0)
+    ) {
+      continue;
+    }
+    keys.push(key);
+  }
+  return keys;
 }
 
 function resolveWasmPath() {
@@ -59,16 +72,20 @@ function hasSyntheticArtifactMarkers(value) {
 }
 
 async function runCompileSmoke(wasmPath) {
-  const failOnFallback = boolEnvFlag(FAIL_ON_FALLBACK_ENV, false);
+  const probeToken = `native-boundary-strict-smoke-${crypto.randomUUID()}`;
+  const inputSource = [
+    "main x = x",
+    `-- ${probeToken}`,
+    "",
+  ].join("\n");
   const response = await callCompilerWasm(wasmPath, {
     command: "compile",
     compile_mode: "kernel-native",
     input_path: "examples/native_boundary_strict_smoke.clapse",
-    input_source: "main x = x\n",
+    input_source: inputSource,
     plugin_wasm_paths: [],
   }, {
     withContractMetadata: true,
-    allowTinyKernelOutputFallback: !failOnFallback,
   });
   assert(
     response && typeof response === "object",
@@ -118,8 +135,19 @@ async function runCompileSmoke(wasmPath) {
     "native-boundary-strict-smoke: compile response collapsed_ir.txt should include request source content",
   );
   assert(
-    !failOnFallback || contractMeta(response).tiny_output_fallback !== true,
-    "native-boundary-strict-smoke: compile response used JS ABI tiny-output fallback in strict mode",
+    artifacts["lowered_ir.txt"].includes(probeToken),
+    "native-boundary-strict-smoke: compile response lowered_ir.txt should include request source probe token",
+  );
+  assert(
+    artifacts["collapsed_ir.txt"].includes(probeToken),
+    "native-boundary-strict-smoke: compile response collapsed_ir.txt should include request source probe token",
+  );
+  const fallbackKeys = boundaryFallbackContractKeys(response);
+  assert(
+    fallbackKeys.length === 0,
+    `native-boundary-strict-smoke: compile response includes fallback contract marker(s): ${
+      fallbackKeys.join(",")
+    }`,
   );
 }
 

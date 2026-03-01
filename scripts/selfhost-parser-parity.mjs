@@ -178,12 +178,12 @@ async function main() {
 
     const mismatches = [];
     if (left.ok && right.ok) {
-      const leftMerged = await readMaybe(`${leftOut}/merged_module.txt`);
-      const rightMerged = await readMaybe(`${rightOut}/merged_module.txt`);
+      const leftMerged = await readMaybe(`${leftOut}/lowered_ir.txt`);
+      const rightMerged = await readMaybe(`${rightOut}/lowered_ir.txt`);
       if (leftMerged === null || rightMerged === null) {
-        mismatches.push("merged_module.txt");
+        mismatches.push("lowered_ir.txt");
       } else if (leftMerged !== rightMerged) {
-        mismatches.push("merged_module.txt");
+        mismatches.push("lowered_ir.txt");
       }
     }
 
