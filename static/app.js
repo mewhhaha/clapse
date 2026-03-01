@@ -100,10 +100,18 @@ Prelude will load from the selected release.
       <button
         type="button"
         class="tab-button"
-        data-tab-target="ir"
+        data-tab-target="lowered-ir"
         aria-selected="false"
       >
-        IR
+        Lowered IR
+      </button>
+      <button
+        type="button"
+        class="tab-button"
+        data-tab-target="collapsed-ir"
+        aria-selected="false"
+      >
+        Collapsed IR
       </button>
       <button
         type="button"
@@ -111,70 +119,30 @@ Prelude will load from the selected release.
         data-tab-target="compile"
         aria-selected="true"
       >
-        Compile
-      </button>
-      <button
-        type="button"
-        class="tab-button"
-        data-tab-target="bundle"
-        aria-selected="false"
-      >
-        Bundle
-      </button>
-      <button
-        type="button"
-        class="tab-button"
-        data-tab-target="problems"
-        aria-selected="false"
-      >
-        Problems
-      </button>
-      <button
-        type="button"
-        class="tab-button"
-        data-tab-target="settings"
-        aria-selected="false"
-      >
-        Settings
+        WASM
       </button>
     </nav>
 
     <section class="tab-panels">
-      <section class="tab-panel" data-tab-panel="ir" hidden>
-        <pre id="ir-output" class="result-output">(IR appears after release load.)</pre>
+      <section class="tab-panel" data-tab-panel="lowered-ir" hidden>
+        <pre id="lowered-ir-output" class="result-output">
+(Lowered IR appears after compile.)
+        </pre>
+      </section>
+
+      <section class="tab-panel" data-tab-panel="collapsed-ir" hidden>
+        <pre id="collapsed-ir-output" class="result-output">
+(Collapsed IR appears after compile.)
+        </pre>
       </section>
 
       <section class="tab-panel is-active" data-tab-panel="compile">
         <pre id="compile-output" class="result-output">
-(Compile output appears after release load.)
+(WASM output appears after compile.)
         </pre>
         <a id="wasm-download" href="#" download hidden>
           Download Compiled Wasm
         </a>
-      </section>
-
-      <section class="tab-panel" data-tab-panel="bundle" hidden>
-        <pre id="bundle-output" class="result-output">
-(Compile debug mode output appears here.)
-        </pre>
-      </section>
-
-      <section class="tab-panel" data-tab-panel="problems" hidden>
-        <pre id="problems-output" class="result-output">No problems.</pre>
-      </section>
-
-      <section class="tab-panel settings-panel" data-tab-panel="settings" hidden>
-        <label class="setting-item">
-          <input id="settings-auto-run" type="checkbox" checked />
-          <span>Auto-run compile on edit</span>
-        </label>
-        <label class="setting-item">
-          <input id="settings-format-on-run" type="checkbox" />
-          <span>Format before run</span>
-        </label>
-        <p id="settings-highlight-note" class="settings-note">
-          Release metadata is loaded from GitHub Releases, then resolved to mirrored local artifacts for browser-safe loading.
-        </p>
       </section>
     </section>
   </aside>
@@ -309,7 +277,6 @@ const state = {
   compileTimer: null,
   preludeLoadTicket: 0,
   autoRun: true,
-  formatOnRun: false,
   activeTab: "compile",
   activeSourceTab: "code",
   downloadUrl: null,
@@ -327,13 +294,9 @@ const elements = {
   autoRun: document.getElementById("auto-run"),
   runButton: document.getElementById("run-button"),
   formatButton: document.getElementById("format-button"),
-  settingsAutoRun: document.getElementById("settings-auto-run"),
-  settingsFormatOnRun: document.getElementById("settings-format-on-run"),
-  settingsHighlightNote: document.getElementById("settings-highlight-note"),
-  irOutput: document.getElementById("ir-output"),
+  loweredIrOutput: document.getElementById("lowered-ir-output"),
+  collapsedIrOutput: document.getElementById("collapsed-ir-output"),
   compileOutput: document.getElementById("compile-output"),
-  bundleOutput: document.getElementById("bundle-output"),
-  problemsOutput: document.getElementById("problems-output"),
   wasmDownload: document.getElementById("wasm-download"),
   sourceTabButtons: [...document.querySelectorAll("[data-source-tab-target]")],
   sourceTabPanels: [...document.querySelectorAll("[data-source-tab-panel]")],
@@ -351,7 +314,6 @@ async function main() {
   renderSourceHighlight();
   bindEvents();
   setAutoRun(true);
-  setFormatOnRun(false);
   setActiveSourceTab("code");
   setActiveTab("compile");
   await loadReleases();
@@ -369,7 +331,6 @@ function bindEvents() {
 
   elements.releaseSelect.addEventListener("change", () => {
     syncReleaseLink();
-    updateHighlightAvailability();
     void refreshPreludeForSelectedRelease();
     scheduleCompile(15);
   });
@@ -401,17 +362,6 @@ function bindEvents() {
     if (state.autoRun) {
       scheduleCompile(15);
     }
-  });
-
-  elements.settingsAutoRun.addEventListener("change", () => {
-    setAutoRun(elements.settingsAutoRun.checked);
-    if (state.autoRun) {
-      scheduleCompile(15);
-    }
-  });
-
-  elements.settingsFormatOnRun.addEventListener("change", () => {
-    setFormatOnRun(elements.settingsFormatOnRun.checked);
   });
 
   for (const button of elements.tabButtons) {
@@ -509,12 +459,6 @@ function setActiveSourceTab(tab) {
 function setAutoRun(enabled) {
   state.autoRun = enabled;
   elements.autoRun.checked = enabled;
-  elements.settingsAutoRun.checked = enabled;
-}
-
-function setFormatOnRun(enabled) {
-  state.formatOnRun = enabled;
-  elements.settingsFormatOnRun.checked = enabled;
 }
 
 function scheduleCompile(delayMs = AUTO_COMPILE_DELAY_MS) {
@@ -553,7 +497,6 @@ async function loadReleases() {
     );
     renderReleaseSelect(releases);
     syncReleaseLink();
-    updateHighlightAvailability();
     await refreshPreludeForSelectedRelease();
     setStatus(
       `Loaded ${releases.length} mirrored release(s) (>= ${MIN_SUPPORTED_RELEASE_TAG}).`,
@@ -561,8 +504,8 @@ async function loadReleases() {
     scheduleCompile(25);
   } catch (err) {
     setStatus(errorMessage(err));
-    renderProblems([`Release load failed: ${errorMessage(err)}`]);
-    setActiveTab("problems");
+    elements.compileOutput.textContent = `Release load failed:\n${errorMessage(err)}`;
+    setActiveTab("compile");
   } finally {
     setControlsBusy(false);
   }
@@ -603,18 +546,6 @@ function hasOption(selectEl, value) {
 function syncReleaseLink() {
   const release = state.releaseByTag.get(elements.releaseSelect.value);
   elements.releaseLink.href = release?.htmlUrl ?? RELEASES_PAGE;
-}
-
-function updateHighlightAvailability() {
-  const tag = elements.releaseSelect.value;
-  const hasTreeSitterAsset = releaseHasTreeSitterAsset(tag);
-  if (hasTreeSitterAsset) {
-    elements.settingsHighlightNote.textContent =
-      "Release includes a Tree-sitter asset; syntax mode can be upgraded once parser integration is added.";
-    return;
-  }
-  elements.settingsHighlightNote.textContent =
-    "Current releases do not include a Tree-sitter grammar wasm asset, so editor highlighting uses the built-in tokenizer.";
 }
 
 async function fetchReleaseMetadata() {
@@ -695,17 +626,6 @@ function formatDate(raw) {
   return new Date(parsed).toISOString().slice(0, 10);
 }
 
-function releaseHasTreeSitterAsset(tag) {
-  const release = state.releaseByTag.get(tag);
-  if (!release || !Array.isArray(release.assets)) {
-    return false;
-  }
-  return release.assets.some((asset) => {
-    const name = String(asset?.name ?? "").toLowerCase();
-    return name.includes("tree-sitter") && name.endsWith(".wasm");
-  });
-}
-
 function parseReleaseVersion(tag) {
   const normalized = String(tag).trim().replace(/^v/i, "");
   if (!/^\d+(\.\d+)+$/.test(normalized)) {
@@ -782,9 +702,9 @@ async function runFormatOnly() {
     const session = await createCompilerSession(tag);
     const formatResult = callFormat(session, elements.sourceCode.value);
     if (!formatResult.ok) {
-      renderProblems([`Format failed: ${formatResult.error}`]);
       setStatus(`Format failed: ${formatResult.error}`);
-      setActiveTab("problems");
+      elements.compileOutput.textContent = `Format failed:\n${formatResult.error}`;
+      setActiveTab("compile");
       return;
     }
 
@@ -792,7 +712,6 @@ async function runFormatOnly() {
       elements.sourceCode.value = formatResult.formatted;
       renderSourceHighlight();
     }
-    renderProblems(["No problems."]);
     setStatus(`Formatted using ${tag}.`);
     if (state.autoRun) {
       scheduleCompile(20);
@@ -800,8 +719,8 @@ async function runFormatOnly() {
   } catch (err) {
     const message = errorMessage(err);
     setStatus(`Format failed: ${message}`);
-    renderProblems([`Format failed: ${message}`]);
-    setActiveTab("problems");
+    elements.compileOutput.textContent = `Format failed:\n${message}`;
+    setActiveTab("compile");
   } finally {
     state.running = false;
     setControlsBusy(false);
@@ -825,7 +744,6 @@ async function runCompile({ forceFormat = false } = {}) {
   setStatus(`Compiling with ${tag}...`);
   setDownloadLink(null, null);
 
-  const problems = [];
   let irIssue = null;
 
   try {
@@ -834,14 +752,14 @@ async function runCompile({ forceFormat = false } = {}) {
     const preludeSource = await loadPreludeSource(tag);
     elements.preludeOutput.textContent = preludeSource;
 
-    if (forceFormat || state.formatOnRun) {
+    if (forceFormat) {
       const formatResult = callFormat(session, source);
       if (formatResult.ok && formatResult.formatted !== null) {
         source = formatResult.formatted;
         elements.sourceCode.value = source;
         renderSourceHighlight();
       } else if (!formatResult.ok) {
-        problems.push(`Format failed: ${formatResult.error}`);
+        elements.compileOutput.textContent = `Format failed:\n${formatResult.error}`;
       }
     }
 
@@ -851,9 +769,6 @@ async function runCompile({ forceFormat = false } = {}) {
     let compileResponse;
     let artifactsResponse = null;
     let artifactsError = null;
-    let compileMode = "compile(debug)";
-    let compileNote = 'command="compile", compile_mode="debug"';
-    let irSource = "none";
 
     if (debugCompileResult.ok) {
       compileResponse = debugCompileResult.response;
@@ -866,32 +781,22 @@ async function runCompile({ forceFormat = false } = {}) {
           ok: true,
           artifacts: compileResponse.artifacts,
         };
-        irSource = "compile response";
       } else {
         const artifactsResult = runArtifactsPipeline(session, compileSource);
         artifactsResponse = artifactsResult.artifactsResponse;
         artifactsError = artifactsResult.artifactsError;
-        if (artifactsError) {
-          compileNote = `${compileNote}; selfhost fallback failed`;
-          irSource = "unavailable";
-        } else {
-          compileNote = `${compileNote}; selfhost fallback`;
-          irSource = "selfhost-artifacts";
-        }
       }
     } else {
       const splitResult = runCompilePipeline(session, compileSource);
       compileResponse = splitResult.compileResponse;
       artifactsResponse = splitResult.artifactsResponse;
       artifactsError = splitResult.artifactsError;
-      compileMode = "compile";
-      compileNote = `debug request failed: ${debugCompileResult.error}`;
-      irSource = artifactsError ? "unavailable" : "selfhost-artifacts";
     }
 
     if (typeof artifactsError === "string" && artifactsError.length > 0) {
       irIssue = `IR generation failed: ${artifactsError}`;
-      elements.irOutput.textContent = `${irIssue}\n\nCompile output is still available in the Compile tab.`;
+      elements.loweredIrOutput.textContent = irIssue;
+      elements.collapsedIrOutput.textContent = irIssue;
     } else {
       const loweredIr = extractArtifactText(
         artifactsResponse,
@@ -901,41 +806,19 @@ async function runCompile({ forceFormat = false } = {}) {
         artifactsResponse,
         "collapsed_ir.txt",
       );
-      elements.irOutput.textContent = [
-        "lowered_ir.txt",
-        loweredIr,
-        "",
-        "collapsed_ir.txt",
-        collapsedIr,
-      ].join("\n");
+      elements.loweredIrOutput.textContent = loweredIr;
+      elements.collapsedIrOutput.textContent = collapsedIr;
 
       if (artifactsResponse?.ok !== true) {
         irIssue = `IR generation failed: ${formatResponseError(artifactsResponse)}`;
       }
     }
 
-    const artifactKeys =
-      artifactsResponse?.artifacts &&
-      typeof artifactsResponse.artifacts === "object"
-        ? Object.keys(artifactsResponse.artifacts)
-        : [];
-    elements.bundleOutput.textContent = [
-      `mode: ${compileMode}`,
-      `compile_request: ${compileNote}`,
-      `compile_ok: ${compileResponse?.ok === true}`,
-      `ir_source: ${irSource}`,
-      `ir_ok: ${artifactsResponse?.ok === true && !artifactsError}`,
-      artifactKeys.length > 0
-        ? `artifact_keys: ${artifactKeys.join(", ")}`
-        : "artifact_keys: (none)",
-    ].join("\n");
-
     if (compileResponse?.ok === true) {
       const wasmBase64 = String(compileResponse.wasm_base64 ?? "");
       if (wasmBase64.length === 0) {
         elements.compileOutput.textContent =
           "Compile succeeded but wasm_base64 was empty.";
-        problems.push("Compile succeeded with empty wasm_base64.");
       } else {
         const wasmBytes = decodeWasmBase64(wasmBase64);
         setDownloadLink(tag, wasmBytes);
@@ -959,30 +842,21 @@ async function runCompile({ forceFormat = false } = {}) {
     } else {
       const compileError = formatResponseError(compileResponse);
       elements.compileOutput.textContent = compileError;
-      problems.push(`Compile failed: ${compileError}`);
+      setStatus(`Compile failed: ${compileError}`);
+      setActiveTab("compile");
+      return;
     }
 
-    if (problems.length === 0) {
-      renderProblems(["No problems."]);
-      if (irIssue) {
-        setStatus(`Compiled ${tag} successfully (IR unavailable).`);
-      } else {
-        setStatus(`Compiled ${tag} successfully.`);
-      }
-      if (state.activeTab === "problems") {
-        setActiveTab("compile");
-      }
+    if (irIssue) {
+      setStatus(`Compiled ${tag} successfully (IR unavailable).`);
     } else {
-      renderProblems(problems);
-      setStatus(`Finished ${tag} with ${problems.length} problem(s).`);
-      setActiveTab("problems");
+      setStatus(`Compiled ${tag} successfully.`);
     }
   } catch (err) {
     const message = errorMessage(err);
     setStatus(`Compile failed: ${message}`);
     elements.compileOutput.textContent = `Compile failed.\n${message}`;
-    renderProblems([`Compile failed: ${message}`]);
-    setActiveTab("problems");
+    setActiveTab("compile");
   } finally {
     state.running = false;
     setControlsBusy(false);
@@ -1064,12 +938,6 @@ function extractFormattedText(response) {
     }
   }
   return null;
-}
-
-function renderProblems(lines) {
-  const filtered = lines.filter((line) => String(line).trim().length > 0);
-  elements.problemsOutput.textContent =
-    filtered.length > 0 ? filtered.join("\n\n") : "No problems.";
 }
 
 function renderSourceHighlight() {

@@ -1,4 +1,5 @@
 node_modules/
 _fresh/
+.vite/
 .agents/
 skills-lock.json
