@@ -235,6 +235,9 @@ The command returns a single compile response with:
   If `deno compile` cannot run (for example offline `denort` download
   failures), `just install` now reuses an existing `artifacts/bin/clapse` when
   present, otherwise emits a `deno run` shim at `artifacts/bin/clapse`.
+  `just clapse-bin`, `just install`, and `just release-candidate` now remove
+  pre-existing CLI output files before invoking `deno compile`, so reruns do
+  not fail on existing binaries.
   `just install` also falls back to a temporary writable
   `XDG_CONFIG_HOME` when the default config path is not writable.
 - Keep release bundle docs aligned with `just release-candidate` and `.github`

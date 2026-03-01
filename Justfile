@@ -11,6 +11,7 @@ clapse-bin:
   if [[ -s artifacts/latest/clapse_compiler.wasm ]]; then
     include_args+=(--include artifacts/latest/clapse_compiler.wasm)
   fi
+  rm -f artifacts/bin/clapse
   deno compile -A "${include_args[@]}" --output artifacts/bin/clapse scripts/clapse.mjs
 
 compile input output='out/module.wasm': clapse-bin
@@ -357,6 +358,7 @@ install:
   if [[ "${CLAPSE_RUN_WILDCARD_DEMAND_CHECK:-0}" == "1" ]]; then
     just semantics-check
   fi
+  rm -f artifacts/bin/clapse
   if ! deno compile -A --include artifacts/latest/clapse_compiler.wasm --output artifacts/bin/clapse scripts/clapse.mjs; then
     if [[ -x artifacts/bin/clapse ]]; then
       echo "install: warning: deno compile failed; reusing existing artifacts/bin/clapse" >&2
@@ -417,6 +419,7 @@ release-candidate out='out/releases':
   [[ -s "${compiler_wasm}" ]] || { echo "release-candidate: compiled compiler wasm missing: ${compiler_wasm}" >&2; exit 1; }
   [[ -s "${compiler_dts}" ]] || { echo "release-candidate: compiled compiler d.ts missing: ${compiler_dts}" >&2; exit 1; }
   deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "${compiler_wasm}"
+  rm -f "${cli_bin}"
   if ! deno compile -A --output "${cli_bin}" scripts/clapse.mjs; then
     if [[ "$allow_bin_reuse" == "1" && -x artifacts/bin/clapse ]]; then
       echo "release-candidate: warning: host cli compile failed; reusing artifacts/bin/clapse" >&2
@@ -434,6 +437,7 @@ release-candidate out='out/releases':
   if [[ "$skip_cross_target_cli" == "1" ]]; then
     echo "release-candidate: skipping cross-target cli builds (CLAPSE_RELEASE_SKIP_CROSS_TARGET_CLI=1)" >&2
   else
+    rm -f "${cli_bin_linux_x64}" "${cli_bin_linux_arm64}" "${cli_bin_macos_x64}" "${cli_bin_macos_arm64}" "${cli_bin_win_x64}"
     deno compile -A --target x86_64-unknown-linux-gnu --output "${cli_bin_linux_x64}" scripts/clapse.mjs
     chmod +x "${cli_bin_linux_x64}"
     deno compile -A --target aarch64-unknown-linux-gnu --output "${cli_bin_linux_arm64}" scripts/clapse.mjs

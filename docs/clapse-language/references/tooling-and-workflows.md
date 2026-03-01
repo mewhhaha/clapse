@@ -276,6 +276,9 @@ Current targets in `Justfile`:
     `CLAPSE_RELEASE_ALLOW_BIN_REUSE=1` (reuse `artifacts/bin/clapse` for host
     CLI when host compile fails).
     `just ci-local` defaults both env vars to `1`.
+  - CLI compile outputs are replaced on rerun: `just clapse-bin`, `just install`,
+    and `just release-candidate` remove pre-existing target binaries before
+    invoking `deno compile`.
 
 ## LSP and Formatter
 
