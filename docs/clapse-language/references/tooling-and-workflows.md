@@ -103,6 +103,11 @@ deno run -A scripts/clapse.mjs bench [iterations]
   - `just install` now runs `just bootstrap-strict-native-seed` and
     `just bootstrap-compiler`, then refreshes
     `artifacts/latest/clapse_compiler.wasm` + `.d.ts` from that kernel recompile.
+    If `deno compile` cannot run (for example offline `denort` download
+    failures), install reuses an existing `artifacts/bin/clapse` when present,
+    otherwise generates a `deno run` shim at `artifacts/bin/clapse`.
+    Install also falls back to a temporary writable `XDG_CONFIG_HOME` when
+    Helix config paths are not writable.
   - `just install` runs wildcard-demand gate only when
     `CLAPSE_RUN_WILDCARD_DEMAND_CHECK=1`.
   - bridge artifacts are deprecated/unsupported in runtime validation paths.
@@ -266,6 +271,11 @@ Current targets in `Justfile`:
   - release metadata now tracks one or more CLI binaries passed to
     `scripts/release-metadata.mjs` via repeated `--cli-bin` flags; each binary
     is added as a separate manifest entry and checksum line.
+  - for local/offline release checks, `release-candidate` supports
+    `CLAPSE_RELEASE_SKIP_CROSS_TARGET_CLI=1` (skip cross-target CLI builds) and
+    `CLAPSE_RELEASE_ALLOW_BIN_REUSE=1` (reuse `artifacts/bin/clapse` for host
+    CLI when host compile fails).
+    `just ci-local` defaults both env vars to `1`.
 
 ## LSP and Formatter
 

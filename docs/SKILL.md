@@ -190,6 +190,10 @@ The command returns a single compile response with:
 - Use `just ci-local` before tags to mirror local release verification flow
   (`just install`, `just pre-tag-verify`,
   `just release-candidate out=out/releases-ci-local`).
+  `ci-local` now defaults to
+  `CLAPSE_RELEASE_SKIP_CROSS_TARGET_CLI=1` and
+  `CLAPSE_RELEASE_ALLOW_BIN_REUSE=1` so local/offline verification can complete
+  without cross-target `deno compile` downloads.
 - Keep native record-lowering migration notes synchronized between
   `docs/clapse-language/references/syntax-reference.md` and
   `docs/clapse-language/references/optimization-and-collapse-ir.md`.
@@ -228,6 +232,11 @@ The command returns a single compile response with:
   (`just native-source-version-propagation-gate [wasm] [hops]`), and only
   retains a bootstrap seed artifact when that seed already passes the same
   checks.
+  If `deno compile` cannot run (for example offline `denort` download
+  failures), `just install` now reuses an existing `artifacts/bin/clapse` when
+  present, otherwise emits a `deno run` shim at `artifacts/bin/clapse`.
+  `just install` also falls back to a temporary writable
+  `XDG_CONFIG_HOME` when the default config path is not writable.
 - Keep release bundle docs aligned with `just release-candidate` and `.github`
   release verification outputs when release artifact membership changes (for
   example when adding `prelude.clapse` or `clapse_compiler.d.ts`).

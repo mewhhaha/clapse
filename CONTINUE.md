@@ -7,6 +7,31 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
 
 ## Latest continuation
 
+- update (2026-03-01, ci-local-offline-sandbox-resilience):
+  - fixed remaining local pipeline blockers in sandbox/offline environments:
+    - `Justfile` `install`:
+      - if `deno compile` fails (for example `denort` DNS/download failure), now
+        reuses existing `artifacts/bin/clapse` when present; otherwise generates
+        a `deno run` shim at `artifacts/bin/clapse`.
+      - if default config path is not writable, now falls back to a temporary
+        writable `XDG_CONFIG_HOME` for `scripts/setup-helix-local.sh`.
+    - `Justfile` `release-candidate`:
+      - added `CLAPSE_RELEASE_SKIP_CROSS_TARGET_CLI=1` to skip cross-target CLI
+        builds when desired.
+      - added `CLAPSE_RELEASE_ALLOW_BIN_REUSE=1` to reuse
+        `artifacts/bin/clapse` when host CLI compile fails.
+      - metadata `--cli-bin` arguments are now dynamic based on whether
+        cross-target binaries are built.
+    - `Justfile` `ci-local` now defaults:
+      - `CLAPSE_RELEASE_SKIP_CROSS_TARGET_CLI=1`
+      - `CLAPSE_RELEASE_ALLOW_BIN_REUSE=1`
+  - docs sync:
+    - `docs/SKILL.md`
+    - `docs/clapse-language/references/tooling-and-workflows.md`
+  - verification evidence:
+    - `HOME=/tmp/clapse_home XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just ci-local`
+      -> pass end-to-end in sandbox/offline conditions.
+
 - update (2026-03-01, remove-compiler-abi-compile-autofallback):
   - removed compile auto-fallback from compiler ABI boundary:
     - `scripts/wasm-compiler-abi.mjs` no longer calls

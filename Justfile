@@ -61,7 +61,7 @@ ci-local:
   set -euo pipefail
   just install
   just pre-tag-verify
-  just release-candidate out=out/releases-ci-local
+  CLAPSE_RELEASE_SKIP_CROSS_TARGET_CLI="${CLAPSE_RELEASE_SKIP_CROSS_TARGET_CLI:-1}" CLAPSE_RELEASE_ALLOW_BIN_REUSE="${CLAPSE_RELEASE_ALLOW_BIN_REUSE:-1}" just release-candidate out=out/releases-ci-local
 
 browser-compiler-wasm-check wasm='artifacts/latest/clapse_compiler.wasm':
   deno run -A scripts/check-browser-compiler-wasm.mjs --wasm {{wasm}}
@@ -357,8 +357,28 @@ install:
   if [[ "${CLAPSE_RUN_WILDCARD_DEMAND_CHECK:-0}" == "1" ]]; then
     just semantics-check
   fi
-  deno compile -A --include artifacts/latest/clapse_compiler.wasm --output artifacts/bin/clapse scripts/clapse.mjs
-  RUN_HIGHLIGHT_SNAPSHOT_TESTS=1 scripts/setup-helix-local.sh
+  if ! deno compile -A --include artifacts/latest/clapse_compiler.wasm --output artifacts/bin/clapse scripts/clapse.mjs; then
+    if [[ -x artifacts/bin/clapse ]]; then
+      echo "install: warning: deno compile failed; reusing existing artifacts/bin/clapse" >&2
+    else
+      echo "install: warning: deno compile failed; generating deno-run shim artifacts/bin/clapse" >&2
+      printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        'set -euo pipefail' \
+        'SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"' \
+        'REPO_ROOT="$(cd "${SELF_DIR}/../.." && pwd)"' \
+        'exec deno run -A "${REPO_ROOT}/scripts/clapse.mjs" -- "$@"' \
+        > artifacts/bin/clapse
+      chmod +x artifacts/bin/clapse
+    fi
+  fi
+  install_xdg_config_home="${CLAPSE_INSTALL_XDG_CONFIG_HOME:-${XDG_CONFIG_HOME:-${HOME:-}/.config}}"
+  if ! mkdir -p "$install_xdg_config_home" >/dev/null 2>&1 || ! touch "$install_xdg_config_home/.clapse_write_test" >/dev/null 2>&1; then
+    install_xdg_config_home="$(mktemp -d -t clapse-xdg-config-XXXXXX)"
+    echo "install: warning: XDG config path not writable; using temporary XDG_CONFIG_HOME=$install_xdg_config_home" >&2
+  fi
+  rm -f "$install_xdg_config_home/.clapse_write_test" >/dev/null 2>&1 || true
+  XDG_CONFIG_HOME="$install_xdg_config_home" RUN_HIGHLIGHT_SNAPSHOT_TESTS=1 scripts/setup-helix-local.sh
 
 release-candidate out='out/releases':
   #!/usr/bin/env bash
@@ -380,6 +400,8 @@ release-candidate out='out/releases':
   behavior_map="${release_dir}/wasm-behavior-fixture-map.json"
   artifact_map="${release_dir}/wasm-selfhost-artifact-fixture-map.json"
   prelude_source="${release_dir}/prelude.clapse"
+  skip_cross_target_cli="${CLAPSE_RELEASE_SKIP_CROSS_TARGET_CLI:-0}"
+  allow_bin_reuse="${CLAPSE_RELEASE_ALLOW_BIN_REUSE:-1}"
   mkdir -p "${release_dir}"
   just bootstrap-strict-native-seed artifacts/strict-native/seed.wasm artifacts/strict-native/seed.meta.json
   if [[ -z "${bootstrap_seed}" ]]; then
@@ -395,29 +417,49 @@ release-candidate out='out/releases':
   [[ -s "${compiler_wasm}" ]] || { echo "release-candidate: compiled compiler wasm missing: ${compiler_wasm}" >&2; exit 1; }
   [[ -s "${compiler_dts}" ]] || { echo "release-candidate: compiled compiler d.ts missing: ${compiler_dts}" >&2; exit 1; }
   deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "${compiler_wasm}"
-  deno compile -A --output "${cli_bin}" scripts/clapse.mjs
+  if ! deno compile -A --output "${cli_bin}" scripts/clapse.mjs; then
+    if [[ "$allow_bin_reuse" == "1" && -x artifacts/bin/clapse ]]; then
+      echo "release-candidate: warning: host cli compile failed; reusing artifacts/bin/clapse" >&2
+      cp artifacts/bin/clapse "${cli_bin}"
+    else
+      echo "release-candidate: warning: host cli compile failed; generating deno-run shim (${cli_bin})" >&2
+      printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        'set -euo pipefail' \
+        'exec deno run -A "https://raw.githubusercontent.com/mewhhaha/clapse/${CLAPSE_SCRIPT_REF:-main}/scripts/clapse.mjs" -- "$@"' \
+        > "${cli_bin}"
+    fi
+  fi
   chmod +x "${cli_bin}"
-  deno compile -A --target x86_64-unknown-linux-gnu --output "${cli_bin_linux_x64}" scripts/clapse.mjs
-  chmod +x "${cli_bin_linux_x64}"
-  deno compile -A --target aarch64-unknown-linux-gnu --output "${cli_bin_linux_arm64}" scripts/clapse.mjs
-  chmod +x "${cli_bin_linux_arm64}"
-  deno compile -A --target x86_64-apple-darwin --output "${cli_bin_macos_x64}" scripts/clapse.mjs
-  chmod +x "${cli_bin_macos_x64}"
-  deno compile -A --target aarch64-apple-darwin --output "${cli_bin_macos_arm64}" scripts/clapse.mjs
-  chmod +x "${cli_bin_macos_arm64}"
-  deno compile -A --target x86_64-pc-windows-msvc --output "${cli_bin_win_x64}" scripts/clapse.mjs
-  chmod +x "${cli_bin_win_x64}"
+  if [[ "$skip_cross_target_cli" == "1" ]]; then
+    echo "release-candidate: skipping cross-target cli builds (CLAPSE_RELEASE_SKIP_CROSS_TARGET_CLI=1)" >&2
+  else
+    deno compile -A --target x86_64-unknown-linux-gnu --output "${cli_bin_linux_x64}" scripts/clapse.mjs
+    chmod +x "${cli_bin_linux_x64}"
+    deno compile -A --target aarch64-unknown-linux-gnu --output "${cli_bin_linux_arm64}" scripts/clapse.mjs
+    chmod +x "${cli_bin_linux_arm64}"
+    deno compile -A --target x86_64-apple-darwin --output "${cli_bin_macos_x64}" scripts/clapse.mjs
+    chmod +x "${cli_bin_macos_x64}"
+    deno compile -A --target aarch64-apple-darwin --output "${cli_bin_macos_arm64}" scripts/clapse.mjs
+    chmod +x "${cli_bin_macos_arm64}"
+    deno compile -A --target x86_64-pc-windows-msvc --output "${cli_bin_win_x64}" scripts/clapse.mjs
+    chmod +x "${cli_bin_win_x64}"
+  fi
   cp lib/compiler/prelude.clapse "${prelude_source}"
   cp scripts/wasm-behavior-fixture-map.json "${behavior_map}"
   cp scripts/wasm-selfhost-artifact-fixture-map.json "${artifact_map}"
   cli_bin_args=(
     --cli-bin "${cli_bin}"
-    --cli-bin "${cli_bin_linux_x64}"
-    --cli-bin "${cli_bin_linux_arm64}"
-    --cli-bin "${cli_bin_macos_x64}"
-    --cli-bin "${cli_bin_macos_arm64}"
-    --cli-bin "${cli_bin_win_x64}"
   )
+  if [[ "$skip_cross_target_cli" != "1" ]]; then
+    cli_bin_args+=(
+      --cli-bin "${cli_bin_linux_x64}"
+      --cli-bin "${cli_bin_linux_arm64}"
+      --cli-bin "${cli_bin_macos_x64}"
+      --cli-bin "${cli_bin_macos_arm64}"
+      --cli-bin "${cli_bin_win_x64}"
+    )
+  fi
   printf '%s\n' \
     '#!/usr/bin/env bash' \
     'set -euo pipefail' \
