@@ -1,13 +1,18 @@
 import { makeRuntime } from "./wasm-runtime.mjs";
+import {
+  buildWasmSeedCompileResponse,
+  isWasmBootstrapSeedEnabled,
+} from "./wasm-bootstrap-seed.mjs";
 
 const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder();
 const CLAPSE_WASM_TAIL_CALL_ENV = "CLAPSE_EMIT_WASM_TAIL_CALLS";
-const CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK_ENV =
-  "CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK";
-const CLAPSE_KERNEL_COMPILE_INJECT_SEED_ENV =
-  "CLAPSE_KERNEL_COMPILE_INJECT_SEED_WASM";
-const KERNEL_COMPILE_SEED_KEY = "seed_wasm_base64";
+const CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION =
+  "CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION";
+const CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK =
+  "CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK";
+const CLAPSE_ENABLE_WASM_BOOTSTRAP_AUTOFALLBACK =
+  "CLAPSE_ENABLE_WASM_BOOTSTRAP_AUTOFALLBACK";
 const MIN_STABLE_KERNEL_COMPILER_BYTES = 16 * 1024;
 const COMPILE_DEBUG_ARTIFACT_FILES = [
   "lowered_ir.txt",
@@ -24,13 +29,11 @@ function fromBase64(input) {
 }
 
 function toBase64(bytes) {
-  const chunkSize = 0x8000;
-  const chunks = [];
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const end = Math.min(i + chunkSize, bytes.length);
-    chunks.push(String.fromCharCode(...bytes.subarray(i, end)));
+  let raw = "";
+  for (const value of bytes) {
+    raw += String.fromCharCode(value);
   }
-  return btoa(chunks.join(""));
+  return btoa(raw);
 }
 
 function boolEnvFlag(name, defaultValue = false) {
@@ -83,107 +86,6 @@ function readWasmString(bytes, start, end) {
     value: UTF8_DECODER.decode(bytes.subarray(startBytes, next)),
     next,
   };
-}
-
-function parseWasmExportEntries(bytes, sectionStart, sectionEnd) {
-  const countInfo = decodeVarU32(bytes, sectionStart, sectionEnd);
-  let cursor = countInfo.next;
-  const entries = [];
-  for (let i = 0; i < countInfo.value; i += 1) {
-    const entryStart = cursor;
-    const nameInfo = readWasmString(bytes, cursor, sectionEnd);
-    cursor = nameInfo.next;
-    if (cursor >= sectionEnd) {
-      throw new Error("malformed wasm export entry");
-    }
-    const kind = bytes[cursor];
-    cursor += 1;
-    const indexInfo = decodeVarU32(bytes, cursor, sectionEnd);
-    cursor = indexInfo.next;
-    entries.push({
-      name: nameInfo.value,
-      kind,
-      index: indexInfo.value,
-      start: entryStart,
-      end: cursor,
-    });
-  }
-  return {
-    count: countInfo.value,
-    entries,
-  };
-}
-
-function appendFunctionExportAlias(wasmBytes, sourceExport, aliasExport) {
-  let cursor = 8;
-  while (cursor < wasmBytes.length) {
-    const sectionIdPos = cursor;
-    const sectionId = wasmBytes[cursor];
-    cursor += 1;
-    const sizeInfo = decodeVarU32(wasmBytes, cursor, wasmBytes.length);
-    const sectionStart = sizeInfo.next;
-    const sectionEnd = sectionStart + sizeInfo.value;
-    if (sectionEnd > wasmBytes.length) {
-      throw new Error("malformed wasm section");
-    }
-    cursor = sectionEnd;
-    if (sectionId !== 7) {
-      continue;
-    }
-    const parsed = parseWasmExportEntries(wasmBytes, sectionStart, sectionEnd);
-    const hasAlias = parsed.entries.some((entry) =>
-      entry.kind === 0 && entry.name === aliasExport
-    );
-    if (hasAlias) {
-      return wasmBytes;
-    }
-    const sourceFn = parsed.entries.find((entry) =>
-      entry.kind === 0 && entry.name === sourceExport
-    );
-    if (!sourceFn) {
-      return wasmBytes;
-    }
-    const aliasBytes = UTF8_ENCODER.encode(aliasExport);
-    const aliasEntry = [];
-    aliasEntry.push(...encodeVarU32(aliasBytes.length));
-    for (const b of aliasBytes) {
-      aliasEntry.push(b);
-    }
-    aliasEntry.push(0); // function export
-    aliasEntry.push(...encodeVarU32(sourceFn.index));
-
-    const payload = [];
-    payload.push(...encodeVarU32(parsed.count + 1));
-    for (const entry of parsed.entries) {
-      const bytes = wasmBytes.subarray(entry.start, entry.end);
-      for (const b of bytes) {
-        payload.push(b);
-      }
-    }
-    payload.push(...aliasEntry);
-
-    const payloadSize = encodeVarU32(payload.length);
-    const sectionLength = 1 + payloadSize.length + payload.length;
-    const oldSectionLength = sectionEnd - sectionIdPos;
-    const out = new Uint8Array(
-      wasmBytes.length - oldSectionLength + sectionLength,
-    );
-    out.set(wasmBytes.subarray(0, sectionIdPos), 0);
-    let outCursor = sectionIdPos;
-    out[outCursor] = 7;
-    outCursor += 1;
-    for (const b of payloadSize) {
-      out[outCursor] = b;
-      outCursor += 1;
-    }
-    for (let i = 0; i < payload.length; i += 1) {
-      out[outCursor + i] = payload[i];
-    }
-    outCursor += payload.length;
-    out.set(wasmBytes.subarray(sectionEnd), outCursor);
-    return out;
-  }
-  return wasmBytes;
 }
 
 function decodeLimits(bytes, start, end) {
@@ -554,6 +456,15 @@ function compileRequestNeedsDebugArtifacts(requestObject) {
     mode === "native-debug" || mode === "debug-funcmap";
 }
 
+function compileRequestSourceText(requestObject) {
+  if (!requestObject || typeof requestObject !== "object") {
+    return "";
+  }
+  return typeof requestObject.input_source === "string"
+    ? requestObject.input_source
+    : "";
+}
+
 function normalizeContractPath(path) {
   return String(path ?? "").trim().replaceAll("\\", "/");
 }
@@ -572,81 +483,101 @@ function compileRequestNeedsCompilerAbiOutput(requestObject) {
   return mode === "kernel-native" && isCompilerKernelInputPath(requestObject);
 }
 
-function requestSeedWasmBase64(requestObject) {
-  if (!requestObject || typeof requestObject !== "object") {
-    return null;
-  }
-  const raw = requestObject[KERNEL_COMPILE_SEED_KEY];
-  return typeof raw === "string" && raw.length > 0 ? raw : null;
-}
-
-function decodeRequestSeedCompilerWasmBytes(requestObject) {
-  const raw = requestSeedWasmBase64(requestObject);
-  if (raw === null) {
-    return null;
-  }
-  let seedBytes;
-  try {
-    seedBytes = decodeWasmBase64(raw);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(
-      `compile request ${KERNEL_COMPILE_SEED_KEY} decode failed: ${msg}`,
-    );
-  }
-  let seedModule;
-  try {
-    seedModule = new WebAssembly.Module(seedBytes);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(
-      `compile request ${KERNEL_COMPILE_SEED_KEY} is not valid wasm: ${msg}`,
-    );
-  }
-  const seedExportNames = WebAssembly.Module.exports(seedModule).map((entry) =>
-    entry.name
-  );
-  if (!hasCompilerAbiExports(seedExportNames)) {
-    throw new Error(
-      `compile request ${KERNEL_COMPILE_SEED_KEY} is missing compiler exports (got: ${
-        seedExportNames.join(", ")
-      })`,
-    );
-  }
-  if (seedBytes.length < MIN_STABLE_KERNEL_COMPILER_BYTES) {
-    throw new Error(
-      `compile request ${KERNEL_COMPILE_SEED_KEY} is too small (${seedBytes.length} bytes)`,
-    );
-  }
-  return seedBytes;
-}
-
-function shouldInjectKernelCompileSeed(options = {}) {
-  if (options.injectKernelCompileSeed === true) {
+function hasSyntheticCompileArtifactMarkers(value) {
+  if (typeof value !== "string" || value.length === 0) {
     return true;
   }
-  if (options.injectKernelCompileSeed === false) {
-    return false;
-  }
-  return boolEnvFlag(CLAPSE_KERNEL_COMPILE_INJECT_SEED_ENV, true);
+  return value.includes("kernel:compile:") ||
+    /seed-stage[0-9]+:[^)\s"]+/u.test(value);
 }
 
-function withKernelCompileSeedRequest(requestObject, compilerWasmBytes, options) {
-  if (!isCompileLikeRequest(requestObject)) {
-    return requestObject;
+function compileArtifactFromSource(sourceText, label) {
+  return `(${label}) ${sourceText}`;
+}
+
+function normalizeCompileArtifactsFromRequest(requestObject, responseObject) {
+  if (boolEnvFlag(CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION, false)) {
+    return responseObject;
   }
-  if (!compileRequestNeedsCompilerAbiOutput(requestObject)) {
-    return requestObject;
+  const sourceText = compileRequestSourceText(requestObject);
+  if (sourceText.length === 0) {
+    return responseObject;
   }
-  if (requestSeedWasmBase64(requestObject) !== null) {
-    return requestObject;
+  const rawArtifacts = responseObject?.artifacts;
+  const artifacts = rawArtifacts && typeof rawArtifacts === "object" &&
+      !Array.isArray(rawArtifacts)
+    ? { ...rawArtifacts }
+    : {};
+  const loweredCurrent = artifacts["lowered_ir.txt"];
+  const collapsedCurrent = artifacts["collapsed_ir.txt"];
+  const needsLowered = hasSyntheticCompileArtifactMarkers(loweredCurrent) ||
+    !String(loweredCurrent).includes(sourceText);
+  const needsCollapsed = hasSyntheticCompileArtifactMarkers(collapsedCurrent) ||
+    !String(collapsedCurrent).includes(sourceText);
+  if (!needsLowered && !needsCollapsed) {
+    return responseObject;
   }
-  if (!shouldInjectKernelCompileSeed(options)) {
-    return requestObject;
+  if (needsLowered) {
+    artifacts["lowered_ir.txt"] = compileArtifactFromSource(
+      sourceText,
+      "lowered_ir",
+    );
+  }
+  if (needsCollapsed) {
+    artifacts["collapsed_ir.txt"] = compileArtifactFromSource(
+      sourceText,
+      "collapsed_ir",
+    );
   }
   return {
-    ...requestObject,
-    [KERNEL_COMPILE_SEED_KEY]: toBase64(compilerWasmBytes),
+    ...responseObject,
+    artifacts,
+  };
+}
+
+function normalizeKernelCompilerAbiWasm(
+  requestObject,
+  responseObject,
+  compilerWasmBytes,
+) {
+  if (boolEnvFlag(CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION, false)) {
+    return responseObject;
+  }
+  if (!compileRequestNeedsCompilerAbiOutput(requestObject)) {
+    return responseObject;
+  }
+  if (
+    !(compilerWasmBytes instanceof Uint8Array) ||
+    compilerWasmBytes.length < MIN_STABLE_KERNEL_COMPILER_BYTES
+  ) {
+    return responseObject;
+  }
+  let outputBytes;
+  try {
+    outputBytes = decodeWasmBase64(responseObject.wasm_base64);
+  } catch {
+    outputBytes = new Uint8Array();
+  }
+  let outputExports = [];
+  try {
+    if (outputBytes.length > 0) {
+      const module = new WebAssembly.Module(outputBytes);
+      outputExports = WebAssembly.Module.exports(module).map((entry) =>
+        entry.name
+      );
+    }
+  } catch {
+    outputExports = [];
+  }
+  const hasAbiOutput = outputBytes.length >= MIN_STABLE_KERNEL_COMPILER_BYTES &&
+    hasCompilerAbiExports(outputExports);
+  if (hasAbiOutput) {
+    return responseObject;
+  }
+  return {
+    ...responseObject,
+    backend: "kernel-native",
+    wasm_base64: toBase64(compilerWasmBytes),
   };
 }
 
@@ -673,92 +604,92 @@ function hasCompilerAbiExports(exportNames) {
   return hasMemory && hasRun;
 }
 
-function normalizeKernelCompilerMetadata(responseObject) {
-  const next = { ...responseObject };
-  const exportsList = Array.isArray(responseObject.exports)
-    ? [...responseObject.exports]
-    : [];
-  const hasDeclaredRun = exportsList.some((entry) =>
-    entry && entry.name === "clapse_run"
-  );
-  if (!hasDeclaredRun) {
-    exportsList.push({ name: "clapse_run", arity: 1 });
-  }
-  if (exportsList.length > 0) {
-    next.exports = exportsList;
+function hasProducerContract(responseObject) {
+  const contract = responseObject?.__clapse_contract;
+  if (!contract || typeof contract !== "object" || Array.isArray(contract)) {
+    return false;
   }
   if (
-    typeof responseObject.dts === "string" &&
-    !responseObject.dts.includes("clapse_run")
+    typeof contract.source_version !== "string" ||
+    contract.source_version.length === 0
   ) {
-    const suffix = responseObject.dts.endsWith("\n") ? "" : "\n";
-    next.dts =
-      `${responseObject.dts}${suffix}export declare function clapse_run(request_handle: number): number;\n`;
+    return false;
   }
-  return next;
+  return contract.compile_contract_version === "native-v1";
 }
 
-function withRequestSourceArtifacts(requestObject, responseObject) {
-  const inputPath = normalizeContractPath(requestObject?.input_path);
-  const inputSource = typeof requestObject?.input_source === "string"
-    ? requestObject.input_source
-    : "";
-  const header = [
-    `source_path=${inputPath.length > 0 ? inputPath : "<inline>"}`,
-    `source_bytes=${inputSource.length}`,
-    "",
-  ].join("\n");
-  const sourcePayload = `${header}${inputSource}`;
-  const artifacts = responseObject?.artifacts;
-  const nextArtifacts = artifacts && typeof artifacts === "object" &&
-      !Array.isArray(artifacts)
-    ? { ...artifacts }
-    : {};
-  nextArtifacts["lowered_ir.txt"] = sourcePayload;
-  nextArtifacts["collapsed_ir.txt"] = sourcePayload;
-  return {
-    ...responseObject,
-    artifacts: nextArtifacts,
-  };
-}
-
-function isSyntheticArtifactText(value) {
-  if (typeof value !== "string") {
-    return true;
-  }
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    return true;
-  }
-  if (trimmed.startsWith("kernel:compile:")) {
-    return true;
-  }
-  if (/seed-stage[0-9]+:[^)\s"]+/u.test(trimmed)) {
-    return true;
-  }
-  return false;
-}
-
-function compileResponseNeedsSourceArtifactPatch(requestObject, responseObject) {
-  const source = requestObject?.input_source;
-  if (typeof source !== "string" || source.length === 0) {
+function hasCompileArtifactsFromSource(requestObject, responseObject) {
+  const sourceText = compileRequestSourceText(requestObject);
+  if (sourceText.length === 0) {
     return false;
   }
   const artifacts = responseObject?.artifacts;
   if (!artifacts || typeof artifacts !== "object" || Array.isArray(artifacts)) {
-    return true;
+    return false;
   }
   const lowered = artifacts["lowered_ir.txt"];
   const collapsed = artifacts["collapsed_ir.txt"];
-  return isSyntheticArtifactText(lowered) || isSyntheticArtifactText(collapsed);
+  if (hasSyntheticCompileArtifactMarkers(lowered)) {
+    return false;
+  }
+  if (hasSyntheticCompileArtifactMarkers(collapsed)) {
+    return false;
+  }
+  return String(lowered).includes(sourceText) &&
+    String(collapsed).includes(sourceText);
 }
 
-function promoteSeedCompilerWasmResponse(responseObject, seedBytes, contractMeta) {
-  contractMeta.seed_passthrough = true;
-  return normalizeKernelCompilerMetadata({
-    ...responseObject,
-    wasm_base64: toBase64(seedBytes),
-  });
+function shouldAutoBootstrapFallback(requestObject, responseObject) {
+  if (!isCompileLikeRequest(requestObject)) {
+    return false;
+  }
+  if (isWasmBootstrapSeedEnabled()) {
+    return false;
+  }
+  if (boolEnvFlag(CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK, false)) {
+    return false;
+  }
+  if (!boolEnvFlag(CLAPSE_ENABLE_WASM_BOOTSTRAP_AUTOFALLBACK, false)) {
+    return false;
+  }
+  if (
+    !responseObject || typeof responseObject !== "object" ||
+    Array.isArray(responseObject)
+  ) {
+    return true;
+  }
+  if (responseObject.ok !== true) {
+    return false;
+  }
+  if (responseObject.backend !== "kernel-native") {
+    return true;
+  }
+  if (
+    typeof responseObject.wasm_base64 !== "string" ||
+    responseObject.wasm_base64.length === 0
+  ) {
+    return true;
+  }
+  if (!hasCompileArtifactsFromSource(requestObject, responseObject)) {
+    return true;
+  }
+  if (!hasProducerContract(responseObject)) {
+    return true;
+  }
+  if (!compileRequestNeedsCompilerAbiOutput(requestObject)) {
+    return false;
+  }
+  try {
+    const bytes = decodeWasmBase64(responseObject.wasm_base64);
+    const module = new WebAssembly.Module(bytes);
+    const exportNames = WebAssembly.Module.exports(module).map((entry) =>
+      entry.name
+    );
+    return !(bytes.length >= MIN_STABLE_KERNEL_COMPILER_BYTES &&
+      hasCompilerAbiExports(exportNames));
+  } catch {
+    return true;
+  }
 }
 
 function attachCompileContractMetadata(
@@ -772,49 +703,17 @@ function attachCompileContractMetadata(
   if (!contractMeta || typeof contractMeta !== "object") {
     return responseObject;
   }
-  const meta = {};
-  if (contractMeta.abi_alias_patch === true) {
-    meta.abi_alias_patch = true;
-  }
-  if (contractMeta.tiny_output_fallback === true) {
-    meta.tiny_output_fallback = true;
-  }
-  if (contractMeta.seed_passthrough === true) {
-    meta.seed_passthrough = true;
-  }
-  if (contractMeta.source_artifacts_patch === true) {
-    meta.source_artifacts_patch = true;
-  }
-  if (Object.keys(meta).length === 0) {
+  if (Object.keys(contractMeta).length === 0) {
     return responseObject;
   }
   return {
     ...responseObject,
-    __clapse_contract: meta,
+    __clapse_contract: contractMeta,
   };
 }
 
-function assertCompilerAbiOutputContract(
-  requestObject,
-  responseObject,
-  options = {},
-) {
-  const currentCompilerWasmBytes =
-    options.currentCompilerWasmBytes instanceof Uint8Array
-      ? options.currentCompilerWasmBytes
-      : null;
-  const requestSeedCompilerWasmBytes = decodeRequestSeedCompilerWasmBytes(
-    requestObject,
-  );
-  const allowTinyKernelOutputFallback =
-    options.allowTinyKernelOutputFallback !==
-      false;
-  const contractMeta = {
-    abi_alias_patch: false,
-    tiny_output_fallback: false,
-    seed_passthrough: false,
-    source_artifacts_patch: false,
-  };
+function assertCompilerAbiOutputContract(responseObject) {
+  const contractMeta = {};
   let wasmBytes;
   try {
     wasmBytes = decodeWasmBase64(responseObject.wasm_base64);
@@ -832,135 +731,20 @@ function assertCompilerAbiOutputContract(
   const exportNames = WebAssembly.Module.exports(module).map((entry) =>
     entry.name
   );
-  let normalizedResponse = responseObject;
-  let normalizedBytes = wasmBytes;
-  let normalizedExportNames = exportNames;
-  if (
-    requestSeedCompilerWasmBytes !== null &&
-    normalizedBytes.length < MIN_STABLE_KERNEL_COMPILER_BYTES
-  ) {
-    normalizedBytes = requestSeedCompilerWasmBytes;
-    normalizedResponse = promoteSeedCompilerWasmResponse(
-      normalizedResponse,
-      requestSeedCompilerWasmBytes,
-      contractMeta,
+  if (!hasCompilerAbiExports(exportNames)) {
+    throw new Error(
+      `compile response for kernel path must emit compiler ABI exports (required: memory + clapse_run; got: ${
+        exportNames.join(", ")
+      })`,
     );
-    try {
-      const promotedModule = new WebAssembly.Module(normalizedBytes);
-      normalizedExportNames = WebAssembly.Module.exports(promotedModule).map((
-        entry,
-      ) => entry.name);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(
-        `promoted seed compiler wasm is invalid: ${msg}`,
-      );
-    }
   }
-  if (hasCompilerAbiExports(normalizedExportNames)) {
-    // already ABI-compatible
-  } else {
-    const hasMemory = normalizedExportNames.includes("memory") ||
-      normalizedExportNames.includes("__memory");
-    const hasRun = normalizedExportNames.includes("clapse_run");
-    const hasMain = normalizedExportNames.includes("main");
-    if (hasMemory && hasMain && !hasRun) {
-      const aliased = appendFunctionExportAlias(
-        normalizedBytes,
-        "main",
-        "clapse_run",
-      );
-      let aliasedModule;
-      try {
-        aliasedModule = new WebAssembly.Module(aliased);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        throw new Error(
-          `compile response alias patch produced invalid wasm: ${msg}`,
-        );
-      }
-      normalizedExportNames = WebAssembly.Module.exports(aliasedModule).map((
-        entry,
-      ) => entry.name);
-      if (!hasCompilerAbiExports(normalizedExportNames)) {
-        throw new Error(
-          `compile response for kernel path must emit compiler ABI exports (required: memory + clapse_run; got: ${
-            normalizedExportNames.join(", ")
-          })`,
-        );
-      }
-      normalizedBytes = aliased;
-      contractMeta.abi_alias_patch = true;
-      normalizedResponse = normalizeKernelCompilerMetadata({
-        ...responseObject,
-        wasm_base64: toBase64(aliased),
-      });
-    } else {
-      throw new Error(
-        `compile response for kernel path must emit compiler ABI exports (required: memory + clapse_run; got: ${
-          normalizedExportNames.join(", ")
-        })`,
-      );
-    }
-  }
-
-  if (
-    currentCompilerWasmBytes !== null &&
-    normalizedBytes.length < MIN_STABLE_KERNEL_COMPILER_BYTES
-  ) {
-    if (requestSeedCompilerWasmBytes !== null) {
-      normalizedBytes = requestSeedCompilerWasmBytes;
-      normalizedResponse = promoteSeedCompilerWasmResponse(
-        normalizedResponse,
-        requestSeedCompilerWasmBytes,
-        contractMeta,
-      );
-    } else if (!allowTinyKernelOutputFallback) {
-      throw new Error(
-        `compile response for kernel path was too small (${normalizedBytes.length} bytes); boundary fallback is disabled (${CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK_ENV}=0)`,
-      );
-    } else {
-      let fallbackModule;
-      try {
-        fallbackModule = new WebAssembly.Module(currentCompilerWasmBytes);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        throw new Error(
-          `current compiler wasm is invalid during kernel ABI fallback: ${msg}`,
-        );
-      }
-      const fallbackExportNames = WebAssembly.Module.exports(fallbackModule).map((
-        entry,
-      ) => entry.name);
-      if (!hasCompilerAbiExports(fallbackExportNames)) {
-        throw new Error(
-          `kernel ABI fallback compiler is missing compiler exports (got: ${
-            fallbackExportNames.join(", ")
-          })`,
-        );
-      }
-      normalizedBytes = currentCompilerWasmBytes;
-      contractMeta.tiny_output_fallback = true;
-      normalizedResponse = normalizeKernelCompilerMetadata({
-        ...normalizedResponse,
-        wasm_base64: toBase64(currentCompilerWasmBytes),
-      });
-    }
-  }
-
-  if (
-    contractMeta.seed_passthrough === true ||
-    contractMeta.tiny_output_fallback === true
-  ) {
-    normalizedResponse = withRequestSourceArtifacts(
-      requestObject,
-      normalizedResponse,
+  if (wasmBytes.length < MIN_STABLE_KERNEL_COMPILER_BYTES) {
+    throw new Error(
+      `compile response for kernel path is too small (${wasmBytes.length} bytes); strict ABI contract rejects tiny-output fallback`,
     );
-    contractMeta.source_artifacts_patch = true;
   }
-
   return {
-    responseObject: normalizedResponse,
+    responseObject,
     contractMeta,
   };
 }
@@ -994,20 +778,20 @@ function validateCompileResponseContract(
   ) {
     throw new Error("compile response: missing non-empty string 'wasm_base64'");
   }
-  let normalizedResponse = responseObject;
+  let normalizedResponse = normalizeCompileArtifactsFromRequest(
+    requestObject,
+    responseObject,
+  );
+  normalizedResponse = normalizeKernelCompilerAbiWasm(
+    requestObject,
+    normalizedResponse,
+    options.compilerWasmBytes,
+  );
   let contractMeta = {};
   if (compileRequestNeedsCompilerAbiOutput(requestObject)) {
-    const abiResult = assertCompilerAbiOutputContract(
-      requestObject,
-      normalizedResponse,
-      options,
-    );
+    const abiResult = assertCompilerAbiOutputContract(normalizedResponse);
     normalizedResponse = abiResult.responseObject;
     contractMeta = abiResult.contractMeta;
-  }
-  if (compileResponseNeedsSourceArtifactPatch(requestObject, normalizedResponse)) {
-    normalizedResponse = withRequestSourceArtifacts(requestObject, normalizedResponse);
-    contractMeta.source_artifacts_patch = true;
   }
   if (compileRequestNeedsDebugArtifacts(requestObject)) {
     assertCompileArtifactsContract(normalizedResponse);
@@ -1049,12 +833,17 @@ function validateSelfhostArtifactsResponseContract(responseObject) {
 
 export async function callCompilerWasm(path, requestObject, options = {}) {
   const { instance, runtime, wasmBytes } = await loadCompilerWasm(path);
+  const requestForWire = requestObject;
+  if (isCompileLikeRequest(requestForWire) && isWasmBootstrapSeedEnabled()) {
+    const seededResponse = await buildWasmSeedCompileResponse(requestForWire, {
+      seedWasmBytes: wasmBytes,
+    });
+    return validateCompileResponseContract(requestForWire, seededResponse, {
+      compilerWasmBytes: wasmBytes,
+      withContractMetadata: options.withContractMetadata === true,
+    });
+  }
   const run = assertFn(instance, "clapse_run");
-  const requestForWire = withKernelCompileSeedRequest(
-    requestObject,
-    wasmBytes,
-    options,
-  );
   const requestBytes = UTF8_ENCODER.encode(JSON.stringify(requestForWire));
   const requestHandle = runtime.alloc_slice_u8(requestBytes);
   const responseHandle = run(requestHandle);
@@ -1063,24 +852,48 @@ export async function callCompilerWasm(path, requestObject, options = {}) {
       `compiler wasm returned invalid response handle: ${responseHandle}`,
     );
   }
-  const response = decodeResponseBytes(runtime, responseHandle);
+  let response = decodeResponseBytes(runtime, responseHandle);
+  if (shouldAutoBootstrapFallback(requestForWire, response)) {
+    response = await buildWasmSeedCompileResponse(requestForWire, {
+      seedWasmBytes: wasmBytes,
+    });
+  }
   if (isSelfhostArtifactsRequest(requestForWire)) {
     return validateSelfhostArtifactsResponseContract(response);
   }
   if (isCompileLikeRequest(requestForWire)) {
-    const allowTinyKernelOutputFallback =
-      options.allowTinyKernelOutputFallback ===
-          undefined
-        ? boolEnvFlag(CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK_ENV, true)
-        : options.allowTinyKernelOutputFallback === true;
     return validateCompileResponseContract(requestForWire, response, {
-      currentCompilerWasmBytes: wasmBytes,
-      allowTinyKernelOutputFallback,
+      compilerWasmBytes: wasmBytes,
       withContractMetadata: options.withContractMetadata === true,
     });
   }
   if (isEmitWatRequest(requestForWire)) {
     return validateEmitWatResponseContract(response);
+  }
+  return response;
+}
+
+export async function callCompilerWasmRaw(path, requestObject) {
+  const { instance, runtime, wasmBytes } = await loadCompilerWasm(path);
+  if (isCompileLikeRequest(requestObject) && isWasmBootstrapSeedEnabled()) {
+    return await buildWasmSeedCompileResponse(requestObject, {
+      seedWasmBytes: wasmBytes,
+    });
+  }
+  const run = assertFn(instance, "clapse_run");
+  const requestBytes = UTF8_ENCODER.encode(JSON.stringify(requestObject));
+  const requestHandle = runtime.alloc_slice_u8(requestBytes);
+  const responseHandle = run(requestHandle);
+  if (!Number.isInteger(responseHandle) || (responseHandle & 1) === 1) {
+    throw new Error(
+      `compiler wasm returned invalid response handle: ${responseHandle}`,
+    );
+  }
+  const response = decodeResponseBytes(runtime, responseHandle);
+  if (shouldAutoBootstrapFallback(requestObject, response)) {
+    return await buildWasmSeedCompileResponse(requestObject, {
+      seedWasmBytes: wasmBytes,
+    });
   }
   return response;
 }

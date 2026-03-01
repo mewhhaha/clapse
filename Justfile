@@ -49,8 +49,8 @@ pre-tag-verify:
   deno run -A scripts/guard-no-host-surface.mjs
   deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "${verify_wasm}"
   deno run -A scripts/check-pass-manifest.mjs
-  CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-compile-smoke
-  CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" deno run -A scripts/native-selfhost-probe.mjs --wasm "${verify_wasm}" --hops "${probe_hops}"
+  CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-strict-producer-check "${verify_wasm}" "${probe_hops}"
+  CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-source-version-propagation-gate "${verify_wasm}" "${probe_hops}"
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" deno run -A scripts/record-kernel-smoke.mjs
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just docs-validate
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just lsp-wasm-fixtures
@@ -72,22 +72,108 @@ pass-manifest-check:
 native-compile-smoke:
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/compile-native-smoke.mjs
 
+native-bootstrap-seed-smoke wasm='artifacts/latest/clapse_compiler.wasm':
+  CLAPSE_COMPILER_WASM_PATH="{{wasm}}" CLAPSE_USE_WASM_BOOTSTRAP_SEED=1 deno run -A scripts/native-bootstrap-seed-smoke.mjs --wasm {{wasm}}
+
 native-selfhost-probe wasm='artifacts/latest/clapse_compiler.wasm' hops='1':
   deno run -A scripts/native-selfhost-probe.mjs --wasm {{wasm}} --hops {{hops}}
 
 native-selfhost-probe-strict wasm='artifacts/latest/clapse_compiler.wasm' hops='1':
-  CLAPSE_NATIVE_SELFHOST_FAIL_ON_BOUNDARY_FALLBACK=1 CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK=0 deno run -A scripts/native-selfhost-probe.mjs --wasm {{wasm}} --hops {{hops}} --fail-on-boundary-fallback
+  CLAPSE_NATIVE_SELFHOST_FAIL_ON_BOUNDARY_FALLBACK=1 deno run -A scripts/native-selfhost-probe.mjs --wasm {{wasm}} --hops {{hops}} --fail-on-boundary-fallback
 
 native-boundary-strict-smoke:
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/native-boundary-strict-smoke.mjs
 
 native-boundary-strict-smoke-no-fallback:
-  CLAPSE_NATIVE_BOUNDARY_FAIL_ON_FALLBACK=1 CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK=0 CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/native-boundary-strict-smoke.mjs
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/native-boundary-strict-smoke.mjs
 
 native-strict-no-fallback-check wasm='artifacts/latest/clapse_compiler.wasm' hops='1':
-  CLAPSE_NATIVE_COMPILE_SMOKE_FAIL_ON_FALLBACK=1 CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK=0 CLAPSE_COMPILER_WASM_PATH="{{wasm}}" deno run -A scripts/compile-native-smoke.mjs
-  CLAPSE_NATIVE_BOUNDARY_FAIL_ON_FALLBACK=1 CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK=0 CLAPSE_COMPILER_WASM_PATH="{{wasm}}" deno run -A scripts/native-boundary-strict-smoke.mjs
-  CLAPSE_NATIVE_SELFHOST_FAIL_ON_BOUNDARY_FALLBACK=1 CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK=0 deno run -A scripts/native-selfhost-probe.mjs --wasm {{wasm}} --hops {{hops}} --fail-on-boundary-fallback
+  CLAPSE_COMPILER_WASM_PATH="{{wasm}}" deno run -A scripts/compile-native-smoke.mjs
+  CLAPSE_COMPILER_WASM_PATH="{{wasm}}" deno run -A scripts/native-boundary-strict-smoke.mjs
+  CLAPSE_NATIVE_SELFHOST_FAIL_ON_BOUNDARY_FALLBACK=1 deno run -A scripts/native-selfhost-probe.mjs --wasm {{wasm}} --hops {{hops}} --fail-on-boundary-fallback
+
+native-strict-producer-check wasm='artifacts/latest/clapse_compiler.wasm' hops='1' source_version='':
+  #!/usr/bin/env bash
+  set -euo pipefail
+  wasm_path="{{wasm}}"
+  hops="{{hops}}"
+  required_source_version="{{source_version}}"
+  if [[ -z "$required_source_version" ]]; then
+    required_source_version="${CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED:-}"
+  fi
+  source_args=()
+  if [[ -n "$required_source_version" ]]; then
+    source_args+=(--require-source-version "$required_source_version")
+  fi
+  CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION=1 CLAPSE_COMPILER_WASM_PATH="$wasm_path" just native-compile-smoke
+  CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION=1 CLAPSE_COMPILER_WASM_PATH="$wasm_path" just native-boundary-strict-smoke
+  CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION=1 CLAPSE_NATIVE_SELFHOST_FAIL_ON_BOUNDARY_FALLBACK=1 deno run -A scripts/native-selfhost-probe.mjs --wasm "$wasm_path" --hops "$hops" --fail-on-boundary-fallback
+  CLAPSE_COMPILER_WASM_PATH="$wasm_path" deno run -A scripts/native-producer-raw-probe.mjs --wasm "$wasm_path" --hops "$hops" "${source_args[@]}"
+
+native-strict-producer-check-wasm-seed wasm='artifacts/latest/clapse_compiler.wasm' hops='1' source_version='':
+  #!/usr/bin/env bash
+  set -euo pipefail
+  wasm_path="{{wasm}}"
+  hops="{{hops}}"
+  required_source_version="{{source_version}}"
+  if [[ -z "$required_source_version" ]]; then
+    required_source_version="${CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED:-}"
+  fi
+  source_args=()
+  if [[ -n "$required_source_version" ]]; then
+    source_args+=(--require-source-version "$required_source_version")
+  fi
+  CLAPSE_USE_WASM_BOOTSTRAP_SEED=1 CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION=1 CLAPSE_COMPILER_WASM_PATH="$wasm_path" just native-compile-smoke
+  CLAPSE_USE_WASM_BOOTSTRAP_SEED=1 CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION=1 CLAPSE_COMPILER_WASM_PATH="$wasm_path" just native-boundary-strict-smoke
+  CLAPSE_USE_WASM_BOOTSTRAP_SEED=1 CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION=1 CLAPSE_NATIVE_SELFHOST_FAIL_ON_BOUNDARY_FALLBACK=1 deno run -A scripts/native-selfhost-probe.mjs --wasm "$wasm_path" --hops "$hops" --fail-on-boundary-fallback
+  CLAPSE_USE_WASM_BOOTSTRAP_SEED=1 CLAPSE_COMPILER_WASM_PATH="$wasm_path" deno run -A scripts/native-producer-raw-probe.mjs --wasm "$wasm_path" --hops "$hops" "${source_args[@]}"
+
+native-strict-producer-check-ts-seed wasm='artifacts/latest/clapse_compiler.wasm' hops='1' source_version='':
+  #!/usr/bin/env bash
+  set -euo pipefail
+  just native-strict-producer-check-wasm-seed "{{wasm}}" "{{hops}}" "{{source_version}}"
+
+native-producer-raw-probe wasm='artifacts/latest/clapse_compiler.wasm' hops='1' source_version='':
+  #!/usr/bin/env bash
+  set -euo pipefail
+  wasm_path="{{wasm}}"
+  hops="{{hops}}"
+  required_source_version="{{source_version}}"
+  if [[ -z "$required_source_version" ]]; then
+    required_source_version="${CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED:-}"
+  fi
+  source_args=()
+  if [[ -n "$required_source_version" ]]; then
+    source_args+=(--require-source-version "$required_source_version")
+  fi
+  CLAPSE_COMPILER_WASM_PATH="$wasm_path" deno run -A scripts/native-producer-raw-probe.mjs --wasm "$wasm_path" --hops "$hops" "${source_args[@]}"
+
+native-producer-payload-scan wasm='artifacts/latest/clapse_compiler.wasm' samples='200' source_version='':
+  #!/usr/bin/env bash
+  set -euo pipefail
+  wasm_path="{{wasm}}"
+  samples="{{samples}}"
+  required_source_version="{{source_version}}"
+  if [[ -z "$required_source_version" ]]; then
+    required_source_version="${CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED:-}"
+  fi
+  source_args=()
+  if [[ -n "$required_source_version" ]]; then
+    source_args+=(--require-source-version "$required_source_version")
+  fi
+  CLAPSE_COMPILER_WASM_PATH="$wasm_path" deno run -A scripts/native-producer-payload-scan.mjs --wasm "$wasm_path" --samples "$samples" "${source_args[@]}"
+
+native-source-version-propagation-gate wasm='artifacts/latest/clapse_compiler.wasm' hops='2' source_version='':
+  #!/usr/bin/env bash
+  set -euo pipefail
+  wasm_path="{{wasm}}"
+  hops="{{hops}}"
+  required_source_version="{{source_version}}"
+  source_args=()
+  if [[ -n "$required_source_version" ]]; then
+    source_args+=(--source-version "$required_source_version")
+  fi
+  CLAPSE_USE_WASM_BOOTSTRAP_SEED=0 CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 CLAPSE_COMPILER_WASM_PATH="$wasm_path" deno run -A scripts/native-source-version-propagation-gate.mjs --wasm "$wasm_path" --hops "$hops" "${source_args[@]}"
 
 native-boundary-strict-seed-scan:
   deno run -A scripts/strict-native-seed-scan.mjs
@@ -95,27 +181,84 @@ native-boundary-strict-seed-scan:
 native-boundary-strict-seed-scan-kernel hops='2':
   CLAPSE_STRICT_NATIVE_REQUIRE_NO_BOUNDARY_FALLBACK=1 deno run -A scripts/strict-native-seed-scan.mjs --no-default-roots --scan-root artifacts --scan-root out --scan-root out=out --require-no-boundary-fallback --kernel-selfhost-hops {{hops}}
 
+bootstrap-native-producer-seed seed='artifacts/latest/clapse_compiler.wasm' out='artifacts/strict-native/native_producer_seed.wasm' meta='artifacts/strict-native/native_producer_seed.meta.json' depth='8' source_version='native-source-2026-03-01-r2':
+  deno run -A scripts/build-native-producer-seed.mjs --seed {{seed}} --out {{out}} --meta {{meta}} --depth {{depth}} --source-version {{source_version}}
+
+refresh-native-compile-payload wasm='artifacts/latest/clapse_compiler.wasm' source_version='native-source-2026-03-01-r2':
+  deno run -A scripts/refresh-native-compile-payload.mjs --wasm {{wasm}} --source-version {{source_version}}
+
+native-strict-producer-check-no-fallback wasm='artifacts/strict-native/native_producer_seed.wasm' hops='2' source_version='native-source-2026-03-01-r2':
+  CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-strict-producer-check "{{wasm}}" "{{hops}}" "{{source_version}}"
+
 bootstrap-strict-native-seed out='artifacts/strict-native/seed.wasm' meta='artifacts/strict-native/seed.meta.json':
   #!/usr/bin/env bash
   set -euo pipefail
   out_path="{{out}}"
   meta_path="{{meta}}"
   probe_hops="${CLAPSE_STRICT_NATIVE_SEED_PROBE_HOPS:-2}"
-  if [[ -s "$out_path" ]] && deno run -A scripts/native-selfhost-probe.mjs --wasm "$out_path" --hops "$probe_hops" >/dev/null 2>&1; then
-    echo "bootstrap-strict-native-seed: retaining existing selfhost-capable seed at $out_path"
+  required_source_version="${CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED:-}"
+  native_producer_seed_path="${CLAPSE_BOOTSTRAP_NATIVE_PRODUCER_SEED_PATH:-artifacts/strict-native/native_producer_seed.wasm}"
+  bootstrap_seed="${CLAPSE_BOOTSTRAP_COMPILER_WASM_PATH:-${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}}"
+  producer_seed_depth="${CLAPSE_NATIVE_PRODUCER_SEED_DEPTH:-8}"
+  strict_check_args=("$out_path" "$probe_hops")
+  propagation_check_args=("$out_path" "$probe_hops")
+  producer_seed_args=("$bootstrap_seed" "$out_path" "$meta_path" "$producer_seed_depth")
+  if [[ -n "$required_source_version" ]]; then
+    strict_check_args+=("$required_source_version")
+    propagation_check_args+=("$required_source_version")
+    producer_seed_args+=("$required_source_version")
+  fi
+  if [[ -s "$out_path" ]] && CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 CLAPSE_COMPILER_WASM_PATH="$out_path" just native-strict-producer-check "${strict_check_args[@]}" >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$out_path" just native-source-version-propagation-gate "${propagation_check_args[@]}" >/dev/null 2>&1; then
+    echo "bootstrap-strict-native-seed: retaining existing producer-strict seed at $out_path"
     if [[ ! -s "$meta_path" ]]; then
       mkdir -p "$(dirname "$meta_path")"
       printf '%s\n' \
         '{' \
         "  \"generated_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"," \
         '  "tool": "Justfile bootstrap-strict-native-seed",' \
-        '  "mode": "native-bootstrap-retain-existing-seed",' \
+        '  "mode": "native-bootstrap-retain-producer-strict-seed",' \
         "  \"bootstrap\": {\"wasm\": \"$out_path\"}" \
         '}' \
         > "$meta_path"
     fi
   else
-    CLAPSE_STRICT_NATIVE_SEED_PROBE_HOPS="$probe_hops" deno run -A scripts/build-strict-native-seed.mjs --out "$out_path" --meta "$meta_path"
+    native_seed_check_args=("$native_producer_seed_path" "$probe_hops")
+    if [[ -n "$required_source_version" ]]; then
+      native_seed_check_args+=("$required_source_version")
+    fi
+    if [[ -s "$native_producer_seed_path" ]] && CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 CLAPSE_COMPILER_WASM_PATH="$native_producer_seed_path" just native-strict-producer-check "${native_seed_check_args[@]}" >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$native_producer_seed_path" just native-source-version-propagation-gate "${native_seed_check_args[@]}" >/dev/null 2>&1; then
+      mkdir -p "$(dirname "$out_path")"
+      if [[ "$native_producer_seed_path" != "$out_path" ]]; then
+        cp "$native_producer_seed_path" "$out_path"
+      fi
+      native_seed_dts="${native_producer_seed_path%.wasm}.d.ts"
+      out_dts="${out_path%.wasm}.d.ts"
+      if [[ -s "$native_seed_dts" ]]; then
+        if [[ "$native_seed_dts" != "$out_dts" ]]; then
+          cp "$native_seed_dts" "$out_dts"
+        fi
+      else
+        printf '%s\n' \
+          'export declare function clapse_run(request_handle: number): number;' \
+          'export declare function main(arg0: number): number;' \
+          > "$out_dts"
+      fi
+      mkdir -p "$(dirname "$meta_path")"
+      printf '%s\n' \
+        '{' \
+        "  \"generated_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"," \
+        '  "tool": "Justfile bootstrap-strict-native-seed",' \
+        '  "mode": "native-producer-seed-retain",' \
+        "  \"bootstrap\": {\"wasm\": \"$native_producer_seed_path\"}" \
+        '}' \
+        > "$meta_path"
+      echo "bootstrap-strict-native-seed: promoted native producer seed artifact to $out_path"
+    else
+      [[ -s "$bootstrap_seed" ]] || { echo "bootstrap-strict-native-seed: bootstrap compiler wasm missing: $bootstrap_seed" >&2; exit 1; }
+      just bootstrap-native-producer-seed "${producer_seed_args[@]}"
+    fi
+    CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 CLAPSE_COMPILER_WASM_PATH="$out_path" just native-strict-producer-check "${strict_check_args[@]}"
+    CLAPSE_COMPILER_WASM_PATH="$out_path" just native-source-version-propagation-gate "${propagation_check_args[@]}"
   fi
 
 bootstrap-compiler out='artifacts/latest/clapse_compiler.wasm':
@@ -139,17 +282,24 @@ bootstrap-compiler out='artifacts/latest/clapse_compiler.wasm':
   mkdir -p "$(dirname "$out_path")"
   out_dts="${out_path%.wasm}.d.ts"
   probe_hops="${CLAPSE_BOOTSTRAP_NATIVE_SELFHOST_PROBE_HOPS:-2}"
+  required_source_version="${CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED:-}"
+  strict_check_args=("$probe_hops")
+  propagation_check_args=("$probe_hops")
+  if [[ -n "$required_source_version" ]]; then
+    strict_check_args+=("$required_source_version")
+    propagation_check_args+=("$required_source_version")
+  fi
   compile_ok=0
-  if CLAPSE_COMPILER_WASM_PATH="$bootstrap_seed" deno run -A scripts/run-clapse-compiler-wasm.mjs compile-native lib/compiler/kernel.clapse "$out_path"; then
-    if deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "$out_path" && deno run -A scripts/native-selfhost-probe.mjs --wasm "$out_path" --hops "$probe_hops"; then
+  if CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 CLAPSE_COMPILER_WASM_PATH="$bootstrap_seed" deno run -A scripts/run-clapse-compiler-wasm.mjs compile-native lib/compiler/kernel.clapse "$out_path"; then
+    if deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "$out_path" && CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 CLAPSE_COMPILER_WASM_PATH="$out_path" just native-strict-producer-check "$out_path" "${strict_check_args[@]}" && CLAPSE_COMPILER_WASM_PATH="$out_path" just native-source-version-propagation-gate "$out_path" "${propagation_check_args[@]}"; then
       compile_ok=1
     else
-      echo "bootstrap-compiler: kernel self-compile produced compiler wasm that failed browser ABI or self-host probe; treating as compile failure" >&2
+      echo "bootstrap-compiler: kernel self-compile produced compiler wasm that failed browser ABI, strict producer checks, or source-version propagation checks; treating as compile failure" >&2
     fi
   fi
   if [[ "$compile_ok" != "1" ]]; then
-    echo "bootstrap-compiler: kernel self-compile failed self-host probe; attempting native seed retention from bootstrap seed: $bootstrap_seed" >&2
-    if deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "$bootstrap_seed" && deno run -A scripts/native-selfhost-probe.mjs --wasm "$bootstrap_seed" --hops "$probe_hops"; then
+    echo "bootstrap-compiler: kernel self-compile failed strict producer/source-version propagation checks; attempting producer-strict seed retention from bootstrap seed: $bootstrap_seed" >&2
+    if deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "$bootstrap_seed" && CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 CLAPSE_COMPILER_WASM_PATH="$bootstrap_seed" just native-strict-producer-check "$bootstrap_seed" "${strict_check_args[@]}" && CLAPSE_COMPILER_WASM_PATH="$bootstrap_seed" just native-source-version-propagation-gate "$bootstrap_seed" "${propagation_check_args[@]}"; then
       if [[ "$bootstrap_seed" != "$out_path" ]]; then
         cp "$bootstrap_seed" "$out_path"
       fi
@@ -165,7 +315,7 @@ bootstrap-compiler out='artifacts/latest/clapse_compiler.wasm':
           > "$out_dts"
       fi
       compile_ok=1
-      echo "bootstrap-compiler: retained bootstrap seed artifact at $out_path (kernel self-compile result was non-transitive)" >&2
+      echo "bootstrap-compiler: retained producer-strict bootstrap seed artifact at $out_path (kernel self-compile result was non-transitive)" >&2
     else
       echo "bootstrap-compiler: kernel self-compile failed from bootstrap seed: $bootstrap_seed" >&2
       exit 1
@@ -174,8 +324,8 @@ bootstrap-compiler out='artifacts/latest/clapse_compiler.wasm':
   [[ -s "$out_path" ]] || { echo "bootstrap-compiler: expected output wasm missing: $out_path" >&2; exit 1; }
   [[ -s "$out_dts" ]] || { echo "bootstrap-compiler: expected output d.ts missing: $out_dts" >&2; exit 1; }
   deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "$out_path"
-  deno run -A scripts/native-selfhost-probe.mjs --wasm "$out_path" --hops "$probe_hops"
-  CLAPSE_COMPILER_WASM_PATH="$out_path" just native-compile-smoke
+  CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 CLAPSE_COMPILER_WASM_PATH="$out_path" just native-strict-producer-check "$out_path" "${strict_check_args[@]}"
+  CLAPSE_COMPILER_WASM_PATH="$out_path" just native-source-version-propagation-gate "$out_path" "${propagation_check_args[@]}"
 
 fib-memo-plugin-smoke:
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/fib-memo-plugin-smoke.mjs

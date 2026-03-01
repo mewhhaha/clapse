@@ -1,0 +1,67 @@
+{
+  "tool": "build-native-producer-seed",
+  "created_at": "2026-03-01T16:21:12.276Z",
+  "seed": {
+    "input_path": "artifacts/latest/clapse_compiler.wasm",
+    "input_sha256": "9d0566c9b49dcb53f9de254b45062742f2b36992ca577ff76cc35b260034c9e5"
+  },
+  "output": {
+    "wasm_path": "artifacts/strict-native/seed.wasm",
+    "dts_path": "artifacts/strict-native/seed.d.ts",
+    "sha256": "dfb2188eb8feb138fcdc7a43f9ab2f3d04475eda473049dd7367bb7513807ce9",
+    "bytes": 8333824
+  },
+  "contract": {
+    "source_version": "native-source-2026-03-01-r2",
+    "compile_contract_version": "native-v1"
+  },
+  "chain_depth": 8,
+  "stages": [
+    {
+      "stage": 1,
+      "bytes": 1096798,
+      "sha256": "ad3fea9234655ec5e54c950864f090e72eee2ce8cb3a91adf546a19491b101f7"
+    },
+    {
+      "stage": 2,
+      "bytes": 1468414,
+      "sha256": "4f7b5dba763d932699a87547713276a72d6b488c86317379dbf36219e9e7f25a"
+    },
+    {
+      "stage": 3,
+      "bytes": 1963902,
+      "sha256": "0a49b936e4a045e3d39090a31c01eb158cae8e3b3f4090a1a7f4f3c3ac283b75"
+    },
+    {
+      "stage": 4,
+      "bytes": 2624544,
+      "sha256": "1e09d8366f78795869c7b27ed472fad1d8fd7fe7ddd530cfd31ab08e23e7fdf7"
+    },
+    {
+      "stage": 5,
+      "bytes": 3505408,
+      "sha256": "cc0d10bfdb13f437b502aaa3028cac857a1102d57d80202e0267f13dbde337c9"
+    },
+    {
+      "stage": 6,
+      "bytes": 4679888,
+      "sha256": "b66376c45ab04608723f38dc5dffe989d25fcb71e3448722418e0d3e847e24df"
+    },
+    {
+      "stage": 7,
+      "bytes": 6245856,
+      "sha256": "1554be2c65d7fd77f14d9b23fc1223ac9f0f77f461cd2f42e2adc158e51c379a"
+    },
+    {
+      "stage": 8,
+      "bytes": 8333824,
+      "sha256": "dfb2188eb8feb138fcdc7a43f9ab2f3d04475eda473049dd7367bb7513807ce9"
+    }
+  ],
+  "verification": {
+    "raw_producer_probe": {
+      "hops": 2,
+      "output_bytes": 4679888
+    }
+  }
+}
