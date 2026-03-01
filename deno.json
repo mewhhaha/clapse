@@ -6,7 +6,7 @@
     "oxlint": "deno run -A npm:oxlint@1.43.0 --deny-warnings .",
     "lint": "deno task prettier && deno task oxlint",
     "test": "deno test",
-    "check": "deno task lint && deno check main.ts routes/*.tsx utils.ts static/app.js static/compile_pipeline.js static/wasm_runtime.js tests/*.ts && deno task test",
+    "check": "deno task lint && deno check main.ts routes/*.tsx utils.ts static/app.js static/compile_pipeline.js static/wasm_disasm.js static/wasm_runtime.js tests/*.ts && deno task test",
     "dev": "vite",
     "build": "vite build",
     "start": "deno serve -A _fresh/server.js",

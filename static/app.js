@@ -3,6 +3,7 @@ import {
   runCompilePipeline,
   tryDebugCompile,
 } from "./compile_pipeline.js";
+import { formatWasmOpcodes } from "./wasm_disasm.js";
 import { extractWasmInstance } from "./wasm_runtime.js";
 
 const ReactGlobal = globalThis.React;
@@ -1426,6 +1427,10 @@ function formatWasmText(response, wasmBytes) {
   const text = response?.wasm_text;
   if (typeof text === "string" && text.length > 0) {
     return text;
+  }
+  const opcodes = formatWasmOpcodes(wasmBytes, { maxInstructions: 20000 });
+  if (typeof opcodes === "string" && opcodes.length > 0) {
+    return opcodes;
   }
   return formatWasmHexDump(wasmBytes, WASM_TEXT_MAX_BYTES);
 }
