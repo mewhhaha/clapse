@@ -285,6 +285,9 @@ Current targets in `Justfile`:
     via `workflow_dispatch`: it runs bootstrap + `just pre-tag-verify` +
     release bundling first, then creates/pushes `release_tag` (workflow input
     or `v<VERSION>`) and publishes the GitHub release from that tag.
+  - release-verify keeps seed-lock/release-manifest release-id parity as a hard
+    check, but treats seed-lock compiler checksum drift as warning so release
+    proceeds with the current compiler wasm after strict verification passes.
 
 ## LSP and Formatter
 

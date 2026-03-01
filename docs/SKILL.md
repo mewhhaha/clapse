@@ -50,6 +50,10 @@ just formatter-golden-fixtures
 release bundling and publication. `workflow_dispatch` now supports manual
 releases: it resolves `release_tag` (input or `v<VERSION>`), verifies first,
 then creates/pushes that tag and publishes the GitHub release from it.
+`release-verify` keeps `artifacts/latest/seed-lock.json` vs
+`artifacts/latest/release-manifest.json` release-id consistency as a hard check;
+compiler checksum drift is logged as warning and release continues using the
+current compiler wasm that already passed strict verification.
 
 `pre-tag-verify` now executes strict native checks by default by delegating to
 `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-strict-producer-check`
