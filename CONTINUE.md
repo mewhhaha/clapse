@@ -7,6 +7,28 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
 
 ## Latest continuation
 
+- update (2026-03-01, remove-compiler-abi-compile-autofallback):
+  - removed compile auto-fallback from compiler ABI boundary:
+    - `scripts/wasm-compiler-abi.mjs` no longer calls
+      `buildWasmSeedCompileResponse(...)` from implicit fallback checks in
+      `callCompilerWasm` / `callCompilerWasmRaw`.
+    - removed the fallback gate logic (`shouldAutoBootstrapFallback`) and
+      related compile-response fallback predicates.
+  - effect:
+    - compile requests are now raw-by-default unless explicitly routed through
+      bootstrap-seed mode (`CLAPSE_USE_WASM_BOOTSTRAP_SEED=1`).
+    - no implicit compatibility fallback remains in default compile paths.
+  - docs sync:
+    - `docs/SKILL.md`
+    - `docs/clapse-language/references/tooling-and-workflows.md`
+  - verification evidence:
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler out/clapse_compiler.no_autofallback.wasm`
+      -> pass.
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just pre-tag-verify`
+      -> pass.
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just compile-native examples/util/json.clapse out/json.no_autofallback.wasm`
+      -> pass.
+
 - update (2026-03-01, opt-in-compiler-abi-autofallback):
   - changed compiler ABI fallback policy to raw-by-default:
     - `scripts/wasm-compiler-abi.mjs` now requires

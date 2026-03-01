@@ -49,11 +49,9 @@ deno run -A scripts/clapse.mjs bench [iterations]
     payload for `wasm_base64`.
     The same flag also applies in `scripts/wasm-compiler-abi.mjs` for
     `callCompilerWasm` and `callCompilerWasmRaw` compile requests.
-    Compile-request auto-fallback is now opt-in:
-    `CLAPSE_ENABLE_WASM_BOOTSTRAP_AUTOFALLBACK=1` enables compatibility fallback
-    when raw producer output is synthetic/invalid. Keep it unset for raw
-    producer behavior; `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1` remains a
-    hard-off switch.
+    Compile-request auto-fallback has been removed from the ABI path. Use
+    `CLAPSE_USE_WASM_BOOTSTRAP_SEED=1` explicitly when bootstrap-seed shaping is
+    desired for compile requests.
     The helper CLI is
     `deno run -A scripts/ts-seed/run-bootstrap-seed.mjs --request '<json>' --seed-wasm <path>`.
   - `just clapse-bin`/`just install` embed `artifacts/latest/clapse_compiler.wasm`
@@ -152,11 +150,9 @@ deno run -A scripts/clapse.mjs bench [iterations]
     compile smoke, strict boundary smoke, and strict selfhost probe with
     `CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION=1` so producer output must already
     satisfy the kernel contract without boundary normalization.
-    Compile-request auto-fallback is opt-in:
-    `CLAPSE_ENABLE_WASM_BOOTSTRAP_AUTOFALLBACK=1` enables compatibility fallback
-    when raw producer output is synthetic/invalid. Keep it unset for raw
-    producer-only behavior; `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1` remains a
-    hard-off switch for diagnostics.
+    Compile-request auto-fallback has been removed from the ABI path. Use
+    `CLAPSE_USE_WASM_BOOTSTRAP_SEED=1` explicitly for bootstrap-seed compile
+    shaping, or keep it unset for raw producer-only behavior.
   - bootstrap and pre-tag flows now default to
     `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-strict-producer-check`
     so producer strictness is verified on raw output by default.

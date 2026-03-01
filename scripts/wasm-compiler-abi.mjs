@@ -9,10 +9,6 @@ const UTF8_DECODER = new TextDecoder();
 const CLAPSE_WASM_TAIL_CALL_ENV = "CLAPSE_EMIT_WASM_TAIL_CALLS";
 const CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION =
   "CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION";
-const CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK =
-  "CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK";
-const CLAPSE_ENABLE_WASM_BOOTSTRAP_AUTOFALLBACK =
-  "CLAPSE_ENABLE_WASM_BOOTSTRAP_AUTOFALLBACK";
 const MIN_STABLE_KERNEL_COMPILER_BYTES = 16 * 1024;
 const COMPILE_DEBUG_ARTIFACT_FILES = [
   "lowered_ir.txt",
@@ -604,94 +600,6 @@ function hasCompilerAbiExports(exportNames) {
   return hasMemory && hasRun;
 }
 
-function hasProducerContract(responseObject) {
-  const contract = responseObject?.__clapse_contract;
-  if (!contract || typeof contract !== "object" || Array.isArray(contract)) {
-    return false;
-  }
-  if (
-    typeof contract.source_version !== "string" ||
-    contract.source_version.length === 0
-  ) {
-    return false;
-  }
-  return contract.compile_contract_version === "native-v1";
-}
-
-function hasCompileArtifactsFromSource(requestObject, responseObject) {
-  const sourceText = compileRequestSourceText(requestObject);
-  if (sourceText.length === 0) {
-    return false;
-  }
-  const artifacts = responseObject?.artifacts;
-  if (!artifacts || typeof artifacts !== "object" || Array.isArray(artifacts)) {
-    return false;
-  }
-  const lowered = artifacts["lowered_ir.txt"];
-  const collapsed = artifacts["collapsed_ir.txt"];
-  if (hasSyntheticCompileArtifactMarkers(lowered)) {
-    return false;
-  }
-  if (hasSyntheticCompileArtifactMarkers(collapsed)) {
-    return false;
-  }
-  return String(lowered).includes(sourceText) &&
-    String(collapsed).includes(sourceText);
-}
-
-function shouldAutoBootstrapFallback(requestObject, responseObject) {
-  if (!isCompileLikeRequest(requestObject)) {
-    return false;
-  }
-  if (isWasmBootstrapSeedEnabled()) {
-    return false;
-  }
-  if (boolEnvFlag(CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK, false)) {
-    return false;
-  }
-  if (!boolEnvFlag(CLAPSE_ENABLE_WASM_BOOTSTRAP_AUTOFALLBACK, false)) {
-    return false;
-  }
-  if (
-    !responseObject || typeof responseObject !== "object" ||
-    Array.isArray(responseObject)
-  ) {
-    return true;
-  }
-  if (responseObject.ok !== true) {
-    return false;
-  }
-  if (responseObject.backend !== "kernel-native") {
-    return true;
-  }
-  if (
-    typeof responseObject.wasm_base64 !== "string" ||
-    responseObject.wasm_base64.length === 0
-  ) {
-    return true;
-  }
-  if (!hasCompileArtifactsFromSource(requestObject, responseObject)) {
-    return true;
-  }
-  if (!hasProducerContract(responseObject)) {
-    return true;
-  }
-  if (!compileRequestNeedsCompilerAbiOutput(requestObject)) {
-    return false;
-  }
-  try {
-    const bytes = decodeWasmBase64(responseObject.wasm_base64);
-    const module = new WebAssembly.Module(bytes);
-    const exportNames = WebAssembly.Module.exports(module).map((entry) =>
-      entry.name
-    );
-    return !(bytes.length >= MIN_STABLE_KERNEL_COMPILER_BYTES &&
-      hasCompilerAbiExports(exportNames));
-  } catch {
-    return true;
-  }
-}
-
 function attachCompileContractMetadata(
   responseObject,
   contractMeta,
@@ -853,11 +761,6 @@ export async function callCompilerWasm(path, requestObject, options = {}) {
     );
   }
   let response = decodeResponseBytes(runtime, responseHandle);
-  if (shouldAutoBootstrapFallback(requestForWire, response)) {
-    response = await buildWasmSeedCompileResponse(requestForWire, {
-      seedWasmBytes: wasmBytes,
-    });
-  }
   if (isSelfhostArtifactsRequest(requestForWire)) {
     return validateSelfhostArtifactsResponseContract(response);
   }
@@ -889,13 +792,7 @@ export async function callCompilerWasmRaw(path, requestObject) {
       `compiler wasm returned invalid response handle: ${responseHandle}`,
     );
   }
-  const response = decodeResponseBytes(runtime, responseHandle);
-  if (shouldAutoBootstrapFallback(requestObject, response)) {
-    return await buildWasmSeedCompileResponse(requestObject, {
-      seedWasmBytes: wasmBytes,
-    });
-  }
-  return response;
+  return decodeResponseBytes(runtime, responseHandle);
 }
 
 export async function inspectCompilerWasmAbi(path) {

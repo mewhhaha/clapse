@@ -61,11 +61,10 @@ template-mode emit-wat shape parity before a seed can be reused.
 `native-strict-producer-check` runs the strict producer gate while setting
 `CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION=1` so the boundary no longer applies
 request-source artifact and kernel-compiler ABI normalization.
-Compiler ABI auto-fallback for compile requests is now opt-in in
-`scripts/wasm-compiler-abi.mjs`: set
-`CLAPSE_ENABLE_WASM_BOOTSTRAP_AUTOFALLBACK=1` to allow bootstrap-seed shaping
-when raw producer output is synthetic/invalid. Leave it unset for raw producer
-behavior. `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1` remains a hard-off switch.
+Compiler ABI no longer auto-falls back for compile requests in
+`scripts/wasm-compiler-abi.mjs`. Use
+`CLAPSE_USE_WASM_BOOTSTRAP_SEED=1` explicitly when you want bootstrap-seed
+shaping for compile flows.
 `native-strict-producer-check [wasm] [hops] [source_version]` now also supports
 producer contract gating through `__clapse_contract.source_version`; env
 fallback is `CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED=<token>`.
@@ -404,10 +403,9 @@ The command returns a single compile response with:
   The same env flag now also routes compile requests through the bootstrap seed
   adapter in `scripts/wasm-compiler-abi.mjs` (`callCompilerWasm` and
   `callCompilerWasmRaw`) so producer diagnostics can be run against the
-  temporary seed path. Compile-request auto-fallback is now opt-in:
-  `CLAPSE_ENABLE_WASM_BOOTSTRAP_AUTOFALLBACK=1` enables compatibility fallback
-  when raw producer output is synthetic/invalid; keep it unset for raw behavior.
-  `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1` remains a hard-off switch.
+  temporary seed path. Compile-request auto-fallback has been removed; use
+  `CLAPSE_USE_WASM_BOOTSTRAP_SEED=1` explicitly when bootstrap-seed shaping is
+  desired.
   Bootstrap and pre-tag targets set
   `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1`
   explicitly while running strict producer checks, and run source-version
