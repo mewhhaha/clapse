@@ -4,8 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Manual release tag (defaults to v<VERSION>)"
+        description: "Manual release tag (`default` bumps patch from latest v* tag)"
         required: false
+        default: "default"
         type: string
   push:
     tags:
@@ -50,9 +51,28 @@ jobs:
           version="$(cat VERSION)"
           short_sha="$(git rev-parse --short=12 HEAD)"
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            release_tag="${{ inputs.release_tag }}"
-            if [[ -z "${release_tag}" ]]; then
-              release_tag="v${version}"
+            release_tag_input="${{ inputs.release_tag }}"
+            if [[ -z "${release_tag_input}" || "${release_tag_input}" == "default" ]]; then
+              latest_release_tag="$(git tag -l 'v*' --sort=-v:refname | head -n 1 || true)"
+              if [[ -n "${latest_release_tag}" ]]; then
+                latest_release_core="${latest_release_tag#v}"
+                if [[ "${latest_release_core}" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+                  IFS='.' read -r -a release_parts <<< "${latest_release_core}"
+                  last_index="$((${#release_parts[@]} - 1))"
+                  release_parts[${last_index}]="$((10#${release_parts[${last_index}]} + 1))"
+                  bumped_release_core="$(IFS='.'; echo "${release_parts[*]}")"
+                  release_tag="v${bumped_release_core}"
+                  echo "release_tag=default; latest=${latest_release_tag}; bumped=${release_tag}"
+                else
+                  release_tag="v${version}"
+                  echo "latest release tag is non-numeric (${latest_release_tag}); fallback=${release_tag}" >&2
+                fi
+              else
+                release_tag="v${version}"
+                echo "no existing v* tags; fallback=${release_tag}"
+              fi
+            else
+              release_tag="${release_tag_input}"
             fi
           else
             release_tag="${GITHUB_REF_NAME}"

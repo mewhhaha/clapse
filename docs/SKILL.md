@@ -48,8 +48,10 @@ just formatter-golden-fixtures
 
 `release-verify` CI runs the same pre-tag gate via `just pre-tag-verify` before
 release bundling and publication. `workflow_dispatch` now supports manual
-releases: it resolves `release_tag` (input or `v<VERSION>`), verifies first,
-then creates/pushes that tag and publishes the GitHub release from it.
+releases: it resolves `release_tag` (explicit input, or `default` to bump the
+last numeric segment from the latest existing `v*` tag; fallback `v<VERSION>`
+when no tags exist), verifies first, then creates/pushes that tag and publishes
+the GitHub release from it.
 `release-verify` keeps `artifacts/latest/seed-lock.json` vs
 `artifacts/latest/release-manifest.json` release-id consistency as a hard check;
 compiler checksum drift is logged as warning and release continues using the
