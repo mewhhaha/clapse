@@ -35,8 +35,10 @@ deno run -A scripts/clapse.mjs bench [iterations]
     Entrypoint reachability pruning is enforced in compiler ABI dispatch for
     compile requests: roots are entrypoint exported functions (fallback:
     `main`), and unreachable top-level function definitions are removed before
-    wasm compile execution. `entrypoint_exports` and `module_sources` are
-    consumed as first-class compile request inputs when present. Legacy env
+    wasm compile execution. `entrypoint_exports` is now treated as an explicit
+    root override input (not precomputed reachability metadata), and
+    `module_sources` remains a first-class precomputed input when present.
+    Legacy env
     toggles `CLAPSE_ENTRYPOINT_DCE` and `CLAPSE_INTERNAL_ENTRYPOINT_DCE` remain
     for compatibility but do not disable compile dispatch pruning.
     `just native-ir-liveness-size-gate` enforces non-regression on emitted wasm
@@ -247,6 +249,7 @@ Current targets in `Justfile`:
 - `just native-compile-smoke`
 - `just compile-debug-smoke`
 - `just native-entrypoint-dce-strict-gate`
+- `just native-entrypoint-exports-dce-gate`
 - `just native-ir-liveness-size-gate`
 - `just native-bootstrap-seed-smoke [wasm=...]`
 - `just native-selfhost-probe [wasm=...] [hops=...]`

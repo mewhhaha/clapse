@@ -257,6 +257,26 @@ function parseExportNamesFromRaw(raw) {
     .filter((name) => /^[A-Za-z_][A-Za-z0-9_']*$/u.test(name));
 }
 
+function normalizeEntrypointExportRoots(rawRoots) {
+  if (!Array.isArray(rawRoots)) {
+    return [];
+  }
+  const out = [];
+  const seen = new Set();
+  for (const root of rawRoots) {
+    const name = String(root ?? "").trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_']*$/u.test(name)) {
+      continue;
+    }
+    if (seen.has(name)) {
+      continue;
+    }
+    seen.add(name);
+    out.push(name);
+  }
+  return out;
+}
+
 function stripCommentsAndStrings(source) {
   const noStrings = String(source).replace(/"([^"\\]|\\.)*"/gu, " ");
   return noStrings.replace(/--.*$/gmu, " ");
@@ -446,7 +466,7 @@ function resolveTokenFunctionDeps(token, moduleInfo, modulesByPath) {
   return deps;
 }
 
-function deriveEntrypointRoots(entryModuleInfo) {
+function deriveEntrypointRoots(entryModuleInfo, rootExportsOverride = []) {
   const roots = [];
   const addRoot = (name) => {
     if (!entryModuleInfo.functionBlocks.has(name)) {
@@ -456,6 +476,15 @@ function deriveEntrypointRoots(entryModuleInfo) {
       roots.push(name);
     }
   };
+  const requestedRoots = normalizeEntrypointExportRoots(rootExportsOverride);
+  if (requestedRoots.length > 0) {
+    for (const rootName of requestedRoots) {
+      addRoot(rootName);
+    }
+    if (roots.length > 0) {
+      return roots;
+    }
+  }
   if (entryModuleInfo.exports.size > 0) {
     for (const exportName of entryModuleInfo.exports) {
       addRoot(exportName);
@@ -537,6 +566,7 @@ export async function buildCompileReachabilityPlan(
   inputPath,
   inputSource,
   projectConfig,
+  options = {},
 ) {
   const entryPath = toAbsolutePath(inputPath);
   const moduleSearchDirs = Array.isArray(projectConfig?.moduleSearchDirs)
@@ -579,7 +609,10 @@ export async function buildCompileReachabilityPlan(
     return null;
   }
 
-  const roots = deriveEntrypointRoots(entryModuleInfo);
+  const roots = deriveEntrypointRoots(
+    entryModuleInfo,
+    options.rootExportsOverride,
+  );
   if (roots.length === 0) {
     return null;
   }
@@ -697,12 +730,6 @@ function hasReachabilityData(requestObject) {
     return false;
   }
   if (
-    Array.isArray(requestObject.entrypoint_exports) &&
-    requestObject.entrypoint_exports.length > 0
-  ) {
-    return true;
-  }
-  if (
     Array.isArray(requestObject.module_sources) &&
     requestObject.module_sources.length > 0
   ) {
@@ -746,10 +773,16 @@ export async function applyCompileReachabilityToCompileRequest(
   }
   const projectConfig = options.projectConfig ??
     await readClapseProjectConfig(inputPath);
+  const requestedRoots = normalizeEntrypointExportRoots(
+    requestObject.entrypoint_exports,
+  );
   const reachabilityPlan = await buildCompileReachabilityPlan(
     inputPath,
     inputSource,
     projectConfig,
+    {
+      rootExportsOverride: requestedRoots,
+    },
   );
   if (!reachabilityPlan) {
     return { requestObject, reachabilityPlan: null };

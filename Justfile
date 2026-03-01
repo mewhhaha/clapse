@@ -60,6 +60,7 @@ pre-tag-verify:
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-source-version-propagation-gate "${verify_wasm}" "${probe_hops}"
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just compile-debug-smoke
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-entrypoint-dce-strict-gate
+  CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-entrypoint-exports-dce-gate
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-ir-liveness-size-gate
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" deno run -A scripts/record-kernel-smoke.mjs
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just docs-validate
@@ -87,6 +88,9 @@ compile-debug-smoke:
 
 native-entrypoint-dce-strict-gate:
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/native-entrypoint-dce-strict-gate.mjs
+
+native-entrypoint-exports-dce-gate:
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/native-entrypoint-exports-dce-gate.mjs
 
 native-ir-liveness-size-gate:
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/native-ir-liveness-size-gate.mjs

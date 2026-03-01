@@ -222,6 +222,26 @@ async function run() {
       ),
       "compile-debug-smoke: unused modules should not be included in module source overrides",
     );
+    const subsetPlan = await buildCompileReachabilityPlanForTest(
+      entryModulePath,
+      { entrypointExports: ["main"] },
+    );
+    assert(
+      subsetPlan !== null,
+      "compile-debug-smoke: expected subset reachability plan",
+    );
+    assert(
+      Array.isArray(subsetPlan.rootExports) &&
+        subsetPlan.rootExports.length === 1 &&
+        subsetPlan.rootExports[0] === "main",
+      "compile-debug-smoke: subset reachability plan should pin root exports to requested entrypoint_exports",
+    );
+    const subsetEntrySource =
+      subsetPlan.sourceByPath.get(subsetPlan.entryPath) ?? "";
+    assert(
+      !subsetEntrySource.includes(entryDeadMarker),
+      "compile-debug-smoke: subset roots should prune extra exported entrypoint functions",
+    );
     await runWithArgs([
       "compile-debug",
       entryModulePath,

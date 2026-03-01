@@ -115,9 +115,10 @@ Entrypoint reachability pruning now runs in the compiler ABI compile dispatch:
 - roots are entrypoint exported functions (fallback: `main`)
 - top-level function definitions not reachable from roots are removed before
   wasm compile request execution
-- `entrypoint_exports` and `module_sources` are consumed as first-class compile
-  request inputs when present; otherwise reachability is derived from
-  `input_source` and project includes
+- `entrypoint_exports` is treated as an explicit root override input (not
+  precomputed reachability metadata), while `module_sources` remains a
+  first-class precomputed input when present; otherwise reachability is derived
+  from `input_source` and project includes
 - `CLAPSE_ENTRYPOINT_DCE` and `CLAPSE_INTERNAL_ENTRYPOINT_DCE` remain as legacy
   compatibility toggles but no longer disable compile dispatch pruning
 
@@ -126,6 +127,7 @@ Smoke gate:
 ```bash
 just compile-debug-smoke
 just native-entrypoint-dce-strict-gate
+just native-entrypoint-exports-dce-gate
 just native-ir-liveness-size-gate
 ```
 
