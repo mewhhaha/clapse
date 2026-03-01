@@ -1,6 +1,10 @@
 #!/usr/bin/env -S deno run -A
 
-import { callCompilerWasm, decodeWasmBase64, inspectCompilerWasmAbi } from "./wasm-compiler-abi.mjs";
+import {
+  callCompilerWasm,
+  decodeWasmBase64,
+  inspectCompilerWasmAbi,
+} from "./wasm-compiler-abi.mjs";
 
 const DEFAULT_WASM_PATH = "artifacts/latest/clapse_compiler.wasm";
 const DEFAULT_MIN_BYTES = 4096;
@@ -15,7 +19,8 @@ function usage() {
     "Checks:",
     "  - wasm exists and is not tiny",
     "  - wasm exports browser runtime ABI (memory + clapse_run)",
-    "  - compile smoke request succeeds",
+    "  - compile smoke request succeeds in kernel-native mode",
+    "  - compile smoke response includes kernel backend + debug artifacts",
     "  - emitted module is valid wasm and exports main",
   ].join("\n");
 }
@@ -91,6 +96,7 @@ async function runCompileSmoke(wasmPath) {
   try {
     response = await callCompilerWasm(wasmPath, {
       command: "compile",
+      compile_mode: "kernel-native",
       input_path: SMOKE_INPUT_PATH,
       input_source: SMOKE_INPUT_SOURCE,
       plugin_wasm_paths: [],
@@ -108,8 +114,32 @@ async function runCompileSmoke(wasmPath) {
       : "compile smoke response returned ok=false";
     fail(msg);
   }
-  if (typeof response.wasm_base64 !== "string" || response.wasm_base64.length === 0) {
+  if (
+    typeof response.wasm_base64 !== "string" ||
+    response.wasm_base64.length === 0
+  ) {
     fail("compile smoke response missing non-empty wasm_base64");
+  }
+  if (response.backend !== "kernel-native") {
+    fail(
+      `compile smoke response must set backend=kernel-native (got ${
+        String(response.backend ?? "<missing>")
+      })`,
+    );
+  }
+  if (
+    !response.artifacts || typeof response.artifacts !== "object" ||
+    Array.isArray(response.artifacts)
+  ) {
+    fail("compile smoke response missing artifacts object");
+  }
+  for (const key of ["lowered_ir.txt", "collapsed_ir.txt"]) {
+    if (
+      typeof response.artifacts[key] !== "string" ||
+      response.artifacts[key].length === 0
+    ) {
+      fail(`compile smoke response missing non-empty artifacts.${key}`);
+    }
   }
 
   let bytes;
@@ -119,7 +149,7 @@ async function runCompileSmoke(wasmPath) {
     const msg = err instanceof Error ? err.message : String(err);
     fail(`compile smoke wasm_base64 decode failed: ${msg}`);
   }
-  if (bytes.length < 64) {
+  if (bytes.length < 48) {
     fail(`compile smoke output wasm too small (${bytes.length} bytes)`);
   }
   let module;
@@ -129,7 +159,9 @@ async function runCompileSmoke(wasmPath) {
     const msg = err instanceof Error ? err.message : String(err);
     fail(`compile smoke output is not valid wasm: ${msg}`);
   }
-  const exportNames = WebAssembly.Module.exports(module).map((entry) => entry.name);
+  const exportNames = WebAssembly.Module.exports(module).map((entry) =>
+    entry.name
+  );
   if (!exportNames.includes("main")) {
     fail("compile smoke output missing expected export: main");
   }

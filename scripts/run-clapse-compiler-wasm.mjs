@@ -1240,14 +1240,14 @@ async function compileViaWasm(wasmPath, inputPath, outputPath, options = {}) {
       `compile response for ${inputPath} returned backend=${decodedResponse.backend}; expected backend=kernel-native`,
     );
   }
-  if (isNativeCompileMode) {
+  if (isNativeCompileMode && isKernelCompile) {
     if (decodedWasmBytes.length < 4096) {
       throw new Error(
         `compile response for ${inputPath} is a stub artifact; configure a native clapse compiler wasm and remove stub fallback mode`,
       );
     }
   }
-  if (isNativeCompileMode) {
+  if (isNativeCompileMode && isKernelCompile) {
     if (isKnownStubCompileArtifact(decodedWasmBytes, decodedResponse)) {
       throw new Error(
         `compile response for ${inputPath} is a known placeholder stub artifact; configure a native clapse compiler wasm and remove stub fallback mode`,

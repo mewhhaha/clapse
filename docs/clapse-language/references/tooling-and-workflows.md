@@ -38,11 +38,15 @@ deno run -A scripts/clapse.mjs bench [iterations]
     wasm compile execution. `entrypoint_exports` is now treated as an explicit
     root override input (not precomputed reachability metadata), and
     `module_sources` remains a first-class precomputed input when present.
+    Non-kernel compile responses emit a reachability-shaped wasm bundle in the
+    compile producer path used by both raw and validated ABI calls (exports
+    follow selected roots, bundle size tracks reachable function count), while
+    kernel self-host compile requests still require full compiler ABI output.
     Legacy env
     toggles `CLAPSE_ENTRYPOINT_DCE` and `CLAPSE_INTERNAL_ENTRYPOINT_DCE` remain
     for compatibility but do not disable compile dispatch pruning.
-    `just native-ir-liveness-size-gate` enforces non-regression on emitted wasm
-    bytes for entrypoint-pruned compile requests (`pruned_bytes <= baseline_bytes`).
+    `just native-ir-liveness-size-gate` now enforces strict emitted wasm shrink
+    for entrypoint-pruned compile requests (`pruned_bytes < baseline_bytes`).
     Native debug artifacts include kernel-owned `lowered_ir.txt` and
     `collapsed_ir.txt` payloads.
   - host-bridge compile execution is removed from JS boundary code; compile

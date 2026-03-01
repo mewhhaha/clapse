@@ -112,8 +112,8 @@ async function run() {
       "native-entrypoint-exports-dce-gate: subset-root artifacts should prune helper/dead marker",
     );
     assert(
-      subset.wasmBytes.length <= baseline.wasmBytes.length,
-      `native-entrypoint-exports-dce-gate: subset-root wasm bytes regressed (${subset.wasmBytes.length} > ${baseline.wasmBytes.length})`,
+      subset.wasmBytes.length < baseline.wasmBytes.length,
+      `native-entrypoint-exports-dce-gate: subset-root wasm bytes should strictly shrink (${subset.wasmBytes.length} >= ${baseline.wasmBytes.length})`,
     );
 
     console.log(

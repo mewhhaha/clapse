@@ -124,19 +124,11 @@ async function run() {
     );
 
     assert(
-      pruned.wasmBytes.length <= baseline.wasmBytes.length,
-      `native-ir-liveness-size-gate: pruned wasm bytes regressed (${pruned.wasmBytes.length} > ${baseline.wasmBytes.length})`,
+      pruned.wasmBytes.length < baseline.wasmBytes.length,
+      `native-ir-liveness-size-gate: pruned wasm bytes should strictly shrink (${pruned.wasmBytes.length} >= ${baseline.wasmBytes.length})`,
     );
-
     const baselineHasDead = baseline.lowered.includes(deadMarker) ||
       baseline.collapsed.includes(deadMarker);
-    const equalBytes = pruned.wasmBytes.length === baseline.wasmBytes.length;
-    if (equalBytes && baselineHasDead) {
-      console.log(
-        `native-ir-liveness-size-gate: PASS (baseline=${baseline.wasmBytes.length}; pruned=${pruned.wasmBytes.length}; dead marker removed; static wasm size unchanged)`,
-      );
-      return;
-    }
     console.log(
       `native-ir-liveness-size-gate: PASS (baseline=${baseline.wasmBytes.length}; pruned=${pruned.wasmBytes.length}; baseline_has_dead=${baselineHasDead})`,
     );

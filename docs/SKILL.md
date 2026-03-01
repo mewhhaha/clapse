@@ -121,6 +121,11 @@ Entrypoint reachability pruning now runs in the compiler ABI compile dispatch:
   from `input_source` and project includes
 - `CLAPSE_ENTRYPOINT_DCE` and `CLAPSE_INTERNAL_ENTRYPOINT_DCE` remain as legacy
   compatibility toggles but no longer disable compile dispatch pruning
+- non-kernel compile responses now emit a reachability-shaped wasm bundle in the
+  compile producer path (shared by raw and validated ABI calls): exports follow
+  `entrypoint_exports` / entrypoint exports, and bundle size tracks reachable
+  function count. Kernel self-host compile requests continue to require
+  compiler-ABI output
 
 Smoke gate:
 
