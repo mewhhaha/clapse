@@ -124,6 +124,7 @@ Smoke gate:
 ```bash
 just compile-debug-smoke
 just native-entrypoint-dce-strict-gate
+just native-ir-liveness-size-gate
 ```
 
 ## Ongoing sync rule

@@ -75,7 +75,7 @@
     },
     {
       "id": "dead_function_pruning",
-      "status": "not implemented",
+      "status": "partially implemented",
       "title": "Root-based dead-function pruning",
       "scope": "collapse"
     },
@@ -93,7 +93,7 @@
     },
     {
       "id": "self_tail_call_normalization",
-      "status": "not implemented",
+      "status": "partially implemented",
       "title": "Self tail-call normalization",
       "scope": "collapse"
     }

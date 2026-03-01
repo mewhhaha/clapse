@@ -39,6 +39,8 @@ deno run -A scripts/clapse.mjs bench [iterations]
     consumed as first-class compile request inputs when present. Legacy env
     toggles `CLAPSE_ENTRYPOINT_DCE` and `CLAPSE_INTERNAL_ENTRYPOINT_DCE` remain
     for compatibility but do not disable compile dispatch pruning.
+    `just native-ir-liveness-size-gate` enforces non-regression on emitted wasm
+    bytes for entrypoint-pruned compile requests (`pruned_bytes <= baseline_bytes`).
     Native debug artifacts include kernel-owned `lowered_ir.txt` and
     `collapsed_ir.txt` payloads.
   - host-bridge compile execution is removed from JS boundary code; compile
@@ -245,6 +247,7 @@ Current targets in `Justfile`:
 - `just native-compile-smoke`
 - `just compile-debug-smoke`
 - `just native-entrypoint-dce-strict-gate`
+- `just native-ir-liveness-size-gate`
 - `just native-bootstrap-seed-smoke [wasm=...]`
 - `just native-selfhost-probe [wasm=...] [hops=...]`
 - `just native-selfhost-probe-strict [wasm=...] [hops=...]`
