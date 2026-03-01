@@ -4,7 +4,7 @@ This branch is an artifact-only GitHub Pages app.
 
 It provides:
 
-- release support filtered to tags `>= v0.1.0.12` that include compiler and
+- release support filtered to mirrored tags `>= v0.1.0.22` that include compiler and
   prelude assets,
 - release-aware compiler selection from GitHub Releases,
 - a browser pipeline for `code -> IR -> wasm`,

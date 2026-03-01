@@ -198,7 +198,7 @@ const MIN_SUPPORTED_RELEASE_TAG = "v0.1.0.22";
 const MIN_SUPPORTED_RELEASE_VERSION = parseReleaseVersion(
   MIN_SUPPORTED_RELEASE_TAG,
 );
-const MIRRORED_RELEASE_TAGS = new Set(["v0.1.0.22"]);
+const MIRRORED_RELEASE_TAGS = new Set(["v0.1.0.22", "v0.1.0.23"]);
 const COMPILER_ASSET_NAME = "clapse_compiler.wasm";
 const COMPILER_ASSET_SUFFIX = "/artifacts/latest/clapse_compiler.wasm";
 const PRELUDE_ASSET_NAME = "prelude.clapse";
