@@ -122,6 +122,14 @@ Prelude will load from the selected release.
       >
         WASM
       </button>
+      <button
+        type="button"
+        class="tab-button"
+        data-tab-target="output"
+        aria-selected="false"
+      >
+        Output
+      </button>
     </nav>
 
     <section class="tab-panels">
@@ -144,6 +152,12 @@ Prelude will load from the selected release.
         <a id="wasm-download" href="#" download hidden>
           Download Compiled Wasm
         </a>
+      </section>
+
+      <section class="tab-panel" data-tab-panel="output" hidden>
+        <pre id="program-output" class="result-output">
+(Program output appears after compile.)
+        </pre>
       </section>
     </section>
   </aside>
@@ -197,7 +211,9 @@ const HOST_ALLOC_GUARD_BYTES = 16 * WASM_PAGE_SIZE;
 const SLICE_DESC_SIZE = 8;
 const WASM_TEXT_MAX_BYTES = 262144;
 
-const DEFAULT_SOURCE = `identity x = x
+const DEFAULT_SOURCE = `export main
+
+identity x = x
 
 main = identity 7
 `;
@@ -206,7 +222,9 @@ const EXAMPLE_PROGRAMS = [
   {
     id: "identity",
     label: "Identity",
-    source: `identity x = x
+    source: `export main
+
+identity x = x
 
 main = identity 7
 `,
@@ -214,7 +232,9 @@ main = identity 7
   {
     id: "factorial",
     label: "Factorial (recursive)",
-    source: `factorial n = case eq n 0 of
+    source: `export main
+
+factorial n = case eq n 0 of
   true -> 1
   _ -> mul n (factorial (sub n 1))
 
@@ -224,7 +244,9 @@ main = factorial 8
   {
     id: "fibonacci",
     label: "Fibonacci (recursive)",
-    source: `fibonacci n = case eq n 0 of
+    source: `export main
+
+fibonacci n = case eq n 0 of
   true -> 0
   _ -> case eq n 1 of
     true -> 1
@@ -236,7 +258,9 @@ main = fibonacci 10
   {
     id: "gcd",
     label: "GCD (Euclid)",
-    source: `gcd a b = case eq b 0 of
+    source: `export main
+
+gcd a b = case eq b 0 of
   true -> a
   _ -> case eq a b of
     true -> a
@@ -250,7 +274,9 @@ main = gcd 84 30
   {
     id: "sum_to_n",
     label: "Sum to N",
-    source: `sum_to_n n = case eq n 0 of
+    source: `export main
+
+sum_to_n n = case eq n 0 of
   true -> 0
   _ -> add n (sum_to_n (sub n 1))
 
@@ -260,7 +286,9 @@ main = sum_to_n 10
   {
     id: "pow",
     label: "Power",
-    source: `pow base exp = case eq exp 0 of
+    source: `export main
+
+pow base exp = case eq exp 0 of
   true -> 1
   _ -> mul base (pow base (sub exp 1))
 
@@ -299,6 +327,7 @@ const elements = {
   loweredIrOutput: document.getElementById("lowered-ir-output"),
   collapsedIrOutput: document.getElementById("collapsed-ir-output"),
   compileOutput: document.getElementById("compile-output"),
+  programOutput: document.getElementById("program-output"),
   wasmDownload: document.getElementById("wasm-download"),
   sourceTabButtons: [...document.querySelectorAll("[data-source-tab-target]")],
   sourceTabPanels: [...document.querySelectorAll("[data-source-tab-panel]")],
@@ -745,6 +774,7 @@ async function runCompile({ forceFormat = false } = {}) {
   setControlsBusy(true);
   setStatus(`Compiling with ${tag}...`);
   setDownloadLink(null, null);
+  elements.programOutput.textContent = "Compiling...";
 
   let irIssue = null;
 
@@ -821,6 +851,8 @@ async function runCompile({ forceFormat = false } = {}) {
       if (wasmBase64.length === 0) {
         elements.compileOutput.textContent =
           "Compile succeeded but wasm_base64 was empty.";
+        elements.programOutput.textContent =
+          "No runnable output: wasm payload was empty.";
       } else {
         const wasmBytes = decodeWasmBase64(wasmBase64);
         setDownloadLink(tag, wasmBytes);
@@ -843,10 +875,18 @@ async function runCompile({ forceFormat = false } = {}) {
           "wasm_text",
           wasmText,
         ].join("\n");
+
+        const outputResult = await evaluateProgramOutput(
+          exportsList,
+          wasmBytes,
+        );
+        elements.programOutput.textContent = outputResult;
       }
     } else {
       const compileError = formatResponseError(compileResponse);
       elements.compileOutput.textContent = compileError;
+      elements.programOutput.textContent =
+        "No runnable output: compile failed.";
       setStatus(`Compile failed: ${compileError}`);
       setActiveTab("compile");
       return;
@@ -861,6 +901,7 @@ async function runCompile({ forceFormat = false } = {}) {
     const message = errorMessage(err);
     setStatus(`Compile failed: ${message}`);
     elements.compileOutput.textContent = `Compile failed.\n${message}`;
+    elements.programOutput.textContent = `No runnable output: ${message}`;
     setActiveTab("compile");
   } finally {
     state.running = false;
@@ -889,6 +930,82 @@ function normalizeExports(value) {
     out.push({ name, arity });
   }
   return out;
+}
+
+async function evaluateProgramOutput(exportsList, wasmBytes) {
+  const mainExport = exportsList.find((entry) => entry.name === "main");
+  if (!mainExport) {
+    return "No runnable output: `main` is not exported.";
+  }
+  if (mainExport.arity !== 0) {
+    return `No runnable output: \`main\` has arity ${mainExport.arity} (expected 0).`;
+  }
+
+  try {
+    const value = await runWasmMain(wasmBytes);
+    return `main() => ${formatRuntimeValue(value)}`;
+  } catch (err) {
+    return `main() failed: ${errorMessage(err)}`;
+  }
+}
+
+async function runWasmMain(wasmBytes) {
+  const module = await WebAssembly.compile(wasmBytes);
+  const imports = buildProgramImports(WebAssembly.Module.imports(module));
+  const instance = extractWasmInstance(
+    await WebAssembly.instantiate(module, imports),
+  );
+  const main = instance.exports.main;
+  if (typeof main !== "function") {
+    throw new Error("main export is not callable.");
+  }
+  return main();
+}
+
+function buildProgramImports(imports) {
+  const out = {};
+  for (const entry of imports) {
+    if (!out[entry.module]) {
+      out[entry.module] = {};
+    }
+    if (entry.kind !== "function") {
+      throw new Error(
+        `Program import kind '${entry.kind}' is unsupported for browser output runtime.`,
+      );
+    }
+    out[entry.module][entry.name] = (..._args) => 0;
+  }
+
+  if (!out.host) {
+    out.host = {};
+  }
+  if (typeof out.host.clapse_run !== "function") {
+    out.host.clapse_run = (handle) => handle | 0;
+  }
+  if (typeof out.host.clapse_host_run !== "function") {
+    out.host.clapse_host_run = (handle) => handle | 0;
+  }
+  if (typeof out.host.read_file !== "function") {
+    out.host.read_file = () => 0;
+  }
+  if (typeof out.host.unix_time_ms !== "function") {
+    out.host.unix_time_ms = (seed) => seed | 0;
+  }
+  return out;
+}
+
+function formatRuntimeValue(value) {
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  if (typeof value === "boolean") return String(value);
+  if (typeof value === "bigint") return `${value}n`;
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 function callFormat(session, source) {
