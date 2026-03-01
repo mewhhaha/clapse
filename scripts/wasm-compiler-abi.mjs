@@ -292,6 +292,42 @@ function rewriteTailCallSuffixInBody(bytes, exprStart, funcEndIndex) {
   return 0;
 }
 
+function rewriteCallBeforeReturnInBody(bytes, exprStart, funcEndIndex) {
+  if (funcEndIndex <= exprStart) {
+    return 0;
+  }
+  let rewrites = 0;
+  for (let returnIndex = exprStart + 1; returnIndex < funcEndIndex; returnIndex += 1) {
+    if (bytes[returnIndex] !== 0x0f) {
+      continue;
+    }
+    const minScanIndex = Math.max(exprStart, returnIndex - 12);
+    for (
+      let opIndex = returnIndex - 1;
+      opIndex >= minScanIndex;
+      opIndex -= 1
+    ) {
+      let opcode;
+      try {
+        opcode = tryDecodeTailCallSuffix(bytes, opIndex, returnIndex);
+      } catch {
+        opcode = null;
+      }
+      if (opcode === null) {
+        continue;
+      }
+      if (opcode === 0x10) {
+        bytes[opIndex] = 0x12; // return_call
+      } else {
+        bytes[opIndex] = 0x13; // return_call_indirect
+      }
+      rewrites += 1;
+      break;
+    }
+  }
+  return rewrites;
+}
+
 function rewriteWasmTailCallOpcodesUnsafe(wasmBytes) {
   const rewritten = new Uint8Array(wasmBytes);
   let rewrites = 0;
@@ -329,6 +365,11 @@ function rewriteWasmTailCallOpcodesUnsafe(wasmBytes) {
           }
           exprStart += 1; // value type byte
         }
+        rewrites += rewriteCallBeforeReturnInBody(
+          rewritten,
+          exprStart,
+          bodyEnd - 1,
+        );
         rewrites += rewriteTailCallSuffixInBody(
           rewritten,
           exprStart,

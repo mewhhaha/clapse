@@ -323,8 +323,9 @@ Current targets in `Justfile`:
 - Keep this boundary explicit: JS/TS hosts do not perform formatter normalization;
   they forward kernel formatter output unchanged.
 - Wasm compile artifacts now include a post-emit tail-call opcode rewrite:
-  terminal `call`/`call_indirect` suffixes in function bodies are rewritten to
-  `return_call`/`return_call_indirect` when structurally safe for that suffix.
+  terminal `call`/`call_indirect` suffixes plus explicit
+  `call`/`call_indirect` immediately followed by `return` in function bodies
+  are rewritten to `return_call`/`return_call_indirect` when structurally safe.
   Set `CLAPSE_EMIT_WASM_TAIL_CALLS=0` to disable this rewrite.
 - Formatter logic is decomposed into kernel-side `compiler.formatter`, with
   `bootstrap_phase9_compiler_kernel` acting as command router while further

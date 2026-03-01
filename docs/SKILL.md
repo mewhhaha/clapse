@@ -324,7 +324,8 @@ The command returns a single compile response with:
   compile modes also require `artifacts.lowered_ir.txt` and
   `artifacts.collapsed_ir.txt`.
 - Keep wasm opcode emission docs aligned with runtime behavior: compile artifact
-  emission now rewrites terminal tail-position call suffixes from
+  emission now rewrites tail-position call suffixes and explicit
+  `call`/`call_indirect` + `return` pairs from
   `call`/`call_indirect` to `return_call`/`return_call_indirect`
   (`CLAPSE_EMIT_WASM_TAIL_CALLS=1` by default; set to `0` to disable).
 - Keep selfhost artifact docs aligned with runtime behavior: JS no longer
