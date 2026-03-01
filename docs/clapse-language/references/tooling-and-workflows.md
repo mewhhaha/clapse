@@ -8,6 +8,7 @@ Use the deno frontend CLI (host I/O boundary; kernel owns language behavior):
 deno run -A scripts/clapse.mjs compile <input.clapse> [output.wasm]
 deno run -A scripts/clapse.mjs compile-native <input.clapse> [output.wasm]
 deno run -A scripts/clapse.mjs compile-native-debug <input.clapse> [output.wasm] [artifacts-dir]
+deno run -A scripts/clapse.mjs compile-debug <input.clapse> [output.wasm] [artifacts-dir]
 deno run -A scripts/clapse.mjs emit-wat <input.clapse> [output.wat]
 deno run -A scripts/clapse.mjs format <file>
 deno run -A scripts/clapse.mjs format --write <file>
@@ -29,6 +30,15 @@ deno run -A scripts/clapse.mjs bench [iterations]
   - `compile_mode` now supports `native` / `kernel-native` for kernel-native
     compile response shaping. Default compile mode is kernel-native.
     Debug compile modes are `debug` / `native-debug` (with `kernel-debug` alias).
+    CLI/runner command aliases are accepted for underscore forms:
+    `compile_debug`, `compile_native`, and `compile_native_debug`.
+    Entrypoint reachability pruning is enforced in compiler ABI dispatch for
+    compile requests: roots are entrypoint exported functions (fallback:
+    `main`), and unreachable top-level function definitions are removed before
+    wasm compile execution. `entrypoint_exports` and `module_sources` are
+    consumed as first-class compile request inputs when present. Legacy env
+    toggles `CLAPSE_ENTRYPOINT_DCE` and `CLAPSE_INTERNAL_ENTRYPOINT_DCE` remain
+    for compatibility but do not disable compile dispatch pruning.
     Native debug artifacts include kernel-owned `lowered_ir.txt` and
     `collapsed_ir.txt` payloads.
   - host-bridge compile execution is removed from JS boundary code; compile
@@ -220,6 +230,8 @@ Current targets in `Justfile`:
 - `just compile <input> [output]`
 - `just compile-native <input> [output]`
 - `just compile-native-debug <input> [output] [artifacts]`
+- `just compile-debug <input> [output] [artifacts]`
+- `just compile_debug <input> [output] [artifacts]` (compat alias)
 - `just format <file>`
 - `just format-write <file>`
 - `just lsp`
@@ -231,6 +243,8 @@ Current targets in `Justfile`:
 - `just browser-compiler-wasm-check [wasm=...]`
 - `just pass-manifest-check`
 - `just native-compile-smoke`
+- `just compile-debug-smoke`
+- `just native-entrypoint-dce-strict-gate`
 - `just native-bootstrap-seed-smoke [wasm=...]`
 - `just native-selfhost-probe [wasm=...] [hops=...]`
 - `just native-selfhost-probe-strict [wasm=...] [hops=...]`

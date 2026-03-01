@@ -100,12 +100,31 @@ Use:
 
 ```bash
 deno run -A scripts/run-clapse-compiler-wasm.mjs compile-debug <input.clapse> [output.wasm] [artifacts-dir]
+deno run -A scripts/run-clapse-compiler-wasm.mjs compile_debug <input.clapse> [output.wasm] [artifacts-dir]
 ```
 
 The command returns a single compile response with:
 
 - `lowered_ir.txt` (IR before collapse)
 - `collapsed_ir.txt` (post-collapse IR)
+
+Entrypoint reachability pruning now runs in the compiler ABI compile dispatch:
+
+- roots are entrypoint exported functions (fallback: `main`)
+- top-level function definitions not reachable from roots are removed before
+  wasm compile request execution
+- `entrypoint_exports` and `module_sources` are consumed as first-class compile
+  request inputs when present; otherwise reachability is derived from
+  `input_source` and project includes
+- `CLAPSE_ENTRYPOINT_DCE` and `CLAPSE_INTERNAL_ENTRYPOINT_DCE` remain as legacy
+  compatibility toggles but no longer disable compile dispatch pruning
+
+Smoke gate:
+
+```bash
+just compile-debug-smoke
+just native-entrypoint-dce-strict-gate
+```
 
 ## Ongoing sync rule
 
@@ -346,6 +365,11 @@ The command returns a single compile response with:
   compile mode is now kernel-native. CLI surface:
   `clapse compile-native <input.clapse> [output.wasm]` and
   `clapse compile-native-debug <input.clapse> [output.wasm] [artifacts-dir]`.
+  Debug compile command aliases are accepted at the runner boundary:
+  `compile-debug` / `compile_debug`, and
+  `compile-native-debug` / `compile_native_debug`.
+  Host compile dispatch now also performs entrypoint-rooted reachability pruning
+  (default on) before request handoff.
   Runtime toggle: `CLAPSE_COMPILE_ENGINE=native|kernel-native` pins plain
   `compile` to kernel-native mode. Host-bridge compile execution is removed from
   JS boundary code; compile requests must execute on native clapse compiler

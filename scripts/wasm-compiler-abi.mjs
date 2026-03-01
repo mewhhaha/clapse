@@ -3,6 +3,9 @@ import {
   buildWasmSeedCompileResponse,
   isWasmBootstrapSeedEnabled,
 } from "./wasm-bootstrap-seed.mjs";
+import {
+  applyCompileReachabilityToCompileRequest,
+} from "./compile-entrypoint-reachability.mjs";
 
 const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder();
@@ -297,7 +300,11 @@ function rewriteCallBeforeReturnInBody(bytes, exprStart, funcEndIndex) {
     return 0;
   }
   let rewrites = 0;
-  for (let returnIndex = exprStart + 1; returnIndex < funcEndIndex; returnIndex += 1) {
+  for (
+    let returnIndex = exprStart + 1;
+    returnIndex < funcEndIndex;
+    returnIndex += 1
+  ) {
     if (bytes[returnIndex] !== 0x0f) {
       continue;
     }
@@ -782,7 +789,18 @@ function validateSelfhostArtifactsResponseContract(responseObject) {
 
 export async function callCompilerWasm(path, requestObject, options = {}) {
   const { instance, runtime, wasmBytes } = await loadCompilerWasm(path);
-  const requestForWire = requestObject;
+  let requestForWire = requestObject;
+  if (isCompileLikeRequest(requestForWire)) {
+    const dceApplied = await applyCompileReachabilityToCompileRequest(
+      requestForWire,
+      {
+        forceEnable: true,
+        skipCompilerInternalPathGuard: true,
+        skipIfReachabilityPresent: true,
+      },
+    );
+    requestForWire = dceApplied.requestObject;
+  }
   if (isCompileLikeRequest(requestForWire) && isWasmBootstrapSeedEnabled()) {
     const seededResponse = await buildWasmSeedCompileResponse(requestForWire, {
       seedWasmBytes: wasmBytes,
@@ -819,13 +837,25 @@ export async function callCompilerWasm(path, requestObject, options = {}) {
 
 export async function callCompilerWasmRaw(path, requestObject) {
   const { instance, runtime, wasmBytes } = await loadCompilerWasm(path);
-  if (isCompileLikeRequest(requestObject) && isWasmBootstrapSeedEnabled()) {
-    return await buildWasmSeedCompileResponse(requestObject, {
+  let requestForWire = requestObject;
+  if (isCompileLikeRequest(requestForWire)) {
+    const dceApplied = await applyCompileReachabilityToCompileRequest(
+      requestForWire,
+      {
+        forceEnable: true,
+        skipCompilerInternalPathGuard: true,
+        skipIfReachabilityPresent: true,
+      },
+    );
+    requestForWire = dceApplied.requestObject;
+  }
+  if (isCompileLikeRequest(requestForWire) && isWasmBootstrapSeedEnabled()) {
+    return await buildWasmSeedCompileResponse(requestForWire, {
       seedWasmBytes: wasmBytes,
     });
   }
   const run = assertFn(instance, "clapse_run");
-  const requestBytes = UTF8_ENCODER.encode(JSON.stringify(requestObject));
+  const requestBytes = UTF8_ENCODER.encode(JSON.stringify(requestForWire));
   const requestHandle = runtime.alloc_slice_u8(requestBytes);
   const responseHandle = run(requestHandle);
   if (!Number.isInteger(responseHandle) || (responseHandle & 1) === 1) {

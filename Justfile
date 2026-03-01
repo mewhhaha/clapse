@@ -23,6 +23,12 @@ compile-native input output='out/module.wasm': clapse-bin
 compile-native-debug input output='out/module.wasm' artifacts='out':
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/run-clapse-compiler-wasm.mjs compile-native-debug {{input}} {{output}} {{artifacts}}
 
+compile-debug input output='out/module.wasm' artifacts='out':
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/run-clapse-compiler-wasm.mjs compile-debug {{input}} {{output}} {{artifacts}}
+
+compile_debug input output='out/module.wasm' artifacts='out':
+  just compile-debug {{input}} {{output}} {{artifacts}}
+
 format file: clapse-bin
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" ./artifacts/bin/clapse format {{file}}
 
@@ -52,6 +58,8 @@ pre-tag-verify:
   deno run -A scripts/check-pass-manifest.mjs
   CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-strict-producer-check "${verify_wasm}" "${probe_hops}"
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-source-version-propagation-gate "${verify_wasm}" "${probe_hops}"
+  CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just compile-debug-smoke
+  CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-entrypoint-dce-strict-gate
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" deno run -A scripts/record-kernel-smoke.mjs
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just docs-validate
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just lsp-wasm-fixtures
@@ -72,6 +80,12 @@ pass-manifest-check:
 
 native-compile-smoke:
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/compile-native-smoke.mjs
+
+compile-debug-smoke:
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/compile-debug-smoke.mjs
+
+native-entrypoint-dce-strict-gate:
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/native-entrypoint-dce-strict-gate.mjs
 
 native-bootstrap-seed-smoke wasm='artifacts/latest/clapse_compiler.wasm':
   CLAPSE_COMPILER_WASM_PATH="{{wasm}}" CLAPSE_USE_WASM_BOOTSTRAP_SEED=1 deno run -A scripts/native-bootstrap-seed-smoke.mjs --wasm {{wasm}}

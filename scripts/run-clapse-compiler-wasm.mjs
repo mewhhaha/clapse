@@ -9,9 +9,52 @@ import {
   rewriteWasmTailCallOpcodes,
   validateCompilerWasmAbi,
 } from "./wasm-compiler-abi.mjs";
+import {
+  buildWasmSeedCompileResponse,
+  isWasmBootstrapSeedEnabled,
+} from "./wasm-bootstrap-seed.mjs";
 
 const REPO_ROOT_URL = new URL("../", import.meta.url);
 const PROJECT_CONFIG_FILE = "clapse.json";
+const CLAPSE_ENTRYPOINT_DCE_ENV = "CLAPSE_ENTRYPOINT_DCE";
+const CLAPSE_ENTRYPOINT_DCE_FORCE_ENV = "CLAPSE_ENTRYPOINT_DCE_FORCE";
+const TOP_LEVEL_IMPORT_RX = /^\s*import\s+([A-Za-z_][A-Za-z0-9_$.']*)/u;
+const TOP_LEVEL_MODULE_RX = /^\s*module\s+([A-Za-z_][A-Za-z0-9_$.']*)/u;
+const TOP_LEVEL_EXPORT_RX = /^\s*export\s+(.+)$/u;
+const TOP_LEVEL_SIGNATURE_RX = /^([A-Za-z_][A-Za-z0-9_']*)\s*:/u;
+const TOP_LEVEL_FUNCTION_RX = /^([A-Za-z_][A-Za-z0-9_']*)\b[^=]*=/u;
+const IDENTIFIER_REF_RX =
+  /[A-Za-z_][A-Za-z0-9_']*(?:\.[A-Za-z_][A-Za-z0-9_']*)*/gu;
+const TOP_LEVEL_DECL_KEYWORDS = new Set([
+  "module",
+  "import",
+  "export",
+  "data",
+  "type",
+  "class",
+  "instance",
+  "primitive",
+]);
+const IDENTIFIER_KEYWORDS = new Set([
+  "module",
+  "import",
+  "export",
+  "data",
+  "type",
+  "class",
+  "instance",
+  "primitive",
+  "case",
+  "of",
+  "let",
+  "in",
+  "if",
+  "then",
+  "else",
+  "where",
+  "true",
+  "false",
+]);
 
 function toPath(url) {
   return decodeURIComponent(url.pathname);
@@ -81,11 +124,11 @@ function toAbsolutePath(path) {
   return joinPath(Deno.cwd(), normalized);
 }
 
-function normalizePluginDirs(value, configDir) {
+function normalizeSearchDirs(value, configDir) {
   if (!Array.isArray(value)) {
     return [];
   }
-  const dirs = [];
+  const out = [];
   const seen = new Set();
   for (const item of value) {
     const raw = String(item).trim();
@@ -107,25 +150,42 @@ function normalizePluginDirs(value, configDir) {
       continue;
     }
     seen.add(resolved);
-    dirs.push(resolved);
+    out.push(resolved);
   }
-  return dirs;
+  return out;
+}
+
+function normalizeIncludeDirs(value, configDir) {
+  return normalizeSearchDirs(value, configDir);
+}
+
+function normalizePluginDirs(value, configDir) {
+  return normalizeSearchDirs(value, configDir);
+}
+
+function candidateModulePath(moduleName, dir) {
+  const relativePath = `${String(moduleName).replace(/[.$]/g, "/")}.clapse`;
+  if (typeof dir !== "string" || dir.length === 0) {
+    return normalizePath(relativePath);
+  }
+  return joinPath(dir, relativePath);
 }
 
 function parseClapseProjectConfig(rawText, configDir) {
   if (typeof rawText !== "string" || rawText.length === 0) {
-    return { pluginDirs: [] };
+    return { moduleSearchDirs: [], pluginDirs: [] };
   }
   let data;
   try {
     data = JSON.parse(rawText);
   } catch {
-    return { pluginDirs: [] };
+    return { moduleSearchDirs: [], pluginDirs: [] };
   }
   if (!data || typeof data !== "object" || Array.isArray(data)) {
-    return { pluginDirs: [] };
+    return { moduleSearchDirs: [], pluginDirs: [] };
   }
   return {
+    moduleSearchDirs: normalizeIncludeDirs(data.include, configDir),
     pluginDirs: normalizePluginDirs(data.plugins, configDir),
   };
 }
@@ -137,7 +197,7 @@ async function readClapseProjectConfig(startPath = "") {
     dir = normalizePath(Deno.cwd());
   }
   if (dir.length === 0) {
-    return { pluginDirs: [] };
+    return { moduleSearchDirs: [], pluginDirs: [] };
   }
 
   const visited = new Set();
@@ -151,7 +211,10 @@ async function readClapseProjectConfig(startPath = "") {
     try {
       const rawText = await Deno.readTextFile(configPath);
       const parsed = parseClapseProjectConfig(rawText, candidate);
-      return { pluginDirs: parsed.pluginDirs };
+      return {
+        moduleSearchDirs: parsed.moduleSearchDirs,
+        pluginDirs: parsed.pluginDirs,
+      };
     } catch {
       // no project config in this directory
     }
@@ -161,7 +224,7 @@ async function readClapseProjectConfig(startPath = "") {
     }
     dir = parent;
   }
-  return { pluginDirs: [] };
+  return { moduleSearchDirs: [], pluginDirs: [] };
 }
 
 async function collectClapseFilesRecursively(
@@ -196,11 +259,505 @@ async function collectClapseFilesRecursively(
   return out;
 }
 
-async function compilePluginsWasm(wasmPath, inputPath) {
-  const { pluginDirs } = await readClapseProjectConfig(inputPath);
+function boolEnvFlag(name, defaultValue = false) {
+  const raw = String(Deno.env.get(name) ?? "").trim().toLowerCase();
+  if (raw.length === 0) {
+    return defaultValue;
+  }
+  return !(raw === "0" || raw === "false" || raw === "off" || raw === "no");
+}
+
+function isCompilerInternalInputPath(inputPath) {
+  const normalized = normalizePath(inputPath);
+  return normalized === "lib/compiler/kernel.clapse" ||
+    normalized.startsWith("lib/compiler/") ||
+    normalized.includes("/lib/compiler/");
+}
+
+function shouldRunEntrypointDce(inputPath, options = {}) {
+  if (options.skipEntrypointReachabilityPrune === true) {
+    return false;
+  }
+  const enabled = boolEnvFlag(CLAPSE_ENTRYPOINT_DCE_ENV, true);
+  if (!enabled) {
+    return false;
+  }
+  const forced = boolEnvFlag(CLAPSE_ENTRYPOINT_DCE_FORCE_ENV, false);
+  if (!forced && isCompilerInternalInputPath(inputPath)) {
+    return false;
+  }
+  return true;
+}
+
+function parseExportNamesFromRaw(raw) {
+  return String(raw)
+    .split(",")
+    .map((name) => name.trim())
+    .filter((name) => /^[A-Za-z_][A-Za-z0-9_']*$/u.test(name));
+}
+
+function stripCommentsAndStrings(source) {
+  const noStrings = String(source).replace(/"([^"\\]|\\.)*"/gu, " ");
+  return noStrings.replace(/--.*$/gmu, " ");
+}
+
+function collectIdentifierRefs(source) {
+  const refs = new Set();
+  const scrubbed = stripCommentsAndStrings(source);
+  for (const match of scrubbed.matchAll(IDENTIFIER_REF_RX)) {
+    const token = match[0];
+    if (token.length === 0) {
+      continue;
+    }
+    const first = token.split(".")[0];
+    if (IDENTIFIER_KEYWORDS.has(first)) {
+      continue;
+    }
+    refs.add(token);
+  }
+  return refs;
+}
+
+function parseModuleSourceDescriptor(path, source) {
+  const lines = String(source).split("\n");
+  let moduleName = "";
+  const imports = [];
+  const importSeen = new Set();
+  const exports = new Set();
+  const signatureLinesByName = new Map();
+  const functionStarts = [];
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (moduleName.length === 0) {
+      const moduleMatch = line.match(TOP_LEVEL_MODULE_RX);
+      if (moduleMatch) {
+        moduleName = moduleMatch[1];
+      }
+    }
+    const importMatch = line.match(TOP_LEVEL_IMPORT_RX);
+    if (importMatch) {
+      const importName = importMatch[1];
+      if (!importSeen.has(importName)) {
+        importSeen.add(importName);
+        imports.push(importName);
+      }
+    }
+    const exportMatch = line.match(TOP_LEVEL_EXPORT_RX);
+    if (exportMatch) {
+      for (const exportName of parseExportNamesFromRaw(exportMatch[1])) {
+        exports.add(exportName);
+      }
+    }
+    const startsWithIndent = /^\s/u.test(line);
+    if (startsWithIndent) {
+      continue;
+    }
+    const trimmed = line.trim();
+    if (trimmed.startsWith("--") || trimmed.length === 0) {
+      continue;
+    }
+    const signatureMatch = line.match(TOP_LEVEL_SIGNATURE_RX);
+    if (signatureMatch) {
+      const name = signatureMatch[1];
+      if (!TOP_LEVEL_DECL_KEYWORDS.has(name)) {
+        const rows = signatureLinesByName.get(name) ?? [];
+        rows.push(i);
+        signatureLinesByName.set(name, rows);
+      }
+    }
+    const fnMatch = line.match(TOP_LEVEL_FUNCTION_RX);
+    if (!fnMatch) {
+      continue;
+    }
+    const name = fnMatch[1];
+    if (TOP_LEVEL_DECL_KEYWORDS.has(name)) {
+      continue;
+    }
+    functionStarts.push({ name, start: i });
+  }
+
+  const functionBlocks = new Map();
+  for (let i = 0; i < functionStarts.length; i += 1) {
+    const current = functionStarts[i];
+    const next = functionStarts[i + 1];
+    const end = next ? next.start : lines.length;
+    const blockSource = lines.slice(current.start, end).join("\n");
+    functionBlocks.set(current.name, {
+      start: current.start,
+      end,
+      refs: collectIdentifierRefs(blockSource),
+    });
+  }
+
+  return {
+    path: toAbsolutePath(path),
+    source: String(source),
+    moduleName,
+    imports,
+    exports,
+    signatureLinesByName,
+    functionBlocks,
+    resolvedImports: new Map(),
+  };
+}
+
+function moduleQualifierCandidates(moduleName) {
+  if (typeof moduleName !== "string" || moduleName.length === 0) {
+    return [];
+  }
+  const out = [moduleName];
+  const parts = moduleName.split(".");
+  if (parts.length > 1) {
+    out.push(parts[parts.length - 1]);
+  }
+  return [...new Set(out)];
+}
+
+function functionKey(modulePath, functionName) {
+  return `${modulePath}::${functionName}`;
+}
+
+function splitFunctionKey(key) {
+  const idx = key.lastIndexOf("::");
+  if (idx < 0) {
+    return { modulePath: "", functionName: key };
+  }
+  return {
+    modulePath: key.slice(0, idx),
+    functionName: key.slice(idx + 2),
+  };
+}
+
+function resolveTokenFunctionDeps(token, moduleInfo, modulesByPath) {
+  const deps = [];
+  if (token.includes(".")) {
+    const parts = token.split(".");
+    const functionName = parts.pop() ?? "";
+    const qualifier = parts.join(".");
+    const candidateModulePaths = new Set();
+    for (
+      const localQualifier of moduleQualifierCandidates(moduleInfo.moduleName)
+    ) {
+      if (localQualifier === qualifier) {
+        candidateModulePaths.add(moduleInfo.path);
+      }
+    }
+    for (
+      const [importName, importPath] of moduleInfo.resolvedImports.entries()
+    ) {
+      if (typeof importPath !== "string" || importPath.length === 0) {
+        continue;
+      }
+      for (const candidate of moduleQualifierCandidates(importName)) {
+        if (candidate === qualifier) {
+          candidateModulePaths.add(importPath);
+        }
+      }
+    }
+    for (const modulePath of candidateModulePaths) {
+      const info = modulesByPath.get(modulePath);
+      if (info && info.functionBlocks.has(functionName)) {
+        deps.push(functionKey(modulePath, functionName));
+      }
+    }
+    return deps;
+  }
+
+  if (moduleInfo.functionBlocks.has(token)) {
+    deps.push(functionKey(moduleInfo.path, token));
+  }
+  for (const [importName, importPath] of moduleInfo.resolvedImports.entries()) {
+    if (typeof importPath !== "string" || importPath.length === 0) {
+      continue;
+    }
+    const importedInfo = modulesByPath.get(importPath);
+    if (!importedInfo || !importedInfo.functionBlocks.has(token)) {
+      continue;
+    }
+    const exported = importedInfo.exports.size === 0 ||
+      importedInfo.exports.has(token);
+    if (!exported) {
+      continue;
+    }
+    deps.push(functionKey(importPath, token));
+  }
+  return deps;
+}
+
+function deriveEntrypointRoots(entryModuleInfo) {
+  const roots = [];
+  const addRoot = (name) => {
+    if (!entryModuleInfo.functionBlocks.has(name)) {
+      return;
+    }
+    if (!roots.includes(name)) {
+      roots.push(name);
+    }
+  };
+
+  if (entryModuleInfo.exports.size > 0) {
+    for (const exportName of entryModuleInfo.exports) {
+      addRoot(exportName);
+    }
+  } else if (entryModuleInfo.functionBlocks.has("main")) {
+    addRoot("main");
+  } else {
+    for (const name of entryModuleInfo.functionBlocks.keys()) {
+      addRoot(name);
+    }
+  }
+  return roots;
+}
+
+function pruneModuleSource(moduleInfo, reachableFunctionNames) {
+  const lines = moduleInfo.source.split("\n");
+  const keep = Array.from({ length: lines.length }, () => true);
+  for (const [name, block] of moduleInfo.functionBlocks.entries()) {
+    if (reachableFunctionNames.has(name)) {
+      continue;
+    }
+    for (let i = block.start; i < block.end; i += 1) {
+      keep[i] = false;
+    }
+    const signatureLines = moduleInfo.signatureLinesByName.get(name) ?? [];
+    for (const lineIndex of signatureLines) {
+      keep[lineIndex] = false;
+    }
+  }
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const match = lines[i].match(TOP_LEVEL_EXPORT_RX);
+    if (!match) {
+      continue;
+    }
+    const keptExportNames = parseExportNamesFromRaw(match[1])
+      .filter((name) => reachableFunctionNames.has(name));
+    if (keptExportNames.length === 0) {
+      keep[i] = false;
+      continue;
+    }
+    lines[i] = `export ${keptExportNames.join(", ")}`;
+  }
+
+  const filtered = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (keep[i]) {
+      filtered.push(lines[i]);
+    }
+  }
+  const joined = filtered.join("\n");
+  return moduleInfo.source.endsWith("\n") ? `${joined}\n` : joined;
+}
+
+async function resolveImportModulePath(
+  moduleName,
+  importerPath,
+  moduleSearchDirs,
+) {
+  if (moduleName.startsWith("host.")) {
+    return "";
+  }
+  for (const dir of moduleSearchDirs) {
+    const candidate = candidateModulePath(moduleName, dir);
+    if (await fileExists(candidate)) {
+      return toAbsolutePath(candidate);
+    }
+  }
+  const importerDir = pathDir(importerPath);
+  if (importerDir.length > 0) {
+    const candidate = candidateModulePath(moduleName, importerDir);
+    if (await fileExists(candidate)) {
+      return toAbsolutePath(candidate);
+    }
+  }
+  return "";
+}
+
+async function buildCompileReachabilityPlan(
+  inputPath,
+  inputSource,
+  projectConfig,
+) {
+  const entryPath = toAbsolutePath(inputPath);
+  const moduleSearchDirs = Array.isArray(projectConfig?.moduleSearchDirs)
+    ? projectConfig.moduleSearchDirs
+    : [];
+  const modulesByPath = new Map();
+
+  const loadModuleByPath = async (path, sourceOverride = null) => {
+    const absPath = toAbsolutePath(path);
+    if (modulesByPath.has(absPath)) {
+      return modulesByPath.get(absPath);
+    }
+    const sourceText = typeof sourceOverride === "string"
+      ? sourceOverride
+      : await Deno.readTextFile(absPath);
+    const descriptor = parseModuleSourceDescriptor(absPath, sourceText);
+    modulesByPath.set(absPath, descriptor);
+    for (const importName of descriptor.imports) {
+      const importPath = await resolveImportModulePath(
+        importName,
+        descriptor.path,
+        moduleSearchDirs,
+      );
+      if (importPath.length === 0) {
+        continue;
+      }
+      descriptor.resolvedImports.set(importName, importPath);
+      await loadModuleByPath(importPath);
+    }
+    return descriptor;
+  };
+
+  let entryModuleInfo;
+  try {
+    entryModuleInfo = await loadModuleByPath(entryPath, inputSource);
+  } catch {
+    return null;
+  }
+  if (!entryModuleInfo || entryModuleInfo.functionBlocks.size === 0) {
+    return null;
+  }
+
+  const roots = deriveEntrypointRoots(entryModuleInfo);
+  if (roots.length === 0) {
+    return null;
+  }
+
+  const depsByFunction = new Map();
+  for (const moduleInfo of modulesByPath.values()) {
+    for (const [name, block] of moduleInfo.functionBlocks.entries()) {
+      const key = functionKey(moduleInfo.path, name);
+      const deps = new Set();
+      for (const token of block.refs) {
+        const tokenDeps = resolveTokenFunctionDeps(
+          token,
+          moduleInfo,
+          modulesByPath,
+        );
+        for (const dep of tokenDeps) {
+          deps.add(dep);
+        }
+      }
+      depsByFunction.set(key, deps);
+    }
+  }
+
+  const reachableFunctionKeys = new Set();
+  const queue = [];
+  for (const rootName of roots) {
+    queue.push(functionKey(entryModuleInfo.path, rootName));
+  }
+  while (queue.length > 0) {
+    const key = queue.pop();
+    if (!key || reachableFunctionKeys.has(key)) {
+      continue;
+    }
+    reachableFunctionKeys.add(key);
+    const deps = depsByFunction.get(key);
+    if (!deps) {
+      continue;
+    }
+    for (const dep of deps) {
+      if (!reachableFunctionKeys.has(dep)) {
+        queue.push(dep);
+      }
+    }
+  }
+
+  const reachableByModulePath = new Map();
+  for (const key of reachableFunctionKeys) {
+    const { modulePath, functionName } = splitFunctionKey(key);
+    if (!reachableByModulePath.has(modulePath)) {
+      reachableByModulePath.set(modulePath, new Set());
+    }
+    reachableByModulePath.get(modulePath).add(functionName);
+  }
+
+  const sourceByPath = new Map();
+  let totalPrunedFunctions = 0;
+  let totalReachableFunctions = 0;
+  for (const moduleInfo of modulesByPath.values()) {
+    const reachableNames = reachableByModulePath.get(moduleInfo.path) ??
+      new Set();
+    totalReachableFunctions += reachableNames.size;
+    totalPrunedFunctions += Math.max(
+      0,
+      moduleInfo.functionBlocks.size - reachableNames.size,
+    );
+    sourceByPath.set(
+      moduleInfo.path,
+      pruneModuleSource(moduleInfo, reachableNames),
+    );
+  }
+
+  const moduleSources = [];
+  const sortedModules = [...modulesByPath.values()]
+    .sort((a, b) => a.path.localeCompare(b.path, "en"));
+  for (const moduleInfo of sortedModules) {
+    if (moduleInfo.path === entryModuleInfo.path) {
+      continue;
+    }
+    const reachableNames = reachableByModulePath.get(moduleInfo.path) ??
+      new Set();
+    if (reachableNames.size === 0) {
+      continue;
+    }
+    moduleSources.push({
+      module_name: moduleInfo.moduleName,
+      input_path: moduleInfo.path,
+      input_source: sourceByPath.get(moduleInfo.path) ?? moduleInfo.source,
+      reachable_functions: [...reachableNames].sort((a, b) =>
+        a.localeCompare(b, "en")
+      ),
+    });
+  }
+
+  return {
+    entryPath: entryModuleInfo.path,
+    entryModuleName: entryModuleInfo.moduleName,
+    rootExports: roots,
+    sourceByPath,
+    moduleSources,
+    summary: {
+      modules_scanned: modulesByPath.size,
+      reachable_functions: totalReachableFunctions,
+      pruned_functions: totalPrunedFunctions,
+    },
+  };
+}
+
+export async function buildCompileReachabilityPlanForTest(
+  inputPath,
+  options = {},
+) {
+  const normalizedInputPath = String(inputPath ?? "").trim();
+  if (normalizedInputPath.length === 0) {
+    throw new Error("buildCompileReachabilityPlanForTest requires inputPath");
+  }
+  const inputSource = typeof options.inputSource === "string"
+    ? options.inputSource
+    : await Deno.readTextFile(normalizedInputPath);
+  const projectConfig = options.projectConfig ??
+    await readClapseProjectConfig(normalizedInputPath);
+  return await buildCompileReachabilityPlan(
+    normalizedInputPath,
+    inputSource,
+    projectConfig,
+  );
+}
+
+async function compilePluginsWasm(wasmPath, inputPath, options = {}) {
+  const projectConfig = options.projectConfig ??
+    await readClapseProjectConfig(inputPath);
+  const { pluginDirs } = projectConfig;
   if (pluginDirs.length === 0) {
     return [];
   }
+  const sourceOverrides = options.sourceOverrides instanceof Map
+    ? options.sourceOverrides
+    : new Map();
   const pluginSources = [];
   const seen = new Set();
   for (const pluginDir of pluginDirs) {
@@ -213,9 +770,12 @@ async function compilePluginsWasm(wasmPath, inputPath) {
     const outputPath = sourcePath.endsWith(".clapse")
       ? sourcePath.replace(/\.clapse$/u, ".wasm")
       : `${sourcePath}.wasm`;
+    const overrideSource = sourceOverrides.get(toAbsolutePath(sourcePath));
     await compileViaWasm(wasmPath, sourcePath, outputPath, {
       pluginWasmPaths: [],
       skipPluginCompilation: true,
+      skipEntrypointReachabilityPrune: true,
+      inputSourceOverride: overrideSource,
     });
     pluginWasmPaths.push(toAbsolutePath(outputPath));
   }
@@ -253,12 +813,33 @@ async function materializeEmbeddedCompilerWasm() {
   return "";
 }
 
+function collectCompilerWasmCandidatesFromCwd() {
+  const candidates = [];
+  const seenDirs = new Set();
+  let dir = normalizePath(Deno.cwd());
+  if (dir.length === 0) {
+    return candidates;
+  }
+  while (dir.length > 0 && !seenDirs.has(dir)) {
+    seenDirs.add(dir);
+    candidates.push(joinPath(dir, "artifacts/latest/clapse_compiler.wasm"));
+    candidates.push(joinPath(dir, "out/clapse_compiler.wasm"));
+    const parent = pathDir(dir);
+    if (parent === dir || parent.length === 0) {
+      break;
+    }
+    dir = parent;
+  }
+  return candidates;
+}
+
 async function resolveCompilerWasmPath() {
   const fromEnv = Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "";
   if (fromEnv.length > 0) {
     return fromEnv;
   }
   const candidates = [
+    ...collectCompilerWasmCandidatesFromCwd(),
     toPath(new URL("artifacts/latest/clapse_compiler.wasm", REPO_ROOT_URL)),
     toPath(new URL("out/clapse_compiler.wasm", REPO_ROOT_URL)),
   ];
@@ -277,9 +858,9 @@ function usage() {
     "",
     "Supported commands:",
     "  compile <input.clapse> [output.wasm]",
-    "  compile-native <input.clapse> [output.wasm]",
-    "  compile-native-debug <input.clapse> [output.wasm] [artifacts-dir]",
-    "  compile-debug <input.clapse> [output.wasm] [artifacts-dir]",
+    "  compile-native <input.clapse> [output.wasm] (alias: compile_native)",
+    "  compile-native-debug <input.clapse> [output.wasm] [artifacts-dir] (alias: compile_native_debug)",
+    "  compile-debug <input.clapse> [output.wasm] [artifacts-dir] (alias: compile_debug)",
     "  emit-wat <input.clapse> [output.wat]",
     "  selfhost-artifacts <input.clapse> <out-dir>",
     "  format <file>",
@@ -290,15 +871,36 @@ function usage() {
     "",
     "Compiler wasm resolution:",
     "  1) CLAPSE_COMPILER_WASM_PATH",
-    "  2) artifacts/latest/clapse_compiler.wasm",
-    "  3) out/clapse_compiler.wasm",
+    "  2) artifacts/latest|out/clapse_compiler.wasm from cwd/ancestor dirs",
+    "  3) artifacts/latest|out/clapse_compiler.wasm relative to script repo root",
     "  4) embedded compiler wasm bundled in the clapse binary",
     "",
     "Required compiler wasm ABI:",
     "  export memory or __memory",
     "  export clapse_run(request_slice_handle: i32) -> response_slice_handle: i32",
     "  Request and response are UTF-8 JSON in slice descriptors.",
+    "",
+    "Temporary bootstrap seed mode:",
+    "  Set CLAPSE_USE_WASM_BOOTSTRAP_SEED=1 to route compile requests through",
+    "  scripts/wasm-bootstrap-seed.mjs using a trusted seed wasm payload.",
+    "",
+    "Entrypoint reachability pruning:",
+    "  compile requests are pruned at compiler ABI dispatch before wasm compile",
+    "  (entrypoint exports as roots; fallback root is main).",
+    "  CLAPSE_ENTRYPOINT_DCE and CLAPSE_INTERNAL_ENTRYPOINT_DCE are legacy",
+    "  compatibility toggles and no longer disable compile dispatch pruning.",
   ].join("\n");
+}
+
+const COMMAND_ALIAS_MAP = new Map([
+  ["compile_native", "compile-native"],
+  ["compile_native_debug", "compile-native-debug"],
+  ["compile_debug", "compile-debug"],
+]);
+
+function normalizeTopLevelCommand(raw) {
+  const command = String(raw ?? "").trim();
+  return COMMAND_ALIAS_MAP.get(command) ?? command;
 }
 
 const SELFHOST_ARTIFACT_FILES = [
@@ -560,13 +1162,18 @@ async function writeCompileDebugArtifacts(artifactsDir, artifacts) {
 }
 
 async function compileViaWasm(wasmPath, inputPath, outputPath, options = {}) {
-  const inputBytes = await Deno.readFile(inputPath);
-  const inputSource = new TextDecoder().decode(inputBytes);
+  const inputSource = typeof options.inputSourceOverride === "string"
+    ? options.inputSourceOverride
+    : new TextDecoder().decode(await Deno.readFile(inputPath));
   const isKernelCompile = isCompilerKernelPath(inputPath);
+  const projectConfig = options.projectConfig ??
+    await readClapseProjectConfig(inputPath);
   const pluginWasmPaths = Array.isArray(options.pluginWasmPaths)
     ? options.pluginWasmPaths
     : (!options.skipPluginCompilation && !isKernelCompile
-      ? await compilePluginsWasm(wasmPath, inputPath)
+      ? await compilePluginsWasm(wasmPath, inputPath, {
+        projectConfig,
+      })
       : []);
   const request = {
     command: "compile",
@@ -579,7 +1186,9 @@ async function compileViaWasm(wasmPath, inputPath, outputPath, options = {}) {
   ) {
     request.compile_mode = options.compileMode;
   }
-  const response = await callCompilerWasm(wasmPath, request);
+  const response = isWasmBootstrapSeedEnabled()
+    ? await buildWasmSeedCompileResponse(request, { seedWasmPath: wasmPath })
+    : await callCompilerWasm(wasmPath, request);
   const decodedResponse = decodeCompileResponse(response, inputPath);
   const decodedWasmBytes = decodeWasmBase64(decodedResponse.wasm_base64);
   const compileMode = typeof options.compileMode === "string"
@@ -925,6 +1534,9 @@ export async function runWithArgs(rawArgs = cliArgs()) {
   let args = [...rawArgs];
   if (args.length > 0 && args[0] === "--") {
     args = args.slice(1);
+  }
+  if (args.length > 0) {
+    args[0] = normalizeTopLevelCommand(args[0]);
   }
   const wasmPath = await resolveCompilerWasmPath();
   if (args.length === 1 && args[0] === "engine-mode") {
