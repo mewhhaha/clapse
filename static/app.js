@@ -937,13 +937,19 @@ async function evaluateProgramOutput(exportsList, wasmBytes) {
   if (!mainExport) {
     return "No runnable output: `main` is not exported.";
   }
-  if (mainExport.arity !== 0) {
-    return `No runnable output: \`main\` has arity ${mainExport.arity} (expected 0).`;
-  }
 
   try {
-    const value = await runWasmMain(wasmBytes);
-    return `main() => ${formatRuntimeValue(value)}`;
+    const runtime = await runWasmMain(wasmBytes);
+    const lines = [`main() => ${formatRuntimeValue(runtime.value)}`];
+    if (
+      Number.isInteger(runtime.paramCount) &&
+      runtime.paramCount !== mainExport.arity
+    ) {
+      lines.push(
+        `(metadata arity ${mainExport.arity}, wasm export params ${runtime.paramCount})`,
+      );
+    }
+    return lines.join("\n");
   } catch (err) {
     return `main() failed: ${errorMessage(err)}`;
   }
@@ -959,7 +965,13 @@ async function runWasmMain(wasmBytes) {
   if (typeof main !== "function") {
     throw new Error("main export is not callable.");
   }
-  return main();
+  const paramCount = Number.isInteger(main.length) ? main.length : null;
+  if (Number.isInteger(paramCount) && paramCount > 0) {
+    throw new Error(
+      `main export expects ${paramCount} argument(s) in wasm output runtime.`,
+    );
+  }
+  return { value: main(), paramCount };
 }
 
 function buildProgramImports(imports) {
