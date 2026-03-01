@@ -279,6 +279,10 @@ Current targets in `Justfile`:
   - CLI compile outputs are replaced on rerun: `just clapse-bin`, `just install`,
     and `just release-candidate` remove pre-existing target binaries before
     invoking `deno compile`.
+  - `.github/workflows/release-verify.yml` also supports manual release publish
+    via `workflow_dispatch`: it runs bootstrap + `just pre-tag-verify` +
+    release bundling first, then creates/pushes `release_tag` (workflow input
+    or `v<VERSION>`) and publishes the GitHub release from that tag.
 
 ## LSP and Formatter
 

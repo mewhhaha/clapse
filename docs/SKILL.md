@@ -47,7 +47,9 @@ just formatter-golden-fixtures
 ```
 
 `release-verify` CI runs the same pre-tag gate via `just pre-tag-verify` before
-release bundling and publication.
+release bundling and publication. `workflow_dispatch` now supports manual
+releases: it resolves `release_tag` (input or `v<VERSION>`), verifies first,
+then creates/pushes that tag and publishes the GitHub release from it.
 
 `pre-tag-verify` now executes strict native checks by default by delegating to
 `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-strict-producer-check`

@@ -2,6 +2,11 @@ name: release-verify
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Manual release tag (defaults to v<VERSION>)"
+        required: false
+        type: string
   push:
     tags:
       - "v*"
@@ -28,32 +33,48 @@ jobs:
       - name: Setup just
         uses: extractions/setup-just@v1
 
+      - name: Bootstrap compiler from kernel
+        env:
+          CLAPSE_BOOTSTRAP_COMPILER_WASM_PATH: artifacts/latest/clapse_compiler.wasm
+        run: just bootstrap-compiler
+
       - name: Run pre-tag verification
         env:
           CLAPSE_COMPILER_WASM_PATH: artifacts/latest/clapse_compiler.wasm
-        if: startsWith(github.ref, 'refs/tags/v')
         run: just pre-tag-verify
 
       - name: Resolve release context
         id: release_context
-        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           set -euo pipefail
           version="$(cat VERSION)"
           short_sha="$(git rev-parse --short=12 HEAD)"
-          release_id="${GITHUB_REF_NAME}-${short_sha}"
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            release_tag="${{ inputs.release_tag }}"
+            if [[ -z "${release_tag}" ]]; then
+              release_tag="v${version}"
+            fi
+          else
+            release_tag="${GITHUB_REF_NAME}"
+          fi
+          if [[ "${release_tag}" != v* ]]; then
+            echo "release tag must start with 'v' (got: ${release_tag})" >&2
+            exit 1
+          fi
+          release_id="${release_tag}-${short_sha}"
           release_dir="out/releases-ci/${release_id}"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
           echo "release_id=${release_id}" >> "$GITHUB_OUTPUT"
           echo "release_dir=${release_dir}" >> "$GITHUB_OUTPUT"
 
       - name: Prepare wasm + CLI release bundle
         id: release_bundle
-        if: startsWith(github.ref, 'refs/tags/v')
         env:
           RELEASE_DIR: ${{ steps.release_context.outputs.release_dir }}
           RELEASE_ID: ${{ steps.release_context.outputs.release_id }}
+          RELEASE_TAG: ${{ steps.release_context.outputs.release_tag }}
           CLAPSE_VERSION: ${{ steps.release_context.outputs.version }}
         run: |
           set -euo pipefail
@@ -116,7 +137,7 @@ jobs:
           set -euo pipefail
           SELF_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
           export CLAPSE_COMPILER_WASM_PATH="\${CLAPSE_COMPILER_WASM_PATH:-\${SELF_DIR}/clapse_compiler.wasm}"
-          exec deno run -A "https://raw.githubusercontent.com/mewhhaha/clapse/${GITHUB_REF_NAME}/scripts/clapse.mjs" --wasm "\$@"
+          exec deno run -A "https://raw.githubusercontent.com/mewhhaha/clapse/${RELEASE_TAG}/scripts/clapse.mjs" --wasm "\$@"
           EOF
           chmod +x "${RELEASE_DIR}/clapse"
 
@@ -138,19 +159,32 @@ jobs:
             --checksums "${RELEASE_DIR}/checksums.sha256"
 
       - name: Upload release candidate artifacts
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: clapse-release-candidate-${{ github.sha }}
           path: ${{ steps.release_context.outputs.release_dir }}
           if-no-files-found: error
 
+      - name: Create and push release tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_TAG: ${{ steps.release_context.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null; then
+            echo "release tag already exists: ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          git tag -a "${RELEASE_TAG}" -m "clapse ${RELEASE_TAG}"
+          git push origin "refs/tags/${RELEASE_TAG}"
+
       - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: clapse ${{ github.ref_name }}
+          tag_name: ${{ steps.release_context.outputs.release_tag }}
+          name: clapse ${{ steps.release_context.outputs.release_tag }}
           fail_on_unmatched_files: true
           generate_release_notes: true
           body: |
