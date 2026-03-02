@@ -122,6 +122,9 @@ Entrypoint reachability pruning now runs in the native compiler response path:
   `entrypoint_exports` / entrypoint exports, and bundle size tracks reachable
   function count. Kernel self-host compile requests continue to require
   compiler-ABI output
+- `just native-temp-pruning-gate` currently acts as an optimization probe and is
+  not included in `pre-tag-verify` while dead-temp/renumbering behavior remains
+  incomplete.
 
 Smoke gate:
 

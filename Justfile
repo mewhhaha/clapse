@@ -96,6 +96,9 @@ native-entrypoint-exports-dce-gate:
 native-ir-liveness-size-gate:
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/native-ir-liveness-size-gate.mjs
 
+native-temp-pruning-gate:
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/native-temp-pruning-gate.mjs
+
 native-tail-recursion-gate:
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/native-tail-recursion-gate.mjs
 

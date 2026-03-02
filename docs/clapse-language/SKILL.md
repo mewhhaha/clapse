@@ -50,7 +50,17 @@ just selfhost-check-wasm
 just bench
 just wasm-smoke
 just life-smoke
+deno run -A scripts/native-ir-liveness-size-gate.mjs
+deno run -A scripts/check-pass-manifest.mjs
 ```
+
+## Optimization workstream documentation checks
+
+- Keep `references/pass-manifest.json` and `references/optimization-and-collapse-ir.md`
+  pass inventories in exact sync via `deno run -A scripts/check-pass-manifest.mjs`.
+- For Workstream C, record residual limits explicitly: current native gate coverage
+  is `native-ir-liveness-size-gate`; it validates dead-function liveness
+  behavior but does not prove `dead_temp_pruning` or `temp_renumbering`.
 
 ## Editing Rules
 
