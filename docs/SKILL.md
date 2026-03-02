@@ -123,11 +123,11 @@ Entrypoint reachability pruning now runs in the native compiler response path:
 - source-pruned `collapsed_ir.txt` now appends tail-recursion markers for
   `VSelfTailCall` and `VMutualTailCall`, keeping source-built native artifacts
   aligned with producer marker output
-- simple function-body `let` temp chains with `t0`.. names are pruned for
-  dead bindings and surviving temporaries are renumbered densely from `t0`
-  when request-shape pruning is active (`entrypoint_exports` set, or
-  `compile_mode` set to `debug`, `native-debug`, `kernel-debug`, or
-  `kernel-native-debug`)
+- simple function-body `let` temp chains (including multi-digit labels like
+  `t10`) are pruned for dead bindings and surviving temporaries are
+  renumbered densely from `t0` when request-shape pruning is active
+  (`entrypoint_exports` set, or `compile_mode` set to `debug`,
+  `native-debug`, `kernel-debug`, or `kernel-native-debug`)
 - `CLAPSE_ENTRYPOINT_DCE` and `CLAPSE_INTERNAL_ENTRYPOINT_DCE` remain as
   legacy toggles but no longer control request shaping behavior
 - non-kernel compile responses now emit a reachability-shaped wasm bundle in the
@@ -135,9 +135,10 @@ Entrypoint reachability pruning now runs in the native compiler response path:
   `entrypoint_exports` / entrypoint exports, and bundle size tracks reachable
   function count. Kernel self-host compile requests continue to require
   compiler-ABI output
-- `just native-temp-pruning-gate` is now part of `pre-tag-verify` as a blocker
-  for native dead-temp/renumbering completion. Keep this gate conservative in
-  CI-facing change plans until compiler outputs match expected pruning proofs.
+- `just native-temp-pruning-gate` is now part of `pre-tag-verify` to enforce
+  native dead-temp pruning and temp renumbering behavior in the temp-chain path.
+  Keep this gate conservative in CI-facing change plans until compiler outputs
+  match expected pruning proofs.
 
 Smoke gate:
 

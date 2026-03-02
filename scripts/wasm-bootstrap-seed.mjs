@@ -3,6 +3,7 @@ const EXPECTED_COMPILE_CONTRACT_VERSION = "native-v1";
 const DEFAULT_SOURCE_VERSION = "wasm-bootstrap-seed-2026-03-01-r1";
 const WASM_SEED_ENV = "CLAPSE_USE_WASM_BOOTSTRAP_SEED";
 const LEGACY_TS_SEED_ENV = "CLAPSE_USE_TS_BOOTSTRAP_SEED";
+const DISABLE_FALLBACK_ENV = "CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK";
 
 const COMPILE_DEBUG_MODES = new Set([
   "kernel-native",
@@ -146,7 +147,14 @@ function compileArtifactFromSource(sourceText, label) {
   return `(${label}) ${sourceText}`;
 }
 
+function isSeedFallbackDisabled() {
+  return boolEnvFlag(Deno.env.get(DISABLE_FALLBACK_ENV), false);
+}
+
 export function isWasmBootstrapSeedEnabled() {
+  if (isSeedFallbackDisabled()) {
+    return false;
+  }
   if (Deno.env.get(WASM_SEED_ENV) !== undefined) {
     return boolEnvFlag(Deno.env.get(WASM_SEED_ENV), false);
   }

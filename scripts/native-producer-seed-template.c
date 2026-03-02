@@ -898,10 +898,73 @@ static uint32_t collect_export_roots_from_source(Segment source, NameSpan *roots
   return roots_count;
 }
 
+static uint32_t json_string_end(uint32_t req_ptr, uint32_t at, uint32_t req_len) {
+  uint8_t *req = (uint8_t *) (uintptr_t) req_ptr;
+  uint32_t i = at + 1u;
+  int escaped = 0;
+  while (i < req_len) {
+    uint8_t c = req[i];
+    if (escaped) {
+      escaped = 0;
+      i += 1u;
+      continue;
+    }
+    if (c == '\\') {
+      escaped = 1;
+      i += 1u;
+      continue;
+    }
+    if (c == '"') {
+      return i + 1u;
+    }
+    i += 1u;
+  }
+  return req_len;
+}
+
+static uint32_t json_key_value_end_top_level(uint32_t req_ptr, uint32_t req_len, const char *key) {
+  uint8_t *req = (uint8_t *) (uintptr_t) req_ptr;
+  uint32_t key_len = cstr_len(key);
+  uint32_t depth = 0u;
+  uint32_t i = 0u;
+  while (i < req_len) {
+    uint8_t c = req[i];
+    if (c == '"') {
+      if (depth == 1u) {
+        int matches = 1;
+        if (i + key_len <= req_len) {
+          for (uint32_t k = 0u; k < key_len; k += 1u) {
+            if (req[i + k] != (uint8_t) key[k]) {
+              matches = 0;
+              break;
+            }
+          }
+        } else {
+          matches = 0;
+        }
+        if (matches) {
+          return i + key_len;
+        }
+      }
+      i = json_string_end(req_ptr, i, req_len);
+      continue;
+    }
+    if (c == '{') {
+      depth += 1u;
+    } else if (c == '}') {
+      if (depth > 0u) {
+        depth -= 1u;
+      }
+    }
+    i += 1u;
+  }
+  return req_len;
+}
+
 static int collect_entrypoint_roots_from_request(uint32_t req_ptr, uint32_t req_len, NameSpan *roots, uint32_t *roots_count) {
   const char *key = "\"entrypoint_exports\"";
   uint32_t key_len = cstr_len(key);
-  uint32_t at = find_bytes(req_ptr, req_len, key, key_len, 0u);
+  uint32_t at = json_key_value_end_top_level(req_ptr, req_len, key);
   if (at == req_len) {
     return 0;
   }

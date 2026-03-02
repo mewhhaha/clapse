@@ -82,15 +82,19 @@ This inventory is canonical and machine-checked against
 - [pass:constant_argument_specialization] status: not implemented
 - [pass:wrapper_inlining] status: not implemented
 - [pass:dead_function_pruning] status: partially implemented
-- [pass:dead_temp_pruning] status: not implemented
-- [pass:temp_renumbering] status: not implemented
+- [pass:dead_temp_pruning] status: partially implemented
+- [pass:temp_renumbering] status: partially implemented
 - [pass:self_tail_call_normalization] status: implemented
 
 ### Workstream C (dead-temp pruning + temp renumbering) residuals
 
-- `pass:dead_temp_pruning` and `pass:temp_renumbering` remain not implemented.
 - `scripts/native-temp-pruning-gate.mjs` is now part of `pre-tag-verify` and
-  currently acts as a blocker for `pass:dead_temp_pruning` completion.
+  validates `pass:dead_temp_pruning` + `pass:temp_renumbering` behavior in the
+  native temp-chain rewrite path.
+- `pass:dead_temp_pruning` and `pass:temp_renumbering` are partially implemented:
+  the active rewrite path handles canonical and relaxed linear let-chain function
+  bodies with live-temp renumbering; broader shapes remain covered by gate fixtures
+  and regression tracking.
 - Current enforced native gates in this area include both
   `just native-ir-liveness-size-gate` and `just native-temp-pruning-gate`.
   The former proves function-level liveness pruning; the latter validates

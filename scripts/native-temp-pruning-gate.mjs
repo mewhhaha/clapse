@@ -78,12 +78,12 @@ function assertRenumbering(prunedCollapsed, baselineCollapsed) {
 
   // Ensure dead-temp removal is exercised with an artificial gap.
   assert(
-    baselineTemps.includes(1),
-    "native-temp-pruning-gate: baseline should include t1 (to validate renumbering target)",
+    baselineTemps.includes(10),
+    "native-temp-pruning-gate: baseline should include t10 (to validate multi-digit renumbering target)",
   );
   assert(
-    baselineTemps.includes(2),
-    "native-temp-pruning-gate: baseline should include t2 for renumbering gap test",
+    baselineTemps.includes(11),
+    "native-temp-pruning-gate: baseline should include t11 for renumbering gap test",
   );
 
   // Confirm compacted numbering for remaining temps: expected {0,1}.
@@ -110,8 +110,18 @@ async function run() {
       "main x =",
       "  let t0 = add x 1",
       `  let t1 = dead_fn x -- ${deadMarker}`,
-      "  let t2 = add t0 3",
-      "  in add t0 t2",
+      "  let t2 = add x 2",
+      "  let t3 = add x 3",
+      "  let t4 = add x 4",
+      "  let t5 = add x 5",
+      "  let t6 = add x 6",
+      "  let t7 = add x 7",
+      "  let t8 = add x 8",
+      "  let t9 = add x 9",
+      "  let t10 = add x 10",
+      "  let t11 = add x 11",
+      `  let t12 = dead_fn x -- ${deadMarker}`,
+      "  in add t10 t11",
       "",
     ].join("\n");
     await Deno.writeTextFile(inputPath, source);

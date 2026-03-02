@@ -59,8 +59,9 @@ deno run -A scripts/check-pass-manifest.mjs
 - Keep `references/pass-manifest.json` and `references/optimization-and-collapse-ir.md`
   pass inventories in exact sync via `deno run -A scripts/check-pass-manifest.mjs`.
 - For Workstream C, record residual limits explicitly: current native gate coverage
-  is `native-ir-liveness-size-gate`; it validates dead-function liveness
-  behavior but does not prove `dead_temp_pruning` or `temp_renumbering`.
+  is `native-ir-liveness-size-gate` + `native-temp-pruning-gate`; the former
+  validates dead-function liveness behavior and the latter proves native
+  `dead_temp_pruning` and `temp_renumbering` behavior for linear temp-chain bodies.
 
 ## Editing Rules
 
