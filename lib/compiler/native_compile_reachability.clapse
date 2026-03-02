@@ -199,6 +199,42 @@ temp_index_from_token handle start end =
         _ -> MissingInt
     _ -> MissingInt
 
+temp_index_from_token_relaxed handle start end =
+  case (start < end) of
+    true ->
+      let b0 = slice_get_u8 handle start
+      in case (b0 == 116) of
+        true ->
+          let digits_start = start + 1
+          in case (digits_start < end) of
+            true ->
+              let digits_end = parse_temp_chain_temp_digits_end handle digits_start end
+              in case (digits_end > digits_start && digits_end == end) of
+                true ->
+                  temp_index_from_token_digits_loop handle digits_start digits_end 0
+                _ -> MissingInt
+            _ -> MissingInt
+        _ -> MissingInt
+    _ -> MissingInt
+
+parse_temp_chain_temp_digits_end handle i end =
+  case (i < end) of
+    true ->
+      let b = slice_get_u8 handle i
+      in case (is_ascii_digit b) of
+        true -> parse_temp_chain_temp_digits_end handle (i + 1) end
+        _ -> i
+    _ -> end
+
+temp_index_from_token_digits_loop handle i end acc =
+  case (i == end) of
+    true -> PresentInt acc
+    _ ->
+      let b = slice_get_u8 handle i
+      in case (is_ascii_digit b) of
+        true -> temp_index_from_token_digits_loop handle (i + 1) end ((acc * 10) + (b - 48))
+        _ -> MissingInt
+
 collect_temp_refs_loop request_handle start end in_comment acc =
   case (start >= end) of
     true -> acc
@@ -410,6 +446,74 @@ parse_temp_chain request_handle fn_start fn_end =
   in case (body_start >= fn_end) of
     true -> MissingTempChain
     _ -> parse_temp_chain_body request_handle body_start fn_end false ListNil ListNil
+
+parse_temp_chain_fallback request_handle fn_start fn_end =
+  let header_end = find_line_end request_handle fn_start fn_end
+      body_start = next_line_start request_handle header_end fn_end
+  in case (body_start >= fn_end) of
+    true -> MissingTempChain
+    _ -> parse_temp_chain_fallback_body request_handle body_start fn_end false ListNil ListNil
+
+parse_temp_chain_fallback_body request_handle line_start fn_end has_let bindings seen_temps =
+  case (line_start >= fn_end) of
+    true -> MissingTempChain
+    _ ->
+      let line_end = find_line_end request_handle line_start fn_end
+          next_line = next_line_start request_handle line_end fn_end
+          trimmed = skip_line_ws request_handle line_start line_end
+      in case (trimmed == line_end) of
+        true ->
+          case (next_line == fn_end) of
+            true -> MissingTempChain
+            _ -> parse_temp_chain_fallback_body request_handle next_line fn_end has_let bindings seen_temps
+        _ ->
+          case has_let of
+            true ->
+              case (trimmed + 2 <= line_end) of
+                true ->
+                  let token_end = parse_identifier_end request_handle trimmed line_end
+                  in case (token_end == trimmed + 2 && segment_eq_at request_handle trimmed keyword_in 0 2 0) of
+                    true ->
+                      let expr_start = skip_line_ws request_handle (trimmed + 2) line_end
+                          final = TempChain line_start line_end expr_start line_end (list_reverse bindings)
+                      in case (next_line == fn_end) of
+                        true -> PresentTempChain final
+                        _ ->
+                          case (next_line < fn_end && next_line >= line_end) of
+                            true ->
+                              case only_trailing_whitespace request_handle next_line fn_end of
+                                true -> PresentTempChain final
+                                _ -> MissingTempChain
+                            _ -> MissingTempChain
+                    _ -> MissingTempChain
+                _ -> MissingTempChain
+            _ ->
+              case (trimmed + 3 <= line_end) of
+                true ->
+                  let token_end = parse_identifier_end request_handle trimmed line_end
+                  in case (token_end == trimmed + 3 && segment_eq_at request_handle trimmed keyword_let 0 3 0) of
+                    true ->
+                      let name_start = skip_line_ws request_handle (trimmed + 3) line_end
+                          name_end = parse_identifier_end request_handle name_start line_end
+                          temp_idx = temp_index_from_token_relaxed request_handle name_start name_end
+                      in case temp_idx of
+                        PresentInt idx ->
+                          case int_list_member idx seen_temps of
+                            true -> MissingTempChain
+                            _ ->
+                              let after_name = skip_line_ws request_handle name_end line_end
+                              in case (after_name < line_end && (slice_get_u8 request_handle after_name == 61)) of
+                                true ->
+                                  let rhs_start = skip_line_ws request_handle (after_name + 1) line_end
+                                      deps = collect_temp_refs request_handle rhs_start line_end
+                                      binding =
+                                        TempBinding idx line_start line_end name_start name_end rhs_start line_end deps
+                                      seen_temps1 = int_list_insert_unique idx seen_temps
+                                  in parse_temp_chain_fallback_body request_handle next_line fn_end true (ListCons binding bindings) seen_temps1
+                                _ -> MissingTempChain
+                        _ -> MissingTempChain
+                    _ -> MissingTempChain
+                _ -> MissingTempChain
 
 skip_export_delims handle i line_end =
   case (i < line_end) of
@@ -753,9 +857,16 @@ rewrite_function request_handle ownership_mode source_end fn_start fn_end out ou
               out_i1 = out_i + header_len
           in emit_temp_chain request_handle ownership_mode chain fn_end out1 out_i1
         MissingTempChain ->
-          let fn_len = fn_end - fn_start
-          out1 = copy_slice_segment request_handle ownership_mode request_handle fn_start out out_i fn_len 0
-          in Pair out1 (out_i + fn_len)
+          case parse_temp_chain_fallback request_handle fn_start fn_end of
+            PresentTempChain chain ->
+              let header_len = body_start - fn_start
+                  out1 = copy_slice_segment request_handle ownership_mode request_handle fn_start out out_i header_len 0
+                  out_i1 = out_i + header_len
+              in emit_temp_chain request_handle ownership_mode chain fn_end out1 out_i1
+            _ ->
+              let fn_len = fn_end - fn_start
+              out1 = copy_slice_segment request_handle ownership_mode request_handle fn_start out out_i fn_len 0
+              in Pair out1 (out_i + fn_len)
 
 emit_pruned_source request_handle ownership_mode source_end fn_infos unreachable_spans out out_i cursor =
   case fn_infos of

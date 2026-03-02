@@ -206,9 +206,11 @@ async function buildStage({
 }) {
   const seedB64 = toBase64(seedBytes);
   const seedLiteral = toCStringLiteralChunks(seedB64);
+  const seedLengthLiteral = String(seedB64.length);
   const sourceVersionLiteral = sourceVersion.replaceAll('"', "");
   const cText = templateText
     .replace("{{SEED_WASM_BASE64_LITERAL}}", seedLiteral)
+    .replace("{{SEED_WASM_BASE64_LEN}}", seedLengthLiteral)
     .replaceAll("{{SOURCE_VERSION_LITERAL}}", sourceVersionLiteral);
 
   const cPath = `${tmpDir}/stage-${stageIndex}.c`;

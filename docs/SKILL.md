@@ -21,7 +21,12 @@ the current wasm compiler unless explicitly marked `skip`.
    change.
 6. Keep `clapse.json` plugin fields in sync with plugin directory conventions
    and LSP/CLI behavior.
-7. Use
+7. Keep compiler payload refresh scripts fail-closed and contract-verified. In
+   particular, `scripts/refresh-native-compile-payload.mjs` must probe the
+   selected compiler, require kernel-native non-stub output, and only use
+   observed `__clapse_contract.source_version` when `--source-version` is not
+   provided.
+8. Use
    `deno run -A scripts/run-clapse-compiler-wasm.mjs compile-debug <input.clapse> [output.wasm] [artifacts-dir]`
    for unified wasm+IR debug flows.
 
@@ -115,8 +120,12 @@ Entrypoint reachability pruning now runs in the native compiler response path:
   kernel response shaping falls back to source exports then `main`
 - top-level function definitions not reachable from roots are removed in the
   native compile stage before compile artifacts are emitted
+- source-pruned `collapsed_ir.txt` now appends tail-recursion markers for
+  `VSelfTailCall` and `VMutualTailCall`, keeping source-built native artifacts
+  aligned with producer marker output
 - simple function-body `let` temp chains with `t0`.. names are pruned for
   dead bindings and surviving temporaries are renumbered densely from `t0`
+  only when `entrypoint_exports` is explicitly provided in the compile request
 - `CLAPSE_ENTRYPOINT_DCE` and `CLAPSE_INTERNAL_ENTRYPOINT_DCE` remain as
   legacy toggles but no longer control request shaping behavior
 - non-kernel compile responses now emit a reachability-shaped wasm bundle in the

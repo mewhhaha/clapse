@@ -21,6 +21,7 @@ static uint32_t heap_ptr = 0;
 static const char SEED_WASM_BASE64[] =
   {{SEED_WASM_BASE64_LITERAL}}
 ;
+static const uint32_t SEED_WASM_BASE64_LEN = (uint32_t) (sizeof(SEED_WASM_BASE64) - 1u);
 static const char MINI_WASM_BASE64[] =
   "AGFzbQEAAAABBgFgAX8BfwMDAgAABQMBAAIGCAF/AUGAiAQLBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAIAALAE4EbmFtZQAeHWNsYXBzZV9taW5fY29tcGlsZXJfc3R1Yi53YXNtARMCAApjbGFwc2VfcnVuAQRtYWluBxIBAA9fX3N0YWNrX3BvaW50ZXIAJglwcm9kdWNlcnMBDHByb2Nlc3NlZC1ieQEFY2xhbmcGMjEuMS44AJQBD3RhcmdldF9mZWF0dXJlcwgrC2J1bGstbWVtb3J5Kw9idWxrLW1lbW9yeS1vcHQrFmNhbGwtaW5kaXJlY3Qtb3ZlcmxvbmcrCm11bHRpdmFsdWUrD211dGFibGUtZ2xvYmFscysTbm9udHJhcHBpbmctZnB0b2ludCsPcmVmZXJlbmNlLXR5cGVzKwhzaWduLWV4dA==";
 
@@ -53,6 +54,8 @@ static const char EMIT_WAT_TEMPLATE[] =
 
 #define MAX_FN_DECLS 1024u
 #define MAX_ROOTS 512u
+#define MAX_TEMP_BINDINGS 512u
+#define MAX_TEMP_LINES 512u
 
 typedef struct {
   uint32_t ptr;
@@ -67,6 +70,19 @@ typedef struct {
   uint32_t body_start;
   uint32_t body_end;
 } FnDecl;
+
+static uint32_t collect_fn_decls(Segment source, FnDecl *decls, uint32_t max_decls);
+
+typedef struct {
+  uint32_t line_start;
+  uint32_t line_end;
+  uint32_t content_end;
+  int is_temp_binding;
+  int keep_line;
+  uint32_t old_temp;
+  uint32_t rhs_start;
+  uint32_t rhs_end;
+} TempLine;
 
 static uint32_t cstr_len(const char *s) {
   uint32_t len = 0;
@@ -287,20 +303,19 @@ static Segment clone_segment(Segment seg) {
   return out;
 }
 
-static void write_seed_base64(uint8_t *dst, uint32_t *cursor) {
-  uint32_t len = cstr_len(SEED_WASM_BASE64);
-  for (uint32_t i = 0; i < len; i += 1) {
-    dst[*cursor + i] = (uint8_t) SEED_WASM_BASE64[i];
+static void write_wasm_base64(uint8_t *dst, uint32_t *cursor,
+  const char *wasm_base64,
+  uint32_t wasm_base64_len) {
+  uint8_t *dst_ptr = dst + *cursor;
+  const uint8_t *src = (const uint8_t *) (uintptr_t) wasm_base64;
+  for (uint32_t i = wasm_base64_len; i > 0; i -= 1u) {
+    dst_ptr[i - 1u] = src[i - 1u];
   }
-  *cursor += len;
+  *cursor += wasm_base64_len;
 }
 
-static void write_wasm_base64(uint8_t *dst, uint32_t *cursor, const char *wasm_base64) {
-  uint32_t len = cstr_len(wasm_base64);
-  for (uint32_t i = 0; i < len; i += 1) {
-    dst[*cursor + i] = (uint8_t) wasm_base64[i];
-  }
-  *cursor += len;
+static void write_seed_base64(uint8_t *dst, uint32_t *cursor) {
+  write_wasm_base64(dst, cursor, SEED_WASM_BASE64, SEED_WASM_BASE64_LEN);
 }
 
 static int is_ident_start(uint8_t b) {
@@ -412,6 +427,337 @@ static int is_keyword_name(NameSpan name) {
     namespan_equals_literal(name, "instance") ||
     namespan_equals_literal(name, "primitive") ||
     namespan_equals_literal(name, "law");
+}
+
+static int parse_temp_identifier(const uint8_t *mem, uint32_t at, uint32_t end, uint32_t *temp_index_out) {
+  if (at >= end || mem[at] != 't') {
+    return 0;
+  }
+  uint32_t i = at + 1u;
+  if (i >= end) {
+    return 0;
+  }
+  uint8_t d0 = mem[i];
+  if (d0 < '0' || d0 > '9') {
+    return 0;
+  }
+  uint32_t temp_index = 0u;
+  while (i < end) {
+    uint8_t d = mem[i];
+    if (d < '0' || d > '9') {
+      break;
+    }
+    temp_index = temp_index * 10u + (uint32_t) (d - '0');
+    i += 1u;
+  }
+  if (i != end) {
+    return 0;
+  }
+  *temp_index_out = temp_index;
+  return 1;
+}
+
+static int temp_slot_index(uint32_t temp_index, const uint32_t *slots, uint32_t slot_count) {
+  for (uint32_t i = 0u; i < slot_count; i += 1u) {
+    if (slots[i] == temp_index) {
+      return (int) i;
+    }
+  }
+  return -1;
+}
+
+static int ensure_temp_slot(
+  uint32_t temp_index,
+  uint32_t *slots,
+  int *live,
+  uint32_t *slot_count
+) {
+  int slot = temp_slot_index(temp_index, slots, *slot_count);
+  if (slot >= 0) {
+    return slot;
+  }
+  if (*slot_count >= MAX_TEMP_BINDINGS) {
+    return -1;
+  }
+  slots[*slot_count] = temp_index;
+  live[*slot_count] = 0;
+  *slot_count += 1u;
+  return (int) (*slot_count - 1u);
+}
+
+static void mark_temp_uses(
+  Segment source,
+  uint32_t start,
+  uint32_t end,
+  uint32_t *slots,
+  int *live,
+  uint32_t *slot_count
+) {
+  uint8_t *mem = (uint8_t *) (uintptr_t) source.ptr;
+  uint32_t i = start;
+  while (i < end) {
+    if (!is_ident_start(mem[i])) {
+      i += 1u;
+      continue;
+    }
+    uint32_t token_end = source_parse_ident_end(source, i, end);
+    if (token_end > i) {
+      uint32_t temp_index = 0u;
+      if (parse_temp_identifier(mem, i, token_end, &temp_index)) {
+        int slot = ensure_temp_slot(temp_index, slots, live, slot_count);
+        if (slot >= 0) {
+          live[slot] = 1;
+        }
+      }
+    }
+    i = token_end;
+  }
+}
+
+static int parse_temp_binding_line(
+  Segment source,
+  uint32_t line_start,
+  uint32_t content_end,
+  uint32_t *temp_index_out,
+  uint32_t *rhs_start_out,
+  uint32_t *rhs_end_out
+) {
+  uint8_t *mem = (uint8_t *) (uintptr_t) source.ptr;
+  uint32_t at = source_skip_line_ws(source, line_start, content_end);
+  if (at + 3u > content_end || mem[at] != 'l' || mem[at + 1u] != 'e' || mem[at + 2u] != 't') {
+    return 0;
+  }
+  if (at + 3u < content_end && is_ident_continue(mem[at + 3u])) {
+    return 0;
+  }
+  uint32_t name_start = source_skip_line_ws(source, at + 3u, content_end);
+  if (name_start >= content_end) {
+    return 0;
+  }
+  uint32_t name_end = source_parse_ident_end(source, name_start, content_end);
+  if (name_end <= name_start) {
+    return 0;
+  }
+  uint32_t temp_index = 0u;
+  if (!parse_temp_identifier(mem, name_start, name_end, &temp_index)) {
+    return 0;
+  }
+  uint32_t eq_at = name_end;
+  while (eq_at < content_end && mem[eq_at] != '=') {
+    eq_at += 1u;
+  }
+  if (eq_at >= content_end) {
+    return 0;
+  }
+  uint32_t rhs_start = source_skip_line_ws(source, eq_at + 1u, content_end);
+  if (rhs_start >= content_end) {
+    return 0;
+  }
+  *temp_index_out = temp_index;
+  *rhs_start_out = rhs_start;
+  *rhs_end_out = content_end;
+  return 1;
+}
+
+static void write_temp_name(uint8_t *dst, uint32_t *cursor, uint32_t temp_index) {
+  dst[*cursor] = 't';
+  *cursor += 1u;
+  uint32_t digits[8];
+  uint32_t digit_count = 0u;
+  uint32_t value = temp_index;
+  do {
+    digits[digit_count] = value % 10u;
+    digit_count += 1u;
+    value /= 10u;
+  } while (value > 0u);
+  while (digit_count > 0u) {
+    digit_count -= 1u;
+    dst[*cursor] = (uint8_t) ('0' + digits[digit_count]);
+    *cursor += 1u;
+  }
+}
+
+static int rewrite_function_temp_lines(
+  Segment source,
+  uint32_t body_start,
+  uint32_t body_end,
+  uint32_t *cursor,
+  uint8_t *dst
+) {
+  uint8_t *src = (uint8_t *) (uintptr_t) source.ptr;
+  TempLine lines[MAX_TEMP_LINES];
+  uint32_t line_count = 0u;
+  int overflowed = 0;
+
+  uint32_t line_start = body_start;
+  while (line_start < body_end) {
+    if (line_count >= MAX_TEMP_LINES) {
+      overflowed = 1;
+      break;
+    }
+    uint32_t content_end = source_line_end(source, line_start);
+    uint32_t line_end = source_next_line_start(source, content_end);
+
+    lines[line_count].line_start = line_start;
+    lines[line_count].line_end = line_end;
+    lines[line_count].content_end = content_end;
+    lines[line_count].is_temp_binding = 0;
+    lines[line_count].keep_line = 1;
+    lines[line_count].old_temp = 0u;
+    lines[line_count].rhs_start = 0u;
+    lines[line_count].rhs_end = 0u;
+
+    uint32_t temp_index = 0u;
+    uint32_t rhs_start = 0u;
+    uint32_t rhs_end = 0u;
+    if (parse_temp_binding_line(source, line_start, content_end, &temp_index, &rhs_start, &rhs_end)) {
+      lines[line_count].is_temp_binding = 1;
+      lines[line_count].old_temp = temp_index;
+      lines[line_count].rhs_start = rhs_start;
+      lines[line_count].rhs_end = rhs_end;
+    }
+    line_count += 1u;
+    line_start = line_end;
+  }
+  if (overflowed || line_start < body_end) {
+    for (uint32_t at = body_start; at < body_end; at += 1u) {
+      dst[*cursor] = src[at];
+      *cursor += 1u;
+    }
+    return 1;
+  }
+
+  uint32_t temp_slots[MAX_TEMP_BINDINGS];
+  int temp_live[MAX_TEMP_BINDINGS];
+  uint32_t temp_slot_count = 0u;
+  for (uint32_t i = 0u; i < MAX_TEMP_BINDINGS; i += 1u) {
+    temp_slots[i] = 0u;
+    temp_live[i] = 0;
+  }
+
+  for (uint32_t idx = line_count; idx > 0u; idx -= 1u) {
+    uint32_t li = idx - 1u;
+    TempLine *line = &lines[li];
+    if (line->is_temp_binding) {
+      int slot = temp_slot_index(line->old_temp, temp_slots, temp_slot_count);
+      line->keep_line = slot >= 0 && temp_live[slot] == 1;
+      if (line->keep_line) {
+        mark_temp_uses(source, line->rhs_start, line->rhs_end, temp_slots, temp_live, &temp_slot_count);
+      }
+    } else {
+      mark_temp_uses(source, line->line_start, line->content_end, temp_slots, temp_live, &temp_slot_count);
+    }
+  }
+
+  uint32_t renumber_slots[MAX_TEMP_BINDINGS];
+  uint32_t renumber_count = 0u;
+  for (uint32_t i = 0u; i < line_count; i += 1u) {
+    TempLine *line = &lines[i];
+    if (!line->is_temp_binding || !line->keep_line) {
+      continue;
+    }
+    if (temp_slot_index(line->old_temp, renumber_slots, renumber_count) < 0) {
+      if (renumber_count >= MAX_TEMP_BINDINGS) {
+        for (uint32_t at = body_start; at < body_end; at += 1u) {
+          dst[*cursor] = src[at];
+          *cursor += 1u;
+        }
+        return 1;
+      }
+      renumber_slots[renumber_count] = line->old_temp;
+      renumber_count += 1u;
+    }
+  }
+
+  for (uint32_t i = 0u; i < line_count; i += 1u) {
+    TempLine *line = &lines[i];
+    if (line->is_temp_binding && !line->keep_line) {
+      continue;
+    }
+    for (uint32_t at = line->line_start; at < line->line_end; ) {
+      if (!is_ident_start(src[at])) {
+        dst[*cursor] = src[at];
+        *cursor += 1u;
+        at += 1u;
+        continue;
+      }
+      uint32_t token_end = source_parse_ident_end(source, at, line->line_end);
+      if (token_end <= at) {
+        dst[*cursor] = src[at];
+        *cursor += 1u;
+        at += 1u;
+        continue;
+      }
+      uint32_t temp_index = 0u;
+      if (parse_temp_identifier(src, at, token_end, &temp_index)) {
+        int renumber_slot = temp_slot_index(temp_index, renumber_slots, renumber_count);
+        if (renumber_slot >= 0) {
+          write_temp_name(dst, cursor, (uint32_t) renumber_slot);
+        } else {
+          for (uint32_t j = at; j < token_end; j += 1u) {
+            dst[*cursor] = src[j];
+            *cursor += 1u;
+          }
+        }
+      } else {
+        for (uint32_t j = at; j < token_end; j += 1u) {
+          dst[*cursor] = src[j];
+          *cursor += 1u;
+        }
+      }
+      at = token_end;
+    }
+  }
+
+  return 1;
+}
+
+static Segment build_temp_pruned_segment(Segment source) {
+  FnDecl decls[MAX_FN_DECLS];
+  uint32_t decl_count = collect_fn_decls(source, decls, MAX_FN_DECLS);
+  if (decl_count == 0u) {
+    return source;
+  }
+
+  uint32_t out_ptr = alloc_bytes(source.len, 1u);
+  if (out_ptr == 0u) {
+    return missing_segment();
+  }
+  uint8_t *src = (uint8_t *) (uintptr_t) source.ptr;
+  uint8_t *dst = (uint8_t *) (uintptr_t) out_ptr;
+  uint32_t cursor = 0u;
+
+  uint32_t copy_at = 0u;
+  for (uint32_t i = 0u; i < decl_count; i += 1u) {
+    FnDecl decl = decls[i];
+    uint32_t function_end = (i + 1u < decl_count) ? decls[i + 1u].line_start : source.len;
+    for (uint32_t j = copy_at; j < decl.line_start; j += 1u) {
+      dst[cursor] = src[j];
+      cursor += 1u;
+    }
+
+    for (uint32_t j = decl.line_start; j < decl.body_start; j += 1u) {
+      dst[cursor] = src[j];
+      cursor += 1u;
+    }
+
+    if (!rewrite_function_temp_lines(source, decl.body_start, function_end, &cursor, dst)) {
+      return missing_segment();
+    }
+
+    copy_at = function_end;
+  }
+
+  for (uint32_t j = copy_at; j < source.len; j += 1u) {
+    dst[cursor] = src[j];
+    cursor += 1u;
+  }
+
+  Segment out;
+  out.ptr = out_ptr;
+  out.len = cursor;
+  out.ok = 1;
+  return out;
 }
 
 static int parse_top_level_decl(Segment source, uint32_t line_start, uint32_t line_end, FnDecl *out) {
@@ -793,6 +1139,9 @@ static Segment prune_compile_source(uint32_t req_ptr, uint32_t req_len, Segment 
     roots,
     &roots_count
   );
+  if (!*has_entrypoint_override_out) {
+    return source_seg;
+  }
   if (roots_count == 0u) {
     roots_count = collect_export_roots_from_source(source_seg, roots, roots_count);
   }
@@ -812,7 +1161,18 @@ static Segment prune_compile_source(uint32_t req_ptr, uint32_t req_len, Segment 
   }
   seed_reachable(decls, decl_count, roots, roots_count, reachable);
   expand_reachable(source_seg, decls, decl_count, reachable);
-  return build_pruned_segment(source_seg, decls, decl_count, reachable);
+  Segment pruned_source = build_pruned_segment(source_seg, decls, decl_count, reachable);
+  if (!pruned_source.ok) {
+    return missing_segment();
+  }
+  if (!has_entrypoint_override_out || !*has_entrypoint_override_out) {
+    return pruned_source;
+  }
+  Segment temp_pruned_source = build_temp_pruned_segment(pruned_source);
+  if (!temp_pruned_source.ok) {
+    return missing_segment();
+  }
+  return temp_pruned_source;
 }
 
 static uint32_t build_error_response(const char *message) {
@@ -845,6 +1205,9 @@ static uint32_t build_literal_response(const char *payload) {
 
 static uint32_t build_compile_response(Segment source_seg, int use_mini_wasm) {
   const char *wasm_base64 = use_mini_wasm ? MINI_WASM_BASE64 : SEED_WASM_BASE64;
+  const uint32_t wasm_base64_len = use_mini_wasm
+    ? cstr_len(MINI_WASM_BASE64)
+    : SEED_WASM_BASE64_LEN;
   FnDecl decls[MAX_FN_DECLS];
   uint32_t decl_count = collect_fn_decls(source_seg, decls, MAX_FN_DECLS);
   Segment collapsed_seg = build_collapsed_segment(source_seg, decls, decl_count);
@@ -853,7 +1216,7 @@ static uint32_t build_compile_response(Segment source_seg, int use_mini_wasm) {
   }
   uint32_t total_len = 0u;
   total_len += cstr_len(COMPILE_PREFIX);
-  total_len += cstr_len(wasm_base64);
+  total_len += wasm_base64_len;
   total_len += cstr_len(COMPILE_MID_A);
   total_len += source_seg.len;
   total_len += cstr_len(COMPILE_MID_B);
@@ -871,7 +1234,7 @@ static uint32_t build_compile_response(Segment source_seg, int use_mini_wasm) {
   uint32_t cursor = 0u;
 
   write_literal(dst, &cursor, COMPILE_PREFIX);
-  write_wasm_base64(dst, &cursor, wasm_base64);
+  write_wasm_base64(dst, &cursor, wasm_base64, wasm_base64_len);
   write_literal(dst, &cursor, COMPILE_MID_A);
   write_segment(dst, &cursor, source_seg);
   write_literal(dst, &cursor, COMPILE_MID_B);
@@ -892,7 +1255,7 @@ static uint32_t build_selfhost_response(Segment source_seg) {
   }
   uint32_t total_len = 0u;
   total_len += cstr_len(SELFHOST_PREFIX);
-  total_len += cstr_len(SEED_WASM_BASE64);
+  total_len += SEED_WASM_BASE64_LEN;
   total_len += cstr_len(SELFHOST_MID_A);
   total_len += source_seg.len;
   total_len += cstr_len(SELFHOST_MID_B);

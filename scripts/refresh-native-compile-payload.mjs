@@ -1,5 +1,7 @@
 #!/usr/bin/env -S deno run -A
 
+import { callCompilerWasm, decodeWasmBase64 } from "./wasm-compiler-abi.mjs";
+
 const DEFAULT_WASM = "artifacts/latest/clapse_compiler.wasm";
 const DEFAULT_SOURCE_VERSION = "";
 const TARGET_DIR = "lib/compiler";
@@ -10,6 +12,13 @@ const JSON_COMPILE_WASM_B64_PREFIX = 'json_compile_wasm_b64 = str_to_slice "';
 const SOURCE_VERSION_MARKER = '\\"source_version\\":\\"';
 const SOURCE_VERSION_END_MARKER =
   '\\",\\"compile_contract_version\\":\\"native-v1\\"}}';
+const EXPECTED_COMPILE_CONTRACT_VERSION = "native-v1";
+const KNOWN_STUB_WASM_BYTES = 122;
+const MIN_VALID_WASM_BYTES = 4096;
+const PRODUCER_CONTRACT_KEYS = new Set([
+  "source_version",
+  "compile_contract_version",
+]);
 
 function usage() {
   console.log(
@@ -18,6 +27,7 @@ function usage() {
       "  deno run -A scripts/refresh-native-compile-payload.mjs [--wasm <path>] [--source-version <token>]",
       "",
       "updates lib/compiler/native_compile*.clapse files with wasm_base64 payload and __clapse_contract.source_version",
+      "if --source-version is omitted, it is read from a live kernel-native compile probe",
     ].join("\n"),
   );
 }
@@ -56,47 +66,163 @@ function nonEmptyString(value) {
   return typeof value === "string" && value.length > 0;
 }
 
-function extractSourceVersionFromText(sourceText) {
-  const escapedMatch = sourceText.match(
-    /source_version\\":\\"([^"\\]+)\\",\\"compile_contract_version/u,
-  );
-  if (
-    Array.isArray(escapedMatch) &&
-    escapedMatch.length > 1 &&
-    escapedMatch[1].length > 0
-  ) {
-    return escapedMatch[1];
+function contractMeta(response) {
+  const raw = response?.__clapse_contract;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {};
   }
-  const plainMatch = sourceText.match(
-    /"source_version":"([^"]+)","compile_contract_version"/u,
-  );
-  if (
-    Array.isArray(plainMatch) &&
-    plainMatch.length > 1 &&
-    plainMatch[1].length > 0
-  ) {
-    return plainMatch[1];
-  }
-  return "";
+  return raw;
 }
 
-async function resolveDefaultSourceVersion() {
-  let sourceVersion = "";
-  for (const path of resolveTargetFiles()) {
-    if (!path.includes(TARGET_SUFFIX)) {
+function boundaryFallbackContractKeys(response) {
+  const contract = contractMeta(response);
+  const keys = [];
+  for (const [key, value] of Object.entries(contract)) {
+    if (PRODUCER_CONTRACT_KEYS.has(key)) {
       continue;
     }
-    const sourceText = await Deno.readTextFile(path);
-    const fromSource = extractSourceVersionFromText(sourceText);
-    if (fromSource.length === 0) {
+    if (
+      value === false || value === null || value === 0 ||
+      (typeof value === "string" && value.length === 0)
+    ) {
       continue;
     }
-    if (sourceVersion.length > 0 && sourceVersion !== fromSource) {
-      fail("mismatched source_version markers across native_compile*.clapse");
-    }
-    sourceVersion = fromSource;
+    keys.push(key);
   }
-  return sourceVersion;
+  return keys;
+}
+
+function hasSyntheticArtifactMarkers(value) {
+  if (typeof value !== "string") {
+    return true;
+  }
+  return value.includes("kernel:compile:") ||
+    /seed-stage[0-9]+:[^)\s"]+/u.test(value);
+}
+
+function isKnownStubCompileArtifact(wasmBytes, response) {
+  if (!(wasmBytes instanceof Uint8Array) || wasmBytes.length !== KNOWN_STUB_WASM_BYTES) {
+    return false;
+  }
+  const exportsList = Array.isArray(response?.exports) ? response.exports : [];
+  const dts = typeof response?.dts === "string" ? response.dts.trim() : "";
+  return exportsList.length === 0 && (dts.length === 0 || dts === "export {}");
+}
+
+function assert(condition, message) {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+async function probeCompilerContract(compilerWasmPath, sourceVersion) {
+  const targetFiles = resolveTargetFiles();
+  if (targetFiles.length === 0) {
+    fail(
+      `no files matched ${TARGET_PREFIX}*${TARGET_SUFFIX} under ${TARGET_DIR}`,
+    );
+  }
+  const probePath = targetFiles[0];
+  const sourceText = await Deno.readTextFile(probePath);
+  const sourceProbe = [
+    sourceText,
+    "",
+    `-- native-compile-payload-probe-${crypto.randomUUID()}`,
+  ].join("\n");
+  let response;
+  try {
+    response = await callCompilerWasm(compilerWasmPath, {
+      command: "compile",
+      compile_mode: "kernel-native",
+      input_path: probePath,
+      input_source: sourceProbe,
+      plugin_wasm_paths: [],
+    }, {
+      withContractMetadata: true,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    fail(`kernel-native compile probe failed (${msg})`);
+  }
+  assert(
+    response && typeof response === "object" && !Array.isArray(response),
+    "compile probe did not return an object",
+  );
+  assert(response.ok === true, `compile probe failed: ${String(response.error ?? "unknown")}`);
+  assert(
+    response.backend === "kernel-native",
+    `compile probe backend must be kernel-native, got ${String(response.backend ?? "<missing>")}`,
+  );
+  assert(
+    typeof response.wasm_base64 === "string" && response.wasm_base64.length > 0,
+    "compile probe missing non-empty wasm_base64",
+  );
+  let wasmBytes;
+  try {
+    wasmBytes = decodeWasmBase64(response.wasm_base64);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    fail(`compile probe wasm_base64 decode failed (${msg})`);
+  }
+  assert(
+    wasmBytes.length >= MIN_VALID_WASM_BYTES,
+    `compile probe emitted wasm payload is suspiciously small (${wasmBytes.length} bytes)`,
+  );
+  assert(
+    !isKnownStubCompileArtifact(wasmBytes, response),
+    "compile probe returned known stub payload; refusing to refresh native payload",
+  );
+  const artifacts = response.artifacts;
+  assert(artifacts && typeof artifacts === "object", "compile probe missing artifacts");
+  const fallbackKeys = boundaryFallbackContractKeys(response);
+  assert(
+    fallbackKeys.length === 0,
+    `compile probe includes fallback contract marker(s): ${fallbackKeys.join(",")}`,
+  );
+  const lowered = artifacts["lowered_ir.txt"];
+  const collapsed = artifacts["collapsed_ir.txt"];
+  assert(
+    typeof lowered === "string" && lowered.length > 0,
+    "compile probe missing lowered_ir.txt",
+  );
+  assert(
+    typeof collapsed === "string" && collapsed.length > 0,
+    "compile probe missing collapsed_ir.txt",
+  );
+  const probeToken = sourceProbe.split("\n").at(-2) ?? "";
+  const markerCheck = probeToken.length > 0 ? probeToken : null;
+  if (markerCheck !== null) {
+    assert(
+      lowered.includes(markerCheck) && collapsed.includes(markerCheck),
+      "compile probe artifacts do not include request source marker",
+    );
+  }
+  assert(
+    !hasSyntheticArtifactMarkers(lowered),
+    "compile probe artifacts contain synthetic marker(s)",
+  );
+  assert(
+    !hasSyntheticArtifactMarkers(collapsed),
+    "compile probe artifacts contain synthetic marker(s)",
+  );
+  const contract = contractMeta(response);
+  assert(
+    typeof contract.source_version === "string" && contract.source_version.length > 0,
+    "compile probe missing __clapse_contract.source_version",
+  );
+  assert(
+    contract.compile_contract_version === EXPECTED_COMPILE_CONTRACT_VERSION,
+    `compile probe compile_contract_version must be ${EXPECTED_COMPILE_CONTRACT_VERSION} (got ${
+      String(contract.compile_contract_version ?? "<missing>")
+    })`,
+  );
+  if (sourceVersion.length > 0) {
+    assert(
+      sourceVersion === contract.source_version,
+      `compile probe source_version mismatch: requested ${sourceVersion}, observed ${contract.source_version}`,
+    );
+  }
+  return contract.source_version;
 }
 
 function toBase64(bytes) {
@@ -241,12 +367,9 @@ async function main() {
   }
   let sourceVersion = opts.sourceVersion;
   if (!nonEmptyString(sourceVersion)) {
-    sourceVersion = await resolveDefaultSourceVersion();
-    if (!sourceVersion) {
-      fail(
-        "missing --source-version and no resolvable marker in target source files",
-      );
-    }
+    sourceVersion = await probeCompilerContract(opts.wasmPath, "");
+  } else {
+    await probeCompilerContract(opts.wasmPath, sourceVersion);
   }
   const wasmBase64 = toBase64(wasmBytes);
 

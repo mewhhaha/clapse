@@ -215,8 +215,12 @@ native-boundary-strict-seed-scan-kernel hops='2':
 bootstrap-native-producer-seed seed='artifacts/latest/clapse_compiler.wasm' out='artifacts/strict-native/native_producer_seed.wasm' meta='artifacts/strict-native/native_producer_seed.meta.json' depth='1' source_version='native-source-2026-03-01-r2':
   deno run -A scripts/build-native-producer-seed.mjs --seed {{seed}} --out {{out}} --meta {{meta}} --depth {{depth}} --source-version {{source_version}}
 
-refresh-native-compile-payload wasm='artifacts/latest/clapse_compiler.wasm' source_version='native-source-2026-03-01-r2':
-  deno run -A scripts/refresh-native-compile-payload.mjs --wasm {{wasm}} --source-version {{source_version}}
+refresh-native-compile-payload wasm='artifacts/latest/clapse_compiler.wasm' source_version='':
+  if [[ -n "{{source_version}}" ]]; then \
+  deno run -A scripts/refresh-native-compile-payload.mjs --wasm {{wasm}} --source-version {{source_version}}; \
+  else \
+  deno run -A scripts/refresh-native-compile-payload.mjs --wasm {{wasm}}; \
+  fi
 
 native-strict-producer-check-no-fallback wasm='artifacts/strict-native/native_producer_seed.wasm' hops='2' source_version='native-source-2026-03-01-r2':
   CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-strict-producer-check "{{wasm}}" "{{hops}}" "{{source_version}}"
