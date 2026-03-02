@@ -3,17 +3,21 @@ export byte_at, json_command_tag
 import slice_scan
 
 primitive bool = true<1> | false<0>
-data CommandTag = CommandCompile | CommandFormat | CommandSelfhost
+data CommandTag = CommandCompile | CommandEmitWat | CommandFormat | CommandSelfhost
 data Maybe a = Just a | Nothing
 
 byte_at bytes idx = slice_get_u8 bytes idx
 
 json_command_tag request =
   let compile_pos = slice_find_seq_u8 request (str_to_slice "\"compile\"") 0
+      emit_wat_pos = slice_find_seq_u8 request (str_to_slice "\"emit-wat\"") 0
+      emit_wasm_text_pos = slice_find_seq_u8 request (str_to_slice "\"emit-wasm-text\"") 0
       format_pos = slice_find_seq_u8 request (str_to_slice "\"format\"") 0
       selfhost_pos = slice_find_seq_u8 request (str_to_slice "\"selfhost-artifacts\"") 0
-  in case (compile_pos >= 0) (format_pos >= 0) (selfhost_pos >= 0) of
-       true _ _ -> Just CommandCompile
-       _ true _ -> Just CommandFormat
-       _ _ true -> Just CommandSelfhost
-       _ _ _ -> Nothing
+  in case (compile_pos >= 0) (emit_wat_pos >= 0) (emit_wasm_text_pos >= 0) (format_pos >= 0) (selfhost_pos >= 0) of
+       true _ _ _ _ -> Just CommandCompile
+       _ true _ _ _ -> Just CommandEmitWat
+       _ _ true _ _ -> Just CommandEmitWat
+       _ _ _ true _ -> Just CommandFormat
+       _ _ _ _ true -> Just CommandSelfhost
+       _ _ _ _ _ -> Nothing

@@ -7,7 +7,9 @@ const DEFAULT_INPUT_PATH = "lib/compiler/kernel.clapse";
 const DEFAULT_HOPS = 2;
 const DEFAULT_COMPILE_MODE = "kernel-native";
 const MIN_COMPILER_BYTES = 4096;
-const DEFAULT_NATIVE_COMPILE_SOURCE_PATH = "lib/compiler/native_compile.clapse";
+const NATIVE_COMPILE_SOURCE_DIR = "lib/compiler";
+const NATIVE_COMPILE_SOURCE_PREFIX = "native_compile";
+const NATIVE_COMPILE_SOURCE_SUFFIX = ".clapse";
 const REQUIRED_SOURCE_VERSION_ENV = "CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED";
 const EXPECTED_COMPILE_CONTRACT_VERSION = "native-v1";
 const NATIVE_COMPILE_SOURCE_PATH_ENV = "CLAPSE_NATIVE_COMPILE_SOURCE_PATH";
@@ -117,13 +119,34 @@ function parseArgs(argv) {
   };
 }
 
-function resolveNativeCompileSourcePath() {
+function resolveNativeCompileSourcePaths() {
   const overridden = String(Deno.env.get(NATIVE_COMPILE_SOURCE_PATH_ENV) ?? "")
     .trim();
   if (nonEmptyString(overridden)) {
-    return overridden;
+    return [overridden];
   }
-  return DEFAULT_NATIVE_COMPILE_SOURCE_PATH;
+  const entries = [];
+  try {
+    for (const entry of Deno.readDirSync(NATIVE_COMPILE_SOURCE_DIR)) {
+      if (
+        entry.isFile &&
+        entry.name.startsWith(NATIVE_COMPILE_SOURCE_PREFIX) &&
+        entry.name.endsWith(NATIVE_COMPILE_SOURCE_SUFFIX)
+      ) {
+        entries.push(`${NATIVE_COMPILE_SOURCE_DIR}/${entry.name}`);
+      }
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    fail(`failed resolving source candidates in ${NATIVE_COMPILE_SOURCE_DIR}: ${msg}`);
+  }
+  if (entries.length === 0) {
+    fail(
+      `no files matched ${NATIVE_COMPILE_SOURCE_PREFIX}*${NATIVE_COMPILE_SOURCE_SUFFIX} under ${NATIVE_COMPILE_SOURCE_DIR}`,
+    );
+  }
+  entries.sort();
+  return entries;
 }
 
 async function tryExtractSourceVersionFromNativeCompile(sourcePath) {
@@ -159,9 +182,7 @@ async function tryExtractSourceVersionFromNativeCompile(sourcePath) {
   ) {
     return plainMatch[1];
   }
-  fail(
-    `could not resolve __clapse_contract.source_version from ${sourcePath}`,
-  );
+  return "";
 }
 
 async function resolveRequiredSourceVersion(
@@ -176,18 +197,33 @@ async function resolveRequiredSourceVersion(
   if (nonEmptyString(envVersion)) {
     return envVersion;
   }
-  const sourcePath = resolveNativeCompileSourcePath();
-  const fromNativeCompile = await tryExtractSourceVersionFromNativeCompile(
-    sourcePath,
-  );
-  if (nonEmptyString(fromNativeCompile)) {
-    return fromNativeCompile;
+  const sourcePaths = resolveNativeCompileSourcePaths();
+  let discoveredSourceVersion = "";
+  for (const sourcePath of sourcePaths) {
+    const fromNativeCompile = await tryExtractSourceVersionFromNativeCompile(
+      sourcePath,
+    );
+    if (!nonEmptyString(fromNativeCompile)) {
+      continue;
+    }
+    if (
+      nonEmptyString(discoveredSourceVersion) &&
+      fromNativeCompile !== discoveredSourceVersion
+    ) {
+      fail(
+        `multiple source versions found across ${NATIVE_COMPILE_SOURCE_PREFIX}*${NATIVE_COMPILE_SOURCE_SUFFIX}: ${discoveredSourceVersion} and ${fromNativeCompile}`,
+      );
+    }
+    discoveredSourceVersion = fromNativeCompile;
+  }
+  if (nonEmptyString(discoveredSourceVersion)) {
+    return discoveredSourceVersion;
   }
   if (nonEmptyString(observedSourceVersion)) {
     return observedSourceVersion;
   }
   fail(
-    `could not resolve required source version (set --source-version, ${REQUIRED_SOURCE_VERSION_ENV}, or provide ${sourcePath})`,
+    `could not resolve required source version (set --source-version, ${REQUIRED_SOURCE_VERSION_ENV}, or keep payload markers in one of ${NATIVE_COMPILE_SOURCE_PREFIX}*${NATIVE_COMPILE_SOURCE_SUFFIX})`,
   );
 }
 

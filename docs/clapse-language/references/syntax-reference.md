@@ -66,6 +66,16 @@ Constructor deconstruction in `let`:
 let Pair left right = p in left
 ```
 
+Guarded `let` bindings are supported:
+
+```haskell
+main x =
+  let selected
+        | eq x 0 = 0
+        | otherwise = x
+  in selected
+```
+
 ## Case Expressions
 
 Single scrutinee:
@@ -82,10 +92,22 @@ Multiple scrutinees:
 case a b of
   0 0 -> 0
   x y -> x + y
-
-`case` arm pattern arity must match `case` scrutinee arity. Mismatches are
-hard parse errors.
 ```
+
+Guarded `case of` form (no explicit scrutinee) is supported:
+
+```haskell
+case of
+  | eq x 0 -> 0
+  | otherwise -> x
+```
+
+`case` arity rules:
+- Pattern-arm `case` requires arm pattern arity to match scrutinee arity.
+- Guard-arm `case` requires zero scrutinees and `| guard -> expr` arms.
+- Arity mismatches are hard parse errors.
+- Malformed guard continuations are hard compile errors in kernel-native mode
+  (`| ... = ...` for function/let guards, `| ... -> ...` for `case of` guards).
 
 ## Data Declarations
 

@@ -1,9 +1,6 @@
 #!/usr/bin/env -S deno run -A
 
-import {
-  buildCompileReachabilityPlanForTest,
-  runWithArgs,
-} from "./run-clapse-compiler-wasm.mjs";
+import { runWithArgs } from "./run-clapse-compiler-wasm.mjs";
 
 function assert(condition, message) {
   if (!condition) {
@@ -186,124 +183,83 @@ async function run() {
         "",
       ].join("\n"),
     );
-    const modulePlan = await buildCompileReachabilityPlanForTest(
-      entryModulePath,
-    );
-    assert(
-      modulePlan !== null,
-      "compile-debug-smoke: expected reachability plan for module graph case",
-    );
-    const entryPrunedSource =
-      modulePlan.sourceByPath.get(modulePlan.entryPath) ??
-        "";
-    assert(
-      !entryPrunedSource.includes(entryDeadMarker),
-      "compile-debug-smoke: entrypoint plan should prune unreachable entrypoint functions",
-    );
-    const utilModule = modulePlan.moduleSources.find((item) =>
-      item.module_name === "smoke.util"
-    );
-    assert(
-      Boolean(utilModule),
-      "compile-debug-smoke: expected reachable imported module source override for smoke.util",
-    );
-    assert(
-      utilModule.reachable_functions.length === 1 &&
-        utilModule.reachable_functions[0] === "live",
-      "compile-debug-smoke: expected only live to be reachable in imported util module",
-    );
-    assert(
-      !utilModule.input_source.includes(importDeadMarker),
-      "compile-debug-smoke: imported module dead function should be pruned from source override",
-    );
-    assert(
-      !modulePlan.moduleSources.some((item) =>
-        item.module_name === "smoke.unused"
-      ),
-      "compile-debug-smoke: unused modules should not be included in module source overrides",
-    );
-    const subsetPlan = await buildCompileReachabilityPlanForTest(
-      entryModulePath,
-      { entrypointExports: ["main"] },
-    );
-    assert(
-      subsetPlan !== null,
-      "compile-debug-smoke: expected subset reachability plan",
-    );
-    assert(
-      Array.isArray(subsetPlan.rootExports) &&
-        subsetPlan.rootExports.length === 1 &&
-        subsetPlan.rootExports[0] === "main",
-      "compile-debug-smoke: subset reachability plan should pin root exports to requested entrypoint_exports",
-    );
-    const subsetEntrySource =
-      subsetPlan.sourceByPath.get(subsetPlan.entryPath) ?? "";
-    assert(
-      !subsetEntrySource.includes(entryDeadMarker),
-      "compile-debug-smoke: subset roots should prune extra exported entrypoint functions",
-    );
+    const moduleGraphArtifactsDir =
+      `${tmpDir}/entrypoint-dce-module-graph-artifacts`;
     await runWithArgs([
       "compile-debug",
       entryModulePath,
       `${tmpDir}/entrypoint_dce_module_graph.wasm`,
-      `${tmpDir}/entrypoint-dce-module-graph-artifacts`,
+      moduleGraphArtifactsDir,
     ]);
+    const moduleGraphLowered = await readText(
+      `${moduleGraphArtifactsDir}/lowered_ir.txt`,
+    );
+    const moduleGraphCollapsed = await readText(
+      `${moduleGraphArtifactsDir}/collapsed_ir.txt`,
+    );
+    assert(
+      !moduleGraphLowered.includes(entryDeadMarker),
+      "compile-debug-smoke: lowered_ir.txt should not include unreachable entrypoint dead function",
+    );
+    assert(
+      !moduleGraphCollapsed.includes(entryDeadMarker),
+      "compile-debug-smoke: collapsed_ir.txt should not include unreachable entrypoint dead function",
+    );
+    assert(
+      !moduleGraphLowered.includes(importDeadMarker),
+      "compile-debug-smoke: lowered_ir.txt should not include imported dead helper function",
+    );
+    assert(
+      !moduleGraphCollapsed.includes(importDeadMarker),
+      "compile-debug-smoke: collapsed_ir.txt should not include imported dead helper function",
+    );
+    assert(
+      !moduleGraphLowered.includes(unusedMarker),
+      "compile-debug-smoke: lowered_ir.txt should not include unused module dead function",
+    );
+    assert(
+      !moduleGraphCollapsed.includes(unusedMarker),
+      "compile-debug-smoke: collapsed_ir.txt should not include unused module dead function",
+    );
     const internalOnlyMarker =
       `compile-debug-smoke-internal-dce-${crypto.randomUUID()}`;
     const internalOnlyInputPath = `${tmpDir}/internal_only_dce.clapse`;
     const internalOnlyOutputPath = `${tmpDir}/internal_only_dce.wasm`;
     const internalOnlyArtifactsDir = `${tmpDir}/internal-only-dce-artifacts`;
-    const hostDceBefore = Deno.env.get("CLAPSE_ENTRYPOINT_DCE");
-    const internalDceBefore = Deno.env.get("CLAPSE_INTERNAL_ENTRYPOINT_DCE");
-    try {
-      Deno.env.set("CLAPSE_ENTRYPOINT_DCE", "0");
-      Deno.env.set("CLAPSE_INTERNAL_ENTRYPOINT_DCE", "0");
-      await Deno.writeTextFile(
-        internalOnlyInputPath,
-        [
-          "export main",
-          "main x = keep x",
-          "keep x = x",
-          `dead_internal x = x -- ${internalOnlyMarker}`,
-          "",
-        ].join("\n"),
-      );
-      await runWithArgs([
-        "compile-debug",
-        internalOnlyInputPath,
-        internalOnlyOutputPath,
-        internalOnlyArtifactsDir,
-      ]);
-      await assertWasmFile(
-        internalOnlyOutputPath,
-        "compile-debug internal dce",
-      );
-      const internalLowered = await readText(
-        `${internalOnlyArtifactsDir}/lowered_ir.txt`,
-      );
-      const internalCollapsed = await readText(
-        `${internalOnlyArtifactsDir}/collapsed_ir.txt`,
-      );
-      assert(
-        !internalLowered.includes(internalOnlyMarker),
-        "compile-debug-smoke: lowered_ir.txt should not include dead marker when host/internal env DCE toggles are both disabled",
-      );
-      assert(
-        !internalCollapsed.includes(internalOnlyMarker),
-        "compile-debug-smoke: collapsed_ir.txt should not include dead marker when host/internal env DCE toggles are both disabled",
-      );
-    } finally {
-      if (hostDceBefore === undefined) {
-        Deno.env.delete("CLAPSE_ENTRYPOINT_DCE");
-      } else {
-        Deno.env.set("CLAPSE_ENTRYPOINT_DCE", hostDceBefore);
-      }
-      if (internalDceBefore === undefined) {
-        Deno.env.delete("CLAPSE_INTERNAL_ENTRYPOINT_DCE");
-      } else {
-        Deno.env.set("CLAPSE_INTERNAL_ENTRYPOINT_DCE", internalDceBefore);
-      }
-    }
+    await Deno.writeTextFile(
+      internalOnlyInputPath,
+      [
+        "export main",
+        "main x = keep x",
+        "keep x = x",
+        `dead_internal x = x -- ${internalOnlyMarker}`,
+        "",
+      ].join("\n"),
+    );
+    await runWithArgs([
+      "compile-debug",
+      internalOnlyInputPath,
+      internalOnlyOutputPath,
+      internalOnlyArtifactsDir,
+    ]);
+    await assertWasmFile(
+      internalOnlyOutputPath,
+      "compile-debug internal dce",
+    );
+    const internalLowered = await readText(
+      `${internalOnlyArtifactsDir}/lowered_ir.txt`,
+    );
+    const internalCollapsed = await readText(
+      `${internalOnlyArtifactsDir}/collapsed_ir.txt`,
+    );
+    assert(
+      !internalLowered.includes(internalOnlyMarker),
+      "compile-debug-smoke: lowered_ir.txt should not include dead marker after native request-shape pruning",
+    );
+    assert(
+      !internalCollapsed.includes(internalOnlyMarker),
+      "compile-debug-smoke: collapsed_ir.txt should not include dead marker after native request-shape pruning",
+    );
     console.log("compile-debug-smoke: PASS (4 command forms + entrypoint dce)");
   } finally {
     await Deno.remove(tmpDir, { recursive: true }).catch(() => {});

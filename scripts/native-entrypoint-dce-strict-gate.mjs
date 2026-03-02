@@ -12,12 +12,7 @@ async function run() {
   const tmpDir = await Deno.makeTempDir({
     prefix: "clapse-native-entrypoint-dce-strict-gate-",
   });
-  const hostDceBefore = Deno.env.get("CLAPSE_ENTRYPOINT_DCE");
-  const internalDceBefore = Deno.env.get("CLAPSE_INTERNAL_ENTRYPOINT_DCE");
   try {
-    Deno.env.set("CLAPSE_ENTRYPOINT_DCE", "0");
-    Deno.env.set("CLAPSE_INTERNAL_ENTRYPOINT_DCE", "0");
-
     const marker = `native-entrypoint-dce-strict-gate-${crypto.randomUUID()}`;
     const inputPath = `${tmpDir}/gate.clapse`;
     const outputPath = `${tmpDir}/gate.wasm`;
@@ -38,24 +33,14 @@ async function run() {
     );
     assert(
       !lowered.includes(marker),
-      "native-entrypoint-dce-strict-gate: lowered_ir.txt still contains dead_fn marker with legacy DCE env toggles disabled",
+      "native-entrypoint-dce-strict-gate: lowered_ir.txt still contains dead_fn marker with native request-shape pruning",
     );
     assert(
       !collapsed.includes(marker),
-      "native-entrypoint-dce-strict-gate: collapsed_ir.txt still contains dead_fn marker with legacy DCE env toggles disabled",
+      "native-entrypoint-dce-strict-gate: collapsed_ir.txt still contains dead_fn marker with native request-shape pruning",
     );
     console.log("native-entrypoint-dce-strict-gate: PASS");
   } finally {
-    if (hostDceBefore === undefined) {
-      Deno.env.delete("CLAPSE_ENTRYPOINT_DCE");
-    } else {
-      Deno.env.set("CLAPSE_ENTRYPOINT_DCE", hostDceBefore);
-    }
-    if (internalDceBefore === undefined) {
-      Deno.env.delete("CLAPSE_INTERNAL_ENTRYPOINT_DCE");
-    } else {
-      Deno.env.set("CLAPSE_INTERNAL_ENTRYPOINT_DCE", internalDceBefore);
-    }
     await Deno.remove(tmpDir, { recursive: true }).catch(() => {});
   }
 }

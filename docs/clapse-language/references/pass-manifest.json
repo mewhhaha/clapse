@@ -93,7 +93,7 @@
     },
     {
       "id": "self_tail_call_normalization",
-      "status": "partially implemented",
+      "status": "implemented",
       "title": "Self tail-call normalization",
       "scope": "collapse"
     }

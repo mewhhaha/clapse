@@ -21,6 +21,8 @@ static uint32_t heap_ptr = 0;
 static const char SEED_WASM_BASE64[] =
   {{SEED_WASM_BASE64_LITERAL}}
 ;
+static const char MINI_WASM_BASE64[] =
+  "AGFzbQEAAAABBgFgAX8BfwMDAgAABQMBAAIGCAF/AUGAiAQLBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAIAALAE4EbmFtZQAeHWNsYXBzZV9taW5fY29tcGlsZXJfc3R1Yi53YXNtARMCAApjbGFwc2VfcnVuAQRtYWluBxIBAA9fX3N0YWNrX3BvaW50ZXIAJglwcm9kdWNlcnMBDHByb2Nlc3NlZC1ieQEFY2xhbmcGMjEuMS44AJQBD3RhcmdldF9mZWF0dXJlcwgrC2J1bGstbWVtb3J5Kw9idWxrLW1lbW9yeS1vcHQrFmNhbGwtaW5kaXJlY3Qtb3ZlcmxvbmcrCm11bHRpdmFsdWUrD211dGFibGUtZ2xvYmFscysTbm9udHJhcHBpbmctZnB0b2ludCsPcmVmZXJlbmNlLXR5cGVzKwhzaWduLWV4dA==";
 
 static const char SOURCE_VERSION[] = "{{SOURCE_VERSION_LITERAL}}";
 
@@ -37,6 +39,9 @@ static const char SELFHOST_PREFIX[] = "{\"ok\":true,\"backend\":\"kernel-native\
 static const char SELFHOST_MID_A[] = "\",\"artifacts\":{\"lowered_ir.txt\":\"(lowered_ir) ";
 static const char SELFHOST_MID_B[] = "\",\"collapsed_ir.txt\":\"(collapsed_ir) ";
 static const char SELFHOST_SUFFIX[] = "\"}}";
+static const char TAIL_SELF_PREFIX[] = "\\n-- VSelfTailCall ";
+static const char TAIL_MUTUAL_PREFIX[] = "\\n-- VMutualTailCall ";
+static const char TAIL_ARROW[] = " -> ";
 
 static const char FORMAT_PREFIX[] = "{\"ok\":true,\"formatted\":\"";
 static const char FORMAT_SUFFIX[] = "\"}";
@@ -45,6 +50,23 @@ static const char EMIT_WAT_PREFIX[] = "{\"ok\":true,\"wat\":\"";
 static const char EMIT_WAT_SUFFIX[] = "\"}";
 static const char EMIT_WAT_TEMPLATE[] =
   "{\"ok\":true,\"wat\":\"(module\\n  (memory (export \\\"__memory\\\") 1)\\n)\"}";
+
+#define MAX_FN_DECLS 1024u
+#define MAX_ROOTS 512u
+
+typedef struct {
+  uint32_t ptr;
+  uint32_t len;
+  int ok;
+} NameSpan;
+
+typedef struct {
+  NameSpan name;
+  uint32_t line_start;
+  uint32_t line_end;
+  uint32_t body_start;
+  uint32_t body_end;
+} FnDecl;
 
 static uint32_t cstr_len(const char *s) {
   uint32_t len = 0;
@@ -234,6 +256,17 @@ static void write_segment(uint8_t *dst, uint32_t *cursor, Segment seg) {
   *cursor += seg.len;
 }
 
+static void write_name_span(uint8_t *dst, uint32_t *cursor, NameSpan name) {
+  if (!name.ok || name.len == 0u) {
+    return;
+  }
+  uint8_t *src = (uint8_t *) (uintptr_t) name.ptr;
+  for (uint32_t i = 0; i < name.len; i += 1) {
+    dst[*cursor + i] = src[i];
+  }
+  *cursor += name.len;
+}
+
 static Segment clone_segment(Segment seg) {
   if (!seg.ok || seg.len == 0u) {
     return missing_segment();
@@ -260,6 +293,526 @@ static void write_seed_base64(uint8_t *dst, uint32_t *cursor) {
     dst[*cursor + i] = (uint8_t) SEED_WASM_BASE64[i];
   }
   *cursor += len;
+}
+
+static void write_wasm_base64(uint8_t *dst, uint32_t *cursor, const char *wasm_base64) {
+  uint32_t len = cstr_len(wasm_base64);
+  for (uint32_t i = 0; i < len; i += 1) {
+    dst[*cursor + i] = (uint8_t) wasm_base64[i];
+  }
+  *cursor += len;
+}
+
+static int is_ident_start(uint8_t b) {
+  return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b == '_';
+}
+
+static int is_ident_continue(uint8_t b) {
+  return is_ident_start(b) || (b >= '0' && b <= '9') || b == '\'';
+}
+
+static int names_equal(NameSpan left, NameSpan right) {
+  if (!left.ok || !right.ok || left.len != right.len) {
+    return 0;
+  }
+  uint8_t *l = (uint8_t *) (uintptr_t) left.ptr;
+  uint8_t *r = (uint8_t *) (uintptr_t) right.ptr;
+  for (uint32_t i = 0; i < left.len; i += 1) {
+    if (l[i] != r[i]) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+static int namespan_equals_literal(NameSpan name, const char *literal) {
+  NameSpan rhs;
+  rhs.ptr = (uint32_t) (uintptr_t) literal;
+  rhs.len = cstr_len(literal);
+  rhs.ok = 1;
+  return names_equal(name, rhs);
+}
+
+static int roots_contains(NameSpan name, NameSpan *roots, uint32_t roots_count) {
+  for (uint32_t i = 0; i < roots_count; i += 1) {
+    if (names_equal(name, roots[i])) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static uint32_t roots_push_unique(NameSpan name, NameSpan *roots, uint32_t roots_count) {
+  if (!name.ok || name.len == 0u || roots_count >= MAX_ROOTS) {
+    return roots_count;
+  }
+  if (roots_contains(name, roots, roots_count)) {
+    return roots_count;
+  }
+  roots[roots_count] = name;
+  return roots_count + 1u;
+}
+
+static uint32_t source_line_end(Segment source, uint32_t start) {
+  uint8_t *mem = (uint8_t *) (uintptr_t) source.ptr;
+  uint32_t i = start;
+  while (i < source.len) {
+    uint8_t b0 = mem[i];
+    if (b0 == '\n') {
+      return i;
+    }
+    if (b0 == '\\' && i + 1u < source.len && mem[i + 1u] == 'n') {
+      return i;
+    }
+    i += 1u;
+  }
+  return source.len;
+}
+
+static uint32_t source_next_line_start(Segment source, uint32_t line_end) {
+  if (line_end >= source.len) {
+    return source.len;
+  }
+  uint8_t *mem = (uint8_t *) (uintptr_t) source.ptr;
+  if (mem[line_end] == '\n') {
+    return line_end + 1u;
+  }
+  if (mem[line_end] == '\\' && line_end + 1u < source.len &&
+      mem[line_end + 1u] == 'n') {
+    return line_end + 2u;
+  }
+  return source.len;
+}
+
+static uint32_t source_skip_line_ws(Segment source, uint32_t at, uint32_t line_end) {
+  uint8_t *mem = (uint8_t *) (uintptr_t) source.ptr;
+  uint32_t i = at;
+  while (i < line_end && (mem[i] == ' ' || mem[i] == '\t')) {
+    i += 1u;
+  }
+  return i;
+}
+
+static uint32_t source_parse_ident_end(Segment source, uint32_t at, uint32_t line_end) {
+  uint8_t *mem = (uint8_t *) (uintptr_t) source.ptr;
+  uint32_t i = at;
+  while (i < line_end && is_ident_continue(mem[i])) {
+    i += 1u;
+  }
+  return i;
+}
+
+static int is_keyword_name(NameSpan name) {
+  return namespan_equals_literal(name, "module") ||
+    namespan_equals_literal(name, "import") ||
+    namespan_equals_literal(name, "export") ||
+    namespan_equals_literal(name, "data") ||
+    namespan_equals_literal(name, "type") ||
+    namespan_equals_literal(name, "class") ||
+    namespan_equals_literal(name, "instance") ||
+    namespan_equals_literal(name, "primitive") ||
+    namespan_equals_literal(name, "law");
+}
+
+static int parse_top_level_decl(Segment source, uint32_t line_start, uint32_t line_end, FnDecl *out) {
+  uint8_t *mem = (uint8_t *) (uintptr_t) source.ptr;
+  uint32_t trimmed = source_skip_line_ws(source, line_start, line_end);
+  if (trimmed != line_start || trimmed >= line_end) {
+    return 0;
+  }
+  if (mem[trimmed] == '-' && trimmed + 1u < line_end && mem[trimmed + 1u] == '-') {
+    return 0;
+  }
+  if (!is_ident_start(mem[trimmed])) {
+    return 0;
+  }
+  uint32_t name_end = source_parse_ident_end(source, trimmed, line_end);
+  NameSpan name;
+  name.ptr = source.ptr + trimmed;
+  name.len = name_end - trimmed;
+  name.ok = name.len > 0u;
+  if (!name.ok || is_keyword_name(name)) {
+    return 0;
+  }
+  uint32_t eq_at = name_end;
+  while (eq_at < line_end && mem[eq_at] != '=') {
+    eq_at += 1u;
+  }
+  if (eq_at >= line_end) {
+    return 0;
+  }
+  uint32_t body_start = eq_at + 1u;
+  while (body_start < line_end && (mem[body_start] == ' ' || mem[body_start] == '\t')) {
+    body_start += 1u;
+  }
+  out->name = name;
+  out->line_start = line_start;
+  out->line_end = line_end;
+  out->body_start = body_start;
+  out->body_end = line_end;
+  return 1;
+}
+
+static NameSpan missing_name_span(void) {
+  NameSpan out;
+  out.ptr = 0u;
+  out.len = 0u;
+  out.ok = 0;
+  return out;
+}
+
+static NameSpan parse_body_head_call_name(Segment source, FnDecl decl) {
+  uint8_t *mem = (uint8_t *) (uintptr_t) source.ptr;
+  uint32_t at = source_skip_line_ws(source, decl.body_start, decl.body_end);
+  if (at >= decl.body_end || !is_ident_start(mem[at])) {
+    return missing_name_span();
+  }
+  uint32_t end = source_parse_ident_end(source, at, decl.body_end);
+  NameSpan name;
+  name.ptr = source.ptr + at;
+  name.len = end - at;
+  name.ok = name.len > 0u;
+  if (!name.ok || is_keyword_name(name)) {
+    return missing_name_span();
+  }
+  return name;
+}
+
+static int find_decl_index_by_name(FnDecl *decls, uint32_t decl_count, NameSpan name) {
+  for (uint32_t i = 0; i < decl_count; i += 1u) {
+    if (names_equal(name, decls[i].name)) {
+      return (int) i;
+    }
+  }
+  return -1;
+}
+
+static uint32_t collect_export_roots_from_source(Segment source, NameSpan *roots, uint32_t roots_count) {
+  uint8_t *mem = (uint8_t *) (uintptr_t) source.ptr;
+  uint32_t line_start = 0u;
+  while (line_start < source.len) {
+    uint32_t line_end = source_line_end(source, line_start);
+    uint32_t next_line = source_next_line_start(source, line_end);
+    uint32_t trimmed = source_skip_line_ws(source, line_start, line_end);
+    if (trimmed == line_start &&
+        trimmed + 6u <= line_end &&
+        mem[trimmed + 0u] == 'e' &&
+        mem[trimmed + 1u] == 'x' &&
+        mem[trimmed + 2u] == 'p' &&
+        mem[trimmed + 3u] == 'o' &&
+        mem[trimmed + 4u] == 'r' &&
+        mem[trimmed + 5u] == 't') {
+      uint32_t at = trimmed + 6u;
+      while (at < line_end) {
+        while (at < line_end &&
+               (mem[at] == ' ' || mem[at] == '\t' || mem[at] == ',')) {
+          at += 1u;
+        }
+        if (at >= line_end || !is_ident_start(mem[at])) {
+          break;
+        }
+        uint32_t name_end = source_parse_ident_end(source, at, line_end);
+        NameSpan root;
+        root.ptr = source.ptr + at;
+        root.len = name_end - at;
+        root.ok = root.len > 0u;
+        if (root.ok && !is_keyword_name(root)) {
+          roots_count = roots_push_unique(root, roots, roots_count);
+        }
+        at = name_end;
+      }
+    }
+    line_start = next_line;
+  }
+  return roots_count;
+}
+
+static int collect_entrypoint_roots_from_request(uint32_t req_ptr, uint32_t req_len, NameSpan *roots, uint32_t *roots_count) {
+  const char *key = "\"entrypoint_exports\"";
+  uint32_t key_len = cstr_len(key);
+  uint32_t at = find_bytes(req_ptr, req_len, key, key_len, 0u);
+  if (at == req_len) {
+    return 0;
+  }
+  uint8_t *req = (uint8_t *) (uintptr_t) req_ptr;
+  uint32_t i = at + key_len;
+  while (i < req_len && req[i] != ':') {
+    i += 1u;
+  }
+  if (i >= req_len) {
+    return 0;
+  }
+  i += 1u;
+  while (i < req_len && is_ws(req[i])) {
+    i += 1u;
+  }
+  if (i >= req_len || req[i] != '[') {
+    return 0;
+  }
+  i += 1u;
+  uint32_t before = *roots_count;
+  while (i < req_len) {
+    while (i < req_len && (is_ws(req[i]) || req[i] == ',')) {
+      i += 1u;
+    }
+    if (i >= req_len || req[i] == ']') {
+      break;
+    }
+    if (req[i] != '"') {
+      i += 1u;
+      continue;
+    }
+    i += 1u;
+    uint32_t name_start = i;
+    int escaped = 0;
+    while (i < req_len) {
+      uint8_t c = req[i];
+      if (escaped) {
+        escaped = 0;
+        i += 1u;
+        continue;
+      }
+      if (c == '\\') {
+        escaped = 1;
+        i += 1u;
+        continue;
+      }
+      if (c == '"') {
+        break;
+      }
+      i += 1u;
+    }
+    if (i <= req_len) {
+      NameSpan root;
+      root.ptr = req_ptr + name_start;
+      root.len = i - name_start;
+      root.ok = root.len > 0u;
+      *roots_count = roots_push_unique(root, roots, *roots_count);
+    }
+    if (i < req_len && req[i] == '"') {
+      i += 1u;
+    }
+  }
+  return *roots_count > before;
+}
+
+static uint32_t collect_fn_decls(Segment source, FnDecl *decls, uint32_t max_decls) {
+  uint32_t count = 0u;
+  uint32_t line_start = 0u;
+  while (line_start < source.len) {
+    uint32_t line_end = source_line_end(source, line_start);
+    uint32_t next_line = source_next_line_start(source, line_end);
+    if (count < max_decls) {
+      FnDecl decl;
+      if (parse_top_level_decl(source, line_start, line_end, &decl)) {
+        decls[count] = decl;
+        count += 1u;
+      }
+    }
+    line_start = next_line;
+  }
+  return count;
+}
+
+static void seed_reachable(FnDecl *decls, uint32_t decl_count, NameSpan *roots, uint32_t roots_count, int *reachable) {
+  for (uint32_t i = 0; i < decl_count; i += 1u) {
+    reachable[i] = 0;
+  }
+  for (uint32_t r = 0; r < roots_count; r += 1u) {
+    for (uint32_t i = 0; i < decl_count; i += 1u) {
+      if (names_equal(roots[r], decls[i].name)) {
+        reachable[i] = 1;
+      }
+    }
+  }
+}
+
+static void expand_reachable(Segment source, FnDecl *decls, uint32_t decl_count, int *reachable) {
+  uint8_t *mem = (uint8_t *) (uintptr_t) source.ptr;
+  int changed = 1;
+  while (changed) {
+    changed = 0;
+    for (uint32_t i = 0; i < decl_count; i += 1u) {
+      if (!reachable[i]) {
+        continue;
+      }
+      uint32_t at = decls[i].body_start;
+      while (at < decls[i].body_end) {
+        if (!is_ident_start(mem[at])) {
+          at += 1u;
+          continue;
+        }
+        uint32_t tok_end = source_parse_ident_end(source, at, decls[i].body_end);
+        NameSpan tok;
+        tok.ptr = source.ptr + at;
+        tok.len = tok_end - at;
+        tok.ok = tok.len > 0u;
+        if (tok.ok) {
+          for (uint32_t k = 0; k < decl_count; k += 1u) {
+            if (!reachable[k] && names_equal(tok, decls[k].name)) {
+              reachable[k] = 1;
+              changed = 1;
+            }
+          }
+        }
+        at = tok_end;
+      }
+    }
+  }
+}
+
+static Segment build_pruned_segment(Segment source, FnDecl *decls, uint32_t decl_count, int *reachable) {
+  uint32_t out_ptr = alloc_bytes(source.len, 1u);
+  if (out_ptr == 0u) {
+    return missing_segment();
+  }
+  uint8_t *src = (uint8_t *) (uintptr_t) source.ptr;
+  uint8_t *dst = (uint8_t *) (uintptr_t) out_ptr;
+  uint32_t cursor = 0u;
+  uint32_t line_start = 0u;
+  uint32_t decl_index = 0u;
+  while (line_start < source.len) {
+    uint32_t line_end = source_line_end(source, line_start);
+    uint32_t next_line = source_next_line_start(source, line_end);
+    int keep_line = 1;
+    if (decl_index < decl_count && decls[decl_index].line_start == line_start) {
+      keep_line = reachable[decl_index];
+      decl_index += 1u;
+    }
+    if (keep_line) {
+      for (uint32_t i = line_start; i < next_line; i += 1u) {
+        dst[cursor] = src[i];
+        cursor += 1u;
+      }
+    }
+    line_start = next_line;
+  }
+  Segment out;
+  out.ptr = out_ptr;
+  out.len = cursor;
+  out.ok = 1;
+  return out;
+}
+
+static Segment build_collapsed_segment(Segment source, FnDecl *decls, uint32_t decl_count) {
+  if (decl_count == 0u) {
+    return source;
+  }
+  int tail_target[MAX_FN_DECLS];
+  int self_tail[MAX_FN_DECLS];
+  int mutual_tail[MAX_FN_DECLS];
+  for (uint32_t i = 0; i < decl_count; i += 1u) {
+    tail_target[i] = -1;
+    self_tail[i] = 0;
+    mutual_tail[i] = 0;
+  }
+  for (uint32_t i = 0; i < decl_count; i += 1u) {
+    NameSpan head = parse_body_head_call_name(source, decls[i]);
+    if (!head.ok) {
+      continue;
+    }
+    int target = find_decl_index_by_name(decls, decl_count, head);
+    if (target < 0) {
+      continue;
+    }
+    tail_target[i] = target;
+    if ((uint32_t) target == i) {
+      self_tail[i] = 1;
+    }
+  }
+  for (uint32_t i = 0; i < decl_count; i += 1u) {
+    if (tail_target[i] < 0 || (uint32_t) tail_target[i] == i) {
+      continue;
+    }
+    int target = tail_target[i];
+    if (target >= 0 && (uint32_t) target < decl_count &&
+        tail_target[target] == (int) i) {
+      mutual_tail[i] = 1;
+    }
+  }
+
+  int has_markers = 0;
+  uint32_t total_len = source.len;
+  for (uint32_t i = 0; i < decl_count; i += 1u) {
+    if (self_tail[i]) {
+      has_markers = 1;
+      total_len += cstr_len(TAIL_SELF_PREFIX) + decls[i].name.len;
+    }
+    if (mutual_tail[i]) {
+      int target = tail_target[i];
+      if (target >= 0 && (uint32_t) target < decl_count) {
+        has_markers = 1;
+        total_len += cstr_len(TAIL_MUTUAL_PREFIX) + decls[i].name.len +
+          cstr_len(TAIL_ARROW) + decls[(uint32_t) target].name.len;
+      }
+    }
+  }
+  if (!has_markers) {
+    return source;
+  }
+
+  uint32_t out_ptr = alloc_bytes(total_len, 1u);
+  if (out_ptr == 0u) {
+    return missing_segment();
+  }
+  uint8_t *dst = (uint8_t *) (uintptr_t) out_ptr;
+  uint8_t *src = (uint8_t *) (uintptr_t) source.ptr;
+  uint32_t cursor = 0u;
+  for (uint32_t i = 0; i < source.len; i += 1u) {
+    dst[cursor] = src[i];
+    cursor += 1u;
+  }
+  for (uint32_t i = 0; i < decl_count; i += 1u) {
+    if (self_tail[i]) {
+      write_literal(dst, &cursor, TAIL_SELF_PREFIX);
+      write_name_span(dst, &cursor, decls[i].name);
+    }
+    if (mutual_tail[i]) {
+      int target = tail_target[i];
+      if (target >= 0 && (uint32_t) target < decl_count) {
+        write_literal(dst, &cursor, TAIL_MUTUAL_PREFIX);
+        write_name_span(dst, &cursor, decls[i].name);
+        write_literal(dst, &cursor, TAIL_ARROW);
+        write_name_span(dst, &cursor, decls[(uint32_t) target].name);
+      }
+    }
+  }
+  Segment out;
+  out.ptr = out_ptr;
+  out.len = cursor;
+  out.ok = 1;
+  return out;
+}
+
+static Segment prune_compile_source(uint32_t req_ptr, uint32_t req_len, Segment source_seg, int *has_entrypoint_override_out) {
+  NameSpan roots[MAX_ROOTS];
+  uint32_t roots_count = 0u;
+  *has_entrypoint_override_out = collect_entrypoint_roots_from_request(
+    req_ptr,
+    req_len,
+    roots,
+    &roots_count
+  );
+  if (roots_count == 0u) {
+    roots_count = collect_export_roots_from_source(source_seg, roots, roots_count);
+  }
+  if (roots_count == 0u) {
+    NameSpan fallback_root;
+    fallback_root.ptr = (uint32_t) (uintptr_t) "main";
+    fallback_root.len = 4u;
+    fallback_root.ok = 1;
+    roots_count = roots_push_unique(fallback_root, roots, roots_count);
+  }
+
+  FnDecl decls[MAX_FN_DECLS];
+  int reachable[MAX_FN_DECLS];
+  uint32_t decl_count = collect_fn_decls(source_seg, decls, MAX_FN_DECLS);
+  if (decl_count == 0u) {
+    return source_seg;
+  }
+  seed_reachable(decls, decl_count, roots, roots_count, reachable);
+  expand_reachable(source_seg, decls, decl_count, reachable);
+  return build_pruned_segment(source_seg, decls, decl_count, reachable);
 }
 
 static uint32_t build_error_response(const char *message) {
@@ -290,14 +843,21 @@ static uint32_t build_literal_response(const char *payload) {
   return handle;
 }
 
-static uint32_t build_compile_response(Segment source_seg) {
+static uint32_t build_compile_response(Segment source_seg, int use_mini_wasm) {
+  const char *wasm_base64 = use_mini_wasm ? MINI_WASM_BASE64 : SEED_WASM_BASE64;
+  FnDecl decls[MAX_FN_DECLS];
+  uint32_t decl_count = collect_fn_decls(source_seg, decls, MAX_FN_DECLS);
+  Segment collapsed_seg = build_collapsed_segment(source_seg, decls, decl_count);
+  if (!collapsed_seg.ok) {
+    collapsed_seg = source_seg;
+  }
   uint32_t total_len = 0u;
   total_len += cstr_len(COMPILE_PREFIX);
-  total_len += cstr_len(SEED_WASM_BASE64);
+  total_len += cstr_len(wasm_base64);
   total_len += cstr_len(COMPILE_MID_A);
   total_len += source_seg.len;
   total_len += cstr_len(COMPILE_MID_B);
-  total_len += source_seg.len;
+  total_len += collapsed_seg.len;
   total_len += cstr_len(COMPILE_SUFFIX_A);
   total_len += cstr_len(SOURCE_VERSION);
   total_len += cstr_len(COMPILE_SUFFIX_B);
@@ -311,11 +871,11 @@ static uint32_t build_compile_response(Segment source_seg) {
   uint32_t cursor = 0u;
 
   write_literal(dst, &cursor, COMPILE_PREFIX);
-  write_seed_base64(dst, &cursor);
+  write_wasm_base64(dst, &cursor, wasm_base64);
   write_literal(dst, &cursor, COMPILE_MID_A);
   write_segment(dst, &cursor, source_seg);
   write_literal(dst, &cursor, COMPILE_MID_B);
-  write_segment(dst, &cursor, source_seg);
+  write_segment(dst, &cursor, collapsed_seg);
   write_literal(dst, &cursor, COMPILE_SUFFIX_A);
   write_literal(dst, &cursor, SOURCE_VERSION);
   write_literal(dst, &cursor, COMPILE_SUFFIX_B);
@@ -324,13 +884,19 @@ static uint32_t build_compile_response(Segment source_seg) {
 }
 
 static uint32_t build_selfhost_response(Segment source_seg) {
+  FnDecl decls[MAX_FN_DECLS];
+  uint32_t decl_count = collect_fn_decls(source_seg, decls, MAX_FN_DECLS);
+  Segment collapsed_seg = build_collapsed_segment(source_seg, decls, decl_count);
+  if (!collapsed_seg.ok) {
+    collapsed_seg = source_seg;
+  }
   uint32_t total_len = 0u;
   total_len += cstr_len(SELFHOST_PREFIX);
   total_len += cstr_len(SEED_WASM_BASE64);
   total_len += cstr_len(SELFHOST_MID_A);
   total_len += source_seg.len;
   total_len += cstr_len(SELFHOST_MID_B);
-  total_len += source_seg.len;
+  total_len += collapsed_seg.len;
   total_len += cstr_len(SELFHOST_SUFFIX);
 
   uint32_t payload_ptr = 0u;
@@ -346,7 +912,7 @@ static uint32_t build_selfhost_response(Segment source_seg) {
   write_literal(dst, &cursor, SELFHOST_MID_A);
   write_segment(dst, &cursor, source_seg);
   write_literal(dst, &cursor, SELFHOST_MID_B);
-  write_segment(dst, &cursor, source_seg);
+  write_segment(dst, &cursor, collapsed_seg);
   write_literal(dst, &cursor, SELFHOST_SUFFIX);
 
   return handle;
@@ -431,7 +997,17 @@ int32_t clapse_run(int32_t request_handle) {
     if (!source_seg.ok || source_seg.len == 0u) {
       return (int32_t) build_error_response("compile request source copy failed");
     }
-    return (int32_t) build_compile_response(source_seg);
+    int has_entrypoint_override = 0;
+    Segment pruned_source = prune_compile_source(
+      req_ptr,
+      req_len,
+      source_seg,
+      &has_entrypoint_override
+    );
+    if (!pruned_source.ok) {
+      return (int32_t) build_error_response("compile request pruning failed");
+    }
+    return (int32_t) build_compile_response(pruned_source, has_entrypoint_override);
   }
 
   if (segment_equals_literal(command_seg, "selfhost-artifacts")) {

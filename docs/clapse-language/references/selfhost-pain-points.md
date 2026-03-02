@@ -144,9 +144,9 @@ When we hit a new blocker while self-hosting:
   - use explicit `wasm-native` in strict gates where native-only guarantees are
     required.
 - Status update (2026-03-01):
-  - boundary normalization is currently enabled for kernel compiler-path compile
-    responses to promote ABI-stable wasm output and source-derived artifacts
-    while producer-side kernel-native compile semantics are still converging.
+  - boundary normalization for kernel compiler-path compile responses has been
+    removed; strict gates now require native-owned ABI-stable wasm output and
+    source-derived artifacts directly from kernel responses.
   - strict probe verification remains part of `pre-tag-verify`.
 
 5. `language/tooling`: surprising source ergonomics surfaced during parity work.

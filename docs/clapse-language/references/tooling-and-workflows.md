@@ -32,19 +32,21 @@ deno run -A scripts/clapse.mjs bench [iterations]
     Debug compile modes are `debug` / `native-debug` (with `kernel-debug` alias).
     CLI/runner command aliases are accepted for underscore forms:
     `compile_debug`, `compile_native`, and `compile_native_debug`.
-    Entrypoint reachability pruning is enforced in compiler ABI dispatch for
-    compile requests: roots are entrypoint exported functions (fallback:
-    `main`), and unreachable top-level function definitions are removed before
-    wasm compile execution. `entrypoint_exports` is now treated as an explicit
-    root override input (not precomputed reachability metadata), and
-    `module_sources` remains a first-class precomputed input when present.
+    Entrypoint reachability pruning is enforced in native compile response
+    shaping for compile requests: roots are explicit `entrypoint_exports`
+    (when present), otherwise source `export` list, with `main` fallback.
+    Runner requests now forward `entrypoint_exports` directly and rely on
+    native compiler response shaping for reachability pruning and import closure
+    handling.
+    Unreachable top-level function definitions are removed in the native
+    compile stage before compile artifacts are emitted.
     Non-kernel compile responses emit a reachability-shaped wasm bundle in the
     compile producer path used by both raw and validated ABI calls (exports
     follow selected roots, bundle size tracks reachable function count), while
     kernel self-host compile requests still require full compiler ABI output.
     Legacy env
     toggles `CLAPSE_ENTRYPOINT_DCE` and `CLAPSE_INTERNAL_ENTRYPOINT_DCE` remain
-    for compatibility but do not disable compile dispatch pruning.
+    for compatibility but do not control compile request shaping anymore.
     `just native-ir-liveness-size-gate` now enforces strict emitted wasm shrink
     for entrypoint-pruned compile requests (`pruned_bytes < baseline_bytes`).
     Native debug artifacts include kernel-owned `lowered_ir.txt` and
@@ -135,14 +137,9 @@ deno run -A scripts/clapse.mjs bench [iterations]
   - kernel-path compile responses are validated strictly at the JS boundary:
     compiler ABI must already include memory (`memory` or `__memory`) and
     `clapse_run`. Tiny kernel-compiler outputs are hard failures.
-  - boundary normalization is active for kernel compiler-path requests:
-    when producer output lacks compiler ABI exports or is undersized, response
-    `wasm_base64` is promoted to the currently loaded compiler wasm payload.
-    compile artifacts are also normalized from request source when synthetic
-    markers are detected.
-  - set `CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION=1` to disable both
-    `normalizeCompileArtifactsFromRequest` and
-    `normalizeKernelCompilerAbiWasm` in strict producer checks.
+  - boundary normalization for kernel compiler-path requests is removed; compile
+    responses for native-owned kernel outputs must already satisfy the strict
+    ABI contract and include valid `lowered_ir.txt` / `collapsed_ir.txt` content.
 - `compile-debug` contract:
   - request shape: `command: "compile"` with `compile_mode: "debug"`
     (native migration also accepts `compile_mode: "native-debug"`; wire-compatible
@@ -171,8 +168,7 @@ deno run -A scripts/clapse.mjs bench [iterations]
     settings.
   - `just native-strict-producer-check [wasm=...] [hops=...]` runs
     compile smoke, strict boundary smoke, and strict selfhost probe with
-    `CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION=1` so producer output must already
-    satisfy the kernel contract without boundary normalization.
+    producer output required to satisfy the kernel contract natively.
     Compile-request auto-fallback has been removed from the ABI path. Use
     `CLAPSE_USE_WASM_BOOTSTRAP_SEED=1` explicitly for bootstrap-seed compile
     shaping, or keep it unset for raw producer-only behavior.
@@ -209,10 +205,12 @@ deno run -A scripts/clapse.mjs bench [iterations]
     `scripts/build-native-producer-seed.mjs`. The builder validates raw compile
     + emit-wat contracts with `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1` before
     writing output, including emit-wat template-mode shape checks.
+    Default producer seed depth is `1`; override via explicit `depth=...` or
+    `CLAPSE_NATIVE_PRODUCER_SEED_DEPTH`.
     The template snapshots request source segments before constructing large
     responses so source artifacts remain stable for large embedded seeds.
   - `just refresh-native-compile-payload [wasm=...] [source_version=...]`
-    rewrites `lib/compiler/native_compile.clapse` embedded compile payload and
+    rewrites `lib/compiler/native_compile*.clapse` embedded compile payload and
     `__clapse_contract.source_version` from a trusted wasm artifact via
     `scripts/refresh-native-compile-payload.mjs`.
   - `just native-strict-producer-check-no-fallback [wasm=...] [hops=...] [source_version=...]`
@@ -225,7 +223,7 @@ deno run -A scripts/clapse.mjs bench [iterations]
     `scripts/native-producer-raw-probe.mjs` under required source-version
     gating plus emit-wat source/template parity. If `source_version` is omitted and
     `CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED` is unset, the gate derives the
-    required token from `lib/compiler/native_compile.clapse`; when that file is
+    required token from `lib/compiler/native_compile*.clapse`; when those files are
     unavailable it falls back to the observed `kernel compile` contract token.
     Set `CLAPSE_NATIVE_COMPILE_SOURCE_PATH` to override source lookup path.
 - `bench` is currently invoked via the same deno command surface through the wasm runner.
@@ -348,11 +346,10 @@ Current targets in `Justfile`:
   - avoid semantic rewrites in formatter pass
 - Keep this boundary explicit: JS/TS hosts do not perform formatter normalization;
   they forward kernel formatter output unchanged.
-- Wasm compile artifacts now include a post-emit tail-call opcode rewrite:
-  terminal `call`/`call_indirect` suffixes plus explicit
-  `call`/`call_indirect` immediately followed by `return` in function bodies
-  are rewritten to `return_call`/`return_call_indirect` when structurally safe.
-  Set `CLAPSE_EMIT_WASM_TAIL_CALLS=0` to disable this rewrite.
+- Tail recursion evidence is native-owned: compile artifacts now include
+  collapsed tail markers from the producer itself
+  (`VSelfTailCall <fn>`, `VMutualTailCall <fn> -> <target>`). The JS boundary
+  does not rewrite wasm tail-call opcodes after compile.
 - Formatter logic is decomposed into kernel-side `compiler.formatter`, with
   `bootstrap_phase9_compiler_kernel` acting as command router while further
   kernel module splits are staged.

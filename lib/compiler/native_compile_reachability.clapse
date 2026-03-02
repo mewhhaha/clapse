@@ -1,0 +1,463 @@
+module compiler.native_compile_reachability
+import compiler.prelude
+import compiler.scan
+import compiler.json_response_helpers
+export SourceSegment, native_pruned_source_segment
+
+data NameRef = NameRef a b c
+data MaybeNameRef = MissingName | PresentName a
+data FnInfo = FnInfo a b c
+data OpenFn = OpenFnNone | OpenFnSome a b
+data Span = Span a b
+data SourceSegment = SourceSegment a b c
+
+keyword_module = str_to_slice "module"
+keyword_import = str_to_slice "import"
+keyword_export = str_to_slice "export"
+keyword_data = str_to_slice "data"
+keyword_type = str_to_slice "type"
+keyword_class = str_to_slice "class"
+keyword_instance = str_to_slice "instance"
+keyword_primitive = str_to_slice "primitive"
+keyword_law = str_to_slice "law"
+fallback_root_main = str_to_slice "main"
+entrypoint_exports_key = "\"entrypoint_exports\""
+
+is_space_or_tab_byte b = (b == 32) || (b == 9)
+is_ascii_lower b = (b >= 97) && (b <= 122)
+is_ascii_upper b = (b >= 65) && (b <= 90)
+is_ascii_digit b = (b >= 48) && (b <= 57)
+is_identifier_start_byte b = is_ascii_lower b || is_ascii_upper b || (b == 95)
+is_identifier_continue_byte b = is_identifier_start_byte b || is_ascii_digit b || (b == 39)
+
+skip_line_ws handle i line_end =
+  case (i < line_end) of
+    true ->
+      let b = slice_get_u8 handle i
+      in case (is_space_or_tab_byte b) of
+        true -> skip_line_ws handle (i + 1) line_end
+        _ -> i
+    _ -> i
+
+find_line_end handle i source_end =
+  case (i < source_end) of
+    true ->
+      let b0 = slice_get_u8 handle i
+      in case (b0 == 10) of
+        true -> i
+        _ ->
+          case (i + 1 < source_end) of
+            true ->
+              let b1 = slice_get_u8 handle (i + 1)
+              in case (b0 == 92 && b1 == 110) of
+                true -> i
+                _ -> find_line_end handle (i + 1) source_end
+            _ -> source_end
+    _ -> source_end
+
+next_line_start handle line_end source_end =
+  case (line_end < source_end) of
+    true ->
+      let b0 = slice_get_u8 handle line_end
+      in case (b0 == 10) of
+        true -> line_end + 1
+        _ ->
+          case (line_end + 1 < source_end) of
+            true ->
+              let b1 = slice_get_u8 handle (line_end + 1)
+              in case (b0 == 92 && b1 == 110) of
+                true -> line_end + 2
+                _ -> source_end
+            _ -> source_end
+    _ -> source_end
+
+segment_eq_at handle_a start_a handle_b start_b seg_len i =
+  case (i == seg_len) of
+    true -> true
+    _ ->
+      let a = slice_get_u8 handle_a (start_a + i)
+          b = slice_get_u8 handle_b (start_b + i)
+      in case (a == b) of
+        true -> segment_eq_at handle_a start_a handle_b start_b seg_len (i + 1)
+        _ -> false
+
+segment_eq_slice handle start seg_len lit =
+  let lit_len = slice_len lit
+  in case (seg_len == lit_len) of
+    true -> segment_eq_at handle start lit 0 seg_len 0
+    _ -> false
+
+name_ref_eq left right =
+  case left of
+    NameRef left_handle left_start left_len ->
+      case right of
+        NameRef right_handle right_start right_len ->
+          case (left_len == right_len) of
+            true -> segment_eq_at left_handle left_start right_handle right_start left_len 0
+            _ -> false
+
+name_list_member_by_content name names =
+  case names of
+    ListNil -> false
+    ListCons item rest ->
+      case (name_ref_eq name item) of
+        true -> true
+        _ -> name_list_member_by_content name rest
+
+name_list_insert_unique name names =
+  case (name_list_member_by_content name names) of
+    true -> names
+    _ -> ListCons name names
+
+maybe_name_ref_to_list maybe_name =
+  case maybe_name of
+    MissingName -> ListNil
+    PresentName name -> ListCons name ListNil
+
+is_identifier_span_valid_rest handle i end =
+  case (i == end) of
+    true -> true
+    _ ->
+      let b = slice_get_u8 handle i
+      in case (is_identifier_continue_byte b) of
+        true -> is_identifier_span_valid_rest handle (i + 1) end
+        _ -> false
+
+is_identifier_span_valid handle start seg_len =
+  case (seg_len > 0) of
+    true ->
+      let b0 = slice_get_u8 handle start
+          end = start + seg_len
+      in case (is_identifier_start_byte b0) of
+        true -> is_identifier_span_valid_rest handle (start + 1) end
+        _ -> false
+    _ -> false
+
+parse_identifier_end handle i line_end =
+  case (i < line_end) of
+    true ->
+      let b = slice_get_u8 handle i
+      in case (is_identifier_continue_byte b) of
+        true -> parse_identifier_end handle (i + 1) line_end
+        _ -> i
+    _ -> i
+
+line_has_byte handle i line_end byte_value =
+  case (i < line_end) of
+    true ->
+      let b = slice_get_u8 handle i
+      in case (b == byte_value) of
+        true -> true
+        _ -> line_has_byte handle (i + 1) line_end byte_value
+    _ -> false
+
+token_is_keyword handle start seg_len =
+  segment_eq_slice handle start seg_len keyword_module ||
+  segment_eq_slice handle start seg_len keyword_import ||
+  segment_eq_slice handle start seg_len keyword_export ||
+  segment_eq_slice handle start seg_len keyword_data ||
+  segment_eq_slice handle start seg_len keyword_type ||
+  segment_eq_slice handle start seg_len keyword_class ||
+  segment_eq_slice handle start seg_len keyword_instance ||
+  segment_eq_slice handle start seg_len keyword_primitive ||
+  segment_eq_slice handle start seg_len keyword_law
+
+parse_top_level_function_name handle line_start line_end =
+  let trimmed = skip_line_ws handle line_start line_end
+  in case (trimmed == line_start) of
+    true -> parse_top_level_function_name_at handle trimmed line_end
+    _ -> MissingName
+
+parse_top_level_function_name_at handle start line_end =
+  case (start >= line_end) of
+    true -> MissingName
+    _ ->
+      let b0 = slice_get_u8 handle start
+      in case (b0 == 45 && (start + 1 < line_end) && (slice_get_u8 handle (start + 1) == 45)) of
+        true -> MissingName
+        _ ->
+          case (is_identifier_start_byte b0) of
+            true ->
+              let name_end = parse_identifier_end handle start line_end
+                  name_len = name_end - start
+              in case (token_is_keyword handle start name_len) of
+                true -> MissingName
+                _ ->
+                  case (line_has_byte handle name_end line_end 61) of
+                    true -> PresentName (NameRef handle start name_len)
+                    _ -> MissingName
+            _ -> MissingName
+
+skip_export_delims handle i line_end =
+  case (i < line_end) of
+    true ->
+      let b = slice_get_u8 handle i
+      in case (is_space_or_tab_byte b || (b == 44)) of
+        true -> skip_export_delims handle (i + 1) line_end
+        _ -> i
+    _ -> i
+
+collect_identifier_names_in_line handle i line_end acc =
+  let at = skip_export_delims handle i line_end
+  in case (at < line_end) of
+    true ->
+      let b = slice_get_u8 handle at
+      in case (is_identifier_start_byte b) of
+        true ->
+          let name_end = parse_identifier_end handle at line_end
+              name_len = name_end - at
+              acc1 =
+                case (token_is_keyword handle at name_len) of
+                  true -> acc
+                  _ -> name_list_insert_unique (NameRef handle at name_len) acc
+          in collect_identifier_names_in_line handle name_end line_end acc1
+        _ -> collect_identifier_names_in_line handle (at + 1) line_end acc
+    _ -> acc
+
+collect_export_roots_from_source handle source_end line_start acc =
+  case (line_start < source_end) of
+    true ->
+      let line_end = find_line_end handle line_start source_end
+          next_start = next_line_start handle line_end source_end
+          trimmed = skip_line_ws handle line_start line_end
+          export_len = slice_len keyword_export
+          has_prefix =
+            (trimmed == line_start) &&
+            (trimmed + export_len <= line_end) &&
+            segment_eq_at handle trimmed keyword_export 0 export_len 0
+          after_export = skip_line_ws handle (trimmed + export_len) line_end
+          acc1 =
+            case has_prefix of
+              true -> collect_identifier_names_in_line handle after_export line_end acc
+              _ -> acc
+      in collect_export_roots_from_source handle source_end next_start acc1
+    _ -> acc
+
+find_entrypoint_exports_array_start request_handle req_len =
+  let key_end = scan_find_json_key_value_end request_handle 0 req_len entrypoint_exports_key
+  in case (key_end == -1) of
+    true -> req_len
+    _ ->
+      let colon_at = scan_skip_ws request_handle key_end req_len
+      in case (colon_at < req_len && (slice_get_u8 request_handle colon_at == 58)) of
+        true ->
+          let array_at = scan_skip_ws request_handle (colon_at + 1) req_len
+          in case (array_at < req_len && (slice_get_u8 request_handle array_at == 91)) of
+            true -> array_at + 1
+            _ -> req_len
+        _ -> req_len
+
+collect_entrypoint_roots request_handle i req_len acc =
+  let at = scan_skip_ws request_handle i req_len
+  in case (at < req_len) of
+    true ->
+      let b = slice_get_u8 request_handle at
+      in case (b == 93) (b == 34) of
+        true _ -> acc
+        _ true ->
+          let name_start = at + 1
+              name_end = scan_find_source_end request_handle name_start req_len 0
+          in case (name_end == req_len) of
+            true -> acc
+            _ ->
+              let name_len = name_end - name_start
+                  acc1 =
+                    case (is_identifier_span_valid request_handle name_start name_len) of
+                      true -> name_list_insert_unique (NameRef request_handle name_start name_len) acc
+                      _ -> acc
+                  post_name = scan_skip_ws request_handle (name_end + 1) req_len
+              in case (post_name < req_len) of
+                true ->
+                  let delim = slice_get_u8 request_handle post_name
+                  in case (delim == 44) (delim == 93) of
+                    true _ -> collect_entrypoint_roots request_handle (post_name + 1) req_len acc1
+                    _ true -> acc1
+                    _ _ -> collect_entrypoint_roots request_handle (post_name + 1) req_len acc1
+                _ -> acc1
+        _ _ -> collect_entrypoint_roots request_handle (at + 1) req_len acc
+    _ -> acc
+
+entrypoint_roots_from_request request_handle req_len =
+  let roots_start = find_entrypoint_exports_array_start request_handle req_len
+  in case (roots_start == req_len) of
+    true -> ListNil
+    _ -> collect_entrypoint_roots request_handle roots_start req_len ListNil
+
+finalize_open_fn open_fn fn_end acc =
+  case open_fn of
+    OpenFnNone -> acc
+    OpenFnSome name fn_start -> ListCons (FnInfo name fn_start fn_end) acc
+
+collect_function_infos_loop request_handle source_end line_start open_fn acc =
+  case (line_start < source_end) of
+    true ->
+      let line_end = find_line_end request_handle line_start source_end
+          next_start = next_line_start request_handle line_end source_end
+          maybe_name = parse_top_level_function_name request_handle line_start line_end
+      in case maybe_name of
+        PresentName name ->
+          let acc1 = finalize_open_fn open_fn line_start acc
+              open1 = OpenFnSome name line_start
+          in collect_function_infos_loop request_handle source_end next_start open1 acc1
+        MissingName ->
+          collect_function_infos_loop request_handle source_end next_start open_fn acc
+    _ ->
+      list_reverse (finalize_open_fn open_fn source_end acc)
+
+collect_function_infos request_handle source_start source_end =
+  collect_function_infos_loop request_handle source_end source_start OpenFnNone ListNil
+
+find_matching_fn_name_for_root root fn_infos =
+  case fn_infos of
+    ListNil -> MissingName
+    ListCons fn_info rest ->
+      case fn_info of
+        FnInfo fn_name _ _ ->
+          case (name_ref_eq root fn_name) of
+            true -> PresentName fn_name
+            _ -> find_matching_fn_name_for_root root rest
+
+seed_reachable_from_roots roots fn_infos acc =
+  case roots of
+    ListNil -> acc
+    ListCons root rest ->
+      let acc1 =
+        case find_matching_fn_name_for_root root fn_infos of
+          MissingName -> acc
+          PresentName fn_name -> name_list_insert_unique fn_name acc
+      in seed_reachable_from_roots rest fn_infos acc1
+
+find_matching_fn_name_for_token token_handle token_start token_len fn_infos =
+  case fn_infos of
+    ListNil -> MissingName
+    ListCons fn_info rest ->
+      case fn_info of
+        FnInfo fn_name _ _ ->
+          case fn_name of
+            NameRef fn_handle fn_start fn_len ->
+              case (token_len == fn_len) of
+                true ->
+                  case (segment_eq_at token_handle token_start fn_handle fn_start token_len 0) of
+                    true -> PresentName fn_name
+                    _ -> find_matching_fn_name_for_token token_handle token_start token_len rest
+                _ -> find_matching_fn_name_for_token token_handle token_start token_len rest
+
+scan_function_body_for_deps request_handle i body_end fn_infos reachable changed =
+  case (i < body_end) of
+    true ->
+      let b = slice_get_u8 request_handle i
+      in case (is_identifier_start_byte b) of
+        true ->
+          let token_end = parse_identifier_end request_handle i body_end
+              token_len = token_end - i
+              token_keyword = token_is_keyword request_handle i token_len
+          in case token_keyword of
+            true -> scan_function_body_for_deps request_handle token_end body_end fn_infos reachable changed
+            _ ->
+              case find_matching_fn_name_for_token request_handle i token_len fn_infos of
+                MissingName ->
+                  scan_function_body_for_deps request_handle token_end body_end fn_infos reachable changed
+                PresentName dep_name ->
+                  let already_present = name_list_member_by_content dep_name reachable
+                      reachable1 = name_list_insert_unique dep_name reachable
+                      changed1 = changed || (not already_present)
+                  in scan_function_body_for_deps request_handle token_end body_end fn_infos reachable1 changed1
+        _ -> scan_function_body_for_deps request_handle (i + 1) body_end fn_infos reachable changed
+    _ -> Pair reachable changed
+
+expand_reachable_once fn_infos request_handle reachable changed =
+  case fn_infos of
+    ListNil -> Pair reachable changed
+    ListCons fn_info rest ->
+      case fn_info of
+        FnInfo fn_name fn_start fn_end ->
+          case (name_list_member_by_content fn_name reachable) of
+            true ->
+              case scan_function_body_for_deps request_handle fn_start fn_end fn_infos reachable changed of
+                Pair reachable1 changed1 -> expand_reachable_once rest request_handle reachable1 changed1
+            _ -> expand_reachable_once rest request_handle reachable changed
+
+expand_reachable_fixpoint fn_infos request_handle reachable =
+  case expand_reachable_once fn_infos request_handle reachable false of
+    Pair reachable_next changed ->
+      case changed of
+        true -> expand_reachable_fixpoint fn_infos request_handle reachable_next
+        _ -> reachable_next
+
+collect_unreachable_spans fn_infos reachable acc =
+  case fn_infos of
+    ListNil -> list_reverse acc
+    ListCons fn_info rest ->
+      case fn_info of
+        FnInfo fn_name fn_start fn_end ->
+          case (name_list_member_by_content fn_name reachable) of
+            true -> collect_unreachable_spans rest reachable acc
+            _ -> collect_unreachable_spans rest reachable (ListCons (Span fn_start fn_end) acc)
+
+spans_total_removed spans =
+  case spans of
+    ListNil -> 0
+    ListCons span rest ->
+      case span of
+        Span span_start span_end -> (span_end - span_start) + spans_total_removed rest
+
+copy_pruned_segments request_handle ownership_mode src source_end cursor dst dst_at spans =
+  case spans of
+    ListNil ->
+      let tail_len_raw = source_end - cursor
+      in case (tail_len_raw > 0) of
+        true -> copy_slice_segment request_handle ownership_mode src cursor dst dst_at tail_len_raw 0
+        _ -> dst
+    ListCons span rest ->
+      case span of
+        Span span_start span_end ->
+          let keep_len_raw = span_start - cursor
+              keep_len = case (keep_len_raw > 0) of
+                true -> keep_len_raw
+                _ -> 0
+              dst1 =
+                case (keep_len > 0) of
+                  true -> copy_slice_segment request_handle ownership_mode src cursor dst dst_at keep_len 0
+                  _ -> dst
+              dst_at1 = dst_at + keep_len
+              cursor1 = case (span_end > cursor) of
+                true -> span_end
+                _ -> cursor
+          in copy_pruned_segments request_handle ownership_mode src source_end cursor1 dst1 dst_at1 rest
+
+resolve_root_names request_handle req_len source_start source_end =
+  let explicit_roots = entrypoint_roots_from_request request_handle req_len
+  in case explicit_roots of
+    ListNil ->
+      let export_roots = collect_export_roots_from_source request_handle source_end source_start ListNil
+      in case export_roots of
+        ListNil -> ListCons (NameRef fallback_root_main 0 (slice_len fallback_root_main)) ListNil
+        _ -> export_roots
+    _ -> explicit_roots
+
+native_pruned_source_segment request_handle ownership_mode req_len source_start source_len =
+  let source_end = source_start + source_len
+      fn_infos = collect_function_infos request_handle source_start source_end
+      roots = resolve_root_names request_handle req_len source_start source_end
+      seeded = seed_reachable_from_roots roots fn_infos ListNil
+  in case seeded of
+    ListNil -> SourceSegment request_handle source_start source_len
+    _ ->
+      let reachable = expand_reachable_fixpoint fn_infos request_handle seeded
+          unreachable_spans = collect_unreachable_spans fn_infos reachable ListNil
+          removed_len = spans_total_removed unreachable_spans
+      in case (removed_len > 0) of
+        true ->
+          let out_len = source_len - removed_len
+              out = slice_new_u8 out_len
+              out1 = copy_pruned_segments
+                request_handle
+                ownership_mode
+                request_handle
+                source_end
+                source_start
+                out
+                0
+                unreachable_spans
+          in SourceSegment out1 0 out_len
+        _ -> SourceSegment request_handle source_start source_len

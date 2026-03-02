@@ -1,0 +1,88 @@
+module compiler.emitter
+import compiler.prelude
+import compiler.scan
+import compiler.json_response_helpers
+import compiler.json_response
+export emit_wat_response
+
+json_error_prefix = str_to_slice "{\"ok\":false,\"error\":\""
+json_error_suffix = str_to_slice "\"}"
+json_emit_wat_prefix = str_to_slice "{\"ok\":true,\"wat\":\""
+json_emit_wat_suffix = str_to_slice "\"}"
+
+wat_kernel_template =
+  str_to_slice "(module\n  (memory (export \"__memory\") 1)\n  (func (export \"main\") (param i32) (result i32)\n    local.get 0)\n)\n"
+wat_source_prefix =
+  str_to_slice "(module\n  ;; emit-wat mode: source-data (input_source echoed as data payload)\n  (memory (export \"__memory\") 1)\n  (data (i32.const 0) \""
+wat_source_suffix = str_to_slice "\")\n  (func (export \"main\") (param i32) (result i32)\n    local.get 0)\n)\n"
+
+emit_wat_mode_key = "\"emit_wat_mode\""
+compile_mode_fallback_key = "\"compile_mode\""
+emit_wat_template_mode = "template"
+
+is_emit_wat_mode_literal request_handle mode_start req_len mode_txt =
+  let lit = str_to_slice mode_txt
+      lit_len = slice_len lit
+      in_bounds = mode_start + lit_len < req_len
+  in case in_bounds of
+    true -> is_emit_wat_mode_literal_match request_handle mode_start lit lit_len
+    _ -> false
+
+is_emit_wat_mode_literal_match request_handle mode_start lit lit_len =
+  case (scan_matches_literal_at request_handle mode_start lit 0 lit_len) of
+    true -> (slice_get_u8 request_handle (mode_start + lit_len) == 34)
+    _ -> false
+
+find_emit_wat_mode_start request_handle req_len =
+  let explicit = scan_find_json_key_value_start request_handle 0 req_len emit_wat_mode_key
+  in case (explicit == req_len) of
+    true -> scan_find_json_key_value_start request_handle 0 req_len compile_mode_fallback_key
+    _ -> explicit
+
+is_wat_template_mode request_handle req_len mode_start =
+  is_emit_wat_mode_literal request_handle mode_start req_len emit_wat_template_mode
+
+emit_wat_source_len request_handle req_len source_start =
+  let source_end = json_slice_end request_handle source_start req_len
+      source_len = source_end - source_start
+      max_len = 2048
+  in case (source_len > max_len) of
+    true -> max_len
+    _ -> source_len
+
+find_input_source_start request_handle req_len =
+  scan_find_json_key_value_start request_handle 0 req_len "\"input_source\""
+
+error_response_from_message request_handle ownership_mode msg_txt =
+  let msg = str_to_slice msg_txt
+      msg_len = slice_len msg
+  in json_response_with_slice_segment request_handle ownership_mode json_error_prefix json_error_suffix msg 0 msg_len
+
+emit_wat_response request_handle ownership_mode =
+  let req_len = slice_len request_handle
+      source_start = find_input_source_start request_handle req_len
+      mode_start = find_emit_wat_mode_start request_handle req_len
+      source_len = emit_wat_source_len request_handle req_len source_start
+  in case (source_start == req_len) of
+    true ->
+      error_response_from_message request_handle ownership_mode "emit-wat request missing input_source"
+    _ ->
+      case is_wat_template_mode request_handle req_len mode_start of
+        true ->
+          json_response_with_escaped_slice_segment
+            request_handle
+            ownership_mode
+            json_emit_wat_prefix
+            json_emit_wat_suffix
+            wat_kernel_template
+            0
+            (slice_len wat_kernel_template)
+        _ ->
+          json_response_with_escaped_slice_segment
+            request_handle
+            ownership_mode
+            wat_source_prefix
+            wat_source_suffix
+            request_handle
+            source_start
+            source_len

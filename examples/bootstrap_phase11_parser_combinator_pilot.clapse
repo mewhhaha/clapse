@@ -706,21 +706,18 @@ parse_function_payload_case_block src i len =
         Nothing -> -1
         Just p3 ->
           let scrutinee_arity = parse_case_scrutinee_arity src p3 len
-          in case (is_zero scrutinee_arity) of
-            true -> -1
-            _ ->
-              let m2 = to_maybe_pos (parse_case_tail_m src len p3)
-              in case m2 of
+              m2 = to_maybe_pos (parse_case_tail_m src len p3)
+          in case m2 of
+            Nothing -> -1
+            Just p4 ->
+              let m3 = to_maybe_pos (parse_case_finish_m src len p4)
+              in case m3 of
                 Nothing -> -1
-                Just p4 ->
-                  let m3 = to_maybe_pos (parse_case_finish_m src len p4)
-                  in case m3 of
-                    Nothing -> -1
-                    Just p5 ->
-                      let p6 = parse_case_first_arm_with_arity_m src len p5 scrutinee_arity
-                      in case p6 of
-                        -1 -> -1
-                        _ -> parse_case_rest_arms_with_arity_m src p6 len scrutinee_arity
+                Just p5 ->
+                  let p6 = parse_case_first_arm_with_arity_m src len p5 scrutinee_arity
+                  in case p6 of
+                    -1 -> -1
+                    _ -> parse_case_rest_arms_with_arity_m src p6 len scrutinee_arity
 
 parse_case_arrow_pos src i len =
   let b0 = slice_get_u8 src i
@@ -812,18 +809,38 @@ parse_case_rest_arms_with_arity_m src i len scrutinee_arity =
         _ -> parse_case_rest_arms_with_arity_m src p1 len scrutinee_arity
 
 parse_case_arm_line_with_arity_m src i len scrutinee_arity =
+  case (is_zero scrutinee_arity) of
+    true -> parse_case_guard_arm_line_m src i len
+    _ ->
+      let p0 = parse_indented_line src i len
+      in case p0 of
+        -1 -> -1
+        _ ->
+          let p1 = parse_indent_tail src i len
+              arm_arity = parse_case_pattern_arity src p1 len 0
+          in case arm_arity of
+            -1 -> -1
+            _ ->
+              case (arm_arity == scrutinee_arity) of
+                true -> p0
+                _ -> -1
+
+parse_case_guard_arm_line_m src i len =
   let p0 = parse_indented_line src i len
   in case p0 of
     -1 -> -1
     _ ->
       let p1 = parse_indent_tail src i len
-          arm_arity = parse_case_pattern_arity src p1 len 0
-      in case arm_arity of
-        -1 -> -1
-        _ ->
-          case (arm_arity == scrutinee_arity) of
-            true -> p0
-            _ -> -1
+          m0 = parse_case_guard_pipe_m src len p1
+          m1 = maybe_bind m0 (parse_case_guard_tail_m src len)
+      in from_maybe_pos m1
+
+parse_case_guard_pipe_m src len p1 =
+  let p2 = skip_spaces src p1 len
+  in to_maybe_pos (parse_token_literal src p2 len "|")
+
+parse_case_guard_tail_m src len p3 =
+  to_maybe_pos (parse_tail_has_arrow src p3 len)
 
 parse_case_pattern_arity src i len arity =
   let i0 = skip_spaces src i len
@@ -1021,6 +1038,36 @@ parse_tail_has_pipe_and_eq_scan src i len seen_pipe seen_eq = case (i < len) see
       true true true -> i
       true _ _ -> -1
       _ _ _ -> parse_tail_has_pipe_and_eq_scan src (i + 1) len pipe1 eq1
+
+parse_tail_has_arrow src i len =
+  let i0 = skip_spaces src i len
+  in case (i0 < len) of
+    true -> parse_tail_has_arrow_scan src i0 len
+    _ -> -1
+
+parse_tail_has_arrow_scan src i len =
+  case (i < len) of
+    false -> -1
+    true ->
+      let arrow_pos = parse_case_arrow_pos src i len
+      in case arrow_pos of
+        -1 ->
+          let b = slice_get_u8 src i
+          in case (b == 10) of
+            true -> -1
+            _ -> parse_tail_has_arrow_scan src (i + 1) len
+        _ ->
+          case (arrow_pos == i) of
+            true -> -1
+            _ ->
+              let tail_start = skip_spaces src arrow_pos len
+              in case (tail_start < len) of
+                true ->
+                  let b = slice_get_u8 src tail_start
+                  in case (b == 10) of
+                    true -> -1
+                    _ -> finish_line src tail_start len
+                _ -> -1
 
 parser_bind p q src i len =
   parser_bind_with parser_dispatch_default p q src i len
@@ -1828,7 +1875,7 @@ parse_program_decl_stream_from_source_module_if bytes len module_pos =
     true -> parse_decls_stream bytes pos0 len 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 (decl_step 0 decl_tag_module 1)
     _ -> parse_decls_stream bytes 0 len 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
 
-sample_source = "module entry\n\nimport util.base\nimport util.math\n\nexport main, helper\ninfixl 6 +. = add\ndata Pair a b = Pair a b\nnewtype UserId = UserId i64\ntype Digit = <0 | 1 | 2>\ntype SignedDigit = <-1 | 0 | 1>\ntype Tag = <\"a\" | \"b\">\nclass plus_rules i : add\nlaw plus_rules right_identity = add x 0 => x\ninstance plus_on_i64 : plus_rules i add=add\n#[memo 64]\n#[test \"helper\"]\nhelper : i64 -> i64\nhelper x | eq x 0 = 0\n  | otherwise = x\nworker y = case (eq y 0) of\n  true -> 0\n  _ -> y\ndispatch z = case (eq z 0) of\n  true -> 0\n  _ -> z\nlocal z = let k = z in k\nblock v =\n  case (eq v 0) of\n    true -> 0\n    _ -> v\nmain x = block (local (dispatch (worker (helper x))))\n"
+sample_source = "module entry\n\nimport util.base\nimport util.math\n\nexport main, helper\ninfixl 6 +. = add\ndata Pair a b = Pair a b\nnewtype UserId = UserId i64\ntype Digit = <0 | 1 | 2>\ntype SignedDigit = <-1 | 0 | 1>\ntype Tag = <\"a\" | \"b\">\nclass plus_rules i : add\nlaw plus_rules right_identity = add x 0 => x\ninstance plus_on_i64 : plus_rules i add=add\n#[memo 64]\n#[test \"helper\"]\nhelper : i64 -> i64\nhelper x | eq x 0 = 0\n  | otherwise = x\nworker y = case (eq y 0) of\n  true -> 0\n  _ -> y\ndispatch z = case (eq z 0) of\n  true -> 0\n  _ -> z\nchooser x = case of\n  | eq x 0 -> 0\n  | otherwise -> x\nlocal z = let k = z in k\nlocal_guard z = let picked | eq z 0 = 0\n                           | otherwise = z\n                in picked\nblock v =\n  case (eq v 0) of\n    true -> 0\n    _ -> v\nmain x = block (local_guard (chooser (local (dispatch (worker (helper x))))))\n"
 
 bad_data_source = "module entry\ndata = Pair a\n"
 bad_class_source = "module entry\nclass plus_rules :\n"

@@ -15,8 +15,9 @@ const EMIT_WAT_TEMPLATE_MEMORY_NEEDLE = '(memory (export "__memory") 1)';
 const WASM_PAGE_SIZE = 65536;
 const MIN_INITIAL_MEMORY_BYTES = 8 * 1024 * 1024;
 const INITIAL_MEMORY_HEADROOM_BYTES = 4 * 1024 * 1024;
+const INITIAL_MEMORY_SEED_MULTIPLIER = 3;
 const DEFAULT_DEPTH = Number.parseInt(
-  String(Deno.env.get("CLAPSE_NATIVE_PRODUCER_SEED_DEPTH") ?? "8"),
+  String(Deno.env.get("CLAPSE_NATIVE_PRODUCER_SEED_DEPTH") ?? "1"),
   10,
 );
 const TEMPLATE_PATH = "scripts/native-producer-seed-template.c";
@@ -47,7 +48,7 @@ function parseArgs(argv) {
   let sourceVersion = DEFAULT_SOURCE_VERSION;
   let depth = Number.isInteger(DEFAULT_DEPTH) && DEFAULT_DEPTH > 0
     ? DEFAULT_DEPTH
-    : 8;
+    : 1;
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -165,9 +166,12 @@ function ensure(condition, message) {
 }
 
 function computeInitialMemoryBytes(seedBytesLength) {
+  // Large embedded base64 literals can require significantly more linear memory
+  // than raw wasm bytes due to compiler/linker data layout overhead.
   const requested = Math.max(
     MIN_INITIAL_MEMORY_BYTES,
-    seedBytesLength + INITIAL_MEMORY_HEADROOM_BYTES,
+    seedBytesLength * INITIAL_MEMORY_SEED_MULTIPLIER +
+      INITIAL_MEMORY_HEADROOM_BYTES,
   );
   return Math.ceil(requested / WASM_PAGE_SIZE) * WASM_PAGE_SIZE;
 }

@@ -26,9 +26,9 @@ Current kernel-native compile behavior:
 
 - `compile_native_response` is source-local in `compiler.native_compile` and
   emits kernel-native JSON payloads for `CompileRequestReady`.
-- Boundary normalization remains available during migration; set
-  `CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION=1` to enforce producer-only strict
-  behavior in native compile gates.
+- Boundary normalization for kernel compile responses is removed; native producer
+  and kernel compile outputs are expected to satisfy strict contracts at source,
+  including source-owned `lowered_ir.txt` / `collapsed_ir.txt`.
 - raw producer artifacts in the legacy `artifacts/latest/clapse_compiler.wasm`
   chain can still be synthetic; strict-native gates reject synthetic markers
   (`kernel:compile:*`, `seed-stage*`) and require request-source inclusion. Use
@@ -84,7 +84,7 @@ This inventory is canonical and machine-checked against
 - [pass:dead_function_pruning] status: partially implemented
 - [pass:dead_temp_pruning] status: not implemented
 - [pass:temp_renumbering] status: not implemented
-- [pass:self_tail_call_normalization] status: partially implemented
+- [pass:self_tail_call_normalization] status: implemented
 
 ## Collapsed IR Concepts
 
@@ -104,12 +104,11 @@ Values:
 
 ## Currently Active Rewrite Patterns
 
-- post-emit wasm tail-call opcode rewrite:
-  - tail-position `call`/`call_indirect` suffixes are rewritten to
-    `return_call`/`return_call_indirect`
-  - explicit `call`/`call_indirect` followed by `return` is rewritten to
-    `return_call`/`return_call_indirect`
-  - runtime toggle: `CLAPSE_EMIT_WASM_TAIL_CALLS=0` disables rewrite
+- native collapsed-artifact tail-call markers:
+  - direct self tail recursion emits `VSelfTailCall <fn>`
+  - direct two-function mutual tail recursion emits
+    `VMutualTailCall <fn> -> <target>`
+  - enforced by `just native-tail-recursion-gate` in `pre-tag-verify`
 
 ## Memory Model Staging (Current)
 

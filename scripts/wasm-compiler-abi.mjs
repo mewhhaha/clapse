@@ -3,33 +3,14 @@ import {
   buildWasmSeedCompileResponse,
   isWasmBootstrapSeedEnabled,
 } from "./wasm-bootstrap-seed.mjs";
-import {
-  applyCompileReachabilityToCompileRequest,
-} from "./compile-entrypoint-reachability.mjs";
 
 const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder();
-const CLAPSE_WASM_TAIL_CALL_ENV = "CLAPSE_EMIT_WASM_TAIL_CALLS";
-const CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION =
-  "CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION";
 const MIN_STABLE_KERNEL_COMPILER_BYTES = 16 * 1024;
 const COMPILE_DEBUG_ARTIFACT_FILES = [
   "lowered_ir.txt",
   "collapsed_ir.txt",
 ];
-const ROOT_EXPORT_NAME_RX = /^[A-Za-z_][A-Za-z0-9_']*$/u;
-const TOP_LEVEL_EXPORT_RX = /^\s*export\s+(.+)$/u;
-const TOP_LEVEL_FUNCTION_RX = /^([A-Za-z_][A-Za-z0-9_']*)\b[^=]*=/u;
-const TOP_LEVEL_DECL_KEYWORDS = new Set([
-  "module",
-  "import",
-  "export",
-  "data",
-  "type",
-  "class",
-  "instance",
-  "primitive",
-]);
 
 function fromBase64(input) {
   const raw = atob(input);
@@ -38,22 +19,6 @@ function fromBase64(input) {
     out[i] = raw.charCodeAt(i);
   }
   return out;
-}
-
-function toBase64(bytes) {
-  let raw = "";
-  for (const value of bytes) {
-    raw += String.fromCharCode(value);
-  }
-  return btoa(raw);
-}
-
-function boolEnvFlag(name, defaultValue = false) {
-  const raw = String(Deno.env.get(name) ?? "").trim().toLowerCase();
-  if (raw.length === 0) {
-    return defaultValue;
-  }
-  return raw === "1" || raw === "true" || raw === "yes";
 }
 
 function encodeVarU32(value) {
@@ -256,164 +221,6 @@ function appendClapseFuncMap(wasmBytes) {
   return final;
 }
 
-function tryDecodeTailCallSuffix(bytes, opIndex, suffixEndExclusive) {
-  const opcode = bytes[opIndex];
-  if (opcode !== 0x10 && opcode !== 0x11) {
-    return null;
-  }
-  let cursor = opIndex + 1;
-  const firstImmediate = decodeVarU32(bytes, cursor, suffixEndExclusive);
-  cursor = firstImmediate.next;
-  if (opcode === 0x11) {
-    const secondImmediate = decodeVarU32(bytes, cursor, suffixEndExclusive);
-    cursor = secondImmediate.next;
-  }
-  if (cursor !== suffixEndExclusive) {
-    return null;
-  }
-  return opcode;
-}
-
-function rewriteTailCallSuffixInBody(bytes, exprStart, funcEndIndex) {
-  if (funcEndIndex <= exprStart) {
-    return 0;
-  }
-  if (bytes[funcEndIndex] !== 0x0b) {
-    return 0;
-  }
-  const suffixCandidates = [funcEndIndex];
-  if (funcEndIndex > exprStart && bytes[funcEndIndex - 1] === 0x0f) {
-    suffixCandidates.push(funcEndIndex - 1);
-  }
-  for (const suffixEnd of suffixCandidates) {
-    const minScanIndex = Math.max(exprStart, suffixEnd - 12);
-    for (let opIndex = suffixEnd - 1; opIndex >= minScanIndex; opIndex -= 1) {
-      let opcode;
-      try {
-        opcode = tryDecodeTailCallSuffix(bytes, opIndex, suffixEnd);
-      } catch {
-        opcode = null;
-      }
-      if (opcode === null) {
-        continue;
-      }
-      if (opcode === 0x10) {
-        bytes[opIndex] = 0x12; // return_call
-      } else {
-        bytes[opIndex] = 0x13; // return_call_indirect
-      }
-      return 1;
-    }
-  }
-  return 0;
-}
-
-function rewriteCallBeforeReturnInBody(bytes, exprStart, funcEndIndex) {
-  if (funcEndIndex <= exprStart) {
-    return 0;
-  }
-  let rewrites = 0;
-  for (
-    let returnIndex = exprStart + 1;
-    returnIndex < funcEndIndex;
-    returnIndex += 1
-  ) {
-    if (bytes[returnIndex] !== 0x0f) {
-      continue;
-    }
-    const minScanIndex = Math.max(exprStart, returnIndex - 12);
-    for (
-      let opIndex = returnIndex - 1;
-      opIndex >= minScanIndex;
-      opIndex -= 1
-    ) {
-      let opcode;
-      try {
-        opcode = tryDecodeTailCallSuffix(bytes, opIndex, returnIndex);
-      } catch {
-        opcode = null;
-      }
-      if (opcode === null) {
-        continue;
-      }
-      if (opcode === 0x10) {
-        bytes[opIndex] = 0x12; // return_call
-      } else {
-        bytes[opIndex] = 0x13; // return_call_indirect
-      }
-      rewrites += 1;
-      break;
-    }
-  }
-  return rewrites;
-}
-
-function rewriteWasmTailCallOpcodesUnsafe(wasmBytes) {
-  const rewritten = new Uint8Array(wasmBytes);
-  let rewrites = 0;
-  let cursor = 8;
-  while (cursor < rewritten.length) {
-    const sectionId = rewritten[cursor];
-    cursor += 1;
-    const sizeInfo = decodeVarU32(rewritten, cursor, rewritten.length);
-    const sectionStart = sizeInfo.next;
-    const sectionEnd = sectionStart + sizeInfo.value;
-    if (sectionEnd > rewritten.length) {
-      throw new Error("malformed wasm section");
-    }
-    if (sectionId === 10) {
-      const functionCountInfo = decodeVarU32(
-        rewritten,
-        sectionStart,
-        sectionEnd,
-      );
-      let codeCursor = functionCountInfo.next;
-      for (let i = 0; i < functionCountInfo.value; i += 1) {
-        const bodySizeInfo = decodeVarU32(rewritten, codeCursor, sectionEnd);
-        const bodyStart = bodySizeInfo.next;
-        const bodyEnd = bodyStart + bodySizeInfo.value;
-        if (bodyEnd > sectionEnd) {
-          throw new Error("malformed wasm function body");
-        }
-        const localDeclCountInfo = decodeVarU32(rewritten, bodyStart, bodyEnd);
-        let exprStart = localDeclCountInfo.next;
-        for (let j = 0; j < localDeclCountInfo.value; j += 1) {
-          const localCountInfo = decodeVarU32(rewritten, exprStart, bodyEnd);
-          exprStart = localCountInfo.next;
-          if (exprStart >= bodyEnd) {
-            throw new Error("malformed wasm local declaration");
-          }
-          exprStart += 1; // value type byte
-        }
-        rewrites += rewriteCallBeforeReturnInBody(
-          rewritten,
-          exprStart,
-          bodyEnd - 1,
-        );
-        rewrites += rewriteTailCallSuffixInBody(
-          rewritten,
-          exprStart,
-          bodyEnd - 1,
-        );
-        codeCursor = bodyEnd;
-      }
-    }
-    cursor = sectionEnd;
-  }
-  return { wasmBytes: rewritten, rewrites };
-}
-
-export function rewriteWasmTailCallOpcodes(wasmBytes) {
-  if (!boolEnvFlag(CLAPSE_WASM_TAIL_CALL_ENV, true)) {
-    return { wasmBytes, rewrites: 0 };
-  }
-  try {
-    return rewriteWasmTailCallOpcodesUnsafe(wasmBytes);
-  } catch {
-    return { wasmBytes, rewrites: 0 };
-  }
-}
-
 function assertFn(instance, name) {
   const fn = instance.exports[name];
   if (typeof fn !== "function") {
@@ -513,197 +320,6 @@ function compileRequestNeedsDebugArtifacts(requestObject) {
     mode === "native-debug" || mode === "debug-funcmap";
 }
 
-function compileRequestSourceText(requestObject) {
-  if (!requestObject || typeof requestObject !== "object") {
-    return "";
-  }
-  return typeof requestObject.input_source === "string"
-    ? requestObject.input_source
-    : "";
-}
-
-function normalizeRootExportNames(rawRoots) {
-  if (!Array.isArray(rawRoots)) {
-    return [];
-  }
-  const out = [];
-  const seen = new Set();
-  for (const raw of rawRoots) {
-    const name = String(raw ?? "").trim();
-    if (!ROOT_EXPORT_NAME_RX.test(name)) {
-      continue;
-    }
-    if (seen.has(name)) {
-      continue;
-    }
-    seen.add(name);
-    out.push(name);
-  }
-  return out;
-}
-
-function parseExportNamesFromRaw(raw) {
-  return String(raw)
-    .split(",")
-    .map((item) => item.trim())
-    .filter((name) => ROOT_EXPORT_NAME_RX.test(name));
-}
-
-function parseTopLevelFunctionNames(sourceText) {
-  const names = [];
-  const seen = new Set();
-  const lines = String(sourceText).split("\n");
-  for (const line of lines) {
-    if (/^\s/u.test(line)) {
-      continue;
-    }
-    const trimmed = line.trim();
-    if (trimmed.length === 0 || trimmed.startsWith("--")) {
-      continue;
-    }
-    const fnMatch = line.match(TOP_LEVEL_FUNCTION_RX);
-    if (!fnMatch) {
-      continue;
-    }
-    const name = fnMatch[1];
-    if (TOP_LEVEL_DECL_KEYWORDS.has(name) || seen.has(name)) {
-      continue;
-    }
-    seen.add(name);
-    names.push(name);
-  }
-  return names;
-}
-
-function deriveBundleExportNames(requestObject, sourceText) {
-  const explicitRoots = normalizeRootExportNames(
-    requestObject?.entrypoint_exports,
-  );
-  if (explicitRoots.length > 0) {
-    return explicitRoots;
-  }
-  const exportNames = [];
-  const seen = new Set();
-  for (const line of String(sourceText).split("\n")) {
-    const exportMatch = line.match(TOP_LEVEL_EXPORT_RX);
-    if (!exportMatch) {
-      continue;
-    }
-    for (const name of parseExportNamesFromRaw(exportMatch[1])) {
-      if (seen.has(name)) {
-        continue;
-      }
-      seen.add(name);
-      exportNames.push(name);
-    }
-  }
-  if (exportNames.length > 0) {
-    return exportNames;
-  }
-  const topLevelFunctions = parseTopLevelFunctionNames(sourceText);
-  if (topLevelFunctions.includes("main")) {
-    return ["main"];
-  }
-  if (topLevelFunctions.length > 0) {
-    return [topLevelFunctions[0]];
-  }
-  return ["main"];
-}
-
-function inferReachableFunctionCount(requestObject, sourceText, exportNames) {
-  const fallbackMin = Math.max(1, exportNames.length);
-  const reachability = requestObject?.__clapse_host_reachability;
-  const summarized = Number(reachability?.reachable_functions ?? NaN);
-  if (Number.isFinite(summarized) && summarized > 0) {
-    return Math.max(fallbackMin, Math.floor(summarized));
-  }
-  const topLevelFunctions = parseTopLevelFunctionNames(sourceText);
-  if (topLevelFunctions.length > 0) {
-    return Math.max(fallbackMin, topLevelFunctions.length);
-  }
-  return fallbackMin;
-}
-
-function encodeWasmSection(sectionId, payload) {
-  const out = [sectionId, ...encodeVarU32(payload.length), ...payload];
-  return out;
-}
-
-function encodeWasmString(value) {
-  const bytes = UTF8_ENCODER.encode(String(value));
-  return [...encodeVarU32(bytes.length), ...bytes];
-}
-
-function buildReachabilityBundleWasm(exportNames, functionCount) {
-  const bytes = [
-    0x00,
-    0x61,
-    0x73,
-    0x6d,
-    0x01,
-    0x00,
-    0x00,
-    0x00,
-  ];
-  const typeSection = [
-    ...encodeVarU32(1),
-    0x60,
-    ...encodeVarU32(1),
-    0x7f,
-    ...encodeVarU32(1),
-    0x7f,
-  ];
-  bytes.push(...encodeWasmSection(1, typeSection));
-
-  const functionSection = [...encodeVarU32(functionCount)];
-  for (let i = 0; i < functionCount; i += 1) {
-    functionSection.push(...encodeVarU32(0));
-  }
-  bytes.push(...encodeWasmSection(3, functionSection));
-
-  const memorySection = [
-    ...encodeVarU32(1),
-    0x00,
-    ...encodeVarU32(1),
-  ];
-  bytes.push(...encodeWasmSection(5, memorySection));
-
-  const exportSection = [...encodeVarU32(1 + exportNames.length)];
-  exportSection.push(...encodeWasmString("memory"));
-  exportSection.push(0x02);
-  exportSection.push(...encodeVarU32(0));
-  for (let i = 0; i < exportNames.length; i += 1) {
-    exportSection.push(...encodeWasmString(exportNames[i]));
-    exportSection.push(0x00);
-    exportSection.push(...encodeVarU32(i));
-  }
-  bytes.push(...encodeWasmSection(7, exportSection));
-
-  const codeSection = [...encodeVarU32(functionCount)];
-  for (let i = 0; i < functionCount; i += 1) {
-    const body = [
-      0x00,
-      0x20,
-      0x00,
-      0x0b,
-    ];
-    codeSection.push(...encodeVarU32(body.length), ...body);
-  }
-  bytes.push(...encodeWasmSection(10, codeSection));
-  return new Uint8Array(bytes);
-}
-
-function renderBundleDts(exportNames) {
-  if (!Array.isArray(exportNames) || exportNames.length === 0) {
-    return "export {}\n";
-  }
-  return `${
-    exportNames.map((name) =>
-      `export declare function ${name}(arg0: number): number;`
-    ).join("\n")
-  }\n`;
-}
-
 function normalizeContractPath(path) {
   return String(path ?? "").trim().replaceAll("\\", "/");
 }
@@ -720,155 +336,6 @@ function isCompilerKernelInputPath(requestObject) {
 function compileRequestNeedsCompilerAbiOutput(requestObject) {
   const mode = compileMode(requestObject);
   return mode === "kernel-native" && isCompilerKernelInputPath(requestObject);
-}
-
-function hasSyntheticCompileArtifactMarkers(value) {
-  if (typeof value !== "string" || value.length === 0) {
-    return true;
-  }
-  return value.includes("kernel:compile:") ||
-    /seed-stage[0-9]+:[^)\s"]+/u.test(value);
-}
-
-function compileArtifactFromSource(sourceText, label) {
-  return `(${label}) ${sourceText}`;
-}
-
-function normalizeCompileArtifactsFromRequest(requestObject, responseObject) {
-  if (boolEnvFlag(CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION, false)) {
-    return responseObject;
-  }
-  const sourceText = compileRequestSourceText(requestObject);
-  if (sourceText.length === 0) {
-    return responseObject;
-  }
-  const rawArtifacts = responseObject?.artifacts;
-  const artifacts = rawArtifacts && typeof rawArtifacts === "object" &&
-      !Array.isArray(rawArtifacts)
-    ? { ...rawArtifacts }
-    : {};
-  const loweredCurrent = artifacts["lowered_ir.txt"];
-  const collapsedCurrent = artifacts["collapsed_ir.txt"];
-  const needsLowered = hasSyntheticCompileArtifactMarkers(loweredCurrent) ||
-    !String(loweredCurrent).includes(sourceText);
-  const needsCollapsed = hasSyntheticCompileArtifactMarkers(collapsedCurrent) ||
-    !String(collapsedCurrent).includes(sourceText);
-  if (!needsLowered && !needsCollapsed) {
-    return responseObject;
-  }
-  if (needsLowered) {
-    artifacts["lowered_ir.txt"] = compileArtifactFromSource(
-      sourceText,
-      "lowered_ir",
-    );
-  }
-  if (needsCollapsed) {
-    artifacts["collapsed_ir.txt"] = compileArtifactFromSource(
-      sourceText,
-      "collapsed_ir",
-    );
-  }
-  return {
-    ...responseObject,
-    artifacts,
-  };
-}
-
-function normalizeKernelCompilerAbiWasm(
-  requestObject,
-  responseObject,
-  compilerWasmBytes,
-) {
-  if (boolEnvFlag(CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION, false)) {
-    return responseObject;
-  }
-  if (!compileRequestNeedsCompilerAbiOutput(requestObject)) {
-    return responseObject;
-  }
-  if (
-    !(compilerWasmBytes instanceof Uint8Array) ||
-    compilerWasmBytes.length < MIN_STABLE_KERNEL_COMPILER_BYTES
-  ) {
-    return responseObject;
-  }
-  let outputBytes;
-  try {
-    outputBytes = decodeWasmBase64(responseObject.wasm_base64);
-  } catch {
-    outputBytes = new Uint8Array();
-  }
-  let outputExports = [];
-  try {
-    if (outputBytes.length > 0) {
-      const module = new WebAssembly.Module(outputBytes);
-      outputExports = WebAssembly.Module.exports(module).map((entry) =>
-        entry.name
-      );
-    }
-  } catch {
-    outputExports = [];
-  }
-  const hasAbiOutput = outputBytes.length >= MIN_STABLE_KERNEL_COMPILER_BYTES &&
-    hasCompilerAbiExports(outputExports);
-  if (hasAbiOutput) {
-    return responseObject;
-  }
-  return {
-    ...responseObject,
-    backend: "kernel-native",
-    wasm_base64: toBase64(compilerWasmBytes),
-  };
-}
-
-function normalizeNonKernelProgramBundle(
-  requestObject,
-  responseObject,
-) {
-  if (boolEnvFlag(CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION, false)) {
-    return responseObject;
-  }
-  if (compileRequestNeedsCompilerAbiOutput(requestObject)) {
-    return responseObject;
-  }
-  const sourceText = compileRequestSourceText(requestObject);
-  if (sourceText.length === 0) {
-    return responseObject;
-  }
-  const exportNames = deriveBundleExportNames(requestObject, sourceText);
-  const functionCount = inferReachableFunctionCount(
-    requestObject,
-    sourceText,
-    exportNames,
-  );
-  const wasmBytes = buildReachabilityBundleWasm(exportNames, functionCount);
-  try {
-    new WebAssembly.Module(wasmBytes);
-  } catch {
-    return responseObject;
-  }
-  return {
-    ...responseObject,
-    backend: "kernel-native",
-    wasm_base64: toBase64(wasmBytes),
-    exports: exportNames.map((name) => ({ name, arity: 1 })),
-    dts: renderBundleDts(exportNames),
-  };
-}
-
-function shapeCompileProducerResponse(
-  requestObject,
-  responseObject,
-) {
-  if (
-    !responseObject || typeof responseObject !== "object" ||
-    Array.isArray(responseObject)
-  ) {
-    return responseObject;
-  }
-  if (responseObject.ok !== true) {
-    return responseObject;
-  }
-  return normalizeNonKernelProgramBundle(requestObject, responseObject);
 }
 
 function assertCompileArtifactsContract(responseObject) {
@@ -980,15 +447,7 @@ function validateCompileResponseContract(
   ) {
     throw new Error("compile response: missing non-empty string 'wasm_base64'");
   }
-  let normalizedResponse = normalizeCompileArtifactsFromRequest(
-    requestObject,
-    responseObject,
-  );
-  normalizedResponse = normalizeKernelCompilerAbiWasm(
-    requestObject,
-    normalizedResponse,
-    options.compilerWasmBytes,
-  );
+  let normalizedResponse = responseObject;
   let contractMeta = {};
   if (compileRequestNeedsCompilerAbiOutput(requestObject)) {
     const abiResult = assertCompilerAbiOutputContract(normalizedResponse);
@@ -1035,18 +494,7 @@ function validateSelfhostArtifactsResponseContract(responseObject) {
 
 export async function callCompilerWasm(path, requestObject, options = {}) {
   const { instance, runtime, wasmBytes } = await loadCompilerWasm(path);
-  let requestForWire = requestObject;
-  if (isCompileLikeRequest(requestForWire)) {
-    const dceApplied = await applyCompileReachabilityToCompileRequest(
-      requestForWire,
-      {
-        forceEnable: true,
-        skipCompilerInternalPathGuard: true,
-        skipIfReachabilityPresent: true,
-      },
-    );
-    requestForWire = dceApplied.requestObject;
-  }
+  const requestForWire = requestObject;
   if (isCompileLikeRequest(requestForWire) && isWasmBootstrapSeedEnabled()) {
     const seededResponse = await buildWasmSeedCompileResponse(requestForWire, {
       seedWasmBytes: wasmBytes,
@@ -1070,7 +518,6 @@ export async function callCompilerWasm(path, requestObject, options = {}) {
     return validateSelfhostArtifactsResponseContract(response);
   }
   if (isCompileLikeRequest(requestForWire)) {
-    response = shapeCompileProducerResponse(requestForWire, response);
     return validateCompileResponseContract(requestForWire, response, {
       compilerWasmBytes: wasmBytes,
       withContractMetadata: options.withContractMetadata === true,
@@ -1084,18 +531,7 @@ export async function callCompilerWasm(path, requestObject, options = {}) {
 
 export async function callCompilerWasmRaw(path, requestObject) {
   const { instance, runtime, wasmBytes } = await loadCompilerWasm(path);
-  let requestForWire = requestObject;
-  if (isCompileLikeRequest(requestForWire)) {
-    const dceApplied = await applyCompileReachabilityToCompileRequest(
-      requestForWire,
-      {
-        forceEnable: true,
-        skipCompilerInternalPathGuard: true,
-        skipIfReachabilityPresent: true,
-      },
-    );
-    requestForWire = dceApplied.requestObject;
-  }
+  const requestForWire = requestObject;
   if (isCompileLikeRequest(requestForWire) && isWasmBootstrapSeedEnabled()) {
     return await buildWasmSeedCompileResponse(requestForWire, {
       seedWasmBytes: wasmBytes,
@@ -1111,9 +547,6 @@ export async function callCompilerWasmRaw(path, requestObject) {
     );
   }
   const response = decodeResponseBytes(runtime, responseHandle);
-  if (isCompileLikeRequest(requestForWire)) {
-    return shapeCompileProducerResponse(requestForWire, response);
-  }
   return response;
 }
 

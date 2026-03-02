@@ -1,9 +1,6 @@
 #!/usr/bin/env -S deno run -A
 
 import { callCompilerWasmRaw, decodeWasmBase64 } from "./wasm-compiler-abi.mjs";
-import {
-  applyCompileReachabilityToCompileRequest,
-} from "./compile-entrypoint-reachability.mjs";
 
 function assert(condition, message) {
   if (!condition) {
@@ -79,40 +76,25 @@ async function run() {
     const inputPath = `${tmpDir}/gate.clapse`;
     const deadMarker = `native-ir-liveness-dead-${crypto.randomUUID()}`;
     const source = [
-      "export main",
+      "export main, helper",
       "main x = keep x",
       "keep x = x",
-      `dead_fn x = x -- ${deadMarker}`,
+      `helper x = dead_fn x -- ${deadMarker}`,
+      "dead_fn x = x",
       "",
     ].join("\n");
     await Deno.writeTextFile(inputPath, source);
 
-    const baselineRequest = buildCompileRequest(inputPath, source, {
-      // Mark reachability metadata to bypass ABI-side request pruning.
-      __clapse_host_reachability: { mode: "baseline-no-prune" },
-    });
+    const baselineRequest = buildCompileRequest(inputPath, source);
     const baselineResponse = await callCompilerWasmRaw(
       wasmPath,
       baselineRequest,
     );
     const baseline = readCompileArtifactsOrThrow(baselineResponse, "baseline");
 
-    const dceSeedRequest = buildCompileRequest(inputPath, source);
-    const dceApplied = await applyCompileReachabilityToCompileRequest(
-      dceSeedRequest,
-      {
-        forceEnable: true,
-        skipCompilerInternalPathGuard: true,
-        skipIfReachabilityPresent: false,
-      },
-    );
-    assert(
-      dceApplied.reachabilityPlan !== null,
-      "native-ir-liveness-size-gate: expected reachability plan for pruned request",
-    );
     const prunedResponse = await callCompilerWasmRaw(
       wasmPath,
-      dceApplied.requestObject,
+      buildCompileRequest(inputPath, source, { entrypoint_exports: ["main"] }),
     );
     const pruned = readCompileArtifactsOrThrow(prunedResponse, "pruned");
 
@@ -129,6 +111,10 @@ async function run() {
     );
     const baselineHasDead = baseline.lowered.includes(deadMarker) ||
       baseline.collapsed.includes(deadMarker);
+    assert(
+      baselineHasDead,
+      "native-ir-liveness-size-gate: baseline artifacts should retain helper/dead marker",
+    );
     console.log(
       `native-ir-liveness-size-gate: PASS (baseline=${baseline.wasmBytes.length}; pruned=${pruned.wasmBytes.length}; baseline_has_dead=${baselineHasDead})`,
     );

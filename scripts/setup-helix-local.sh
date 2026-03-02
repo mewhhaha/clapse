@@ -9,6 +9,16 @@ helix_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/helix"
 runtime_dir="$helix_config_dir/runtime"
 queries_dir="$runtime_dir/queries/clapse"
 global_languages_toml="$helix_config_dir/languages.toml"
+smoke_xdg_home="$(mktemp -d -t clapse-helix-smoke-XXXXXX)"
+smoke_helix_config_dir="$smoke_xdg_home/helix"
+smoke_runtime_dir="$smoke_helix_config_dir/runtime"
+smoke_queries_dir="$smoke_runtime_dir/queries/clapse"
+smoke_languages_toml="$smoke_helix_config_dir/languages.toml"
+
+cleanup() {
+  rm -rf "$smoke_xdg_home"
+}
+trap cleanup EXIT
 
 require_cmd() {
   local cmd="$1"
@@ -179,6 +189,28 @@ strip_global_clapse_sections() {
   mv "$tmp_file" "$target_file"
 }
 
+write_smoke_languages_toml() {
+  mkdir -p "$smoke_helix_config_dir"
+  cat > "$smoke_languages_toml" <<EOF
+[[language]]
+name = "clapse"
+scope = "source.clapse"
+file-types = ["clapse"]
+comment-token = "--"
+language-servers = ["clapse"]
+grammar = "clapse"
+formatter = { command = "$clapse_binary", args = ["format", "--stdin"] }
+
+[language-server.clapse]
+command = "$clapse_binary"
+args = ["lsp", "--stdio"]
+
+[[grammar]]
+name = "clapse"
+source = { path = "$grammar_source_dir" }
+EOF
+}
+
 require_cmd tree-sitter
 require_cmd hx
 
@@ -201,18 +233,27 @@ ensure_global_clapse_language
 )
 
 mkdir -p "$runtime_dir/grammars" "$queries_dir"
+mkdir -p "$smoke_runtime_dir/grammars" "$smoke_queries_dir"
+write_smoke_languages_toml
 
 for query_file in "$grammar_source_dir"/queries/*.scm; do
   cp "$query_file" "$queries_dir/"
+  cp "$query_file" "$smoke_queries_dir/"
 done
 
 (
   cd "$repo_root"
-  hx --grammar build clapse
+  XDG_CONFIG_HOME="$smoke_xdg_home" hx --grammar build clapse
 )
 
+for grammar_file in "$smoke_runtime_dir"/grammars/*; do
+  if [[ -f "$grammar_file" ]]; then
+    cp "$grammar_file" "$runtime_dir/grammars/"
+  fi
+done
+
 if [[ "${RUN_HIGHLIGHT_SNAPSHOT_TESTS:-0}" == "1" ]]; then
-  "$grammar_source_dir/scripts/highlight-helix-runtime-smoke.sh"
+  XDG_CONFIG_HOME="$smoke_xdg_home" "$grammar_source_dir/scripts/highlight-helix-runtime-smoke.sh"
 fi
 
 echo "Helix clapse grammar installed."
