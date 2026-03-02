@@ -125,7 +125,9 @@ Entrypoint reachability pruning now runs in the native compiler response path:
   aligned with producer marker output
 - simple function-body `let` temp chains with `t0`.. names are pruned for
   dead bindings and surviving temporaries are renumbered densely from `t0`
-  only when `entrypoint_exports` is explicitly provided in the compile request
+  when request-shape pruning is active (`entrypoint_exports` set, or
+  `compile_mode` set to `debug`, `native-debug`, `kernel-debug`, or
+  `kernel-native-debug`)
 - `CLAPSE_ENTRYPOINT_DCE` and `CLAPSE_INTERNAL_ENTRYPOINT_DCE` remain as
   legacy toggles but no longer control request shaping behavior
 - non-kernel compile responses now emit a reachability-shaped wasm bundle in the
@@ -479,8 +481,9 @@ just native-ir-liveness-size-gate
   with source-derived artifacts + producer contract metadata directly from wasm
   (no JS fallback in the hot path), and validates raw producer behavior with
   `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1` before writing output. The seed
-  template now snapshots request source segments before building large
-  responses, preventing source corruption when embedded seed payloads are large.
+  template now uses static scratch workspaces plus widened temp-rewrite output
+  buffers to avoid stack/data overlap and response corruption when embedded seed
+  payloads are large.
   The default artifact path is
   `artifacts/strict-native/native_producer_seed.wasm` with metadata at
   `artifacts/strict-native/native_producer_seed.meta.json`.

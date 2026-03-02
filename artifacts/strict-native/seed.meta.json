@@ -1,15 +1,15 @@
 {
   "tool": "build-native-producer-seed",
-  "created_at": "2026-03-02T11:03:50.408Z",
+  "created_at": "2026-03-02T20:51:24.628Z",
   "seed": {
     "input_path": "artifacts/latest/clapse_compiler.wasm",
     "input_sha256": "589daca525b06087107cd72f48b532db5dac8bc0c19acd2fba43c6d0dd6ffad8"
   },
   "output": {
-    "wasm_path": "artifacts/strict-native/seed.wasm",
-    "dts_path": "artifacts/strict-native/seed.d.ts",
-    "sha256": "aeaa891aa9d6f62131fc17d5adfbd1b9193e3e084d1047d329f97ade3939c900",
-    "bytes": 14856377
+    "wasm_path": "artifacts/strict-native/native_producer_seed.wasm",
+    "dts_path": "artifacts/strict-native/native_producer_seed.d.ts",
+    "sha256": "1d9af79cf6e97081ad59e1d9ec6aafa871d6604b0445a96ac3ac912878eab0ee",
+    "bytes": 14859543
   },
   "contract": {
     "source_version": "native-source-2026-03-01-r2",
@@ -19,8 +19,8 @@
   "stages": [
     {
       "stage": 1,
-      "bytes": 14856377,
-      "sha256": "aeaa891aa9d6f62131fc17d5adfbd1b9193e3e084d1047d329f97ade3939c900"
+      "bytes": 14859543,
+      "sha256": "1d9af79cf6e97081ad59e1d9ec6aafa871d6604b0445a96ac3ac912878eab0ee"
     }
   ],
   "verification": {

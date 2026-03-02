@@ -84,6 +84,21 @@ typedef struct {
   uint32_t rhs_end;
 } TempLine;
 
+/*
+ * Keep large scratch buffers out of the wasm stack to avoid clobbering
+ * embedded static data on large artifacts.
+ */
+static TempLine temp_lines_workspace[MAX_TEMP_LINES];
+static uint32_t temp_slots_workspace[MAX_TEMP_BINDINGS];
+static int temp_live_workspace[MAX_TEMP_BINDINGS];
+static uint32_t renumber_slots_workspace[MAX_TEMP_BINDINGS];
+static NameSpan roots_workspace[MAX_ROOTS];
+static FnDecl fn_decls_workspace[MAX_FN_DECLS];
+static int reachable_workspace[MAX_FN_DECLS];
+static int tail_target_workspace[MAX_FN_DECLS];
+static int self_tail_workspace[MAX_FN_DECLS];
+static int mutual_tail_workspace[MAX_FN_DECLS];
+
 static uint32_t cstr_len(const char *s) {
   uint32_t len = 0;
   while (s[len] != '\0') {
@@ -585,7 +600,7 @@ static int rewrite_function_temp_lines(
   uint8_t *dst
 ) {
   uint8_t *src = (uint8_t *) (uintptr_t) source.ptr;
-  TempLine lines[MAX_TEMP_LINES];
+  TempLine *lines = temp_lines_workspace;
   uint32_t line_count = 0u;
   int overflowed = 0;
 
@@ -627,8 +642,8 @@ static int rewrite_function_temp_lines(
     return 1;
   }
 
-  uint32_t temp_slots[MAX_TEMP_BINDINGS];
-  int temp_live[MAX_TEMP_BINDINGS];
+  uint32_t *temp_slots = temp_slots_workspace;
+  int *temp_live = temp_live_workspace;
   uint32_t temp_slot_count = 0u;
   for (uint32_t i = 0u; i < MAX_TEMP_BINDINGS; i += 1u) {
     temp_slots[i] = 0u;
@@ -649,7 +664,7 @@ static int rewrite_function_temp_lines(
     }
   }
 
-  uint32_t renumber_slots[MAX_TEMP_BINDINGS];
+  uint32_t *renumber_slots = renumber_slots_workspace;
   uint32_t renumber_count = 0u;
   for (uint32_t i = 0u; i < line_count; i += 1u) {
     TempLine *line = &lines[i];
@@ -713,13 +728,23 @@ static int rewrite_function_temp_lines(
 }
 
 static Segment build_temp_pruned_segment(Segment source) {
-  FnDecl decls[MAX_FN_DECLS];
+  FnDecl *decls = fn_decls_workspace;
   uint32_t decl_count = collect_fn_decls(source, decls, MAX_FN_DECLS);
   if (decl_count == 0u) {
     return source;
   }
 
-  uint32_t out_ptr = alloc_bytes(source.len, 1u);
+  /*
+   * Temp renumbering may widen tokens (for example t9 -> t10), so the
+   * rewritten function body can be larger than the input segment.
+   * Reserve headroom to avoid response-buffer corruption.
+   */
+  uint32_t out_capacity = source.len;
+  if (out_capacity <= (UINT32_MAX - 64u) / 2u) {
+    out_capacity = out_capacity * 2u + 64u;
+  }
+
+  uint32_t out_ptr = alloc_bytes(out_capacity, 1u);
   if (out_ptr == 0u) {
     return missing_segment();
   }
@@ -1044,9 +1069,9 @@ static Segment build_collapsed_segment(Segment source, FnDecl *decls, uint32_t d
   if (decl_count == 0u) {
     return source;
   }
-  int tail_target[MAX_FN_DECLS];
-  int self_tail[MAX_FN_DECLS];
-  int mutual_tail[MAX_FN_DECLS];
+  int *tail_target = tail_target_workspace;
+  int *self_tail = self_tail_workspace;
+  int *mutual_tail = mutual_tail_workspace;
   for (uint32_t i = 0; i < decl_count; i += 1u) {
     tail_target[i] = -1;
     self_tail[i] = 0;
@@ -1130,8 +1155,14 @@ static Segment build_collapsed_segment(Segment source, FnDecl *decls, uint32_t d
   return out;
 }
 
-static Segment prune_compile_source(uint32_t req_ptr, uint32_t req_len, Segment source_seg, int *has_entrypoint_override_out) {
-  NameSpan roots[MAX_ROOTS];
+static Segment prune_compile_source(
+  uint32_t req_ptr,
+  uint32_t req_len,
+  Segment source_seg,
+  int *has_entrypoint_override_out,
+  int enable_request_shape_pruning
+) {
+  NameSpan *roots = roots_workspace;
   uint32_t roots_count = 0u;
   *has_entrypoint_override_out = collect_entrypoint_roots_from_request(
     req_ptr,
@@ -1139,7 +1170,7 @@ static Segment prune_compile_source(uint32_t req_ptr, uint32_t req_len, Segment 
     roots,
     &roots_count
   );
-  if (!*has_entrypoint_override_out) {
+  if (!*has_entrypoint_override_out && !enable_request_shape_pruning) {
     return source_seg;
   }
   if (roots_count == 0u) {
@@ -1153,8 +1184,8 @@ static Segment prune_compile_source(uint32_t req_ptr, uint32_t req_len, Segment 
     roots_count = roots_push_unique(fallback_root, roots, roots_count);
   }
 
-  FnDecl decls[MAX_FN_DECLS];
-  int reachable[MAX_FN_DECLS];
+  FnDecl *decls = fn_decls_workspace;
+  int *reachable = reachable_workspace;
   uint32_t decl_count = collect_fn_decls(source_seg, decls, MAX_FN_DECLS);
   if (decl_count == 0u) {
     return source_seg;
@@ -1208,7 +1239,7 @@ static uint32_t build_compile_response(Segment source_seg, int use_mini_wasm) {
   const uint32_t wasm_base64_len = use_mini_wasm
     ? cstr_len(MINI_WASM_BASE64)
     : SEED_WASM_BASE64_LEN;
-  FnDecl decls[MAX_FN_DECLS];
+  FnDecl *decls = fn_decls_workspace;
   uint32_t decl_count = collect_fn_decls(source_seg, decls, MAX_FN_DECLS);
   Segment collapsed_seg = build_collapsed_segment(source_seg, decls, decl_count);
   if (!collapsed_seg.ok) {
@@ -1247,7 +1278,7 @@ static uint32_t build_compile_response(Segment source_seg, int use_mini_wasm) {
 }
 
 static uint32_t build_selfhost_response(Segment source_seg) {
-  FnDecl decls[MAX_FN_DECLS];
+  FnDecl *decls = fn_decls_workspace;
   uint32_t decl_count = collect_fn_decls(source_seg, decls, MAX_FN_DECLS);
   Segment collapsed_seg = build_collapsed_segment(source_seg, decls, decl_count);
   if (!collapsed_seg.ok) {
@@ -1361,11 +1392,20 @@ int32_t clapse_run(int32_t request_handle) {
       return (int32_t) build_error_response("compile request source copy failed");
     }
     int has_entrypoint_override = 0;
+    Segment mode_seg = find_json_string_segment(req_ptr, req_len, "\"compile_mode\"");
+    int enable_entrypoint_pruning = 0;
+    if (mode_seg.ok) {
+      enable_entrypoint_pruning = segment_equals_literal(mode_seg, "debug") ||
+        segment_equals_literal(mode_seg, "native-debug") ||
+        segment_equals_literal(mode_seg, "kernel-debug") ||
+        segment_equals_literal(mode_seg, "kernel-native-debug");
+    }
     Segment pruned_source = prune_compile_source(
       req_ptr,
       req_len,
       source_seg,
-      &has_entrypoint_override
+      &has_entrypoint_override,
+      enable_entrypoint_pruning
     );
     if (!pruned_source.ok) {
       return (int32_t) build_error_response("compile request pruning failed");
