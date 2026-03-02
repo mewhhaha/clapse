@@ -115,6 +115,8 @@ Entrypoint reachability pruning now runs in the native compiler response path:
   kernel response shaping falls back to source exports then `main`
 - top-level function definitions not reachable from roots are removed in the
   native compile stage before compile artifacts are emitted
+- simple function-body `let` temp chains with `t0`.. names are pruned for
+  dead bindings and surviving temporaries are renumbered densely from `t0`
 - `CLAPSE_ENTRYPOINT_DCE` and `CLAPSE_INTERNAL_ENTRYPOINT_DCE` remain as
   legacy toggles but no longer control request shaping behavior
 - non-kernel compile responses now emit a reachability-shaped wasm bundle in the
@@ -122,9 +124,9 @@ Entrypoint reachability pruning now runs in the native compiler response path:
   `entrypoint_exports` / entrypoint exports, and bundle size tracks reachable
   function count. Kernel self-host compile requests continue to require
   compiler-ABI output
-- `just native-temp-pruning-gate` currently acts as an optimization probe and is
-  not included in `pre-tag-verify` while dead-temp/renumbering behavior remains
-  incomplete.
+- `just native-temp-pruning-gate` is now part of `pre-tag-verify` as a blocker
+  for native dead-temp/renumbering completion. Keep this gate conservative in
+  CI-facing change plans until compiler outputs match expected pruning proofs.
 
 Smoke gate:
 

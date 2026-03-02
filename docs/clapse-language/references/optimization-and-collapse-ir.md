@@ -89,12 +89,12 @@ This inventory is canonical and machine-checked against
 ### Workstream C (dead-temp pruning + temp renumbering) residuals
 
 - `pass:dead_temp_pruning` and `pass:temp_renumbering` remain not implemented.
-- `scripts/native-temp-pruning-gate.mjs` exists as a probe and currently fails
-  against the compiler output; it is intentionally not part of
-  `pre-tag-verify`.
-- Current enforced native gate in this area remains
-  `just native-ir-liveness-size-gate`, which only proves function-level
-  liveness pruning, not temp-level pruning/renumbering.
+- `scripts/native-temp-pruning-gate.mjs` is now part of `pre-tag-verify` and
+  currently acts as a blocker for `pass:dead_temp_pruning` completion.
+- Current enforced native gates in this area include both
+  `just native-ir-liveness-size-gate` and `just native-temp-pruning-gate`.
+  The former proves function-level liveness pruning; the latter validates
+  temp-level dead-temp pruning and renumbering behavior.
 
 ## Collapsed IR Concepts
 

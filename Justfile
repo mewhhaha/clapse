@@ -62,6 +62,7 @@ pre-tag-verify:
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-entrypoint-dce-strict-gate
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-entrypoint-exports-dce-gate
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-ir-liveness-size-gate
+  CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-temp-pruning-gate
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-tail-recursion-gate
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" deno run -A scripts/record-kernel-smoke.mjs
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just docs-validate
