@@ -13,6 +13,8 @@ export function buildCompileRequest(
   const entrypointExports = normalizeEntrypointExports(
     normalizedOptions.entrypointExports,
   );
+  const includeEntrypointExports =
+    normalizedOptions.includeEntrypointExports !== false;
 
   const request = {
     command: "compile",
@@ -23,7 +25,7 @@ export function buildCompileRequest(
   if (typeof compileMode === "string" && compileMode.length > 0) {
     request.compile_mode = compileMode;
   }
-  if (entrypointExports.length > 0) {
+  if (includeEntrypointExports && entrypointExports.length > 0) {
     request.entrypoint_exports = entrypointExports;
   }
   return request;
@@ -166,6 +168,7 @@ export function compileDebugWithLoop({
   entryPath,
   moduleSources,
   explicitEntrypointExports = [],
+  includeEntrypointExports = true,
 }) {
   const sources = moduleSources instanceof Map ? moduleSources : new Map();
   if (!sources.has(entryPath) || typeof sources.get(entryPath) !== "string") {
@@ -220,6 +223,7 @@ export function compileDebugWithLoop({
     const compileResult = tryDebugCompile(session, compileSource, {
       inputPath: entryPath,
       entrypointExports: entryRoots,
+      includeEntrypointExports,
     });
     if (!compileResult.ok) {
       if (

@@ -863,6 +863,7 @@ async function runCompile({ forceFormat = false } = {}) {
       entryPath: REPL_INPUT_PATH,
       moduleSources,
       explicitEntrypointExports: ["main"],
+      includeEntrypointExports: false,
     });
     const debugCompilePasses = debugCompileResult.passes ?? 1;
     const debugEntrypointRoots = Array.isArray(debugCompileResult.entryRoots)
