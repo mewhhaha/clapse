@@ -97,11 +97,18 @@ function resolveImportPath(currentPath, moduleName, moduleSources) {
   if (typeof moduleName !== "string" || moduleName.length === 0) {
     return null;
   }
-  candidates.push(moduleName);
-  if (!moduleName.endsWith(".clapse")) {
-    candidates.push(`${moduleName}.clapse`);
+
+  const normalizedModuleName = moduleName.startsWith("./")
+    ? moduleName.slice(2)
+    : moduleName;
+  candidates.push(normalizedModuleName);
+  if (!normalizedModuleName.endsWith(".clapse")) {
+    candidates.push(`${normalizedModuleName}.clapse`);
   }
-  if (!moduleName.startsWith("/") && !moduleName.includes("/")) {
+  if (
+    !normalizedModuleName.startsWith("/") &&
+    !normalizedModuleName.includes("/")
+  ) {
     const trimmed = moduleName.trim();
     const parts = currentPath.split("/");
     if (parts.length > 1) {
@@ -120,10 +127,11 @@ function resolveImportPath(currentPath, moduleName, moduleSources) {
 
 function parseImportedModuleRefs(source) {
   const imports = new Set();
-  const regex = /\bimport\b[^\n]*["']([^"']+)["']/g;
+  const regex =
+    /\bimport\b\s*(?:["']([^"']+)["']|([A-Za-z_][A-Za-z0-9_./-]*))/g;
   let match = regex.exec(source);
   while (match !== null) {
-    const target = match[1]?.trim();
+    const target = (match[1] ?? match[2])?.trim();
     if (target.length > 0) {
       imports.add(target);
     }
@@ -185,6 +193,28 @@ export function compileDebugWithLoop({
     changed = false;
     pass += 1;
 
+    const discoveredModulePaths = Array.from(neededModules);
+    for (const modulePath of discoveredModulePaths) {
+      const moduleSource = sources.get(modulePath);
+      if (typeof moduleSource !== "string") {
+        continue;
+      }
+      const imports = parseImportedModuleRefs(moduleSource);
+      for (const imported of imports) {
+        const resolved = resolveImportPath(modulePath, imported, sources);
+        if (!resolved) {
+          continue;
+        }
+        if (!neededModules.has(resolved)) {
+          neededModules.add(resolved);
+          changed = true;
+        }
+        if (!rootsByModule.has(resolved)) {
+          rootsByModule.set(resolved, new Set());
+        }
+      }
+    }
+
     const entryRoots = [...(rootsByModule.get(entryPath) ?? new Set(["main"]))];
     const compileSource = mergeModuleSourcesByPath(sources, neededModules);
     const compileResult = tryDebugCompile(session, compileSource, {
@@ -215,27 +245,6 @@ export function compileDebugWithLoop({
     }
 
     response = compileResult.response;
-    const modulePaths = Array.from(neededModules);
-    for (const modulePath of modulePaths) {
-      const moduleSource = sources.get(modulePath);
-      if (typeof moduleSource !== "string") {
-        continue;
-      }
-      const imports = parseImportedModuleRefs(moduleSource);
-      for (const imported of imports) {
-        const resolved = resolveImportPath(modulePath, imported, sources);
-        if (!resolved) {
-          continue;
-        }
-        if (!neededModules.has(resolved)) {
-          neededModules.add(resolved);
-          changed = true;
-        }
-        if (!rootsByModule.has(resolved)) {
-          rootsByModule.set(resolved, new Set());
-        }
-      }
-    }
     const allModulePaths = Array.from(neededModules);
     for (const modulePath of allModulePaths) {
       const roots = rootsByModule.get(modulePath);

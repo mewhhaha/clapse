@@ -205,6 +205,12 @@ const PRELUDE_ASSET_NAME = "prelude.clapse";
 const PRELUDE_ASSET_SUFFIX = "/artifacts/latest/prelude.clapse";
 const AUTO_COMPILE_DELAY_MS = 380;
 const REPL_INPUT_PATH = "repl/input.clapse";
+const PRELUDE_MODULE_PATHS = [
+  "prelude",
+  "prelude.clapse",
+  "repl/prelude",
+  "repl/prelude.clapse",
+];
 const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder();
 const WASM_PAGE_SIZE = 65536;
@@ -796,9 +802,9 @@ async function runCompile({ forceFormat = false } = {}) {
       }
     }
 
+    const moduleSources = buildModuleSources(preludeSource, source);
     const compileSource = combinePreludeAndSource(preludeSource, source);
 
-    const moduleSources = new Map([[REPL_INPUT_PATH, compileSource]]);
     const debugCompileResult = compileDebugWithLoop({
       session,
       entryPath: REPL_INPUT_PATH,
@@ -1299,6 +1305,18 @@ function combinePreludeAndSource(preludeSource, source) {
     return `${prelude}\n`;
   }
   return `${prelude}\n\n${userSource}`;
+}
+
+function buildModuleSources(preludeSource, source) {
+  const moduleSources = new Map([[REPL_INPUT_PATH, String(source ?? "")]]);
+  const normalizedPrelude = String(preludeSource ?? "").trim();
+  if (normalizedPrelude.length === 0) {
+    return moduleSources;
+  }
+  for (const path of PRELUDE_MODULE_PATHS) {
+    moduleSources.set(path, normalizedPrelude);
+  }
+  return moduleSources;
 }
 
 async function refreshPreludeForSelectedRelease() {

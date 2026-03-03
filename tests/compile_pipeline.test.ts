@@ -9,7 +9,22 @@ const compileDebugLoop = compileDebugWithLoop as (args: {
   entryPath: string;
   moduleSources: Map<string, string>;
   explicitEntrypointExports?: string[];
-}) => Record<string, unknown>;
+}) => {
+  ok: boolean;
+  passes: number;
+  usedEntrypointExports: boolean;
+  entryRoots: string[];
+  neededModules: Set<string>;
+  response?: {
+    ok?: boolean;
+    error?: string;
+    wasm_base64?: string;
+    artifacts?: Record<string, unknown>;
+  };
+  error?: string;
+};
+
+type CompileDebugLoopResult = ReturnType<typeof compileDebugLoop>;
 
 Deno.test(
   "runCompilePipeline keeps compile result when artifacts throw",
@@ -168,19 +183,14 @@ Deno.test(
       },
     };
 
-    const result = compileDebugLoop({
+    const result: CompileDebugLoopResult = compileDebugLoop({
       session,
       entryPath: "repl/input.clapse",
       moduleSources: new Map([
         ["repl/input.clapse", "export main\nmain = add 1 2"],
       ]),
       explicitEntrypointExports: ["main"],
-    }) as {
-      ok: boolean;
-      passes: number;
-      entryRoots: string[];
-      usedEntrypointExports: boolean;
-    };
+    });
 
     if (!result.ok) {
       throw new Error("Expected compile loop to succeed.");
@@ -239,18 +249,13 @@ Deno.test(
       },
     };
 
-    const result = compileDebugLoop({
+    const result: CompileDebugLoopResult = compileDebugLoop({
       session,
       entryPath: "repl/input.clapse",
       moduleSources: new Map([
         ["repl/input.clapse", "export main\nmain = add 1 2"],
       ]),
-    }) as {
-      ok: boolean;
-      passes: number;
-      usedEntrypointExports: boolean;
-      entryRoots: string[];
-    };
+    });
 
     if (!result.ok || result.usedEntrypointExports !== false) {
       throw new Error(
@@ -267,15 +272,20 @@ Deno.test(
 
 Deno.test("compileDebugWithLoop resolves imported modules", () => {
   const calls: string[] = [];
+  const capturedSources: string[] = [];
   const session = {
     call(request: {
       command: string;
       entrypoint_exports?: string[];
       input_path?: string;
+      input_source?: string;
     }) {
       calls.push(request.command);
       if (request.command !== "compile") {
         throw new Error(`Unexpected command: ${request.command}`);
+      }
+      if (typeof request.input_source === "string") {
+        capturedSources.push(request.input_source);
       }
       return {
         ok: true,
@@ -288,7 +298,7 @@ Deno.test("compileDebugWithLoop resolves imported modules", () => {
     },
   };
 
-  const result = compileDebugLoop({
+  const result: CompileDebugLoopResult = compileDebugLoop({
     session,
     entryPath: "src/main.clapse",
     moduleSources: new Map([
@@ -297,12 +307,7 @@ Deno.test("compileDebugWithLoop resolves imported modules", () => {
       ["/lib/util.clapse", "export add\nadd = ..."],
     ]),
     explicitEntrypointExports: ["main"],
-  }) as {
-    ok: boolean;
-    passes: number;
-    usedEntrypointExports: boolean;
-    entryRoots: string[];
-  };
+  });
 
   if (!result.ok) {
     throw new Error("Expected module import loop to succeed.");
@@ -310,10 +315,66 @@ Deno.test("compileDebugWithLoop resolves imported modules", () => {
   if (!calls.includes("compile")) {
     throw new Error("Expected entry module to compile first.");
   }
-  if (result.passes < 2) {
+  const neededModules =
+    result.neededModules instanceof Set ? result.neededModules : new Set();
+  if (!neededModules.has("sub")) {
     throw new Error("Expected imported module to be discovered and compiled.");
   }
   if (result.usedEntrypointExports !== true) {
     throw new Error("Expected entrypoint exports to remain enabled.");
+  }
+});
+
+Deno.test("compileDebugWithLoop passes prelude as a requested module", () => {
+  const capturedSources: string[] = [];
+  const session = {
+    call(request: {
+      command: string;
+      entrypoint_exports?: string[];
+      input_source?: string;
+    }) {
+      if (request.command !== "compile") {
+        throw new Error(`Unexpected command: ${request.command}`);
+      }
+      if (typeof request.input_source === "string") {
+        capturedSources.push(request.input_source);
+      }
+      return {
+        ok: true,
+        wasm_base64: "AA==",
+        artifacts: {
+          "lowered_ir.txt": "ok",
+          "collapsed_ir.txt": "ok",
+        },
+      };
+    },
+  };
+
+  const result: CompileDebugLoopResult = compileDebugLoop({
+    session,
+    entryPath: "repl/input.clapse",
+    moduleSources: new Map([
+      [
+        "repl/input.clapse",
+        'import "prelude"\nexport main\nmain = prelude_main',
+      ],
+      ["prelude", "export prelude_main\nprelude_main = 7"],
+    ]),
+  });
+
+  if (!result.ok) {
+    throw new Error("Expected compile loop to succeed for prelude module.");
+  }
+  if (!result.neededModules.has("prelude")) {
+    throw new Error("Expected requested prelude module to be pulled in.");
+  }
+  if (result.passes < 1) {
+    throw new Error("Expected at least one compile pass.");
+  }
+  const firstRequestSource = capturedSources[0] ?? "";
+  if (!firstRequestSource.includes("prelude_main = 7")) {
+    throw new Error(
+      "Expected compile request input to include prelude module text.",
+    );
   }
 });
