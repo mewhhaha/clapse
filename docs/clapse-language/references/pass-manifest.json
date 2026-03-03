@@ -75,19 +75,19 @@
     },
     {
       "id": "dead_function_pruning",
-      "status": "partially implemented",
+      "status": "implemented",
       "title": "Root-based dead-function pruning",
       "scope": "collapse"
     },
     {
       "id": "dead_temp_pruning",
-      "status": "partially implemented",
+      "status": "implemented",
       "title": "Dead-temp pruning",
       "scope": "collapse"
     },
     {
       "id": "temp_renumbering",
-      "status": "partially implemented",
+      "status": "implemented",
       "title": "Temporary compaction/renumbering",
       "scope": "collapse"
     },

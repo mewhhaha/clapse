@@ -235,52 +235,41 @@ temp_index_from_token_digits_loop handle i end acc =
         true -> temp_index_from_token_digits_loop handle (i + 1) end ((acc * 10) + (b - 48))
         _ -> MissingInt
 
-collect_temp_refs_loop request_handle start end in_comment acc =
+collect_temp_refs_loop request_handle start end acc =
   case (start >= end) of
     true -> acc
     _ ->
       let b = slice_get_u8 request_handle start
-      in case in_comment of
-        true -> acc
-        _ ->
-          in case (b == 45) of
+      in case (b == 45) of
+        true ->
+          case (start + 1 < end) of
             true ->
-              case (start + 1 < end) of
+              let b2 = slice_get_u8 request_handle (start + 1)
+              in case (b2 == 45) of
                 true ->
-                  let b2 = slice_get_u8 request_handle (start + 1)
-                  in case (b2 == 45) of
-                    true ->
-                      acc
-                    _ ->
-                      case (is_identifier_start_byte b) of
-                        true ->
-                          let token_end = parse_identifier_end request_handle start end
-                              temp = temp_index_from_token_relaxed request_handle start token_end
-                              acc1 = case temp of
-                                PresentInt idx -> int_list_insert_unique idx acc
-                                _ -> acc
-                          in collect_temp_refs_loop request_handle token_end end false acc1
-                        _ -> collect_temp_refs_loop request_handle (start + 1) end false acc
-                _ ->
-                  case (is_identifier_start_byte b) of
-                    true ->
-                      let token_end = parse_identifier_end request_handle start end
-                          temp = temp_index_from_token_relaxed request_handle start token_end
-                          acc1 = case temp of
-                            PresentInt idx -> int_list_insert_unique idx acc
-                            _ -> acc
-                      in collect_temp_refs_loop request_handle token_end end false acc1
-                    _ -> collect_temp_refs_loop request_handle (start + 1) end false acc
+                  let line_end = find_line_end request_handle start end
+                      next = next_line_start request_handle line_end end
+                  in collect_temp_refs_loop request_handle next end acc
+                _ -> collect_temp_refs_loop request_handle (start + 1) end acc
+            _ -> collect_temp_refs_loop request_handle (start + 1) end acc
+        _ ->
+          case (is_identifier_start_byte b) of
+            true ->
+              let token_end = parse_identifier_end request_handle start end
+                  temp = temp_index_from_token_relaxed request_handle start token_end
+                  acc1 = case temp of
+                    PresentInt idx -> int_list_insert_unique idx acc
+                    _ -> acc
+              in collect_temp_refs_loop request_handle token_end end acc1
             _ ->
-              case (is_identifier_start_byte b) of
+              case (b == 34) of
                 true ->
-                  let token_end = parse_identifier_end request_handle start end
-                      temp = temp_index_from_token_relaxed request_handle start token_end
-                      acc1 = case temp of
-                        PresentInt idx -> int_list_insert_unique idx acc
-                        _ -> acc
-                  in collect_temp_refs_loop request_handle token_end end false acc1
-                _ -> collect_temp_refs_loop request_handle (start + 1) end false acc
+                  let quote_end = scan_find_source_end request_handle (start + 1) end 0
+                      next = case (quote_end > start) of
+                        true -> quote_end
+                        _ -> (start + 1)
+                  in collect_temp_refs_loop request_handle next end acc
+                _ -> collect_temp_refs_loop request_handle (start + 1) end acc
 
 binding_deps_for_temp temp bindings =
   case bindings of
@@ -362,7 +351,7 @@ is_line_keyword request_handle start line_end keyword =
     _ -> false
 
 collect_temp_refs request_handle start end =
-  collect_temp_refs_loop request_handle start end false ListNil
+  collect_temp_refs_loop request_handle start end ListNil
 
 parse_temp_chain_body request_handle line_start fn_end has_let bindings seen_temps =
   case (line_start >= fn_end) of
@@ -726,23 +715,49 @@ scan_function_body_for_deps request_handle i body_end fn_infos reachable changed
   case (i < body_end) of
     true ->
       let b = slice_get_u8 request_handle i
+      in case (b == 45) of
+        true ->
+          case (i + 1 < body_end) of
+            true ->
+              let b2 = slice_get_u8 request_handle (i + 1)
+              in case (b2 == 45) of
+                true ->
+                  let line_end = find_line_end request_handle i body_end
+                      next = next_line_start request_handle line_end body_end
+                  in scan_function_body_for_deps request_handle next body_end fn_infos reachable changed
+                _ -> scan_function_body_token scan_function_body_for_deps request_handle i body_end fn_infos reachable changed
+            _ -> scan_function_body_token scan_function_body_for_deps request_handle i body_end fn_infos reachable changed
+        _ ->
+          case (b == 34) of
+            true ->
+              let quote_end = scan_find_source_end request_handle (i + 1) body_end 0
+                  next = case (quote_end > i + 1) of
+                    true -> quote_end
+                    _ -> (i + 1)
+              in scan_function_body_for_deps request_handle next body_end fn_infos reachable changed
+            _ -> scan_function_body_token scan_function_body_for_deps request_handle i body_end fn_infos reachable changed
+
+scan_function_body_token loop request_handle i body_end fn_infos reachable changed =
+  case (i < body_end) of
+    true ->
+      let b = slice_get_u8 request_handle i
       in case (is_identifier_start_byte b) of
         true ->
           let token_end = parse_identifier_end request_handle i body_end
               token_len = token_end - i
               token_keyword = token_is_keyword request_handle i token_len
           in case token_keyword of
-            true -> scan_function_body_for_deps request_handle token_end body_end fn_infos reachable changed
+            true -> loop request_handle token_end body_end fn_infos reachable changed
             _ ->
               case find_matching_fn_name_for_token request_handle i token_len fn_infos of
                 MissingName ->
-                  scan_function_body_for_deps request_handle token_end body_end fn_infos reachable changed
+                  loop request_handle token_end body_end fn_infos reachable changed
                 PresentName dep_name ->
                   let already_present = name_list_member_by_content dep_name reachable
                       reachable1 = name_list_insert_unique dep_name reachable
                       changed1 = changed || (not already_present)
-                  in scan_function_body_for_deps request_handle token_end body_end fn_infos reachable1 changed1
-        _ -> scan_function_body_for_deps request_handle (i + 1) body_end fn_infos reachable changed
+                  in loop request_handle token_end body_end fn_infos reachable1 changed1
+        _ -> loop request_handle (i + 1) body_end fn_infos reachable changed
     _ -> Pair reachable changed
 
 expand_reachable_once fn_infos request_handle reachable changed =
@@ -807,30 +822,73 @@ emit_temp_reference_rewrite request_handle ownership_mode start end rename_map o
     true -> Pair out out_i
     _ ->
       let b = slice_get_u8 request_handle start
-      in case (is_identifier_start_byte b) of
+      in case (b == 34) of
         true ->
-          let token_end = parse_identifier_end request_handle start end
-                      temp = temp_index_from_token_relaxed request_handle start token_end
-          in case temp of
-            PresentInt old_idx ->
-              case rename_lookup old_idx rename_map of
-                PresentInt new_idx ->
-                  let renamed = emit_temp_name request_handle ownership_mode out out_i new_idx
-                      out1 = case renamed of
-                        Pair out1' _ -> out1'
-                      out_i1 = case renamed of
-                        Pair _ out_i1' -> out_i1'
-                  in emit_temp_reference_rewrite request_handle ownership_mode token_end end rename_map out1 out_i1
-                _ ->
-                  let len = token_end - start
-                      out1 = copy_slice_segment request_handle ownership_mode request_handle start out out_i len 0
-                  in emit_temp_reference_rewrite request_handle ownership_mode token_end end rename_map out1 (out_i + len)
-            _ ->
-              let out1 = slice_set_u8_write request_handle ownership_mode out out_i b
-              in emit_temp_reference_rewrite request_handle ownership_mode (start + 1) end rename_map out1 (out_i + 1)
+          let quote_end = scan_find_source_end request_handle (start + 1) end 0
+              next = case (quote_end > start + 1) of
+                true -> quote_end
+                _ -> (start + 1)
+              span_len = next - start
+              out1 = copy_slice_segment request_handle ownership_mode request_handle start out out_i span_len 0
+          in emit_temp_reference_rewrite
+            request_handle
+            ownership_mode
+            next
+            end
+            rename_map
+            out1
+            (out_i + span_len)
         _ ->
-          let out1 = slice_set_u8_write request_handle ownership_mode out out_i b
-          in emit_temp_reference_rewrite request_handle ownership_mode (start + 1) end rename_map out1 (out_i + 1)
+          case (b == 45) of
+            true ->
+              case (start + 1 < end) of
+                true ->
+                  let b2 = slice_get_u8 request_handle (start + 1)
+                  in case (b2 == 45) of
+                    true ->
+                      let line_end = find_line_end request_handle start end
+                          next = next_line_start request_handle line_end end
+                          span_len = next - start
+                          out1 = copy_slice_segment request_handle ownership_mode request_handle start out out_i span_len 0
+                      in emit_temp_reference_rewrite
+                        request_handle
+                        ownership_mode
+                        next
+                        end
+                        rename_map
+                        out1
+                        (out_i + span_len)
+                    _ ->
+                      let out1 = slice_set_u8_write request_handle ownership_mode out out_i b
+                      in emit_temp_reference_rewrite request_handle ownership_mode (start + 1) end rename_map out1 (out_i + 1)
+                _ ->
+                  let out1 = slice_set_u8_write request_handle ownership_mode out out_i b
+                  in emit_temp_reference_rewrite request_handle ownership_mode (start + 1) end rename_map out1 (out_i + 1)
+            _ ->
+              case (is_identifier_start_byte b) of
+                true ->
+                  let token_end = parse_identifier_end request_handle start end
+                      temp = temp_index_from_token_relaxed request_handle start token_end
+                  in case temp of
+                    PresentInt old_idx ->
+                      case rename_lookup old_idx rename_map of
+                        PresentInt new_idx ->
+                          let renamed = emit_temp_name request_handle ownership_mode out out_i new_idx
+                              out1 = case renamed of
+                                Pair out1' _ -> out1'
+                              out_i1 = case renamed of
+                                Pair _ out_i1' -> out_i1'
+                          in emit_temp_reference_rewrite request_handle ownership_mode token_end end rename_map out1 out_i1
+                        _ ->
+                          let len = token_end - start
+                              out1 = copy_slice_segment request_handle ownership_mode request_handle start out out_i len 0
+                          in emit_temp_reference_rewrite request_handle ownership_mode token_end end rename_map out1 (out_i + len)
+                    _ ->
+                      let out1 = slice_set_u8_write request_handle ownership_mode out out_i b
+                      in emit_temp_reference_rewrite request_handle ownership_mode (start + 1) end rename_map out1 (out_i + 1)
+                _ ->
+                  let out1 = slice_set_u8_write request_handle ownership_mode out out_i b
+                  in emit_temp_reference_rewrite request_handle ownership_mode (start + 1) end rename_map out1 (out_i + 1)
 
 emit_binding_line request_handle ownership_mode binding rename_map live fn_end out out_i =
   case binding of
