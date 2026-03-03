@@ -172,6 +172,7 @@ Smoke gate:
 
 ```bash
 just compile-debug-smoke
+just native-list-fold-fusion-gate
 just native-fold-laws-gate
 just native-entrypoint-dce-strict-gate
 just native-entrypoint-exports-dce-gate
@@ -201,9 +202,13 @@ just native-ir-liveness-size-gate
   `or`, `xor`, `implies`, `&&`, `||`), including eager boolean-method signatures
   (`&&`, `|| : b -> b -> b`) and updated default-instance semantics in
   `docs/clapse-language/references/syntax-reference.md`.
+- Keep class-first prelude alignment as a docs contract:
+  update `compiler.prelude` abstractions, class-method surfaces, and exported
+  rewrite roots together, and keep `Foldable`/`Filterable`/`Buildable`
+  (`foldr`/`foldl`/`filter`/`build`) aligned in the same cycle.
 - Keep prelude abstraction docs aligned with code for: `Pair`/`Maybe`/`List`,
-  `reader`/`state` combinators, `Foldable`/`Buildable` (`foldr`/`build`) law
-  surfaces, and the list-backed `map`/`set` baseline APIs (`*_by`
+  `reader`/`state` combinators, `Foldable`/`Filterable`/`Buildable`
+  (`foldr`/`foldl`/`filter`/`build`) law surfaces, and the list-backed `map`/`set` baseline APIs (`*_by`
   equality-driven operations).
 - Keep declaration-kind naming rules synchronized across docs/examples: `data`
   declarations are Capitalized-only, and lowercase primitive-backed declarations

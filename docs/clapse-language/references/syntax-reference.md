@@ -223,9 +223,13 @@ class Functor f where
 
 class Foldable t where
   foldr : (a -> b -> b) -> b -> t a -> b
+  foldl : (b -> a -> b) -> b -> t a -> b
 
 class Buildable t where
   build : ((a -> t a -> t a) -> t a -> t a) -> t a
+
+class Filterable t where
+  filter : (a -> bool) -> t a -> t a
 
 class Applicative f where
   pure : a -> f a
@@ -278,6 +282,10 @@ instance Functor Maybe where
 
 instance Foldable List where
   foldr = list_foldr
+  foldl = list_foldl
+
+instance Filterable List where
+  filter = list_filter
 
 instance Buildable List where
   build = list_build
@@ -353,6 +361,16 @@ set_insert_by : (a -> a -> bool) -> a -> Set a -> Set a
 These map/set containers are intentionally simple (list-backed) and deterministic.
 They are a functional baseline abstraction layer before introducing specialized
 runtime-backed maps/sets.
+
+Use class methods directly for collection pipelines:
+
+```haskell
+numbers = ListCons 1 (ListCons 2 (ListCons 3 ListNil))
+squared = fmap square numbers
+selected = filter even squared
+sum_left = foldl add 0 selected
+sum_right = foldr add 0 selected
+```
 
 ## Class Dispatch Witness (Kernel)
 

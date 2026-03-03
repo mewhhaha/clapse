@@ -15,6 +15,7 @@ data MaybeIntList = MissingIntList | PresentIntList List
 data TempBinding = TempBinding Int Int Int Int Int Int Int List
 data TempChain = TempChain Int Int Int Int List
 data MaybeTempChain = MissingTempChain | PresentTempChain TempChain
+data MaybeTokenSpan = MissingTokenSpan | PresentTokenSpan Int Int
 data PrunedSourceResult = PrunedSourceOk a | PrunedSourceErr a
 
 keyword_module = str_to_slice "module"
@@ -32,6 +33,11 @@ fallback_root_main = str_to_slice "main"
 entrypoint_exports_key = "\"entrypoint_exports\""
 entrypoint_root_invalid_error = str_to_slice "compile request entrypoint_exports contains invalid root"
 entrypoint_root_unknown_error = str_to_slice "unknown entrypoint root"
+keyword_foldl = str_to_slice "foldl"
+keyword_fmap = str_to_slice "fmap"
+foldl_fmap_replacement_prefix = str_to_slice " = foldl (\\acc x -> "
+foldl_fmap_middle = str_to_slice " acc ("
+foldl_fmap_suffix = str_to_slice " x)) z "
 
 is_space_or_tab_byte b = (b == 32) || (b == 9)
 is_space_tab_or_cr_byte b =
@@ -64,6 +70,13 @@ is_operator_continue_byte b =
   is_operator_head_byte b || (b == 45) || (b == 61)
 is_operator_start_byte b =
   is_operator_head_byte b || (b == 45) || (b == 61)
+
+reverse_list list = reverse_list_impl list ListNil
+
+reverse_list_impl list acc =
+  case list of
+    ListNil -> acc
+    ListCons head rest -> reverse_list_impl rest (ListCons head acc)
 
 skip_line_ws handle i line_end =
   case (i < line_end) of
@@ -262,6 +275,129 @@ line_has_byte handle i line_end byte_value =
         true -> true
         _ -> line_has_byte handle (i + 1) line_end byte_value
     _ -> false
+
+find_comment_start handle i line_end =
+  case (i + 1 < line_end) of
+    true ->
+      let b0 = slice_get_u8 handle i
+          b1 = slice_get_u8 handle (i + 1)
+      in case (b0 == 45 && b1 == 45) of
+        true -> i
+        _ -> find_comment_start handle (i + 1) line_end
+    _ -> line_end
+
+parse_simple_token request_handle start line_end =
+  case (start < line_end) of
+    true ->
+      let b0 = slice_get_u8 request_handle start
+      in case (is_identifier_start_byte b0) of
+        true ->
+          let token_end = parse_identifier_end request_handle start line_end
+              token_len = token_end - start
+          in case is_identifier_span_valid request_handle start token_len of
+            true -> PresentTokenSpan start token_end
+            _ -> MissingTokenSpan
+        _ ->
+          case (is_operator_start_byte b0) of
+            true ->
+              let token_end = parse_operator_end request_handle start line_end
+                  token_len = token_end - start
+              in case is_operator_span_valid request_handle start token_len of
+                true -> PresentTokenSpan start token_end
+                _ -> MissingTokenSpan
+            _ -> MissingTokenSpan
+    _ -> MissingTokenSpan
+
+rewrite_foldl_fmap_in_line request_handle ownership_mode line_start line_end next_line out out_i =
+  let comment_end = find_comment_start request_handle line_start line_end
+      copy_entire_line =
+        let line_len = next_line - line_start
+        in Pair
+          (copy_slice_segment request_handle ownership_mode request_handle line_start out out_i line_len 0)
+          (out_i + line_len)
+  in case parse_top_level_function_name request_handle line_start comment_end of
+    MissingName -> copy_entire_line
+    PresentName fn_name ->
+      case fn_name of
+        NameRef _ fn_name_start fn_name_len ->
+          let after_name = skip_line_ws request_handle (fn_name_start + fn_name_len) comment_end
+          in case (after_name < comment_end && (slice_get_u8 request_handle after_name == 61)) of
+            false -> copy_entire_line
+            true ->
+              let rhs_start = skip_line_ws request_handle (after_name + 1) comment_end
+                  maybe_foldl = parse_simple_token request_handle rhs_start comment_end
+              in case maybe_foldl of
+                MissingTokenSpan -> copy_entire_line
+                PresentTokenSpan foldl_start foldl_end ->
+                  let foldl_len = foldl_end - foldl_start
+                  in case (foldl_len == 5 && segment_eq_slice request_handle foldl_start foldl_len keyword_foldl) of
+                    false -> copy_entire_line
+                    true ->
+                      let arg_f = parse_simple_token request_handle (skip_line_ws request_handle foldl_end comment_end) comment_end
+                      in case arg_f of
+                        MissingTokenSpan -> copy_entire_line
+                        PresentTokenSpan arg_f_start arg_f_end ->
+                          let arg_z = parse_simple_token request_handle (skip_line_ws request_handle arg_f_end comment_end) comment_end
+                          in case arg_z of
+                            MissingTokenSpan -> copy_entire_line
+                            PresentTokenSpan _ arg_z_end ->
+                              let after_arg_z = skip_line_ws request_handle arg_z_end comment_end
+                              in case (after_arg_z < comment_end && (slice_get_u8 request_handle after_arg_z == 40)) of
+                                false -> copy_entire_line
+                                true ->
+                                  let fmap_start = skip_line_ws request_handle (after_arg_z + 1) comment_end
+                                      fmap_end = parse_identifier_end request_handle fmap_start comment_end
+                                      fmap_len = fmap_end - fmap_start
+                                  in case (fmap_len == 4 && segment_eq_slice request_handle fmap_start fmap_len keyword_fmap) of
+                                    false -> copy_entire_line
+                                    true ->
+                                      let arg_g = parse_simple_token request_handle (skip_line_ws request_handle fmap_end comment_end) comment_end
+                                      in case arg_g of
+                                        MissingTokenSpan -> copy_entire_line
+                                        PresentTokenSpan arg_g_start arg_g_end ->
+                                          let arg_xs = parse_simple_token request_handle (skip_line_ws request_handle arg_g_end comment_end) comment_end
+                                          in case arg_xs of
+                                            MissingTokenSpan -> copy_entire_line
+                                            PresentTokenSpan arg_xs_start arg_xs_end ->
+                                              let after_arg_xs = skip_line_ws request_handle arg_xs_end comment_end
+                                              in case (after_arg_xs < comment_end && (slice_get_u8 request_handle after_arg_xs == 41)) of
+                                                false -> copy_entire_line
+                                                true ->
+                                                  let tail = skip_line_ws request_handle (after_arg_xs + 1) comment_end
+                                                  in case (tail == comment_end) of
+                                                    false -> copy_entire_line
+                                                    true ->
+                                                      let lhs_len = (after_name + 1) - line_start
+                                                          out1 = copy_slice_segment request_handle ownership_mode request_handle line_start out out_i lhs_len 0
+                                                          out_i1 = out_i + lhs_len
+                                                          out2 = copy_slice_segment request_handle ownership_mode foldl_fmap_replacement_prefix out1 out_i1 (slice_len foldl_fmap_replacement_prefix) 0
+                                                          out_i2 = out_i1 + (slice_len foldl_fmap_replacement_prefix)
+                                                          out3 = copy_slice_segment request_handle ownership_mode request_handle arg_f_start out2 out_i2 (arg_f_end - arg_f_start) 0
+                                                          out_i3 = out_i2 + (arg_f_end - arg_f_start)
+                                                          out4 = copy_slice_segment request_handle ownership_mode foldl_fmap_middle out3 out_i3 (slice_len foldl_fmap_middle) 0
+                                                          out_i4 = out_i3 + (slice_len foldl_fmap_middle)
+                                                          out5 = copy_slice_segment request_handle ownership_mode request_handle arg_g_start out4 out_i4 (arg_g_end - arg_g_start) 0
+                                                          out_i5 = out_i4 + (arg_g_end - arg_g_start)
+                                                          out6 = copy_slice_segment request_handle ownership_mode foldl_fmap_suffix out5 out_i5 (slice_len foldl_fmap_suffix) 0
+                                                          out_i6 = out_i5 + (slice_len foldl_fmap_suffix)
+                                                          out7 = copy_slice_segment request_handle ownership_mode request_handle arg_xs_start out6 out_i6 (arg_xs_end - arg_xs_start) 0
+                                                          out_i7 = out_i6 + (arg_xs_end - arg_xs_start)
+                                                          line_len = next_line - comment_end
+                                                          out8 = copy_slice_segment request_handle ownership_mode request_handle comment_end out7 out_i7 line_len 0
+                                                      in Pair out8 (out_i7 + line_len)
+
+rewrite_foldl_fmap_in_source request_handle ownership_mode source_end cursor out out_i =
+  case (cursor >= source_end) of
+    true -> Pair out out_i
+    _ ->
+      let line_end = find_line_end request_handle cursor source_end
+          next_line = next_line_start request_handle line_end source_end
+          rewritten = rewrite_foldl_fmap_in_line request_handle ownership_mode cursor line_end next_line out out_i
+          out1 = case rewritten of
+            Pair x _ -> x
+          out_i1 = case rewritten of
+            Pair _ y -> y
+      in rewrite_foldl_fmap_in_source request_handle ownership_mode source_end next_line out1 out_i1
 
 token_is_keyword handle start seg_len =
   segment_eq_slice handle start seg_len keyword_module ||
@@ -516,8 +652,8 @@ parse_temp_chain_body request_handle line_start fn_end has_let bindings seen_tem
                       let token_end = parse_identifier_end request_handle trimmed line_end
                       in case (token_end == trimmed + 2 && segment_eq_at request_handle trimmed keyword_in 0 2 0) of
                         true ->
-                          let expr_start = skip_line_ws request_handle (trimmed + 2) line_end
-                              final = TempChain line_start line_end expr_start line_end (list_reverse bindings)
+                              let expr_start = skip_line_ws request_handle (trimmed + 2) line_end
+                              final = TempChain line_start line_end expr_start line_end (reverse_list bindings)
                           in case (next_line == fn_end) of
                             true -> PresentTempChain final
                             _ ->
@@ -577,8 +713,8 @@ parse_temp_chain_fallback_body request_handle line_start fn_end has_let bindings
                   let token_end = parse_identifier_end request_handle trimmed line_end
                   in case (token_end == trimmed + 2 && segment_eq_at request_handle trimmed keyword_in 0 2 0) of
                     true ->
-                      let expr_start = skip_line_ws request_handle (trimmed + 2) line_end
-                          final = TempChain line_start line_end expr_start line_end (list_reverse bindings)
+                          let expr_start = skip_line_ws request_handle (trimmed + 2) line_end
+                              final = TempChain line_start line_end expr_start line_end (reverse_list bindings)
                       in case (next_line == fn_end) of
                         true -> PresentTempChain final
                         _ ->
@@ -795,7 +931,7 @@ collect_function_infos_loop request_handle source_end line_start open_fn acc =
         MissingName ->
           collect_function_infos_loop request_handle source_end next_start open_fn acc
     _ ->
-      list_reverse (finalize_last_fn_info request_handle source_end open_fn acc)
+      reverse_list (finalize_last_fn_info request_handle source_end open_fn acc)
 
 collect_function_infos request_handle source_start source_end =
   collect_function_infos_loop request_handle source_end source_start OpenFnNone ListNil
@@ -921,7 +1057,7 @@ expand_reachable_fixpoint fn_infos request_handle reachable =
 
 collect_unreachable_spans fn_infos reachable acc =
   case fn_infos of
-    ListNil -> list_reverse acc
+    ListNil -> reverse_list acc
     ListCons fn_info rest ->
       case fn_info of
         FnInfo fn_name fn_start fn_end ->
@@ -1235,11 +1371,15 @@ native_pruned_source_segment_checked_impl request_handle ownership_mode source_s
       unreachable_spans = collect_unreachable_spans fn_infos reachable ListNil
       out = slice_new_u8 source_len
       rewritten = emit_pruned_source request_handle ownership_mode source_end fn_infos unreachable_spans out 0 source_start
-      out_len = case rewritten of
-        Pair _ out_len' -> out_len'
-      out1 = case rewritten of
-        Pair out1' _ -> out1'
-  in PrunedSourceOk (SourceSegment out1 0 out_len)
+      rewrite_out = slice_new_u8 (source_len * 2 + 128)
+      rewritten_len = case rewritten of
+        Pair _ rewritten_len' -> rewritten_len'
+      fused = rewrite_foldl_fmap_in_source out ownership_mode rewritten_len 0 rewrite_out 0
+      fused_out = case fused of
+        Pair x _ -> x
+      fused_len = case fused of
+        Pair _ y -> y
+  in PrunedSourceOk (SourceSegment fused_out 0 fused_len)
 
 native_pruned_source_segment request_handle ownership_mode req_len source_start source_len =
   case native_pruned_source_segment_checked request_handle ownership_mode req_len source_start source_len of

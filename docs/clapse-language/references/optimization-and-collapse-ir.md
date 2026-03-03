@@ -77,6 +77,7 @@ This inventory is canonical and machine-checked against
 - [pass:class_law_collection_map_identity] status: partially implemented
 - [pass:class_law_collection_map_fusion] status: partially implemented
 - [pass:class_law_collection_foldr_map_fusion] status: partially implemented
+- [pass:class_law_collection_foldl_map_fusion] status: partially implemented
 - [pass:class_law_collection_foldr_build_fusion] status: partially implemented
 - [pass:class_law_strictness_gated_fixedpoint] status: implemented
 - [pass:currying_normalization] status: not implemented
@@ -465,14 +466,27 @@ Collection law set currently implemented in class-law scheduler:
 - `foldr f z (map g xs)` -> `foldr (compose f g) z xs`
 - `foldr f z (build g)` -> `g f z`
 
+Request-shaped foldl/map fusion currently ships through the native source
+rewrite path (`[pass:class_law_collection_foldl_map_fusion]`) rather than the
+class-law scheduler:
+
+- `foldl f z (fmap g xs)` -> `foldl (\acc x -> f acc (g x)) z xs`
+- rewrite is deterministic and shape-guarded (simple single-line top-level
+  function equation form only)
+- activation is request-shaped: explicit `entrypoint_exports` roots in runner
+  compile paths
+
+`native-list-fold-fusion-gate` validates this contract by asserting baseline
+`main` keeps the unfused `foldl ... (fmap ...)` shape, while explicit-root
+request shaping rewrites `main` to the fused form in `collapsed_ir.txt`.
+
 Current activation status:
 
-- These folds are implemented through a bounded fixed-point rewrite driver over
-  the shared `ClassLawRule` registry, with deterministic rule ordering over a
-  `ClassLawRule` registry and monotonic-cost guard.
-- They are not yet wired as a mandatory compile-stage rewrite in the active
-  `compile_response` route (which currently uses host compile passthrough for
-  ready requests).
+- Class-law fold rules (`foldr/map`, `foldr/build`) are implemented through a
+  bounded fixed-point rewrite driver over the shared `ClassLawRule` registry
+  with deterministic rule ordering and monotonic-cost guard.
+- Request-shaped `foldl/fmap` fusion is active in runner compile paths when
+  explicit `entrypoint_exports` roots are provided.
 
 ### Strict law-driven optimization extension (implemented)
 

@@ -50,6 +50,12 @@
       "scope": "rewrite"
     },
     {
+      "id": "class_law_collection_foldl_map_fusion",
+      "status": "partially implemented",
+      "title": "Guarded foldl/fmap fusion law (foldl f z (fmap g xs))",
+      "scope": "rewrite"
+    },
+    {
       "id": "class_law_collection_foldr_build_fusion",
       "status": "partially implemented",
       "title": "Guarded foldr/build fusion law (foldr f z (build g))",

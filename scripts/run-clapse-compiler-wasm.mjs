@@ -472,6 +472,32 @@ function rewriteAliasQualifiedRefs(rawLine, aliasMap) {
   return rewritten + commentPart;
 }
 
+const SIMPLE_FUSION_TOKEN_PATTERN =
+  "(?:[A-Za-z_][A-Za-z0-9_']*|[!#$%&*+./:<=>?@\\\\^|~-]+)";
+const FOLDL_FMAP_LINE_RE = new RegExp(
+  `^(\\s*[^=\\n]+?=\\s*)foldl\\s+(${SIMPLE_FUSION_TOKEN_PATTERN})\\s+(${SIMPLE_FUSION_TOKEN_PATTERN})\\s*\\(\\s*fmap\\s+(${SIMPLE_FUSION_TOKEN_PATTERN})\\s+(${SIMPLE_FUSION_TOKEN_PATTERN})\\s*\\)\\s*$`,
+  "u",
+);
+
+function rewriteFoldlFmapLine(rawLine) {
+  const line = String(rawLine);
+  const commentAt = line.indexOf("--");
+  const codePart = commentAt >= 0 ? line.slice(0, commentAt) : line;
+  const commentPart = commentAt >= 0 ? line.slice(commentAt) : "";
+  if (/^\s/u.test(codePart)) {
+    return line;
+  }
+  if (parseFunctionDefinitionName(codePart).length === 0) {
+    return line;
+  }
+  const match = codePart.match(FOLDL_FMAP_LINE_RE);
+  if (!match) {
+    return line;
+  }
+  const [, lhs, f, z, g, xs] = match;
+  return `${lhs}foldl (\\acc x -> ${f} acc (${g} x)) ${z} ${xs}${commentPart}`;
+}
+
 function isPrunableImportedDeclarationLine(rawLine) {
   if (/^\s/.test(rawLine)) {
     return false;
@@ -992,6 +1018,7 @@ async function buildDemandDrivenCompileInput(
     : entryInfo.exportNames.length > 0
     ? [...entryInfo.exportNames]
     : ["main"];
+  const enableFoldlFmapFusion = explicitRoots.length > 0;
 
   const moduleRoots = new Map();
   const moduleImportUsage = new Map();
@@ -1287,7 +1314,12 @@ async function buildDemandDrivenCompileInput(
         }
         continue;
       }
-      lines.push(rewriteAliasQualifiedRefs(rawLine, aliasMap));
+      const aliasRewritten = rewriteAliasQualifiedRefs(rawLine, aliasMap);
+      lines.push(
+        enableFoldlFmapFusion
+          ? rewriteFoldlFmapLine(aliasRewritten)
+          : aliasRewritten,
+      );
     }
     if (lines.length > 0) {
       mergedSections.push(lines.join("\n"));
