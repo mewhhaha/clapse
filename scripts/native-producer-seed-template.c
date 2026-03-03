@@ -29,6 +29,9 @@ static const char SOURCE_VERSION[] = "{{SOURCE_VERSION_LITERAL}}";
 
 static const char JSON_ERROR_PREFIX[] = "{\"ok\":false,\"error\":\"";
 static const char JSON_ERROR_SUFFIX[] = "\"}";
+static const char ENTRYPOINT_ROOT_INVALID_ERROR[] =
+  "compile request entrypoint_exports contains invalid root";
+static const char ENTRYPOINT_ROOT_UNKNOWN_ERROR[] = "unknown entrypoint root";
 
 static const char COMPILE_PREFIX[] = "{\"ok\":true,\"backend\":\"kernel-native\",\"wasm_base64\":\"";
 static const char COMPILE_MID_A[] = "\",\"exports\":[{\"name\":\"clapse_run\",\"arity\":1},{\"name\":\"main\",\"arity\":1}],\"dts\":\"export declare function clapse_run(request_handle: number): number;\\nexport declare function main(arg0: number): number;\\n\",\"artifacts\":{\"lowered_ir.txt\":\"(lowered_ir) ";
@@ -341,6 +344,21 @@ static int is_ident_continue(uint8_t b) {
   return is_ident_start(b) || (b >= '0' && b <= '9') || b == '\'';
 }
 
+static int is_operator_head(uint8_t b) {
+  return b == '!' || b == '#' || b == '$' || b == '%' || b == '&' ||
+    b == '*' || b == '+' || b == '.' || b == '/' || b == ':' || b == '<' ||
+    b == '>' || b == '?' || b == '@' || b == '\\' || b == '^' || b == '|' ||
+    b == '~';
+}
+
+static int is_operator_continue(uint8_t b) {
+  return is_operator_head(b) || b == '-' || b == '=';
+}
+
+static int is_operator_start(uint8_t b) {
+  return is_operator_head(b) || b == '-' || b == '=';
+}
+
 static int names_equal(NameSpan left, NameSpan right) {
   if (!left.ok || !right.ok || left.len != right.len) {
     return 0;
@@ -432,6 +450,83 @@ static uint32_t source_parse_ident_end(Segment source, uint32_t at, uint32_t lin
   return i;
 }
 
+static uint32_t source_parse_operator_end(Segment source, uint32_t at, uint32_t line_end) {
+  uint8_t *mem = (uint8_t *) (uintptr_t) source.ptr;
+  if (at >= line_end) {
+    return at;
+  }
+  uint8_t b0 = mem[at];
+  if (b0 == '=') {
+    if (at + 1u >= line_end || !is_operator_continue(mem[at + 1u])) {
+      return at;
+    }
+    at += 2u;
+  } else if (b0 == '-') {
+    if (at + 1u >= line_end || !is_operator_continue(mem[at + 1u])) {
+      return at + 1u;
+    }
+    at += 2u;
+  } else if (is_operator_head(b0)) {
+    at += 1u;
+  } else {
+    return at;
+  }
+  while (at < line_end && is_operator_continue(mem[at])) {
+    at += 1u;
+  }
+  return at;
+}
+
+static int is_root_name_span_valid(NameSpan name) {
+  if (!name.ok || name.len == 0u) {
+    return 0;
+  }
+  uint8_t *mem = (uint8_t *) (uintptr_t) name.ptr;
+  uint8_t b0 = mem[0];
+  if (is_ident_start(b0)) {
+    for (uint32_t i = 1u; i < name.len; i += 1u) {
+      if (!is_ident_continue(mem[i])) {
+        return 0;
+      }
+    }
+    return 1;
+  }
+  if (b0 == '=') {
+    if (name.len < 2u || !is_operator_continue(mem[1u])) {
+      return 0;
+    }
+    for (uint32_t i = 2u; i < name.len; i += 1u) {
+      if (!is_operator_continue(mem[i])) {
+        return 0;
+      }
+    }
+    return 1;
+  }
+  if (b0 == '-') {
+    if (name.len == 1u) {
+      return 1;
+    }
+    if (!is_operator_continue(mem[1u])) {
+      return 0;
+    }
+    for (uint32_t i = 2u; i < name.len; i += 1u) {
+      if (!is_operator_continue(mem[i])) {
+        return 0;
+      }
+    }
+    return 1;
+  }
+  if (is_operator_head(b0)) {
+    for (uint32_t i = 1u; i < name.len; i += 1u) {
+      if (!is_operator_continue(mem[i])) {
+        return 0;
+      }
+    }
+    return 1;
+  }
+  return 0;
+}
+
 static int is_keyword_name(NameSpan name) {
   return namespan_equals_literal(name, "module") ||
     namespan_equals_literal(name, "import") ||
@@ -511,7 +606,38 @@ static void mark_temp_uses(
   uint8_t *mem = (uint8_t *) (uintptr_t) source.ptr;
   uint32_t i = start;
   while (i < end) {
-    if (!is_ident_start(mem[i])) {
+    uint8_t b = mem[i];
+    if (b == '-' && i + 1u < end && mem[i + 1u] == '-') {
+      while (i < end && mem[i] != '\n') {
+        i += 1u;
+      }
+      continue;
+    }
+    if (b == '"') {
+      uint32_t j = i + 1u;
+      int escaped = 0;
+      while (j < end) {
+        uint8_t c = mem[j];
+        if (escaped) {
+          escaped = 0;
+          j += 1u;
+          continue;
+        }
+        if (c == '\\') {
+          escaped = 1;
+          j += 1u;
+          continue;
+        }
+        if (c == '"') {
+          j += 1u;
+          break;
+        }
+        j += 1u;
+      }
+      i = j;
+      continue;
+    }
+    if (!is_ident_start(b)) {
       i += 1u;
       continue;
     }
@@ -690,6 +816,40 @@ static int rewrite_function_temp_lines(
       continue;
     }
     for (uint32_t at = line->line_start; at < line->line_end; ) {
+      if (src[at] == '-' && at + 1u < line->line_end && src[at + 1u] == '-') {
+        while (at < line->line_end) {
+          dst[*cursor] = src[at];
+          *cursor += 1u;
+          at += 1u;
+        }
+        continue;
+      }
+      if (src[at] == '"') {
+        uint32_t j = at;
+        int escaped = 0;
+        while (j < line->line_end) {
+          uint8_t c = src[j];
+          dst[*cursor] = c;
+          *cursor += 1u;
+          if (escaped) {
+            escaped = 0;
+            j += 1u;
+            continue;
+          }
+          if (c == '\\') {
+            escaped = 1;
+            j += 1u;
+            continue;
+          }
+          if (c == '"') {
+            j += 1u;
+            break;
+          }
+          j += 1u;
+        }
+        at = j;
+        continue;
+      }
       if (!is_ident_start(src[at])) {
         dst[*cursor] = src[at];
         *cursor += 1u;
@@ -794,15 +954,26 @@ static int parse_top_level_decl(Segment source, uint32_t line_start, uint32_t li
   if (mem[trimmed] == '-' && trimmed + 1u < line_end && mem[trimmed + 1u] == '-') {
     return 0;
   }
-  if (!is_ident_start(mem[trimmed])) {
+  uint8_t b0 = mem[trimmed];
+  uint32_t name_end = 0u;
+  if (is_ident_start(b0)) {
+    name_end = source_parse_ident_end(source, trimmed, line_end);
+  } else if (is_operator_start(b0)) {
+    name_end = source_parse_operator_end(source, trimmed, line_end);
+  } else {
     return 0;
   }
-  uint32_t name_end = source_parse_ident_end(source, trimmed, line_end);
+  if (name_end <= trimmed) {
+    return 0;
+  }
   NameSpan name;
   name.ptr = source.ptr + trimmed;
   name.len = name_end - trimmed;
   name.ok = name.len > 0u;
-  if (!name.ok || is_keyword_name(name)) {
+  if (!name.ok) {
+    return 0;
+  }
+  if (is_ident_start(b0) && is_keyword_name(name)) {
     return 0;
   }
   uint32_t eq_at = name_end;
@@ -835,15 +1006,29 @@ static NameSpan missing_name_span(void) {
 static NameSpan parse_body_head_call_name(Segment source, FnDecl decl) {
   uint8_t *mem = (uint8_t *) (uintptr_t) source.ptr;
   uint32_t at = source_skip_line_ws(source, decl.body_start, decl.body_end);
-  if (at >= decl.body_end || !is_ident_start(mem[at])) {
+  if (at >= decl.body_end) {
     return missing_name_span();
   }
-  uint32_t end = source_parse_ident_end(source, at, decl.body_end);
+  uint8_t b0 = mem[at];
+  uint32_t end = 0u;
+  if (is_ident_start(b0)) {
+    end = source_parse_ident_end(source, at, decl.body_end);
+  } else if (is_operator_start(b0)) {
+    end = source_parse_operator_end(source, at, decl.body_end);
+  } else {
+    return missing_name_span();
+  }
+  if (end <= at) {
+    return missing_name_span();
+  }
   NameSpan name;
   name.ptr = source.ptr + at;
   name.len = end - at;
   name.ok = name.len > 0u;
-  if (!name.ok || is_keyword_name(name)) {
+  if (!name.ok) {
+    return missing_name_span();
+  }
+  if (is_ident_start(b0) && is_keyword_name(name)) {
     return missing_name_span();
   }
   return name;
@@ -879,15 +1064,28 @@ static uint32_t collect_export_roots_from_source(Segment source, NameSpan *roots
                (mem[at] == ' ' || mem[at] == '\t' || mem[at] == ',')) {
           at += 1u;
         }
-        if (at >= line_end || !is_ident_start(mem[at])) {
+        if (at >= line_end) {
           break;
         }
-        uint32_t name_end = source_parse_ident_end(source, at, line_end);
+        uint32_t name_end = at;
+        uint8_t b0 = mem[at];
+        if (is_ident_start(b0)) {
+          name_end = source_parse_ident_end(source, at, line_end);
+        } else if (is_operator_start(b0)) {
+          name_end = source_parse_operator_end(source, at, line_end);
+        } else {
+          at += 1u;
+          continue;
+        }
+        if (name_end <= at) {
+          at += 1u;
+          continue;
+        }
         NameSpan root;
         root.ptr = source.ptr + at;
         root.len = name_end - at;
         root.ok = root.len > 0u;
-        if (root.ok && !is_keyword_name(root)) {
+        if (root.ok && (!is_ident_start(b0) || !is_keyword_name(root))) {
           roots_count = roots_push_unique(root, roots, roots_count);
         }
         at = name_end;
@@ -961,15 +1159,20 @@ static uint32_t json_key_value_end_top_level(uint32_t req_ptr, uint32_t req_len,
   return req_len;
 }
 
-static int collect_entrypoint_roots_from_request(uint32_t req_ptr, uint32_t req_len, NameSpan *roots, uint32_t *roots_count) {
+static int collect_entrypoint_roots_from_request(
+  uint32_t req_ptr,
+  uint32_t req_len,
+  NameSpan *roots,
+  uint32_t *roots_count,
+  int *saw_invalid_root
+) {
   const char *key = "\"entrypoint_exports\"";
-  uint32_t key_len = cstr_len(key);
   uint32_t at = json_key_value_end_top_level(req_ptr, req_len, key);
   if (at == req_len) {
     return 0;
   }
   uint8_t *req = (uint8_t *) (uintptr_t) req_ptr;
-  uint32_t i = at + key_len;
+  uint32_t i = at;
   while (i < req_len && req[i] != ':') {
     i += 1u;
   }
@@ -984,6 +1187,7 @@ static int collect_entrypoint_roots_from_request(uint32_t req_ptr, uint32_t req_
     return 0;
   }
   i += 1u;
+  *saw_invalid_root = 0;
   uint32_t before = *roots_count;
   while (i < req_len) {
     while (i < req_len && (is_ws(req[i]) || req[i] == ',')) {
@@ -1021,7 +1225,11 @@ static int collect_entrypoint_roots_from_request(uint32_t req_ptr, uint32_t req_
       root.ptr = req_ptr + name_start;
       root.len = i - name_start;
       root.ok = root.len > 0u;
-      *roots_count = roots_push_unique(root, roots, *roots_count);
+      if (is_root_name_span_valid(root)) {
+        *roots_count = roots_push_unique(root, roots, *roots_count);
+      } else {
+        *saw_invalid_root = 1;
+      }
     }
     if (i < req_len && req[i] == '"') {
       i += 1u;
@@ -1061,6 +1269,22 @@ static void seed_reachable(FnDecl *decls, uint32_t decl_count, NameSpan *roots, 
   }
 }
 
+static int roots_have_unknown_names(FnDecl *decls, uint32_t decl_count, NameSpan *roots, uint32_t roots_count) {
+  for (uint32_t r = 0u; r < roots_count; r += 1u) {
+    int found = 0;
+    for (uint32_t i = 0u; i < decl_count; i += 1u) {
+      if (names_equal(roots[r], decls[i].name)) {
+        found = 1;
+        break;
+      }
+    }
+    if (!found) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 static void expand_reachable(Segment source, FnDecl *decls, uint32_t decl_count, int *reachable) {
   uint8_t *mem = (uint8_t *) (uintptr_t) source.ptr;
   int changed = 1;
@@ -1072,11 +1296,28 @@ static void expand_reachable(Segment source, FnDecl *decls, uint32_t decl_count,
       }
       uint32_t at = decls[i].body_start;
       while (at < decls[i].body_end) {
-        if (!is_ident_start(mem[at])) {
+        if (mem[at] == '-' && at + 1u < decls[i].body_end && mem[at + 1u] == '-') {
+          at = source_line_end(source, at);
+          continue;
+        }
+        if (mem[at] == '"') {
+          uint32_t next = json_string_end(source.ptr, at, decls[i].body_end);
+          at = next > at ? next : at + 1u;
+          continue;
+        }
+        uint32_t tok_end = at;
+        if (is_ident_start(mem[at])) {
+          tok_end = source_parse_ident_end(source, at, decls[i].body_end);
+        } else if (is_operator_start(mem[at])) {
+          tok_end = source_parse_operator_end(source, at, decls[i].body_end);
+        } else {
           at += 1u;
           continue;
         }
-        uint32_t tok_end = source_parse_ident_end(source, at, decls[i].body_end);
+        if (tok_end <= at) {
+          at += 1u;
+          continue;
+        }
         NameSpan tok;
         tok.ptr = source.ptr + at;
         tok.len = tok_end - at;
@@ -1223,16 +1464,24 @@ static Segment prune_compile_source(
   uint32_t req_len,
   Segment source_seg,
   int *has_entrypoint_override_out,
-  int enable_request_shape_pruning
+  int enable_request_shape_pruning,
+  const char **error_out
 ) {
   NameSpan *roots = roots_workspace;
   uint32_t roots_count = 0u;
+  int saw_invalid_root = 0;
+  *error_out = 0;
   *has_entrypoint_override_out = collect_entrypoint_roots_from_request(
     req_ptr,
     req_len,
     roots,
-    &roots_count
+    &roots_count,
+    &saw_invalid_root
   );
+  if (*has_entrypoint_override_out && (saw_invalid_root || roots_count == 0u)) {
+    *error_out = ENTRYPOINT_ROOT_INVALID_ERROR;
+    return missing_segment();
+  }
   if (!*has_entrypoint_override_out && !enable_request_shape_pruning) {
     return source_seg;
   }
@@ -1251,7 +1500,16 @@ static Segment prune_compile_source(
   int *reachable = reachable_workspace;
   uint32_t decl_count = collect_fn_decls(source_seg, decls, MAX_FN_DECLS);
   if (decl_count == 0u) {
+    if (*has_entrypoint_override_out) {
+      *error_out = ENTRYPOINT_ROOT_UNKNOWN_ERROR;
+      return missing_segment();
+    }
     return source_seg;
+  }
+  if (*has_entrypoint_override_out &&
+      roots_have_unknown_names(decls, decl_count, roots, roots_count)) {
+    *error_out = ENTRYPOINT_ROOT_UNKNOWN_ERROR;
+    return missing_segment();
   }
   seed_reachable(decls, decl_count, roots, roots_count, reachable);
   expand_reachable(source_seg, decls, decl_count, reachable);
@@ -1463,14 +1721,19 @@ int32_t clapse_run(int32_t request_handle) {
         segment_equals_literal(mode_seg, "kernel-debug") ||
         segment_equals_literal(mode_seg, "kernel-native-debug");
     }
+    const char *prune_error_message = 0;
     Segment pruned_source = prune_compile_source(
       req_ptr,
       req_len,
       source_seg,
       &has_entrypoint_override,
-      enable_entrypoint_pruning
+      enable_entrypoint_pruning,
+      &prune_error_message
     );
     if (!pruned_source.ok) {
+      if (prune_error_message != 0) {
+        return (int32_t) build_error_response(prune_error_message);
+      }
       return (int32_t) build_error_response("compile request pruning failed");
     }
     return (int32_t) build_compile_response(pruned_source, has_entrypoint_override);

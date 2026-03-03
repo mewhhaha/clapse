@@ -338,6 +338,13 @@ function compileRequestNeedsCompilerAbiOutput(requestObject) {
   return mode === "kernel-native" && isCompilerKernelInputPath(requestObject);
 }
 
+function isKernelNativeCompileRequest(requestObject) {
+  if (!isCompileLikeRequest(requestObject)) {
+    return false;
+  }
+  return compileMode(requestObject) === "kernel-native";
+}
+
 function assertCompileArtifactsContract(responseObject) {
   const artifacts = responseObject.artifacts;
   assertObject(artifacts, "compile response.artifacts");
@@ -496,6 +503,11 @@ export async function callCompilerWasm(path, requestObject, options = {}) {
   const { instance, runtime, wasmBytes } = await loadCompilerWasm(path);
   const requestForWire = requestObject;
   if (isCompileLikeRequest(requestForWire) && isWasmBootstrapSeedEnabled()) {
+    if (isKernelNativeCompileRequest(requestForWire)) {
+      throw new Error(
+        "kernel-native compile rejects CLAPSE_USE_WASM_BOOTSTRAP_SEED=1; disable seed mode for strict native requests",
+      );
+    }
     const seededResponse = await buildWasmSeedCompileResponse(requestForWire, {
       seedWasmBytes: wasmBytes,
     });
@@ -533,6 +545,11 @@ export async function callCompilerWasmRaw(path, requestObject) {
   const { instance, runtime, wasmBytes } = await loadCompilerWasm(path);
   const requestForWire = requestObject;
   if (isCompileLikeRequest(requestForWire) && isWasmBootstrapSeedEnabled()) {
+    if (isKernelNativeCompileRequest(requestForWire)) {
+      throw new Error(
+        "kernel-native compile rejects CLAPSE_USE_WASM_BOOTSTRAP_SEED=1; disable seed mode for strict native requests",
+      );
+    }
     return await buildWasmSeedCompileResponse(requestForWire, {
       seedWasmBytes: wasmBytes,
     });

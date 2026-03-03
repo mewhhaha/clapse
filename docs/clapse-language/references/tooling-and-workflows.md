@@ -5,10 +5,10 @@
 Use the deno frontend CLI (host I/O boundary; kernel owns language behavior):
 
 ```bash
-deno run -A scripts/clapse.mjs compile <input.clapse> [output.wasm]
-deno run -A scripts/clapse.mjs compile-native <input.clapse> [output.wasm]
-deno run -A scripts/clapse.mjs compile-native-debug <input.clapse> [output.wasm] [artifacts-dir]
-deno run -A scripts/clapse.mjs compile-debug <input.clapse> [output.wasm] [artifacts-dir]
+deno run -A scripts/clapse.mjs compile <input.clapse> [output.wasm] [--entrypoint-export <name>] [--entrypoint-exports <csv>]
+deno run -A scripts/clapse.mjs compile-native <input.clapse> [output.wasm] [--entrypoint-export <name>] [--entrypoint-exports <csv>]
+deno run -A scripts/clapse.mjs compile-native-debug <input.clapse> [output.wasm] [artifacts-dir] [--entrypoint-export <name>] [--entrypoint-exports <csv>]
+deno run -A scripts/clapse.mjs compile-debug <input.clapse> [output.wasm] [artifacts-dir] [--entrypoint-export <name>] [--entrypoint-exports <csv>]
 deno run -A scripts/clapse.mjs emit-wat <input.clapse> [output.wat]
 deno run -A scripts/clapse.mjs format <file>
 deno run -A scripts/clapse.mjs format --write <file>
@@ -38,6 +38,8 @@ deno run -A scripts/clapse.mjs bench [iterations]
     Runner requests now forward `entrypoint_exports` directly and rely on
     native compiler response shaping for reachability pruning and import closure
     handling.
+    Explicit roots accept identifier names and symbolic operator names.
+    Unknown explicit roots now fail compile with `unknown entrypoint root`.
     Unreachable top-level function definitions are removed in the native
     compile stage before compile artifacts are emitted.
     Non-kernel compile responses emit a reachability-shaped wasm bundle in the
@@ -68,10 +70,13 @@ deno run -A scripts/clapse.mjs bench [iterations]
     `scripts/wasm-bootstrap-seed.mjs` while reusing a trusted compiler wasm
     payload for `wasm_base64`.
     The same flag also applies in `scripts/wasm-compiler-abi.mjs` for
-    `callCompilerWasm` and `callCompilerWasmRaw` compile requests.
+    `callCompilerWasm` and `callCompilerWasmRaw`, but only for non-
+    `kernel-native` compile requests.
+    `kernel-native` compile requests fail closed when
+    `CLAPSE_USE_WASM_BOOTSTRAP_SEED=1` is set.
     Compile-request auto-fallback has been removed from the ABI path. Use
-    `CLAPSE_USE_WASM_BOOTSTRAP_SEED=1` explicitly when bootstrap-seed shaping is
-    desired for compile requests.
+    `CLAPSE_USE_WASM_BOOTSTRAP_SEED=1` explicitly only for non-`kernel-native`
+    bootstrap-seed shaping.
     The helper CLI is
     `deno run -A scripts/ts-seed/run-bootstrap-seed.mjs --request '<json>' --seed-wasm <path>`.
   - `just clapse-bin`/`just install` embed `artifacts/latest/clapse_compiler.wasm`

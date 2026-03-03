@@ -215,12 +215,17 @@ function normalizeEntrypointExportRoots(rawRoots) {
   if (!Array.isArray(rawRoots)) {
     return [];
   }
+  const identifierPattern = /^[A-Za-z_][A-Za-z0-9_']*$/u;
+  const operatorPattern =
+    /^(?:[!#$%&*+./<>?@\\^|~:][!#$%&*+./<=>?@\\^|~:-]*|=[!#$%&*+./<=?@\\^|~:-][!#$%&*+./<=>?@\\^|~:-]*|-(?:[!#$%&*+./<=?@\\^|~:-][!#$%&*+./<=>?@\\^|~:-]*)?)$/u;
   const out = [];
   const seen = new Set();
   for (const root of rawRoots) {
     const name = String(root ?? "").trim();
-    if (!/^[A-Za-z_][A-Za-z0-9_']*$/u.test(name)) {
-      continue;
+    if (!identifierPattern.test(name) && !operatorPattern.test(name)) {
+      throw new Error(
+        `invalid entrypoint root '${name}' (expected identifier or operator symbol)`,
+      );
     }
     if (seen.has(name)) {
       continue;
@@ -229,6 +234,43 @@ function normalizeEntrypointExportRoots(rawRoots) {
     out.push(name);
   }
   return out;
+}
+
+function parseCompileCommandArgs(rawArgs) {
+  const entrypointRootsRaw = [];
+  const positionals = [];
+  for (let i = 0; i < rawArgs.length; i += 1) {
+    const token = rawArgs[i];
+    if (token === "--entrypoint-export") {
+      const next = rawArgs[i + 1];
+      if (typeof next !== "string") {
+        throw new Error(
+          "usage: --entrypoint-export <name>",
+        );
+      }
+      entrypointRootsRaw.push(next);
+      i += 1;
+      continue;
+    }
+    if (token === "--entrypoint-exports") {
+      const next = rawArgs[i + 1];
+      if (typeof next !== "string") {
+        throw new Error(
+          "usage: --entrypoint-exports <comma-separated-names>",
+        );
+      }
+      for (const part of next.split(",")) {
+        entrypointRootsRaw.push(part);
+      }
+      i += 1;
+      continue;
+    }
+    positionals.push(token);
+  }
+  return {
+    positionals,
+    entrypointExports: normalizeEntrypointExportRoots(entrypointRootsRaw),
+  };
 }
 
 async function compilePluginsWasm(wasmPath, inputPath, options = {}) {
@@ -339,10 +381,10 @@ function usage() {
     "  deno run -A scripts/run-clapse-compiler-wasm.mjs <clapse-args...>",
     "",
     "Supported commands:",
-    "  compile <input.clapse> [output.wasm]",
-    "  compile-native <input.clapse> [output.wasm] (alias: compile_native)",
-    "  compile-native-debug <input.clapse> [output.wasm] [artifacts-dir] (alias: compile_native_debug)",
-    "  compile-debug <input.clapse> [output.wasm] [artifacts-dir] (alias: compile_debug)",
+    "  compile <input.clapse> [output.wasm] [--entrypoint-export <name>] [--entrypoint-exports <csv>]",
+    "  compile-native <input.clapse> [output.wasm] [--entrypoint-export <name>] [--entrypoint-exports <csv>] (alias: compile_native)",
+    "  compile-native-debug <input.clapse> [output.wasm] [artifacts-dir] [--entrypoint-export <name>] [--entrypoint-exports <csv>] (alias: compile_native_debug)",
+    "  compile-debug <input.clapse> [output.wasm] [artifacts-dir] [--entrypoint-export <name>] [--entrypoint-exports <csv>] (alias: compile_debug)",
     "  emit-wat <input.clapse> [output.wat]",
     "  selfhost-artifacts <input.clapse> <out-dir>",
     "  format <file>",
@@ -370,6 +412,7 @@ function usage() {
     "  kernel-native compile pruning is owned by the native compiler response",
     "  shape. Request payload keeps `entrypoint_exports` if provided and falls",
     "  back to source exports then `main` when unset.",
+    "  Unknown explicit roots now fail compile with an error.",
     "  `CLAPSE_ENTRYPOINT_DCE` and `CLAPSE_INTERNAL_ENTRYPOINT_DCE` are",
     "  legacy toggles and do not affect compile request shaping.",
   ].join("\n");
@@ -1023,11 +1066,13 @@ export async function runWithArgs(rawArgs = cliArgs()) {
   }
   await validateCompilerWasmAbi(wasmPath);
   if (args[0] === "compile") {
-    if (args.length < 2 || args.length > 3) {
+    const parsed = parseCompileCommandArgs(args.slice(1));
+    if (parsed.positionals.length < 1 || parsed.positionals.length > 2) {
       throw new Error("usage: compile <input.clapse> [output.wasm]");
     }
-    const inputPath = args[1];
-    const outputPath = args[2] ?? inputPath.replace(/\.clapse$/u, ".wasm");
+    const inputPath = parsed.positionals[0];
+    const outputPath = parsed.positionals[1] ??
+      inputPath.replace(/\.clapse$/u, ".wasm");
     const compileEngine = String(Deno.env.get("CLAPSE_COMPILE_ENGINE") ?? "")
       .trim()
       .toLowerCase();
@@ -1041,53 +1086,63 @@ export async function runWithArgs(rawArgs = cliArgs()) {
     }
     await compileViaWasm(wasmPath, inputPath, outputPath, {
       compileMode: "kernel-native",
+      entrypointExports: parsed.entrypointExports,
     });
     return;
   }
   if (args[0] === "compile-native") {
-    if (args.length < 2 || args.length > 3) {
+    const parsed = parseCompileCommandArgs(args.slice(1));
+    if (parsed.positionals.length < 1 || parsed.positionals.length > 2) {
       throw new Error("usage: compile-native <input.clapse> [output.wasm]");
     }
-    const inputPath = args[1];
-    const outputPath = args[2] ?? inputPath.replace(/\.clapse$/u, ".wasm");
+    const inputPath = parsed.positionals[0];
+    const outputPath = parsed.positionals[1] ??
+      inputPath.replace(/\.clapse$/u, ".wasm");
     await compileViaWasm(wasmPath, inputPath, outputPath, {
       compileMode: "kernel-native",
+      entrypointExports: parsed.entrypointExports,
     });
     return;
   }
   if (args[0] === "compile-native-debug") {
-    if (args.length < 2 || args.length > 4) {
+    const parsed = parseCompileCommandArgs(args.slice(1));
+    if (parsed.positionals.length < 1 || parsed.positionals.length > 3) {
       throw new Error(
         "usage: compile-native-debug <input.clapse> [output.wasm] [artifacts-dir]",
       );
     }
-    const inputPath = args[1];
-    const outputPath = args[2] ?? inputPath.replace(/\.clapse$/u, ".wasm");
+    const inputPath = parsed.positionals[0];
+    const outputPath = parsed.positionals[1] ??
+      inputPath.replace(/\.clapse$/u, ".wasm");
     const defaultArtifactsDir = pathDir(outputPath);
-    const artifactsDir = args[3] ??
+    const artifactsDir = parsed.positionals[2] ??
       (defaultArtifactsDir.length > 0 ? defaultArtifactsDir : ".");
     await compileViaWasm(wasmPath, inputPath, outputPath, {
       compileMode: "native-debug",
       requireCompileArtifacts: true,
       artifactsDir,
+      entrypointExports: parsed.entrypointExports,
     });
     return;
   }
   if (args[0] === "compile-debug") {
-    if (args.length < 2 || args.length > 4) {
+    const parsed = parseCompileCommandArgs(args.slice(1));
+    if (parsed.positionals.length < 1 || parsed.positionals.length > 3) {
       throw new Error(
         "usage: compile-debug <input.clapse> [output.wasm] [artifacts-dir]",
       );
     }
-    const inputPath = args[1];
-    const outputPath = args[2] ?? inputPath.replace(/\.clapse$/u, ".wasm");
+    const inputPath = parsed.positionals[0];
+    const outputPath = parsed.positionals[1] ??
+      inputPath.replace(/\.clapse$/u, ".wasm");
     const defaultArtifactsDir = pathDir(outputPath);
-    const artifactsDir = args[3] ??
+    const artifactsDir = parsed.positionals[2] ??
       (defaultArtifactsDir.length > 0 ? defaultArtifactsDir : ".");
     await compileViaWasm(wasmPath, inputPath, outputPath, {
       compileMode: "debug",
       requireCompileArtifacts: true,
       artifactsDir,
+      entrypointExports: parsed.entrypointExports,
     });
     return;
   }

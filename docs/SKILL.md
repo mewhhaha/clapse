@@ -102,8 +102,8 @@ CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scri
 Use:
 
 ```bash
-deno run -A scripts/run-clapse-compiler-wasm.mjs compile-debug <input.clapse> [output.wasm] [artifacts-dir]
-deno run -A scripts/run-clapse-compiler-wasm.mjs compile_debug <input.clapse> [output.wasm] [artifacts-dir]
+deno run -A scripts/run-clapse-compiler-wasm.mjs compile-debug <input.clapse> [output.wasm] [artifacts-dir] [--entrypoint-export <name>] [--entrypoint-exports <csv>]
+deno run -A scripts/run-clapse-compiler-wasm.mjs compile_debug <input.clapse> [output.wasm] [artifacts-dir] [--entrypoint-export <name>] [--entrypoint-exports <csv>]
 ```
 
 The command returns a single compile response with:
@@ -118,6 +118,8 @@ Entrypoint reachability pruning now runs in the native compiler response path:
   graphing
 - `entrypoint_exports` is passed through to native compiler requests; when unset,
   kernel response shaping falls back to source exports then `main`
+- explicit roots now accept identifiers and symbolic operator names; unknown
+  explicit roots fail compile (`unknown entrypoint root`)
 - top-level function definitions not reachable from roots are removed in the
   native compile stage before compile artifacts are emitted
 - source-pruned `collapsed_ir.txt` now appends tail-recursion markers for
@@ -128,6 +130,9 @@ Entrypoint reachability pruning now runs in the native compiler response path:
   renumbered densely from `t0` when request-shape pruning is active
   (`entrypoint_exports` set, or `compile_mode` set to `debug`,
   `native-debug`, `kernel-debug`, or `kernel-native-debug`)
+- temp liveness no longer treats `tN`-looking tokens in comments or string
+  literals as live references during native temp-chain pruning, so dead
+  temporaries hidden behind those regions are removed correctly.
 - `CLAPSE_ENTRYPOINT_DCE` and `CLAPSE_INTERNAL_ENTRYPOINT_DCE` remain as
   legacy toggles but no longer control request shaping behavior
 - non-kernel compile responses now emit a reachability-shaped wasm bundle in the
@@ -284,7 +289,9 @@ just native-ir-liveness-size-gate
   plus raw source-version propagation checks
   (`just native-source-version-propagation-gate [wasm] [hops]`), and only
   retains a bootstrap seed artifact when that seed already passes the same
-  checks. If `deno compile` cannot run (for example offline `denort` download
+  checks. It now also requires native temp-chain pruning/renumbering to pass
+  (`native-temp-pruning-gate`) before accepting a freshly compiled artifact.
+  If `deno compile` cannot run (for example offline `denort` download
   failures), `just install` now reuses an existing `artifacts/bin/clapse` when
   present, otherwise emits a `deno run` shim at `artifacts/bin/clapse`.
   `just clapse-bin`, `just install`, and `just release-candidate` now remove
@@ -458,21 +465,24 @@ just native-ir-liveness-size-gate
   `CLAPSE_USE_WASM_BOOTSTRAP_SEED=1` routes compile commands in
   `scripts/run-clapse-compiler-wasm.mjs` through
   `scripts/wasm-bootstrap-seed.mjs` using a trusted compiler wasm payload. The
-  same env flag now also routes compile requests through the bootstrap seed
-  adapter in `scripts/wasm-compiler-abi.mjs` (`callCompilerWasm` and
-  `callCompilerWasmRaw`) so producer diagnostics can be run against the
-  temporary seed path. Compile-request auto-fallback has been removed; use
-  `CLAPSE_USE_WASM_BOOTSTRAP_SEED=1` explicitly when bootstrap-seed shaping is
-  desired. Bootstrap and pre-tag targets set
+  same env flag now also routes non-`kernel-native` compile requests through
+  the bootstrap seed adapter in `scripts/wasm-compiler-abi.mjs`
+  (`callCompilerWasm` and `callCompilerWasmRaw`) so producer diagnostics can be
+  run against the temporary seed path. `kernel-native` compile requests fail
+  closed when `CLAPSE_USE_WASM_BOOTSTRAP_SEED=1` is set. Compile-request
+  auto-fallback has been removed; use `CLAPSE_USE_WASM_BOOTSTRAP_SEED=1`
+  explicitly only for non-`kernel-native` bootstrap-seed shaping. Bootstrap and
+  pre-tag targets set
   `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1` explicitly while running strict
   producer checks, and run source-version propagation gates in raw mode without
   bootstrap fallback. Verify this path with
   `just native-bootstrap-seed-smoke [wasm=...]`.
   `just bootstrap-strict-native-seed` is the canonical local generator for a
   strict-native bootstrap seed artifact (`artifacts/strict-native/seed.wasm`).
-  It now retains a pre-existing seed only when both
-  `native-strict-producer-check` and `native-source-version-propagation-gate`
-  pass. When retention fails, it first tries promoting a validated
+  It now retains a pre-existing seed only when
+  `native-strict-producer-check`, `native-source-version-propagation-gate`,
+  `native-entrypoint-dce-strict-gate`, and `native-entrypoint-exports-dce-gate`
+  all pass. When retention fails, it first tries promoting a validated
   `artifacts/strict-native/native_producer_seed.wasm`, and only then falls back
   to rebuilding via `just bootstrap-native-producer-seed`.
   `just bootstrap-native-producer-seed [seed] [out] [meta] [depth] [source_version]`

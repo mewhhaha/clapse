@@ -56,6 +56,22 @@ function readCompileArtifactsOrThrow(response, label) {
   };
 }
 
+function assertErrorResponse(response, label, expectedErrorFragment) {
+  assert(
+    isObject(response),
+    `native-entrypoint-exports-dce-gate: ${label} response must be an object`,
+  );
+  assert(
+    response.ok === false,
+    `native-entrypoint-exports-dce-gate: ${label} response must be ok=false`,
+  );
+  const errorText = String(response.error ?? "");
+  assert(
+    errorText.includes(expectedErrorFragment),
+    `native-entrypoint-exports-dce-gate: ${label} error should include '${expectedErrorFragment}', got '${errorText}'`,
+  );
+}
+
 function buildCompileRequest(inputPath, source, entrypointExports = null) {
   const request = {
     command: "compile",
@@ -78,12 +94,14 @@ async function run() {
   try {
     const inputPath = `${tmpDir}/entrypoint_exports_gate.clapse`;
     const deadMarker = `native-entrypoint-exports-dead-${crypto.randomUUID()}`;
+    const operatorMarker = `native-entrypoint-exports-op-${crypto.randomUUID()}`;
     const source = [
-      "export main, helper",
+      "export main, helper, +.",
       "main x = keep x",
       "keep x = x",
       `helper x = dead_fn x -- ${deadMarker}`,
       "dead_fn x = x",
+      `+. x y = helper x -- ${operatorMarker}`,
       "",
     ].join("\n");
     await Deno.writeTextFile(inputPath, source);
@@ -107,17 +125,49 @@ async function run() {
     const subset = readCompileArtifactsOrThrow(subsetResponse, "subset");
     const subsetHasDead = subset.lowered.includes(deadMarker) ||
       subset.collapsed.includes(deadMarker);
+    const subsetHasOperator = subset.lowered.includes(operatorMarker) ||
+      subset.collapsed.includes(operatorMarker);
     assert(
       !subsetHasDead,
       "native-entrypoint-exports-dce-gate: subset-root artifacts should prune helper/dead marker",
+    );
+    assert(
+      !subsetHasOperator,
+      "native-entrypoint-exports-dce-gate: subset-root artifacts should prune operator marker",
     );
     assert(
       subset.wasmBytes.length < baseline.wasmBytes.length,
       `native-entrypoint-exports-dce-gate: subset-root wasm bytes should strictly shrink (${subset.wasmBytes.length} >= ${baseline.wasmBytes.length})`,
     );
 
+    const operatorRootResponse = await callCompilerWasmRaw(
+      wasmPath,
+      buildCompileRequest(inputPath, source, ["+."]),
+    );
+    const operatorRoot = readCompileArtifactsOrThrow(
+      operatorRootResponse,
+      "operator-root",
+    );
+    const operatorRootHasOperator = operatorRoot.lowered.includes(
+      operatorMarker,
+    ) || operatorRoot.collapsed.includes(operatorMarker);
+    assert(
+      operatorRootHasOperator,
+      "native-entrypoint-exports-dce-gate: operator-root artifacts should keep operator marker",
+    );
+
+    const unknownRootResponse = await callCompilerWasmRaw(
+      wasmPath,
+      buildCompileRequest(inputPath, source, ["missing_entrypoint_root"]),
+    );
+    assertErrorResponse(
+      unknownRootResponse,
+      "unknown-root",
+      "unknown entrypoint root",
+    );
+
     console.log(
-      `native-entrypoint-exports-dce-gate: PASS (baseline=${baseline.wasmBytes.length}; subset=${subset.wasmBytes.length}; roots=main)`,
+      `native-entrypoint-exports-dce-gate: PASS (baseline=${baseline.wasmBytes.length}; subset-main=${subset.wasmBytes.length}; subset-operator=${operatorRoot.wasmBytes.length}; roots=main,+.)`,
     );
   } finally {
     await Deno.remove(tmpDir, { recursive: true }).catch(() => {});

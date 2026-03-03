@@ -2,7 +2,7 @@ module compiler.native_compile_reachability
 import compiler.prelude
 import compiler.scan
 import compiler.json_response_helpers
-export SourceSegment, native_pruned_source_segment
+export SourceSegment, PrunedSourceResult, native_pruned_source_segment, native_pruned_source_segment_checked
 
 data NameRef = NameRef a b c
 data MaybeNameRef = MissingName | PresentName a
@@ -15,6 +15,7 @@ data MaybeIntList = MissingIntList | PresentIntList List
 data TempBinding = TempBinding Int Int Int Int Int Int Int List
 data TempChain = TempChain Int Int Int Int List
 data MaybeTempChain = MissingTempChain | PresentTempChain TempChain
+data PrunedSourceResult = PrunedSourceOk a | PrunedSourceErr a
 
 keyword_module = str_to_slice "module"
 keyword_import = str_to_slice "import"
@@ -29,6 +30,8 @@ keyword_let = str_to_slice "let"
 keyword_in = str_to_slice "in"
 fallback_root_main = str_to_slice "main"
 entrypoint_exports_key = "\"entrypoint_exports\""
+entrypoint_root_invalid_error = str_to_slice "compile request entrypoint_exports contains invalid root"
+entrypoint_root_unknown_error = str_to_slice "unknown entrypoint root"
 
 is_space_or_tab_byte b = (b == 32) || (b == 9)
 is_space_tab_or_cr_byte b =
@@ -38,6 +41,29 @@ is_ascii_upper b = (b >= 65) && (b <= 90)
 is_ascii_digit b = (b >= 48) && (b <= 57)
 is_identifier_start_byte b = is_ascii_lower b || is_ascii_upper b || (b == 95)
 is_identifier_continue_byte b = is_identifier_start_byte b || is_ascii_digit b || (b == 39)
+is_operator_head_byte b =
+  (b == 33) || -- !
+  (b == 35) || -- #
+  (b == 36) || -- $
+  (b == 37) || -- %
+  (b == 38) || -- &
+  (b == 42) || -- *
+  (b == 43) || -- +
+  (b == 46) || -- .
+  (b == 47) || -- /
+  (b == 58) || -- :
+  (b == 60) || -- <
+  (b == 62) || -- >
+  (b == 63) || -- ?
+  (b == 64) || -- @
+  (b == 92) || -- \
+  (b == 94) || -- ^
+  (b == 124) || -- |
+  (b == 126) -- ~
+is_operator_continue_byte b =
+  is_operator_head_byte b || (b == 45) || (b == 61)
+is_operator_start_byte b =
+  is_operator_head_byte b || (b == 45) || (b == 61)
 
 skip_line_ws handle i line_end =
   case (i < line_end) of
@@ -142,12 +168,89 @@ is_identifier_span_valid handle start seg_len =
         _ -> false
     _ -> false
 
+is_operator_span_valid_rest handle i end =
+  case (i == end) of
+    true -> true
+    _ ->
+      let b = slice_get_u8 handle i
+      in case (is_operator_continue_byte b) of
+        true -> is_operator_span_valid_rest handle (i + 1) end
+        _ -> false
+
+is_operator_span_valid handle start seg_len =
+  case (seg_len > 0) of
+    true ->
+      let b0 = slice_get_u8 handle start
+          end = start + seg_len
+      in case (b0 == 61) of
+        true ->
+          case (start + 1 < end) of
+            true ->
+              let b1 = slice_get_u8 handle (start + 1)
+              in case (is_operator_continue_byte b1) of
+                true -> is_operator_span_valid_rest handle (start + 2) end
+                _ -> false
+            _ -> false
+        _ ->
+          case (b0 == 45) of
+            true ->
+              case (start + 1 < end) of
+                true ->
+                  let b1 = slice_get_u8 handle (start + 1)
+                  in case (is_operator_continue_byte b1) of
+                    true -> is_operator_span_valid_rest handle (start + 2) end
+                    _ -> false
+                _ -> true
+            _ ->
+              case (is_operator_head_byte b0) of
+                true -> is_operator_span_valid_rest handle (start + 1) end
+                _ -> false
+    _ -> false
+
 parse_identifier_end handle i line_end =
   case (i < line_end) of
     true ->
       let b = slice_get_u8 handle i
       in case (is_identifier_continue_byte b) of
         true -> parse_identifier_end handle (i + 1) line_end
+        _ -> i
+    _ -> i
+
+parse_operator_end handle start line_end =
+  case (start < line_end) of
+    true ->
+      let b0 = slice_get_u8 handle start
+      in case (b0 == 61) of
+        true ->
+          case (start + 1 < line_end) of
+            true ->
+              let b1 = slice_get_u8 handle (start + 1)
+              in case (is_operator_continue_byte b1) of
+                true -> parse_operator_end_loop handle (start + 2) line_end
+                _ -> start
+            _ -> start
+        _ ->
+          case (b0 == 45) of
+            true ->
+              case (start + 1 < line_end) of
+                true ->
+                  let b1 = slice_get_u8 handle (start + 1)
+                  in case (is_operator_continue_byte b1) of
+                    true -> parse_operator_end_loop handle (start + 2) line_end
+                    _ -> start + 1
+                _ -> start + 1
+            _ ->
+              case (is_operator_head_byte b0) of
+                true -> parse_operator_end_loop handle (start + 1) line_end
+                _ -> start
+    _ -> start
+
+parse_operator_end_loop handle i line_end =
+  case (i < line_end) of
+    true ->
+      let b = slice_get_u8 handle i
+      in case (is_operator_continue_byte b) of
+        true -> parse_operator_end_loop handle (i + 1) line_end
         _ -> i
     _ -> i
 
@@ -338,7 +441,18 @@ parse_top_level_function_name_at handle start line_end =
                 case (line_has_byte handle name_end line_end 61) of
                   true -> PresentName (NameRef handle start name_len)
                   _ -> MissingName
-            _ -> MissingName
+            _ ->
+              case (is_operator_start_byte b0) of
+                true ->
+                  let name_end = parse_operator_end handle start line_end
+                      name_len = name_end - start
+                  in case (name_len > 0) of
+                    true ->
+                      case (line_has_byte handle name_end line_end 61) of
+                        true -> PresentName (NameRef handle start name_len)
+                        _ -> MissingName
+                    _ -> MissingName
+                _ -> MissingName
 
 is_line_keyword request_handle start line_end keyword =
   let keyword_len = slice_len keyword
@@ -513,7 +627,7 @@ skip_export_delims handle i line_end =
         _ -> i
     _ -> i
 
-collect_identifier_names_in_line handle i line_end acc =
+collect_export_names_in_line handle i line_end acc =
   let at = skip_export_delims handle i line_end
   in case (at < line_end) of
     true ->
@@ -526,8 +640,18 @@ collect_identifier_names_in_line handle i line_end acc =
                 case (token_is_keyword handle at name_len) of
                   true -> acc
                   _ -> name_list_insert_unique (NameRef handle at name_len) acc
-          in collect_identifier_names_in_line handle name_end line_end acc1
-        _ -> collect_identifier_names_in_line handle (at + 1) line_end acc
+          in collect_export_names_in_line handle name_end line_end acc1
+        _ ->
+          case (is_operator_start_byte b) of
+            true ->
+              let name_end = parse_operator_end handle at line_end
+                  name_len = name_end - at
+              in case (name_len > 0) of
+                true ->
+                  let acc1 = name_list_insert_unique (NameRef handle at name_len) acc
+                  in collect_export_names_in_line handle name_end line_end acc1
+                _ -> collect_export_names_in_line handle (at + 1) line_end acc
+            _ -> collect_export_names_in_line handle (at + 1) line_end acc
     _ -> acc
 
 collect_export_roots_from_source handle source_end line_start acc =
@@ -544,7 +668,7 @@ collect_export_roots_from_source handle source_end line_start acc =
           after_export = skip_line_ws handle (trimmed + export_len) line_end
           acc1 =
             case has_prefix of
-              true -> collect_identifier_names_in_line handle after_export line_end acc
+              true -> collect_export_names_in_line handle after_export line_end acc
               _ -> acc
       in collect_export_roots_from_source handle source_end next_start acc1
     _ -> acc
@@ -630,7 +754,7 @@ collect_entrypoint_roots request_handle i req_len acc =
                     _ ->
                       let name_len = name_end - name_start
                           acc1 =
-                            case (name_len > 0 && is_identifier_span_valid request_handle name_start name_len) of
+                            case (name_len > 0 && (is_identifier_span_valid request_handle name_start name_len || is_operator_span_valid request_handle name_start name_len)) of
                               true -> name_list_insert_unique (NameRef request_handle name_start name_len) acc
                               _ -> acc
                           post_name = scan_skip_ws request_handle name_end req_len
@@ -757,7 +881,23 @@ scan_function_body_token loop request_handle i body_end fn_infos reachable chang
                       reachable1 = name_list_insert_unique dep_name reachable
                       changed1 = changed || (not already_present)
                   in loop request_handle token_end body_end fn_infos reachable1 changed1
-        _ -> loop request_handle (i + 1) body_end fn_infos reachable changed
+        _ ->
+          case (is_operator_start_byte b) of
+            true ->
+              let token_end = parse_operator_end request_handle i body_end
+                  token_len = token_end - i
+              in case (token_len > 0) of
+                true ->
+                  case find_matching_fn_name_for_token request_handle i token_len fn_infos of
+                    MissingName ->
+                      loop request_handle token_end body_end fn_infos reachable changed
+                    PresentName dep_name ->
+                      let already_present = name_list_member_by_content dep_name reachable
+                          reachable1 = name_list_insert_unique dep_name reachable
+                          changed1 = changed || (not already_present)
+                      in loop request_handle token_end body_end fn_infos reachable1 changed1
+                _ -> loop request_handle (i + 1) body_end fn_infos reachable changed
+            _ -> loop request_handle (i + 1) body_end fn_infos reachable changed
     _ -> Pair reachable changed
 
 expand_reachable_once fn_infos request_handle reachable changed =
@@ -1058,20 +1198,50 @@ resolve_root_names request_handle req_len source_start source_end =
         _ -> export_roots
     _ -> explicit_roots
 
-native_pruned_source_segment request_handle ownership_mode req_len source_start source_len =
+all_roots_known roots fn_infos =
+  case roots of
+    ListNil -> true
+    ListCons root rest ->
+      case find_matching_fn_name_for_root root fn_infos of
+        MissingName -> false
+        _ -> all_roots_known rest fn_infos
+
+native_pruned_source_segment_checked request_handle ownership_mode req_len source_start source_len =
   let source_end = source_start + source_len
       fn_infos = collect_function_infos request_handle source_start source_end
+      explicit_roots = entrypoint_roots_from_request request_handle req_len
       roots = resolve_root_names request_handle req_len source_start source_end
       seeded = seed_reachable_from_roots roots fn_infos ListNil
-  in case seeded of
-    ListNil -> SourceSegment request_handle source_start source_len
+      explicit_array_present = find_entrypoint_exports_array_start request_handle req_len != req_len
+      explicit_roots_known = all_roots_known explicit_roots fn_infos
+  in case explicit_array_present of
+    true ->
+      case explicit_roots of
+        ListNil -> PrunedSourceErr entrypoint_root_invalid_error
+        _ ->
+          case explicit_roots_known of
+            true ->
+              case seeded of
+                ListNil -> PrunedSourceErr entrypoint_root_unknown_error
+                _ -> native_pruned_source_segment_checked_impl request_handle ownership_mode source_start source_len source_end fn_infos seeded
+            _ -> PrunedSourceErr entrypoint_root_unknown_error
     _ ->
-      let reachable = expand_reachable_fixpoint fn_infos request_handle seeded
-          unreachable_spans = collect_unreachable_spans fn_infos reachable ListNil
-          out = slice_new_u8 source_len
-          rewritten = emit_pruned_source request_handle ownership_mode source_end fn_infos unreachable_spans out 0 source_start
-          out_len = case rewritten of
-            Pair _ out_len' -> out_len'
-          out1 = case rewritten of
-            Pair out1' _ -> out1'
-      in SourceSegment out1 0 out_len
+      case seeded of
+        ListNil -> PrunedSourceOk (SourceSegment request_handle source_start source_len)
+        _ -> native_pruned_source_segment_checked_impl request_handle ownership_mode source_start source_len source_end fn_infos seeded
+
+native_pruned_source_segment_checked_impl request_handle ownership_mode source_start source_len source_end fn_infos seeded =
+  let reachable = expand_reachable_fixpoint fn_infos request_handle seeded
+      unreachable_spans = collect_unreachable_spans fn_infos reachable ListNil
+      out = slice_new_u8 source_len
+      rewritten = emit_pruned_source request_handle ownership_mode source_end fn_infos unreachable_spans out 0 source_start
+      out_len = case rewritten of
+        Pair _ out_len' -> out_len'
+      out1 = case rewritten of
+        Pair out1' _ -> out1'
+  in PrunedSourceOk (SourceSegment out1 0 out_len)
+
+native_pruned_source_segment request_handle ownership_mode req_len source_start source_len =
+  case native_pruned_source_segment_checked request_handle ownership_mode req_len source_start source_len of
+    PrunedSourceOk segment -> segment
+    PrunedSourceErr _ -> SourceSegment request_handle source_start source_len

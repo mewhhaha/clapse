@@ -13,7 +13,9 @@ async function run() {
     prefix: "clapse-native-entrypoint-dce-strict-gate-",
   });
   try {
-    const marker = `native-entrypoint-dce-strict-gate-${crypto.randomUUID()}`;
+    const deadFnMarker = `native-entrypoint-dce-strict-gate-${crypto.randomUUID()}`;
+    const deadOperatorMarker =
+      `native-entrypoint-dce-operator-gate-${crypto.randomUUID()}`;
     const inputPath = `${tmpDir}/gate.clapse`;
     const outputPath = `${tmpDir}/gate.wasm`;
     const artifactsDir = `${tmpDir}/artifacts`;
@@ -21,7 +23,8 @@ async function run() {
       "export main",
       "main x = keep x",
       "keep x = x",
-      `dead_fn x = x -- ${marker}`,
+      `dead_fn x = x -- ${deadFnMarker}`,
+      `+. x y = x -- ${deadOperatorMarker}`,
       "",
     ].join("\n");
     await Deno.writeTextFile(inputPath, source);
@@ -32,12 +35,20 @@ async function run() {
       `${artifactsDir}/collapsed_ir.txt`,
     );
     assert(
-      !lowered.includes(marker),
+      !lowered.includes(deadFnMarker),
       "native-entrypoint-dce-strict-gate: lowered_ir.txt still contains dead_fn marker with native request-shape pruning",
     );
     assert(
-      !collapsed.includes(marker),
+      !collapsed.includes(deadFnMarker),
       "native-entrypoint-dce-strict-gate: collapsed_ir.txt still contains dead_fn marker with native request-shape pruning",
+    );
+    assert(
+      !lowered.includes(deadOperatorMarker),
+      "native-entrypoint-dce-strict-gate: lowered_ir.txt still contains dead operator marker with native request-shape pruning",
+    );
+    assert(
+      !collapsed.includes(deadOperatorMarker),
+      "native-entrypoint-dce-strict-gate: collapsed_ir.txt still contains dead operator marker with native request-shape pruning",
     );
     console.log("native-entrypoint-dce-strict-gate: PASS");
   } finally {
