@@ -302,6 +302,59 @@ pow base exp = case eq exp 0 of
 main = pow 3 10
 `,
   },
+  {
+    id: "prelude-id",
+    label: "Prelude: id",
+    source: `import "prelude"
+
+export main
+
+main = id 7
+`,
+  },
+  {
+    id: "prelude-map-fold",
+    label: "Prelude: List map + fold",
+    source: `import "prelude"
+
+export main
+
+square x = mul x x
+
+numbers = ListCons 1 (ListCons 2 (ListCons 3 ListNil))
+
+main = list_foldl add 0 (list_map square numbers)
+`,
+  },
+  {
+    id: "collapse-dead-code",
+    label: "Collapsed: dead function",
+    source: `export main
+
+keep_if_zero x = case eq x 0 of
+  true -> 0
+  _ -> 0
+
+dead_branch x = case eq x 0 of
+  true -> 1
+  _ -> mul (add x x) (dead_branch (sub x 1))
+
+main = keep_if_zero 11
+`,
+  },
+  {
+    id: "collapse-prelude-dead",
+    label: "Collapsed: prelude and dead branch",
+    source: `import "prelude"
+
+export main
+
+unused = id 100
+unused_list = list_filter (\\x -> eq x 20) (ListCons 1 (ListCons 20 (ListCons 5 ListNil)))
+
+main = list_any (\\x -> eq x 20) (list_map (\\x -> x) (ListCons 1 (ListCons 20 ListNil)))
+`,
+  },
 ];
 
 const state = {
