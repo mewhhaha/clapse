@@ -40,6 +40,9 @@ deno run -A scripts/clapse.mjs bench [iterations]
     Specifiers resolve through `clapse.json` `include` paths (for bare
     specifiers) and filesystem-relative resolution for `./`, `../`, and `/`
     specifiers.
+    Built-in prelude aliases (`"prelude"`, `"compiler/prelude"`,
+    `"compiler.prelude"`) resolve to `lib/compiler/prelude.clapse` without
+    requiring `include`.
     Legacy dotted imports (`import module.name`) remain supported but are
     deprecated for new code.
     The runner then executes fixed-point root propagation across modules.
@@ -50,6 +53,9 @@ deno run -A scripts/clapse.mjs bench [iterations]
     modules/functions/imports are compiled. DCE propagation now consumes:
     explicit imported symbol lists, alias-qualified calls (`alias.symbol`), and
     conservative unqualified usage against reachable target exports.
+    Imported-module debug shaping also drops non-runtime declaration noise
+    (`class`/`instance`/`law`/`infix`/`type`) from the runner-pruned source so
+    collapsed IR tracks reachable execution payloads.
     Missing source roots for unresolved imports become hard errors when `include`
     is configured, and always for unresolved relative/absolute quoted imports.
     Explicit roots accept identifier names and symbolic operator names.

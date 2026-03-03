@@ -472,6 +472,92 @@ function rewriteAliasQualifiedRefs(rawLine, aliasMap) {
   return rewritten + commentPart;
 }
 
+function isPrunableImportedDeclarationLine(rawLine) {
+  if (/^\s/.test(rawLine)) {
+    return false;
+  }
+  const trimmed = stripLineComment(rawLine).trim();
+  if (trimmed.length === 0) {
+    return false;
+  }
+  return trimmed.startsWith("class ") ||
+    trimmed.startsWith("instance ") ||
+    trimmed.startsWith("law ") ||
+    trimmed.startsWith("infix ") ||
+    trimmed.startsWith("infixl ") ||
+    trimmed.startsWith("infixr ") ||
+    trimmed.startsWith("type ");
+}
+
+function nextTopLevelBoundaryAfter(lineNo, boundaries, fallbackEnd) {
+  for (const boundary of boundaries) {
+    if (boundary > lineNo) {
+      return boundary;
+    }
+  }
+  return fallbackEnd;
+}
+
+function collectNameTokensFromText(text) {
+  const out = new Set();
+  for (const match of String(text).matchAll(NAME_OR_OPERATOR_TOKEN_RE)) {
+    out.add(match[0]);
+  }
+  return out;
+}
+
+function mergeTokenSet(dst, src) {
+  let changed = false;
+  for (const token of src) {
+    if (!dst.has(token)) {
+      dst.add(token);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function parseTopLevelDataPrimitiveDefinedNames(rawLine) {
+  if (/^\s/.test(rawLine)) {
+    return null;
+  }
+  const trimmed = stripLineComment(rawLine).trim();
+  if (trimmed.startsWith("data ")) {
+    const typeMatch = trimmed.match(/^data\s+([A-Za-z_][A-Za-z0-9_']*)/u);
+    if (!typeMatch) {
+      return null;
+    }
+    const names = new Set([typeMatch[1]]);
+    const eqAt = trimmed.indexOf("=");
+    if (eqAt >= 0 && eqAt + 1 < trimmed.length) {
+      const rhs = trimmed.slice(eqAt + 1);
+      for (const ctorPart of rhs.split("|")) {
+        const ctorMatch = ctorPart.trim().match(/^([A-Za-z_][A-Za-z0-9_']*)/u);
+        if (ctorMatch) {
+          names.add(ctorMatch[1]);
+        }
+      }
+    }
+    return { kind: "data", names };
+  }
+  if (trimmed.startsWith("primitive ")) {
+    const typeMatch = trimmed.match(/^primitive\s+([A-Za-z_][A-Za-z0-9_']*)/u);
+    if (!typeMatch) {
+      return null;
+    }
+    const names = new Set([typeMatch[1]]);
+    const eqAt = trimmed.indexOf("=");
+    if (eqAt >= 0 && eqAt + 1 < trimmed.length) {
+      const rhs = trimmed.slice(eqAt + 1);
+      for (const ctorMatch of rhs.matchAll(/([A-Za-z_][A-Za-z0-9_']*)\s*</gu)) {
+        names.add(ctorMatch[1]);
+      }
+    }
+    return { kind: "primitive", names };
+  }
+  return null;
+}
+
 function parseExportNames(rawLine) {
   const line = stripLineComment(rawLine).trim();
   const match = line.match(/^export\s+(.*)$/u);
@@ -625,6 +711,16 @@ async function resolveQuotedImportSpecifier(
       }
     }
   }
+  if (!spec.startsWith("./") && !spec.startsWith("../") && !spec.startsWith("/")) {
+    const preludeAliases = new Set([
+      "prelude",
+      "compiler/prelude",
+      "compiler.prelude",
+    ]);
+    if (preludeAliases.has(spec)) {
+      addCandidate(toPath(new URL("lib/compiler/prelude.clapse", REPO_ROOT_URL)));
+    }
+  }
 
   for (const candidate of candidates) {
     if (await fileExists(candidate)) {
@@ -758,6 +854,7 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
     moduleName,
     moduleDeclLine,
     sourceLines: lines,
+    topLevelBoundaries: sortedBoundaries,
     importEntries,
     exportNames,
     exportNameSet,
@@ -1017,6 +1114,87 @@ async function buildDemandDrivenCompileInput(
     const droppedSpans = [...info.functionSpans.values()]
       .filter((span) => !roots.has(span.name))
       .sort((a, b) => a.startLine - b.startLine);
+    const prunableDeclSpans = [];
+    if (modulePath !== normalizedEntryPath) {
+      const boundaries = Array.isArray(info.topLevelBoundaries)
+        ? info.topLevelBoundaries
+        : [];
+      const keptFunctionSpans = [...info.functionSpans.values()]
+        .filter((span) => roots.has(span.name));
+      const neededTokens = new Set(roots);
+      for (const span of keptFunctionSpans) {
+        mergeTokenSet(
+          neededTokens,
+          collectNameTokensFromText(
+            span.sourceLines.map((line) => stripLineComment(line)).join("\n"),
+          ),
+        );
+      }
+      const selectiveDecls = [];
+      for (let i = 0; i < info.sourceLines.length; i += 1) {
+        const rawLine = info.sourceLines[i];
+        const endLine = nextTopLevelBoundaryAfter(
+          i,
+          boundaries,
+          info.sourceLines.length,
+        );
+        if (isPrunableImportedDeclarationLine(rawLine)) {
+          prunableDeclSpans.push({
+            startLine: i,
+            endLine,
+          });
+          continue;
+        }
+        const declNames = parseTopLevelDataPrimitiveDefinedNames(rawLine);
+        if (!declNames) {
+          continue;
+        }
+        const spanLines = info.sourceLines.slice(i, endLine);
+        selectiveDecls.push({
+          startLine: i,
+          endLine,
+          names: declNames.names,
+          tokens: collectNameTokensFromText(
+            spanLines.map((line) => stripLineComment(line)).join("\n"),
+          ),
+        });
+      }
+      let selectiveChanged = true;
+      const keepDecls = new Set();
+      while (selectiveChanged) {
+        selectiveChanged = false;
+        for (let i = 0; i < selectiveDecls.length; i += 1) {
+          if (keepDecls.has(i)) {
+            continue;
+          }
+          const decl = selectiveDecls[i];
+          let intersects = false;
+          for (const name of decl.names) {
+            if (neededTokens.has(name)) {
+              intersects = true;
+              break;
+            }
+          }
+          if (!intersects) {
+            continue;
+          }
+          keepDecls.add(i);
+          if (mergeTokenSet(neededTokens, decl.tokens)) {
+            selectiveChanged = true;
+          }
+        }
+      }
+      for (let i = 0; i < selectiveDecls.length; i += 1) {
+        if (keepDecls.has(i)) {
+          continue;
+        }
+        prunableDeclSpans.push({
+          startLine: selectiveDecls[i].startLine,
+          endLine: selectiveDecls[i].endLine,
+        });
+      }
+      prunableDeclSpans.sort((a, b) => a.startLine - b.startLine);
+    }
     const lines = [];
     const importUsage = moduleImportUsage.get(modulePath);
     const emittedImports = new Set();
@@ -1036,6 +1214,7 @@ async function buildDemandDrivenCompileInput(
     }
     const exported = info.exportNames.filter((name) => roots.has(name));
     let dropIdx = 0;
+    let pruneDeclIdx = 0;
     let emittedModule = false;
     let emittedExport = false;
     for (let lineNo = 0; lineNo < info.sourceLines.length; lineNo += 1) {
@@ -1048,6 +1227,19 @@ async function buildDemandDrivenCompileInput(
         dropIdx < droppedSpans.length &&
         lineNo >= droppedSpans[dropIdx].startLine &&
         lineNo < droppedSpans[dropIdx].endLine
+      ) {
+        continue;
+      }
+      while (
+        pruneDeclIdx < prunableDeclSpans.length &&
+        lineNo >= prunableDeclSpans[pruneDeclIdx].endLine
+      ) {
+        pruneDeclIdx += 1;
+      }
+      if (
+        pruneDeclIdx < prunableDeclSpans.length &&
+        lineNo >= prunableDeclSpans[pruneDeclIdx].startLine &&
+        lineNo < prunableDeclSpans[pruneDeclIdx].endLine
       ) {
         continue;
       }

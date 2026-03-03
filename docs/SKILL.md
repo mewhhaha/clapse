@@ -125,6 +125,8 @@ Entrypoint reachability pruning now runs in the runner before compile request:
   - `import "mod/path" as alias`
   plus `clapse.json` `include` search paths for bare specifiers and relative
   resolution for `./`, `../`, `/`
+- prelude aliases (`"prelude"`, `"compiler/prelude"`, `"compiler.prelude"`)
+  resolve to `lib/compiler/prelude.clapse` without extra include configuration
 - legacy dotted imports (`import module.name`) are still supported but deprecated
   for greenfield code
 - if include paths are configured and a module import cannot be resolved, compilation
@@ -134,6 +136,9 @@ Entrypoint reachability pruning now runs in the runner before compile request:
 - per-module reachability is propagated through both local calls and qualified
   `Module.symbol` references, plus explicit imported binding usage, so imported
   module roots are computed transitively until a fixed point
+- imported module debug source shaping now prunes non-runtime declaration noise
+  (`class`/`instance`/`law`/`infix`/`type`) to keep collapsed IR focused on
+  reachable runtime paths
 - only required modules, required imports, and required function definitions are
   included in `inputSourceOverride` sent to `compileViaWasm`
 - `entrypoint_exports` is passed through to native compiler requests; when unset,
