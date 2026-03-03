@@ -325,7 +325,7 @@ main = id 7
   {
     id: "prelude-map-fold",
     label: "Prelude: List map + fold",
-    source: `import "prelude"
+    source: `import "prelude" { add, list_foldl, list_map, ListCons, ListNil, mul }
 
 export main
 
