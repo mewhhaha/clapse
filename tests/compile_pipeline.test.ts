@@ -214,10 +214,9 @@ Deno.test(
 );
 
 Deno.test(
-  "compileDebugWithLoop falls back when entrypoint_exports unsupported",
+  "compileDebugWithLoop fails when entrypoint_exports is unsupported",
   () => {
     const calls: string[] = [];
-    let firstCompileWithExports = true;
     const session = {
       call(request: {
         command: string;
@@ -233,19 +232,7 @@ Deno.test(
         if (request.command !== "compile") {
           throw new Error(`Unexpected command: ${request.command}`);
         }
-
-        if (firstCompileWithExports && request.entrypoint_exports) {
-          firstCompileWithExports = false;
-          return { ok: false, error: "unknown field entrypoint_exports" };
-        }
-        return {
-          ok: true,
-          wasm_base64: "AA==",
-          artifacts: {
-            "lowered_ir.txt": "pass-fallback",
-            "collapsed_ir.txt": "pass-fallback",
-          },
-        };
+        return { ok: false, error: "unknown field entrypoint_exports" };
       },
     };
 
@@ -257,15 +244,18 @@ Deno.test(
       ]),
     });
 
-    if (!result.ok || result.usedEntrypointExports !== false) {
+    if (result.ok) {
       throw new Error(
-        "Expected compile loop to fallback to compile without entrypoint_exports.",
+        "Expected compile loop to fail when entrypoint_exports errors.",
       );
     }
-
-    const fallbackIndex = calls.indexOf("entrypoint=null");
-    if (fallbackIndex < 0) {
-      throw new Error("Expected fallback marker in call log.");
+    if (result.error !== "unknown field entrypoint_exports") {
+      throw new Error(`Unexpected compile error: ${result.error}`);
+    }
+    if (calls.filter((value) => value === "compile").length !== 1) {
+      throw new Error(
+        `Expected single compile attempt, got ${calls.join(",")}.`,
+      );
     }
   },
 );

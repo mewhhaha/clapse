@@ -72,17 +72,6 @@ function normalizeEntrypointExports(value) {
   return out;
 }
 
-function isEntrypointExportError(error) {
-  if (typeof error !== "string") {
-    return false;
-  }
-  return (
-    error.includes("entrypoint_exports") ||
-    error.includes("unsupported field") ||
-    error.includes("unknown field")
-  );
-}
-
 function mergeModuleSourcesByPath(moduleSources, paths) {
   const ordered = [];
   for (const path of paths) {
@@ -226,19 +215,6 @@ export function compileDebugWithLoop({
       includeEntrypointExports,
     });
     if (!compileResult.ok) {
-      if (
-        isEntrypointExportError(compileResult.error) &&
-        (entryRoots.length > 0 || compileSource.length > 0)
-      ) {
-        const fallbackResult = tryDebugCompile(session, compileSource);
-        return {
-          ...fallbackResult,
-          passes: pass,
-          entryRoots,
-          neededModules,
-          usedEntrypointExports: false,
-        };
-      }
       return {
         ...compileResult,
         passes: pass,
