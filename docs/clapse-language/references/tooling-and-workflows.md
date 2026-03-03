@@ -33,16 +33,25 @@ deno run -A scripts/clapse.mjs bench [iterations]
     CLI/runner command aliases are accepted for underscore forms:
     `compile_debug`, `compile_native`, and `compile_native_debug`.
     Entrypoint/module reachability pruning is now prepared at the runner before
-    compile: commands build the import graph from the entry module via
-    configured `clapse.json` `include` paths (`<dir>/<dotted_module_name>.clapse`
-    resolution), then run fixed-point root propagation across modules.
+    compile: commands build the import graph from the entry module via preferred
+    quoted import specifiers:
+    `import "mod/path" { symbol, type TypeName }` and
+    `import "mod/path" as alias`.
+    Specifiers resolve through `clapse.json` `include` paths (for bare
+    specifiers) and filesystem-relative resolution for `./`, `../`, and `/`
+    specifiers.
+    Legacy dotted imports (`import module.name`) remain supported but are
+    deprecated for new code.
+    The runner then executes fixed-point root propagation across modules.
     Roots are explicit `entrypoint_exports` when present, otherwise source
     `export` declarations, with `main` fallback.
     Runner requests now forward the resolved `entrypoint_exports` and a
     demand-driven `inputSourceOverride` to the compiler, so only required
-    modules/functions/imports are compiled. Missing source roots for unresolved
-    imports become hard errors only when `include` is configured; otherwise old
-    fail-open import behavior remains.
+    modules/functions/imports are compiled. DCE propagation now consumes:
+    explicit imported symbol lists, alias-qualified calls (`alias.symbol`), and
+    conservative unqualified usage against reachable target exports.
+    Missing source roots for unresolved imports become hard errors when `include`
+    is configured, and always for unresolved relative/absolute quoted imports.
     Explicit roots accept identifier names and symbolic operator names.
     Unknown explicit roots now fail compile with `unknown entrypoint root`.
     Unreachable top-level function definitions are removed in the native
@@ -404,8 +413,11 @@ Current targets in `Justfile`:
   source file, and compiled program requests pass those artifact paths to the
   compiler as `plugin_wasm_paths`.
 
-- `include` contains directory names. `import` targets are resolved by checking
-  `<dir>/<dotted_module_name>.clapse` for each configured directory.
+- `include` contains directory names. Bare quoted import specifiers are resolved
+  by checking `<dir>/<specifier>` and `<dir>/<specifier>.clapse`
+  (with dotted fallback `<dir>/<specifier_with_dots_as_slashes>.clapse`).
+  Relative/absolute specifiers (`./`, `../`, `/`) resolve from the importing
+  file path.
 
 ## Tree-sitter and Helix
 

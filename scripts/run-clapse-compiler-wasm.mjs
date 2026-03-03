@@ -312,12 +312,164 @@ function parseModuleName(rawLine) {
   return match ? match[1] : "";
 }
 
-function parseImportName(rawLine) {
+function parseImportBindings(rawBindings) {
+  const valueBindings = new Map();
+  const typeBindings = new Map();
+  const raw = String(rawBindings ?? "").trim();
+  if (raw.length === 0) {
+    return { valueBindings, typeBindings };
+  }
+  for (const part of raw.split(",")) {
+    const token = part.trim();
+    if (token.length === 0) {
+      continue;
+    }
+    let isType = false;
+    let bindingText = token;
+    if (bindingText.startsWith("type ")) {
+      isType = true;
+      bindingText = bindingText.slice(5).trim();
+    }
+    if (bindingText.length === 0) {
+      continue;
+    }
+    let importedName = bindingText;
+    let localName = bindingText;
+    const asMatch = bindingText.match(/^(.+?)\s+as\s+(.+)$/u);
+    if (asMatch) {
+      importedName = asMatch[1].trim();
+      localName = asMatch[2].trim();
+    }
+    const imported = normalizeFunctionName(importedName);
+    const local = normalizeFunctionName(localName);
+    if (!isFunctionName(imported) || !isFunctionName(local)) {
+      continue;
+    }
+    if (isType) {
+      if (!typeBindings.has(local)) {
+        typeBindings.set(local, imported);
+      }
+      continue;
+    }
+    if (!valueBindings.has(local)) {
+      valueBindings.set(local, imported);
+    }
+  }
+  return { valueBindings, typeBindings };
+}
+
+function parseImportDecl(rawLine) {
   const line = stripLineComment(rawLine).trim();
-  const match = line.match(
-    /^import\s+([A-Za-z_][A-Za-z0-9_$.']*(?:\.[A-Za-z_][A-Za-z0-9_$.']*)*)/u,
-  );
-  return match ? match[1] : "";
+  if (!line.startsWith("import ")) {
+    return null;
+  }
+  const rest = line.slice("import ".length).trim();
+  if (rest.length === 0) {
+    return null;
+  }
+
+  let isQuoted = false;
+  let moduleName = "";
+  let specifier = "";
+  let remainder = "";
+  let alias = "";
+
+  if (rest.startsWith("\"")) {
+    const quotedMatch = rest.match(/^"([^"]+)"(.*)$/u);
+    if (!quotedMatch) {
+      return null;
+    }
+    isQuoted = true;
+    specifier = quotedMatch[1].trim();
+    remainder = quotedMatch[2].trim();
+  } else {
+    const moduleMatch = rest.match(
+      /^([A-Za-z_][A-Za-z0-9_$.']*(?:\.[A-Za-z_][A-Za-z0-9_$.']*)*)(.*)$/u,
+    );
+    if (!moduleMatch) {
+      return null;
+    }
+    moduleName = moduleMatch[1].trim();
+    remainder = moduleMatch[2].trim();
+  }
+
+  let bindingsRaw = "";
+  if (remainder.length > 0) {
+    const aliasMatch = remainder.match(/^as\s+([A-Za-z_][A-Za-z0-9_']*)$/u);
+    if (aliasMatch) {
+      alias = aliasMatch[1];
+    } else {
+      const bindingsMatch = remainder.match(/^\{(.*)\}$/u);
+      if (!bindingsMatch) {
+        return null;
+      }
+      bindingsRaw = bindingsMatch[1];
+    }
+  }
+  if (alias.length > 0 && bindingsRaw.trim().length > 0) {
+    return null;
+  }
+
+  const { valueBindings, typeBindings } = parseImportBindings(bindingsRaw);
+  return {
+    isQuoted,
+    moduleName,
+    specifier,
+    alias,
+    hasBindingList: bindingsRaw.trim().length > 0,
+    valueBindings,
+    typeBindings,
+    rawLine,
+  };
+}
+
+function isRelativeOrAbsoluteSpecifier(specifier) {
+  const text = String(specifier ?? "");
+  return text.startsWith("./") || text.startsWith("../") || text.startsWith("/");
+}
+
+function importQualifier(importEntry) {
+  const alias = String(importEntry?.alias ?? "").trim();
+  if (alias.length > 0) {
+    return alias;
+  }
+  if (importEntry?.isQuoted === true) {
+    return "";
+  }
+  return String(importEntry?.moduleName ?? "").trim();
+}
+
+function canonicalImportLine(moduleName) {
+  const normalized = String(moduleName ?? "").trim();
+  if (normalized.length === 0) {
+    return "";
+  }
+  return `import ${normalized}`;
+}
+
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function rewriteAliasQualifiedRefs(rawLine, aliasMap) {
+  if (!(aliasMap instanceof Map) || aliasMap.size === 0) {
+    return rawLine;
+  }
+  const line = String(rawLine);
+  const commentAt = line.indexOf("--");
+  const codePart = commentAt >= 0 ? line.slice(0, commentAt) : line;
+  const commentPart = commentAt >= 0 ? line.slice(commentAt) : "";
+  let rewritten = codePart;
+  for (const [alias, targetModuleName] of aliasMap.entries()) {
+    const aliasName = String(alias).trim();
+    const targetName = String(targetModuleName).trim();
+    if (aliasName.length === 0 || targetName.length === 0) {
+      continue;
+    }
+    const pattern = new RegExp(`\\b${escapeRegExp(aliasName)}\\.`, "gu");
+    rewritten = rewritten.replace(pattern, `${targetName}.`);
+  }
+  return rewritten + commentPart;
 }
 
 function parseExportNames(rawLine) {
@@ -430,13 +582,81 @@ async function resolveModuleImport(moduleName, moduleSearchDirs) {
   return "";
 }
 
+async function resolveQuotedImportSpecifier(
+  specifier,
+  currentSourcePath,
+  moduleSearchDirs,
+) {
+  const spec = normalizePath(String(specifier ?? "").trim());
+  if (spec.length === 0) {
+    return "";
+  }
+  const candidates = [];
+  const seen = new Set();
+  const addCandidate = (path) => {
+    const normalized = toAbsolutePath(normalizePath(path));
+    if (normalized.length === 0 || seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    candidates.push(normalized);
+  };
+  const addMaybeClapseCandidate = (path) => {
+    addCandidate(path);
+    if (!String(path).endsWith(".clapse")) {
+      addCandidate(`${path}.clapse`);
+    }
+  };
+
+  if (spec.startsWith("./") || spec.startsWith("../") || spec.startsWith("/")) {
+    const baseDir = pathDir(currentSourcePath);
+    if (spec.startsWith("/")) {
+      addMaybeClapseCandidate(spec);
+    } else {
+      addMaybeClapseCandidate(joinPath(baseDir, spec));
+    }
+  } else if (Array.isArray(moduleSearchDirs) && moduleSearchDirs.length > 0) {
+    const slashPath = spec;
+    const dottedPath = spec.includes("/") ? "" : spec.replace(/\./gu, "/");
+    for (const dir of moduleSearchDirs) {
+      addMaybeClapseCandidate(`${normalizePath(dir)}/${slashPath}`);
+      if (dottedPath.length > 0 && dottedPath !== slashPath) {
+        addMaybeClapseCandidate(`${normalizePath(dir)}/${dottedPath}`);
+      }
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (await fileExists(candidate)) {
+      return candidate;
+    }
+  }
+  return "";
+}
+
+async function resolveImportTarget(importEntry, sourcePath, moduleSearchDirs) {
+  if (!importEntry || typeof importEntry !== "object") {
+    return "";
+  }
+  if (importEntry.isHostModule === true) {
+    return "";
+  }
+  if (importEntry.isQuoted === true) {
+    return await resolveQuotedImportSpecifier(
+      importEntry.specifier,
+      sourcePath,
+      moduleSearchDirs,
+    );
+  }
+  return await resolveModuleImport(importEntry.moduleName, moduleSearchDirs);
+}
+
 function parseModuleSourceInfo(sourceText, sourcePath) {
   const source = String(sourceText);
   const lines = source.split(/\r?\n/);
   let moduleName = "";
   let moduleDeclLine = "";
-  const imports = [];
-  const importLines = [];
+  const importEntries = [];
   const exportNames = [];
   const exportNameSet = new Set();
   const functionDefLines = [];
@@ -458,10 +678,21 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
       if (isTopLevelBoundaryLine(rawLine)) boundaryLines.push(i);
       continue;
     }
-    const importName = parseImportName(rawLine);
-    if (importName.length > 0) {
-      imports.push(importName);
-      importLines.push({ line: rawLine, moduleName: importName });
+    const importDecl = parseImportDecl(rawLine);
+    if (importDecl !== null) {
+      importEntries.push({
+        key: `${i}:${importDecl.isQuoted ? `q:${importDecl.specifier}` : `m:${importDecl.moduleName}`}:${importQualifier(importDecl)}`,
+        lineNo: i,
+        line: rawLine,
+        isQuoted: importDecl.isQuoted,
+        moduleName: importDecl.moduleName,
+        specifier: importDecl.specifier,
+        alias: importDecl.alias,
+        hasBindingList: importDecl.hasBindingList,
+        valueBindings: importDecl.valueBindings,
+        typeBindings: importDecl.typeBindings,
+        isHostModule: importDecl.isQuoted ? false : isHostModuleName(importDecl.moduleName),
+      });
       boundaryLines.push(i);
       continue;
     }
@@ -527,8 +758,7 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
     moduleName,
     moduleDeclLine,
     sourceLines: lines,
-    imports,
-    importLines,
+    importEntries,
     exportNames,
     exportNameSet,
     functionSpans,
@@ -540,6 +770,7 @@ function collectFunctionReferencesFromSpan(spanSource, localFunctionNames) {
   const source = spanSource.map((line) => stripLineComment(line)).join("\n");
   const localRefs = new Set();
   const qualifiedRefs = [];
+  const unqualifiedRefs = new Set();
   for (const match of source.matchAll(QUALIFIED_CALL_RE)) {
     const [_, moduleName, symbol] = match;
     const cleanSymbol = normalizeFunctionName(symbol);
@@ -552,11 +783,12 @@ function collectFunctionReferencesFromSpan(spanSource, localFunctionNames) {
   }
   for (const tokenMatch of source.matchAll(NAME_OR_OPERATOR_TOKEN_RE)) {
     const token = tokenMatch[0];
+    unqualifiedRefs.add(token);
     if (localFunctionNames.has(token)) {
       localRefs.add(token);
     }
   }
-  return { localRefs, qualifiedRefs };
+  return { localRefs, qualifiedRefs, unqualifiedRefs };
 }
 
 async function buildDemandDrivenCompileInput(
@@ -576,6 +808,7 @@ async function buildDemandDrivenCompileInput(
   const moduleOrder = [];
   const queue = [normalizedEntryPath];
   const seen = new Set();
+  const deprecationWarnings = new Map();
 
   while (queue.length > 0) {
     const sourcePath = queue.shift();
@@ -585,31 +818,71 @@ async function buildDemandDrivenCompileInput(
     seen.add(sourcePath);
     const source = await Deno.readTextFile(sourcePath);
     const info = parseModuleSourceInfo(source, sourcePath);
-    const importTargetByName = new Map();
-    for (const importName of info.imports) {
-      if (isHostModuleName(importName)) {
-        importTargetByName.set(importName, "");
+    const resolvedImportEntries = [];
+    for (const importEntry of info.importEntries) {
+      if (importEntry.isQuoted !== true && !importEntry.hasBindingList &&
+        String(importEntry.alias ?? "").trim().length === 0) {
+        const warningKey = `${sourcePath}:${importEntry.lineNo}`;
+        if (!deprecationWarnings.has(warningKey)) {
+          const importText = String(importEntry.line).trim();
+          deprecationWarnings.set(
+            warningKey,
+            `${sourcePath}:${importEntry.lineNo + 1}: deprecated import form '${importText}' (preferred: import "mod" { symbols } or import "mod" as alias)`,
+          );
+        }
+      }
+      if (importEntry.isHostModule) {
+        resolvedImportEntries.push({
+          ...importEntry,
+          resolvedPath: "",
+        });
         continue;
       }
-      const resolvedPath = await resolveModuleImport(importName, moduleSearchDirs);
+      const resolvedPath = await resolveImportTarget(
+        importEntry,
+        sourcePath,
+        moduleSearchDirs,
+      );
       if (resolvedPath.length > 0) {
-        importTargetByName.set(importName, resolvedPath);
+        resolvedImportEntries.push({
+          ...importEntry,
+          resolvedPath,
+        });
         if (!seen.has(resolvedPath)) {
           queue.push(resolvedPath);
         }
         continue;
       }
-      if (includeConfigured) {
+
+      const requiresQuotedResolution = importEntry.isQuoted &&
+        (isRelativeOrAbsoluteSpecifier(importEntry.specifier) ||
+          importEntry.hasBindingList === true ||
+          String(importEntry.alias ?? "").trim().length > 0);
+      const shouldFail = importEntry.isQuoted
+        ? (requiresQuotedResolution || includeConfigured)
+        : includeConfigured;
+      if (shouldFail) {
+        const importLabel = importEntry.isQuoted
+          ? `"${importEntry.specifier}"`
+          : importEntry.moduleName;
         throw new Error(
-          `unresolved import '${importName}' in ${sourcePath}; include '${moduleSearchDirs.join(
+          `unresolved import '${importLabel}' in ${sourcePath}; include '${moduleSearchDirs.join(
             ", ",
           )}' did not resolve a module file`,
         );
       }
-      importTargetByName.set(importName, "");
+      resolvedImportEntries.push({
+        ...importEntry,
+        resolvedPath: "",
+      });
     }
-    moduleInfos.set(sourcePath, { ...info, importTargetByName });
+    moduleInfos.set(sourcePath, { ...info, importEntries: resolvedImportEntries });
     moduleOrder.push(sourcePath);
+  }
+  if (options.emitImportDeprecationWarnings !== false) {
+    for (const warning of deprecationWarnings.values()) {
+      console.warn(warning);
+    }
   }
 
   const entryInfo = moduleInfos.get(normalizedEntryPath);
@@ -643,7 +916,9 @@ async function buildDemandDrivenCompileInput(
         continue;
       }
       const importUsage = moduleImportUsage.get(modulePath);
-      const targetPaths = info.importTargetByName;
+      const importEntries = Array.isArray(info.importEntries)
+        ? info.importEntries
+        : [];
       for (const root of [...roots]) {
         const span = info.functionSpans.get(root);
         if (!span) {
@@ -660,18 +935,71 @@ async function buildDemandDrivenCompileInput(
           }
         }
         for (const ref of refs.qualifiedRefs) {
-          importUsage.add(ref.moduleName);
-          const targetPath = targetPaths.get(ref.moduleName) ?? "";
+          for (const importEntry of importEntries) {
+            if (!importEntry || typeof importEntry !== "object") {
+              continue;
+            }
+            const qualifier = importQualifier(importEntry);
+            if (qualifier.length === 0 || qualifier !== ref.moduleName) {
+              continue;
+            }
+            importUsage.add(importEntry.key);
+            const targetPath = String(importEntry.resolvedPath ?? "");
+            if (targetPath.length === 0) {
+              continue;
+            }
+            const targetRoots = moduleRoots.get(targetPath);
+            if (!targetRoots) {
+              continue;
+            }
+            if (!targetRoots.has(ref.symbol)) {
+              targetRoots.add(ref.symbol);
+              changed = true;
+            }
+          }
+        }
+        for (const importEntry of importEntries) {
+          if (!importEntry || typeof importEntry !== "object") {
+            continue;
+          }
+          if (importEntry.isHostModule === true) {
+            continue;
+          }
+          const targetPath = String(importEntry.resolvedPath ?? "");
           if (targetPath.length === 0) {
             continue;
           }
           const targetRoots = moduleRoots.get(targetPath);
-          if (!targetRoots) {
+          const targetInfo = moduleInfos.get(targetPath);
+          if (!targetRoots || !targetInfo) {
             continue;
           }
-          if (!targetRoots.has(ref.symbol)) {
-            targetRoots.add(ref.symbol);
-            changed = true;
+          const valueBindingMap = (importEntry.valueBindings instanceof Map &&
+              importEntry.valueBindings.size > 0)
+            ? importEntry.valueBindings
+            : (() => {
+              const inferred = new Map();
+              if (String(importEntry.alias ?? "").trim().length > 0) {
+                return inferred;
+              }
+              for (const exportName of targetInfo.exportNameSet.values()) {
+                inferred.set(exportName, exportName);
+              }
+              return inferred;
+            })();
+          if (valueBindingMap.size === 0) {
+            continue;
+          }
+          for (const token of refs.unqualifiedRefs) {
+            const targetSymbol = valueBindingMap.get(token);
+            if (!targetSymbol) {
+              continue;
+            }
+            importUsage.add(importEntry.key);
+            if (!targetRoots.has(targetSymbol)) {
+              targetRoots.add(targetSymbol);
+              changed = true;
+            }
           }
         }
       }
@@ -691,6 +1019,21 @@ async function buildDemandDrivenCompileInput(
       .sort((a, b) => a.startLine - b.startLine);
     const lines = [];
     const importUsage = moduleImportUsage.get(modulePath);
+    const emittedImports = new Set();
+    const aliasMap = new Map();
+    for (const importEntry of info.importEntries ?? []) {
+      const alias = String(importEntry?.alias ?? "").trim();
+      const targetPath = String(importEntry?.resolvedPath ?? "");
+      if (alias.length === 0 || targetPath.length === 0) {
+        continue;
+      }
+      const targetInfo = moduleInfos.get(targetPath);
+      if (!targetInfo || typeof targetInfo.moduleName !== "string" ||
+        targetInfo.moduleName.length === 0) {
+        continue;
+      }
+      aliasMap.set(alias, targetInfo.moduleName);
+    }
     const exported = info.exportNames.filter((name) => roots.has(name));
     let dropIdx = 0;
     let emittedModule = false;
@@ -709,13 +1052,30 @@ async function buildDemandDrivenCompileInput(
         continue;
       }
       const rawLine = info.sourceLines[lineNo];
-      const importName = parseImportName(rawLine);
-      if (importName.length > 0) {
-        if (
-          importUsage.has(importName) ||
-          isHostModuleName(importName)
-        ) {
-          lines.push(rawLine);
+      const importDecl = parseImportDecl(rawLine);
+      if (importDecl !== null) {
+        const importKey = `${lineNo}:${importDecl.isQuoted ? `q:${importDecl.specifier}` : `m:${importDecl.moduleName}`}:${importQualifier(importDecl)}`;
+        const keptImportEntry = (info.importEntries ?? []).find((entry) =>
+          entry.key === importKey
+        );
+        const keepImport = !!keptImportEntry &&
+          (importUsage.has(keptImportEntry.key) ||
+            keptImportEntry.isHostModule === true);
+        if (keepImport && keptImportEntry) {
+          let importLine = String(keptImportEntry.line);
+          const targetPath = String(keptImportEntry.resolvedPath ?? "");
+          if (targetPath.length > 0) {
+            const targetInfo = moduleInfos.get(targetPath);
+            const targetModuleName = String(targetInfo?.moduleName ?? "");
+            const canonical = canonicalImportLine(targetModuleName);
+            if (canonical.length > 0) {
+              importLine = canonical;
+            }
+          }
+          if (!emittedImports.has(importLine)) {
+            emittedImports.add(importLine);
+            lines.push(importLine);
+          }
         }
         continue;
       }
@@ -735,7 +1095,7 @@ async function buildDemandDrivenCompileInput(
         }
         continue;
       }
-      lines.push(rawLine);
+      lines.push(rewriteAliasQualifiedRefs(rawLine, aliasMap));
     }
     if (lines.length > 0) {
       mergedSections.push(lines.join("\n"));

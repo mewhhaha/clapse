@@ -120,14 +120,20 @@ Entrypoint reachability pruning now runs in the runner before compile request:
 - roots are explicit `entrypoint_exports` (when provided), otherwise source
   `export` list, with `main` fallback
 - compile commands now build a module import graph from entry module imports, using
-  `clapse.json` `include` search paths and `<dir>/<dotted_module_name>.clapse`
-  resolution
+  preferred quoted import syntax:
+  - `import "mod/path" { symbol, type TypeName }`
+  - `import "mod/path" as alias`
+  plus `clapse.json` `include` search paths for bare specifiers and relative
+  resolution for `./`, `../`, `/`
+- legacy dotted imports (`import module.name`) are still supported but deprecated
+  for greenfield code
 - if include paths are configured and a module import cannot be resolved, compilation
-  fails immediately with an unresolved-import error; missing/invalid `clapse.json`
-  still falls back to legacy fail-open include behavior
+  fails immediately with an unresolved-import error; unresolved relative/absolute
+  quoted imports always fail. Missing/invalid `clapse.json` still falls back to
+  legacy fail-open include behavior for non-relative imports
 - per-module reachability is propagated through both local calls and qualified
-  `Module.symbol` references, so imported module roots are computed transitively
-  until a fixed point
+  `Module.symbol` references, plus explicit imported binding usage, so imported
+  module roots are computed transitively until a fixed point
 - only required modules, required imports, and required function definitions are
   included in `inputSourceOverride` sent to `compileViaWasm`
 - `entrypoint_exports` is passed through to native compiler requests; when unset,
@@ -413,6 +419,9 @@ just native-ir-liveness-size-gate
     `clapse.json` `include`, compute demand-driven per-module DCE roots from
     explicit `entrypoint_exports` (or source exports, then `main`), and send
     a pruned `inputSourceOverride` with only required modules/functions/imports.
+    Preferred import forms are quoted specifiers with explicit symbols or alias;
+    legacy dotted imports remain compatibility-only and are deprecated for new
+    code.
     Unknown explicit roots still fail compile (`unknown entrypoint root`).
   Runtime toggle: `CLAPSE_COMPILE_ENGINE=native|kernel-native` pins plain
   `compile` to kernel-native mode. Host-bridge compile execution is removed from
