@@ -27,6 +27,9 @@ jobs:
           fetch-tags: true
           lfs: false
 
+      - name: Fetch release tags
+        run: git fetch --force --tags origin "refs/tags/v*:refs/tags/v*"
+
       - name: Fetch latest compiler wasm (LFS)
         run: |
           set -euo pipefail
