@@ -239,7 +239,9 @@ main = identity 7
   {
     id: "factorial",
     label: "Factorial (recursive)",
-    source: `export main
+    source: `import "prelude"
+
+export main
 
 factorial n = case eq n 0 of
   true -> 1
@@ -251,7 +253,9 @@ main = factorial 8
   {
     id: "fibonacci",
     label: "Fibonacci (recursive)",
-    source: `export main
+    source: `import "prelude"
+
+export main
 
 fibonacci n = case eq n 0 of
   true -> 0
@@ -265,7 +269,9 @@ main = fibonacci 10
   {
     id: "gcd",
     label: "GCD (Euclid)",
-    source: `export main
+    source: `import "prelude"
+
+export main
 
 gcd a b = case eq b 0 of
   true -> a
@@ -281,7 +287,9 @@ main = gcd 84 30
   {
     id: "sum_to_n",
     label: "Sum to N",
-    source: `export main
+    source: `import "prelude"
+
+export main
 
 sum_to_n n = case eq n 0 of
   true -> 0
@@ -293,7 +301,9 @@ main = sum_to_n 10
   {
     id: "pow",
     label: "Power",
-    source: `export main
+    source: `import "prelude"
+
+export main
 
 pow base exp = case eq exp 0 of
   true -> 1
@@ -329,7 +339,9 @@ main = list_foldl add 0 (list_map square numbers)
   {
     id: "collapse-dead-code",
     label: "Collapsed: dead function",
-    source: `export main
+    source: `import "prelude"
+
+export main
 
 keep_if_zero x = case eq x 0 of
   true -> 0
@@ -856,7 +868,7 @@ async function runCompile({ forceFormat = false } = {}) {
     }
 
     const moduleSources = buildModuleSources(preludeSource, source);
-    const compileSource = combinePreludeAndSource(preludeSource, source);
+    const compileSource = source;
 
     const debugCompileResult = compileDebugWithLoop({
       session,
@@ -1347,18 +1359,6 @@ function formatResponseError(response) {
     return `ok: ${String(ok)}\nerror: ${error}`;
   }
   return `ok: ${String(ok)}`;
-}
-
-function combinePreludeAndSource(preludeSource, source) {
-  const prelude = String(preludeSource ?? "").trimEnd();
-  const userSource = String(source ?? "");
-  if (prelude.length === 0) {
-    return userSource;
-  }
-  if (userSource.length === 0) {
-    return `${prelude}\n`;
-  }
-  return `${prelude}\n\n${userSource}`;
 }
 
 function buildModuleSources(preludeSource, source) {
