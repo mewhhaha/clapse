@@ -115,17 +115,25 @@ The command returns a single compile response with:
 - `lowered_ir.txt` (IR before collapse)
 - `collapsed_ir.txt` (post-collapse IR)
 
-Entrypoint reachability pruning now runs in the native compiler response path:
+Entrypoint reachability pruning now runs in the runner before compile request:
 
-- roots are entrypoint exported functions (fallback: `main`)
-- runner compile requests no longer preprocess source for host-side reachability
-  graphing
+- roots are explicit `entrypoint_exports` (when provided), otherwise source
+  `export` list, with `main` fallback
+- compile commands now build a module import graph from entry module imports, using
+  `clapse.json` `include` search paths and `<dir>/<dotted_module_name>.clapse`
+  resolution
+- if include paths are configured and a module import cannot be resolved, compilation
+  fails immediately with an unresolved-import error; missing/invalid `clapse.json`
+  still falls back to legacy fail-open include behavior
+- per-module reachability is propagated through both local calls and qualified
+  `Module.symbol` references, so imported module roots are computed transitively
+  until a fixed point
+- only required modules, required imports, and required function definitions are
+  included in `inputSourceOverride` sent to `compileViaWasm`
 - `entrypoint_exports` is passed through to native compiler requests; when unset,
-  kernel response shaping for native modes falls back to source exports then `main`
+  fallback roots remain source exports then `main`
 - explicit roots now accept identifiers and symbolic operator names; unknown
   explicit roots fail compile (`unknown entrypoint root`)
-- top-level function definitions not reachable from roots are removed in the
-  native compile stage before compile artifacts are emitted
 - source-pruned `collapsed_ir.txt` now appends tail-recursion markers for
   `VSelfTailCall` and `VMutualTailCall`, keeping source-built native artifacts
   aligned with producer marker output
@@ -398,12 +406,14 @@ just native-ir-liveness-size-gate
   executes a kernel-native compile response path (migration scaffold). Default
   compile mode is now kernel-native. CLI surface:
   `clapse compile-native <input.clapse> [output.wasm]` and
-  `clapse compile-native-debug <input.clapse> [output.wasm] [artifacts-dir]`.
+    `clapse compile-native-debug <input.clapse> [output.wasm] [artifacts-dir]`.
   Debug compile command aliases are accepted at the runner boundary:
     `compile-debug` / `compile_debug`, and `compile-native-debug` /
-    `compile_native_debug`. Runner compile requests now pass through
-    `entrypoint_exports` explicitly and rely on native compile response shaping for
-    entrypoint-rooted reachability pruning.
+    `compile_native_debug`. Runner compile requests now resolve module imports from
+    `clapse.json` `include`, compute demand-driven per-module DCE roots from
+    explicit `entrypoint_exports` (or source exports, then `main`), and send
+    a pruned `inputSourceOverride` with only required modules/functions/imports.
+    Unknown explicit roots still fail compile (`unknown entrypoint root`).
   Runtime toggle: `CLAPSE_COMPILE_ENGINE=native|kernel-native` pins plain
   `compile` to kernel-native mode. Host-bridge compile execution is removed from
   JS boundary code; compile requests must execute on native clapse compiler

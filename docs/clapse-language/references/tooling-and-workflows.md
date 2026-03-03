@@ -32,14 +32,17 @@ deno run -A scripts/clapse.mjs bench [iterations]
     Debug compile modes are `debug` / `native-debug` (with `kernel-debug` alias).
     CLI/runner command aliases are accepted for underscore forms:
     `compile_debug`, `compile_native`, and `compile_native_debug`.
-    Entrypoint reachability pruning is enforced in kernel-native compile response
-    shaping for compile requests: roots are explicit `entrypoint_exports`
-    (when present), otherwise source `export` list, with `main` fallback.
-    Omitted `entrypoint_exports` for `kernel-native` therefore defaults to source
-    export declarations as roots.
-    Runner requests now forward `entrypoint_exports` directly and rely on
-    native compiler response shaping for reachability pruning and import closure
-    handling.
+    Entrypoint/module reachability pruning is now prepared at the runner before
+    compile: commands build the import graph from the entry module via
+    configured `clapse.json` `include` paths (`<dir>/<dotted_module_name>.clapse`
+    resolution), then run fixed-point root propagation across modules.
+    Roots are explicit `entrypoint_exports` when present, otherwise source
+    `export` declarations, with `main` fallback.
+    Runner requests now forward the resolved `entrypoint_exports` and a
+    demand-driven `inputSourceOverride` to the compiler, so only required
+    modules/functions/imports are compiled. Missing source roots for unresolved
+    imports become hard errors only when `include` is configured; otherwise old
+    fail-open import behavior remains.
     Explicit roots accept identifier names and symbolic operator names.
     Unknown explicit roots now fail compile with `unknown entrypoint root`.
     Unreachable top-level function definitions are removed in the native
@@ -392,7 +395,8 @@ Current targets in `Justfile`:
 ```
 
 - `include` is the only supported module-search key in `clapse.json`.
-- If `include` is empty or missing, imports are unrestricted.
+- If `include` is empty or missing, imports are unrestricted and unresolved
+  imports do not trigger runner-level module-resolution errors (legacy fail-open).
 - `plugins` is a list of plugin source directories. Each directory is recursively
   scanned for `*.clapse` files, and each plugin source is compiled to a sibling
   `.wasm` artifact before compiling the requested input.

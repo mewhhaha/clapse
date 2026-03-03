@@ -273,6 +273,480 @@ function parseCompileCommandArgs(rawArgs) {
   };
 }
 
+const IDENTIFIER_NAME_RE = /^[A-Za-z_][A-Za-z0-9_$.']*$/u;
+const OPERATOR_NAME_RE =
+  /^(?:[!#$%&*+./<>?@\\^|~:][!#$%&*+./<=>?@\\^|~:-]*|=[!#$%&*+./<=?@\\^|~:-][!#$%&*+./<=>?@\\^|~:-]*|-(?:[!#$%&*+./<=>?@\\^|~:-][!#$%&*+./<=>?@\\^|~:-]*)?)$/u;
+const QUALIFIED_CALL_RE =
+  /([A-Za-z_][A-Za-z0-9_$.']*)\\.([A-Za-z_][A-Za-z0-9_$.']+|[!#$%&*+./<=>?@\\^|~:-]+)/gu;
+const NAME_OR_OPERATOR_TOKEN_RE =
+  /[A-Za-z_][A-Za-z0-9_$.']+|[!#$%&*+./<=>?@\\^|~:-]+/gu;
+
+function normalizeFunctionName(rawName) {
+  const name = String(rawName ?? "").trim();
+  if (name.startsWith("(") && name.endsWith(")")) {
+    return name.slice(1, -1).trim();
+  }
+  return name;
+}
+
+function isFunctionName(value) {
+  const name = normalizeFunctionName(value);
+  return IDENTIFIER_NAME_RE.test(name) || OPERATOR_NAME_RE.test(name);
+}
+
+function isHostModuleName(rawName) {
+  return String(rawName).startsWith("host.");
+}
+
+function stripLineComment(rawLine) {
+  const line = String(rawLine);
+  const marker = line.indexOf("--");
+  return marker >= 0 ? line.slice(0, marker) : line;
+}
+
+function parseModuleName(rawLine) {
+  const line = stripLineComment(rawLine).trim();
+  const match = line.match(
+    /^module\s+([A-Za-z_][A-Za-z0-9_$.']*(?:\.[A-Za-z_][A-Za-z0-9_$.']*)*)/u,
+  );
+  return match ? match[1] : "";
+}
+
+function parseImportName(rawLine) {
+  const line = stripLineComment(rawLine).trim();
+  const match = line.match(
+    /^import\s+([A-Za-z_][A-Za-z0-9_$.']*(?:\.[A-Za-z_][A-Za-z0-9_$.']*)*)/u,
+  );
+  return match ? match[1] : "";
+}
+
+function parseExportNames(rawLine) {
+  const line = stripLineComment(rawLine).trim();
+  const match = line.match(/^export\s+(.*)$/u);
+  if (!match) {
+    return [];
+  }
+  const out = [];
+  const seen = new Set();
+  for (const part of match[1].split(",")) {
+    const name = normalizeFunctionName(part);
+    if (!isFunctionName(name) || seen.has(name)) {
+      continue;
+    }
+    seen.add(name);
+    out.push(name);
+  }
+  return out;
+}
+
+function parseFunctionDefinitionName(rawLine) {
+  const line = stripLineComment(rawLine).trim();
+  if (line.length === 0 || /^\s/.test(rawLine)) {
+    return "";
+  }
+  if (
+    line.startsWith("module ") ||
+    line.startsWith("import ") ||
+    line.startsWith("export ") ||
+    line.startsWith("type ") ||
+    line.startsWith("data ") ||
+    line.startsWith("class ") ||
+    line.startsWith("instance ") ||
+    line.startsWith("law ") ||
+    line.startsWith("infix ") ||
+    line.startsWith("infixl ") ||
+    line.startsWith("infixr ")
+  ) {
+    return "";
+  }
+  const sepAt = line.indexOf("=");
+  if (sepAt < 0) {
+    return "";
+  }
+  const lhs = line.slice(0, sepAt).trim();
+  if (lhs.length === 0) {
+    return "";
+  }
+  const firstToken = lhs.split(/\s+/u)[0];
+  if (!isFunctionName(firstToken)) {
+    return "";
+  }
+  return normalizeFunctionName(firstToken);
+}
+
+function parseFunctionSignatureName(rawLine) {
+  const line = stripLineComment(rawLine).trim();
+  if (line.length === 0 || line.includes("=") || /^\s/.test(rawLine)) {
+    return "";
+  }
+  const sepAt = line.indexOf(":");
+  if (sepAt < 0) {
+    return "";
+  }
+  const lhs = line.slice(0, sepAt).trim();
+  const firstToken = lhs.split(/\s+/u)[0];
+  if (!isFunctionName(firstToken)) {
+    return "";
+  }
+  return normalizeFunctionName(firstToken);
+}
+
+function isTopLevelBoundaryLine(rawLine) {
+  const line = stripLineComment(rawLine).trim();
+  if (line.length === 0 || /^\s/.test(rawLine)) {
+    return false;
+  }
+  if (
+    line.startsWith("module ") ||
+    line.startsWith("import ") ||
+    line.startsWith("export ") ||
+    line.startsWith("type ") ||
+    line.startsWith("data ") ||
+    line.startsWith("class ") ||
+    line.startsWith("instance ") ||
+    line.startsWith("law ") ||
+    line.startsWith("infix ") ||
+    line.startsWith("infixl ") ||
+    line.startsWith("infixr ")
+  ) {
+    return true;
+  }
+  return parseFunctionDefinitionName(rawLine).length > 0;
+}
+
+async function resolveModuleImport(moduleName, moduleSearchDirs) {
+  if (!Array.isArray(moduleSearchDirs) || moduleSearchDirs.length === 0) {
+    return "";
+  }
+  const moduleSuffix = normalizePath(`${moduleName.replace(/\./gu, "/")}.clapse`);
+  for (const dir of moduleSearchDirs) {
+    const candidate = toAbsolutePath(
+      normalizePath(`${normalizePath(dir)}/${moduleSuffix}`),
+    );
+    if (await fileExists(candidate)) {
+      return candidate;
+    }
+  }
+  return "";
+}
+
+function parseModuleSourceInfo(sourceText, sourcePath) {
+  const source = String(sourceText);
+  const lines = source.split(/\r?\n/);
+  let moduleName = "";
+  let moduleDeclLine = "";
+  const imports = [];
+  const importLines = [];
+  const exportNames = [];
+  const exportNameSet = new Set();
+  const functionDefLines = [];
+  const boundaryLines = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const rawLine = lines[i];
+    const trimmed = stripLineComment(rawLine).trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    if (trimmed.startsWith("module ")) {
+      const parsedModuleName = parseModuleName(rawLine);
+      if (parsedModuleName.length > 0) {
+        moduleName = parsedModuleName;
+        if (moduleDeclLine.length === 0) {
+          moduleDeclLine = rawLine;
+        }
+      }
+      if (isTopLevelBoundaryLine(rawLine)) boundaryLines.push(i);
+      continue;
+    }
+    const importName = parseImportName(rawLine);
+    if (importName.length > 0) {
+      imports.push(importName);
+      importLines.push({ line: rawLine, moduleName: importName });
+      boundaryLines.push(i);
+      continue;
+    }
+    const parsedExportNames = parseExportNames(rawLine);
+    if (parsedExportNames.length > 0) {
+      for (const name of parsedExportNames) {
+        if (!exportNameSet.has(name)) {
+          exportNameSet.add(name);
+          exportNames.push(name);
+        }
+      }
+      boundaryLines.push(i);
+      continue;
+    }
+    const functionName = parseFunctionDefinitionName(rawLine);
+    if (functionName.length > 0) {
+      functionDefLines.push({ name: functionName, line: i });
+      boundaryLines.push(i);
+      continue;
+    }
+    if (isTopLevelBoundaryLine(rawLine)) {
+      boundaryLines.push(i);
+    }
+  }
+  if (moduleName.length === 0) {
+    const base = sourcePath.split("/").pop() ?? "";
+    moduleName = base.endsWith(".clapse")
+      ? base.slice(0, base.length - ".clapse".length)
+      : base;
+  }
+  const sortedBoundaries = [...new Set(boundaryLines)].sort((a, b) => a - b);
+  const functionSpans = new Map();
+  for (const def of functionDefLines) {
+    let startLine = def.line;
+    while (startLine > 0) {
+      const previousName = parseFunctionSignatureName(lines[startLine - 1]);
+      if (previousName.length > 0 && previousName === def.name) {
+        startLine -= 1;
+      } else {
+        break;
+      }
+    }
+    let endLine = lines.length;
+    for (let i = 0; i < sortedBoundaries.length; i += 1) {
+      const lineNo = sortedBoundaries[i];
+      if (lineNo > def.line) {
+        endLine = lineNo;
+        break;
+      }
+    }
+    const spanLines = lines.slice(startLine, endLine);
+    if (spanLines.length > 0) {
+      functionSpans.set(def.name, {
+        name: def.name,
+        startLine,
+        endLine,
+        sourceLines: spanLines,
+      });
+    }
+  }
+  return {
+    sourcePath: toAbsolutePath(sourcePath),
+    moduleName,
+    moduleDeclLine,
+    sourceLines: lines,
+    imports,
+    importLines,
+    exportNames,
+    exportNameSet,
+    functionSpans,
+    functionNames: new Set(functionDefLines.map((entry) => entry.name)),
+  };
+}
+
+function collectFunctionReferencesFromSpan(spanSource, localFunctionNames) {
+  const source = spanSource.map((line) => stripLineComment(line)).join("\n");
+  const localRefs = new Set();
+  const qualifiedRefs = [];
+  for (const match of source.matchAll(QUALIFIED_CALL_RE)) {
+    const [_, moduleName, symbol] = match;
+    const cleanSymbol = normalizeFunctionName(symbol);
+    if (moduleName.length > 0 && isFunctionName(cleanSymbol)) {
+      qualifiedRefs.push({
+        moduleName,
+        symbol: cleanSymbol,
+      });
+    }
+  }
+  for (const tokenMatch of source.matchAll(NAME_OR_OPERATOR_TOKEN_RE)) {
+    const token = tokenMatch[0];
+    if (localFunctionNames.has(token)) {
+      localRefs.add(token);
+    }
+  }
+  return { localRefs, qualifiedRefs };
+}
+
+async function buildDemandDrivenCompileInput(
+  entryPath,
+  entrypointExportsRaw,
+  options = {},
+) {
+  const projectConfig = options.projectConfig ??
+    await readClapseProjectConfig(entryPath);
+  const moduleSearchDirs = Array.isArray(projectConfig.moduleSearchDirs)
+    ? projectConfig.moduleSearchDirs
+    : [];
+  const includeConfigured = moduleSearchDirs.length > 0;
+
+  const normalizedEntryPath = toAbsolutePath(entryPath);
+  const moduleInfos = new Map();
+  const moduleOrder = [];
+  const queue = [normalizedEntryPath];
+  const seen = new Set();
+
+  while (queue.length > 0) {
+    const sourcePath = queue.shift();
+    if (seen.has(sourcePath)) {
+      continue;
+    }
+    seen.add(sourcePath);
+    const source = await Deno.readTextFile(sourcePath);
+    const info = parseModuleSourceInfo(source, sourcePath);
+    const importTargetByName = new Map();
+    for (const importName of info.imports) {
+      if (isHostModuleName(importName)) {
+        importTargetByName.set(importName, "");
+        continue;
+      }
+      const resolvedPath = await resolveModuleImport(importName, moduleSearchDirs);
+      if (resolvedPath.length > 0) {
+        importTargetByName.set(importName, resolvedPath);
+        if (!seen.has(resolvedPath)) {
+          queue.push(resolvedPath);
+        }
+        continue;
+      }
+      if (includeConfigured) {
+        throw new Error(
+          `unresolved import '${importName}' in ${sourcePath}; include '${moduleSearchDirs.join(
+            ", ",
+          )}' did not resolve a module file`,
+        );
+      }
+      importTargetByName.set(importName, "");
+    }
+    moduleInfos.set(sourcePath, { ...info, importTargetByName });
+    moduleOrder.push(sourcePath);
+  }
+
+  const entryInfo = moduleInfos.get(normalizedEntryPath);
+  if (!entryInfo) {
+    throw new Error(`failed to parse entry module ${normalizedEntryPath}`);
+  }
+  const explicitRoots = normalizeEntrypointExportRoots(entrypointExportsRaw);
+  const rootList = explicitRoots.length > 0
+    ? explicitRoots
+    : entryInfo.exportNames.length > 0
+    ? [...entryInfo.exportNames]
+    : ["main"];
+
+  const moduleRoots = new Map();
+  const moduleImportUsage = new Map();
+  for (const modulePath of moduleOrder) {
+    moduleRoots.set(modulePath, new Set());
+    moduleImportUsage.set(modulePath, new Set());
+  }
+  const entryRoots = moduleRoots.get(normalizedEntryPath);
+  for (const root of rootList) {
+    entryRoots.add(root);
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [modulePath, info] of moduleInfos.entries()) {
+      const roots = moduleRoots.get(modulePath);
+      if (!roots || roots.size === 0) {
+        continue;
+      }
+      const importUsage = moduleImportUsage.get(modulePath);
+      const targetPaths = info.importTargetByName;
+      for (const root of [...roots]) {
+        const span = info.functionSpans.get(root);
+        if (!span) {
+          continue;
+        }
+        const refs = collectFunctionReferencesFromSpan(
+          span.sourceLines,
+          info.functionNames,
+        );
+        for (const localRef of refs.localRefs) {
+          if (!roots.has(localRef)) {
+            roots.add(localRef);
+            changed = true;
+          }
+        }
+        for (const ref of refs.qualifiedRefs) {
+          importUsage.add(ref.moduleName);
+          const targetPath = targetPaths.get(ref.moduleName) ?? "";
+          if (targetPath.length === 0) {
+            continue;
+          }
+          const targetRoots = moduleRoots.get(targetPath);
+          if (!targetRoots) {
+            continue;
+          }
+          if (!targetRoots.has(ref.symbol)) {
+            targetRoots.add(ref.symbol);
+            changed = true;
+          }
+        }
+      }
+    }
+  }
+
+  const mergedSections = [];
+  for (const modulePath of moduleOrder) {
+    const info = moduleInfos.get(modulePath);
+    if (!info) continue;
+    const roots = moduleRoots.get(modulePath);
+    if (!roots || roots.size === 0) {
+      continue;
+    }
+    const droppedSpans = [...info.functionSpans.values()]
+      .filter((span) => !roots.has(span.name))
+      .sort((a, b) => a.startLine - b.startLine);
+    const lines = [];
+    const importUsage = moduleImportUsage.get(modulePath);
+    const exported = info.exportNames.filter((name) => roots.has(name));
+    let dropIdx = 0;
+    let emittedModule = false;
+    let emittedExport = false;
+    for (let lineNo = 0; lineNo < info.sourceLines.length; lineNo += 1) {
+      while (
+        dropIdx < droppedSpans.length && lineNo >= droppedSpans[dropIdx].endLine
+      ) {
+        dropIdx += 1;
+      }
+      if (
+        dropIdx < droppedSpans.length &&
+        lineNo >= droppedSpans[dropIdx].startLine &&
+        lineNo < droppedSpans[dropIdx].endLine
+      ) {
+        continue;
+      }
+      const rawLine = info.sourceLines[lineNo];
+      const importName = parseImportName(rawLine);
+      if (importName.length > 0) {
+        if (
+          importUsage.has(importName) ||
+          isHostModuleName(importName)
+        ) {
+          lines.push(rawLine);
+        }
+        continue;
+      }
+      const exportNamesFromLine = parseExportNames(rawLine);
+      if (exportNamesFromLine.length > 0) {
+        if (!emittedExport && exported.length > 0) {
+          lines.push(`export ${exported.join(", ")}`);
+          emittedExport = true;
+        }
+        continue;
+      }
+      const moduleNameFromLine = parseModuleName(rawLine);
+      if (moduleNameFromLine.length > 0) {
+        if (!emittedModule && info.moduleDeclLine.length > 0) {
+          lines.push(info.moduleDeclLine);
+          emittedModule = true;
+        }
+        continue;
+      }
+      lines.push(rawLine);
+    }
+    if (lines.length > 0) {
+      mergedSections.push(lines.join("\n"));
+    }
+  }
+  return {
+    entrypointExports: rootList,
+    inputSourceOverride: mergedSections.join("\n\n"),
+  };
+}
+
 async function compilePluginsWasm(wasmPath, inputPath, options = {}) {
   const projectConfig = options.projectConfig ??
     await readClapseProjectConfig(inputPath);
@@ -1073,6 +1547,12 @@ export async function runWithArgs(rawArgs = cliArgs()) {
     const inputPath = parsed.positionals[0];
     const outputPath = parsed.positionals[1] ??
       inputPath.replace(/\.clapse$/u, ".wasm");
+    const projectConfig = await readClapseProjectConfig(inputPath);
+    const demandDriven = await buildDemandDrivenCompileInput(
+      inputPath,
+      parsed.entrypointExports,
+      { projectConfig },
+    );
     const compileEngine = String(Deno.env.get("CLAPSE_COMPILE_ENGINE") ?? "")
       .trim()
       .toLowerCase();
@@ -1086,7 +1566,9 @@ export async function runWithArgs(rawArgs = cliArgs()) {
     }
     await compileViaWasm(wasmPath, inputPath, outputPath, {
       compileMode: "kernel-native",
-      entrypointExports: parsed.entrypointExports,
+      projectConfig,
+      entrypointExports: demandDriven.entrypointExports,
+      inputSourceOverride: demandDriven.inputSourceOverride,
     });
     return;
   }
@@ -1098,9 +1580,17 @@ export async function runWithArgs(rawArgs = cliArgs()) {
     const inputPath = parsed.positionals[0];
     const outputPath = parsed.positionals[1] ??
       inputPath.replace(/\.clapse$/u, ".wasm");
+    const projectConfig = await readClapseProjectConfig(inputPath);
+    const demandDriven = await buildDemandDrivenCompileInput(
+      inputPath,
+      parsed.entrypointExports,
+      { projectConfig },
+    );
     await compileViaWasm(wasmPath, inputPath, outputPath, {
       compileMode: "kernel-native",
-      entrypointExports: parsed.entrypointExports,
+      projectConfig,
+      entrypointExports: demandDriven.entrypointExports,
+      inputSourceOverride: demandDriven.inputSourceOverride,
     });
     return;
   }
@@ -1117,11 +1607,19 @@ export async function runWithArgs(rawArgs = cliArgs()) {
     const defaultArtifactsDir = pathDir(outputPath);
     const artifactsDir = parsed.positionals[2] ??
       (defaultArtifactsDir.length > 0 ? defaultArtifactsDir : ".");
+    const projectConfig = await readClapseProjectConfig(inputPath);
+    const demandDriven = await buildDemandDrivenCompileInput(
+      inputPath,
+      parsed.entrypointExports,
+      { projectConfig },
+    );
     await compileViaWasm(wasmPath, inputPath, outputPath, {
       compileMode: "native-debug",
+      projectConfig,
+      entrypointExports: demandDriven.entrypointExports,
+      inputSourceOverride: demandDriven.inputSourceOverride,
       requireCompileArtifacts: true,
       artifactsDir,
-      entrypointExports: parsed.entrypointExports,
     });
     return;
   }
@@ -1138,11 +1636,19 @@ export async function runWithArgs(rawArgs = cliArgs()) {
     const defaultArtifactsDir = pathDir(outputPath);
     const artifactsDir = parsed.positionals[2] ??
       (defaultArtifactsDir.length > 0 ? defaultArtifactsDir : ".");
+    const projectConfig = await readClapseProjectConfig(inputPath);
+    const demandDriven = await buildDemandDrivenCompileInput(
+      inputPath,
+      parsed.entrypointExports,
+      { projectConfig },
+    );
     await compileViaWasm(wasmPath, inputPath, outputPath, {
       compileMode: "debug",
+      projectConfig,
+      entrypointExports: demandDriven.entrypointExports,
+      inputSourceOverride: demandDriven.inputSourceOverride,
       requireCompileArtifacts: true,
       artifactsDir,
-      entrypointExports: parsed.entrypointExports,
     });
     return;
   }
