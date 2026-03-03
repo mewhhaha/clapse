@@ -252,13 +252,13 @@ just native-ir-liveness-size-gate
   so compile + LSP/plugin wiring stay guarded.
 - Use `just ci-local` before tags to mirror local release verification flow
   (`just install`, `just pre-tag-verify`,
-  `just release-candidate out=out/releases-ci-local`). `ci-local` now defaults
+  `just release-candidate out/releases-ci-local`). `ci-local` now defaults
   to `CLAPSE_RELEASE_SKIP_CROSS_TARGET_CLI=1` and
   `CLAPSE_RELEASE_ALLOW_BIN_REUSE=1` so local/offline verification can complete
   without cross-target `deno compile` downloads.
 - `main-release-dry-run` workflow now runs on pushes to `main` and `master` for
   a non-publishing release validation path: `just pre-tag-verify` then
-  `just release-candidate out=out/releases-ci-main-dryrun` with
+  `just release-candidate out/releases-ci-main-dryrun` with
   `CLAPSE_RELEASE_SKIP_CROSS_TARGET_CLI=1`, `CLAPSE_RELEASE_ALLOW_BIN_REUSE=1`,
   and `CLAPSE_BOOTSTRAP_COMPILER_WASM_PATH=artifacts/strict-native/seed.wasm`.
 - Keep native record-lowering migration notes synchronized between

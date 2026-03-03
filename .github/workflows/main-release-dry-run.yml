@@ -36,7 +36,7 @@ jobs:
           CLAPSE_RELEASE_SKIP_CROSS_TARGET_CLI: 1
           CLAPSE_RELEASE_ALLOW_BIN_REUSE: 1
           CLAPSE_BOOTSTRAP_COMPILER_WASM_PATH: artifacts/strict-native/seed.wasm
-        run: just release-candidate out=out/releases-ci-main-dryrun
+        run: just release-candidate out/releases-ci-main-dryrun
 
       - name: Upload dry-run artifacts
         uses: actions/upload-artifact@v4

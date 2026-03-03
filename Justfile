@@ -74,7 +74,7 @@ ci-local:
   set -euo pipefail
   just install
   just pre-tag-verify
-  CLAPSE_RELEASE_SKIP_CROSS_TARGET_CLI="${CLAPSE_RELEASE_SKIP_CROSS_TARGET_CLI:-1}" CLAPSE_RELEASE_ALLOW_BIN_REUSE="${CLAPSE_RELEASE_ALLOW_BIN_REUSE:-1}" just release-candidate out=out/releases-ci-local
+  CLAPSE_RELEASE_SKIP_CROSS_TARGET_CLI="${CLAPSE_RELEASE_SKIP_CROSS_TARGET_CLI:-1}" CLAPSE_RELEASE_ALLOW_BIN_REUSE="${CLAPSE_RELEASE_ALLOW_BIN_REUSE:-1}" just release-candidate out/releases-ci-local
 
 browser-compiler-wasm-check wasm='artifacts/latest/clapse_compiler.wasm':
   deno run -A scripts/check-browser-compiler-wasm.mjs --wasm {{wasm}}
