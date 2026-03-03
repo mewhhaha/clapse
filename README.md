@@ -4,7 +4,7 @@ This branch is an artifact-only GitHub Pages app.
 
 It provides:
 
-- release support filtered to mirrored tags `>= v0.1.0.22` that include compiler and
+- release support filtered to mirrored tags `>= v0.1.0.26` that include compiler and
   prelude assets,
 - release-aware compiler selection from GitHub Releases,
 - a browser pipeline for `code -> IR -> wasm`,
@@ -13,7 +13,7 @@ It provides:
 - a two-column workspace with tab groups on both sides,
 - left-side tabs for `Code` (editable) and `Prelude` (read-only from release
   assets),
-- right-side tabs for `IR`, `Compile`, `Problems`, and `Settings`,
+- right-side tabs for `Lowered IR`, `Collapsed IR`, `WASM`, and `Output`,
 - live source syntax highlighting in the editor overlay,
 - current highlight mode uses an in-browser tokenizer (release assets currently
   do not include a Tree-sitter grammar wasm),
