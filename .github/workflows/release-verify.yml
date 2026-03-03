@@ -34,9 +34,12 @@ jobs:
       - name: Setup just
         uses: extractions/setup-just@v1
 
+      - name: Bootstrap strict native seed
+        run: just bootstrap-strict-native-seed artifacts/strict-native/seed.wasm artifacts/strict-native/seed.meta.json
+
       - name: Bootstrap compiler from kernel
         env:
-          CLAPSE_BOOTSTRAP_COMPILER_WASM_PATH: artifacts/latest/clapse_compiler.wasm
+          CLAPSE_BOOTSTRAP_COMPILER_WASM_PATH: artifacts/strict-native/seed.wasm
         run: just bootstrap-compiler
 
       - name: Run pre-tag verification

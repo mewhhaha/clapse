@@ -1,0 +1,46 @@
+name: main-release-dry-run
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Setup just
+        uses: extractions/setup-just@v1
+
+      - name: Run pre-tag verification
+        run: just pre-tag-verify
+
+      - name: Run release candidate dry-run
+        env:
+          CLAPSE_RELEASE_SKIP_CROSS_TARGET_CLI: 1
+          CLAPSE_RELEASE_ALLOW_BIN_REUSE: 1
+          CLAPSE_BOOTSTRAP_COMPILER_WASM_PATH: artifacts/strict-native/seed.wasm
+        run: just release-candidate out=out/releases-ci-main-dryrun
+
+      - name: Upload dry-run artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: clapse-release-candidate-main-dryrun-${{ github.sha }}
+          path: out/releases-ci-main-dryrun
+          if-no-files-found: error
