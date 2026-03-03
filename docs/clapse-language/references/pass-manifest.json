@@ -44,6 +44,18 @@
       "scope": "rewrite"
     },
     {
+      "id": "class_law_collection_foldr_map_fusion",
+      "status": "partially implemented",
+      "title": "Guarded foldr/map fusion law (foldr f z (map g xs))",
+      "scope": "rewrite"
+    },
+    {
+      "id": "class_law_collection_foldr_build_fusion",
+      "status": "partially implemented",
+      "title": "Guarded foldr/build fusion law (foldr f z (build g))",
+      "scope": "rewrite"
+    },
+    {
       "id": "class_law_strictness_gated_fixedpoint",
       "status": "implemented",
       "title": "Strictness-gated class-law fixed-point rewrite",

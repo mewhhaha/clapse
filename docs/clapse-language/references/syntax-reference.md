@@ -221,6 +221,12 @@ class Functor f where
   <$> = fmap
   <$ = map_replace
 
+class Foldable t where
+  foldr : (a -> b -> b) -> b -> t a -> b
+
+class Buildable t where
+  build : ((a -> t a -> t a) -> t a -> t a) -> t a
+
 class Applicative f where
   pure : a -> f a
   ap : f (a -> b) -> f a -> f b
@@ -269,6 +275,12 @@ instance Alternative parser where
 
 instance Functor Maybe where
   fmap = maybe_map
+
+instance Foldable List where
+  foldr = list_foldr
+
+instance Buildable List where
+  build = list_build
 
 instance Applicative Maybe where
   pure = Just

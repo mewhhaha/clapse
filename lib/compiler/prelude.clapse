@@ -1,5 +1,5 @@
 module compiler.prelude
-export id, compose, map_replace_default, ap_default, then_m_default, keep_left_default, keep_right_default, alt_default, map_replace, then_m, keep_left, keep_right, alt, Pair, Maybe, maybe_map, maybe_with_default, maybe_bind, List, list_reverse, list_map, list_foldl, list_filter, list_any, list_all, Map, map_empty, map_lookup_by, map_member_by, map_insert_by, map_remove_by, map_from_list_by, Set, set_empty, set_member_by, set_insert_by, set_remove_by, set_from_list_by, Reader, run_reader, reader_pure, reader_map, reader_ap, reader_bind, ask_reader, asks_reader, local_reader, State, run_state, eval_state, exec_state, state_pure, state_map, state_ap, state_bind, get_state, put_state, modify_state, gets_state, Unit, Lazy, force, lazy, not, and, or, xor, implies, byte, char, Boolean, Functor, Applicative, Monad, Alternative
+export id, compose, map_replace_default, ap_default, then_m_default, keep_left_default, keep_right_default, alt_default, map_replace, then_m, keep_left, keep_right, alt, Pair, Maybe, maybe_map, maybe_with_default, maybe_bind, List, list_reverse, list_map, list_foldl, list_foldr, list_build, list_filter, list_any, list_all, Map, map_empty, map_lookup_by, map_member_by, map_insert_by, map_remove_by, map_from_list_by, Set, set_empty, set_member_by, set_insert_by, set_remove_by, set_from_list_by, Reader, run_reader, reader_pure, reader_map, reader_ap, reader_bind, ask_reader, asks_reader, local_reader, State, run_state, eval_state, exec_state, state_pure, state_map, state_ap, state_bind, get_state, put_state, modify_state, gets_state, Unit, Lazy, force, lazy, not, and, or, xor, implies, byte, char, Boolean, Functor, Foldable, Buildable, Applicative, Monad, Alternative
 
 infixl 1 >>=
 infixl 1 >>
@@ -29,6 +29,14 @@ class Functor f where
 law Functor identity = fmap id x => x
 law Functor composition = fmap f (fmap g x) => fmap (compose f g) x
 law Functor map_replace_default = map_replace x fx => map_replace_default x fx
+
+class Foldable t where
+  foldr : (a -> b -> b) -> b -> t a -> b
+law Foldable foldr_fmap_fusion = foldr f z (fmap g xs) => foldr (compose f g) z xs
+
+class Buildable t where
+  build : ((a -> t a -> t a) -> t a -> t a) -> t a
+law Buildable foldr_build = foldr f z (build g) => g f z
 
 class Applicative f where
   pure : a -> f a
@@ -121,6 +129,13 @@ list_foldl f acc xs =
   case xs of
     ListNil -> acc
     ListCons x rest -> list_foldl f (f acc x) rest
+
+list_foldr f z xs =
+  case xs of
+    ListNil -> z
+    ListCons x rest -> f x (list_foldr f z rest)
+
+list_build g = g ListCons ListNil
 
 list_filter pred xs =
   case xs of
@@ -233,6 +248,17 @@ set_from_list_by_with eq_value values acc =
 
 data Reader r a = Reader : (r -> a) -> Reader r a
 data State s a = State : (s -> Pair a s) -> State s a
+
+instance Functor List where
+  fmap = list_map
+  <$> = fmap
+  <$ = map_replace
+
+instance Foldable List where
+  foldr = list_foldr
+
+instance Buildable List where
+  build = list_build
 
 run_reader ra env =
   case ra of

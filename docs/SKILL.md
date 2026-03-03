@@ -172,6 +172,7 @@ Smoke gate:
 
 ```bash
 just compile-debug-smoke
+just native-fold-laws-gate
 just native-entrypoint-dce-strict-gate
 just native-entrypoint-exports-dce-gate
 just native-ir-liveness-size-gate
@@ -201,8 +202,9 @@ just native-ir-liveness-size-gate
   (`&&`, `|| : b -> b -> b`) and updated default-instance semantics in
   `docs/clapse-language/references/syntax-reference.md`.
 - Keep prelude abstraction docs aligned with code for: `Pair`/`Maybe`/`List`,
-  `reader`/`state` combinators, and the list-backed `map`/`set` baseline APIs
-  (`*_by` equality-driven operations).
+  `reader`/`state` combinators, `Foldable`/`Buildable` (`foldr`/`build`) law
+  surfaces, and the list-backed `map`/`set` baseline APIs (`*_by`
+  equality-driven operations).
 - Keep declaration-kind naming rules synchronized across docs/examples: `data`
   declarations are Capitalized-only, and lowercase primitive-backed declarations
   use `primitive` (for example `primitive bool = true<1> | false<0>`). `data`
@@ -625,8 +627,10 @@ just native-ir-liveness-size-gate
   deterministic ordering, and adds lightweight local expression metadata
   (`ClassMethodExprType`, `ClassMethodExprEffect`) plus per-rule guarded
   dispatch checks before rewriting (`class_law_rule_guard`): compose laws
-  require a pure `CCompose` shape with non-boolean compatible inputs, and map
-  laws require a pure `CMap` shape with non-boolean compatible inputs.
+  require a pure `CCompose` shape with non-boolean compatible inputs; map laws
+  require a pure `CMap` shape with non-boolean compatible inputs; fold laws
+  require pure `CFoldr` roots for `foldr/map` and `foldr/build` fusion shape
+  matches.
 
 ### plugin precompile contract
 
@@ -646,22 +650,24 @@ just native-ir-liveness-size-gate
 ### Root-shape class-law selection (deterministic)
 
 Root-shape class-law dispatch now uses deterministic rule grouping by expression
-root (`CCompose`, `CMap`, boolean root forms) before fixed-point application.
+root (`CCompose`, `CMap`, `CFoldr`, boolean root forms) before fixed-point
+application.
 After each successful rewrite, `rewrite_class_law_rules_once_list` re-dispatches
 immediately to the new root rule set before continuing within the same pass;
 this does not alter any cost/guard policy, strict-decrease check, or
 static/dynamic dispatch gates.
 
 - Root-kind dispatch is now table-driven: precomputed subset lookups for
-  root-kinds (`compose/map/bool`) provide constant-time dispatch and avoid
+  root-kinds (`compose/map/foldr/bool`) provide constant-time dispatch and avoid
   per-step allocation churn while preserving all rewrite guards, policies,
   semantics, and dispatcher gates.
 - Dispatch now also applies root-kind + signature-family pruning before member
   checks: Not/And/Or roots route only on `ClassMethodExprTypeBool` + pure
   effect, compose roots only on compose-pure, map roots only on functor-pure,
-  while Bool/Var remain empty and `Other` is now empty.
+  foldr roots only on foldable-pure, while Bool/Var/Build remain empty and
+  `Other` is now empty.
 - `Other` is empty by construction because all current class-law families are
-  root-specific (`CCompose`, `CMap`, boolean roots); this change is a
+  root-specific (`CCompose`, `CMap`, `CFoldr`, boolean roots); this change is a
   scheduling/refinement swap only and does not alter rewrite semantics.
 - And/Or sub-dispatch now applies conservative-superset child-shape pruning
   before per-rule checks; it only shrinks impossible candidate families and

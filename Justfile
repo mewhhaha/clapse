@@ -59,6 +59,7 @@ pre-tag-verify:
   CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-strict-producer-check "${verify_wasm}" "${probe_hops}"
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-source-version-propagation-gate "${verify_wasm}" "${probe_hops}"
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just compile-debug-smoke
+  CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-fold-laws-gate
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-entrypoint-dce-strict-gate
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-entrypoint-exports-dce-gate
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-ir-liveness-size-gate
@@ -87,6 +88,9 @@ native-compile-smoke:
 
 compile-debug-smoke:
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/compile-debug-smoke.mjs
+
+native-fold-laws-gate:
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/native-fold-laws-gate.mjs
 
 native-entrypoint-dce-strict-gate:
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/native-entrypoint-dce-strict-gate.mjs

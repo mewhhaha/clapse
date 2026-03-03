@@ -76,6 +76,8 @@ This inventory is canonical and machine-checked against
 - [pass:class_law_bool_simplification] status: partially implemented
 - [pass:class_law_collection_map_identity] status: partially implemented
 - [pass:class_law_collection_map_fusion] status: partially implemented
+- [pass:class_law_collection_foldr_map_fusion] status: partially implemented
+- [pass:class_law_collection_foldr_build_fusion] status: partially implemented
 - [pass:class_law_strictness_gated_fixedpoint] status: implemented
 - [pass:currying_normalization] status: not implemented
 - [pass:closure_apply_collapse] status: not implemented
@@ -355,6 +357,11 @@ from class metadata:
     expressions, and require non-boolean compose-compatible inputs.
   - functor/map rules only match on `CMap` expressions, require pure method
     expressions, and require non-boolean map-compatible inputs.
+  - fold rules only match on `CFoldr` roots:
+    - `foldr/map` fusion matches `CFoldr _ _ (CMap _ _)` and stays
+      purity-gated.
+    - `foldr/build` fusion matches `CFoldr _ _ (CBuild _)` and stays
+      purity-gated.
   - boolean simplification rules additionally require boolean-type metadata and
     pure-effect metadata for both subject and argument expressions.
 - fixed-point iteration is structural-cost guarded (`class_method_expr_cost`)
@@ -455,6 +462,8 @@ Collection law set currently implemented in class-law scheduler:
 - `compose f id` -> `f`
 - `map id xs` -> `xs`
 - `map f (map g xs)` -> `map (compose f g) xs`
+- `foldr f z (map g xs)` -> `foldr (compose f g) z xs`
+- `foldr f z (build g)` -> `g f z`
 
 Current activation status:
 

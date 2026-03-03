@@ -2,18 +2,19 @@ module compiler.class_law
 import compiler.parser
 import compiler.prelude
 data ClassMethodExpr = CBool bool | CVar i64 | CNot ClassMethodExpr | CAnd ClassMethodExpr ClassMethodExpr | COr ClassMethodExpr ClassMethodExpr
-  | CId | CCompose ClassMethodExpr ClassMethodExpr | CMap ClassMethodExpr ClassMethodExpr
-data ClassLawRule = LawComposeLeftIdentity | LawComposeRightIdentity | LawComposeAssociateRight | LawMapIdentity | LawMapFusion | LawBoolDoubleNot | LawBoolNotTrue | LawBoolNotFalse | LawBoolAndTrueLeft | LawBoolAndTrueRight | LawBoolAndFalseLeft | LawBoolAndFalseRight | LawBoolOrTrueLeft | LawBoolOrTrueRight | LawBoolOrFalseLeft | LawBoolOrFalseRight | LawBoolAndAbsorbLeft | LawBoolAndAbsorbRight | LawBoolOrAbsorbLeft | LawBoolOrAbsorbRight | LawBoolAndComplementLeft | LawBoolAndComplementRight | LawBoolAndComplementChainLeftLeft | LawBoolAndComplementChainLeftRight | LawBoolAndComplementChainRightLeft | LawBoolAndComplementChainRightRight | LawBoolOrComplementLeft | LawBoolOrComplementRight | LawBoolOrComplementChainLeftLeft | LawBoolOrComplementChainLeftRight | LawBoolOrComplementChainRightLeft | LawBoolOrComplementChainRightRight | LawBoolAndConsensusNotOrLeft | LawBoolAndConsensusNotOrRight | LawBoolAndConsensusOrNotLeft | LawBoolAndConsensusOrNotRight | LawBoolOrConsensusNotAndLeft | LawBoolOrConsensusNotAndRight | LawBoolOrConsensusAndNotLeft | LawBoolOrConsensusAndNotRight | LawBoolAndChainLeftLeft | LawBoolAndChainLeftRight | LawBoolAndChainRightLeft | LawBoolAndChainRightRight | LawBoolOrChainLeftLeft | LawBoolOrChainLeftRight | LawBoolOrChainRightLeft | LawBoolOrChainRightRight | LawBoolIdempotent
-data ClassMethodExprType = ClassMethodExprTypeBool | ClassMethodExprTypeFunctor | ClassMethodExprTypeCompose | ClassMethodExprTypeUnknown
+  | CId | CCompose ClassMethodExpr ClassMethodExpr | CMap ClassMethodExpr ClassMethodExpr | CBuild ClassMethodExpr | CFoldr ClassMethodExpr ClassMethodExpr ClassMethodExpr | CApply ClassMethodExpr ClassMethodExpr
+data ClassLawRule = LawComposeLeftIdentity | LawComposeRightIdentity | LawComposeAssociateRight | LawMapIdentity | LawMapFusion | LawFoldrMapFusion | LawFoldrBuildFusion | LawBoolDoubleNot | LawBoolNotTrue | LawBoolNotFalse | LawBoolAndTrueLeft | LawBoolAndTrueRight | LawBoolAndFalseLeft | LawBoolAndFalseRight | LawBoolOrTrueLeft | LawBoolOrTrueRight | LawBoolOrFalseLeft | LawBoolOrFalseRight | LawBoolAndAbsorbLeft | LawBoolAndAbsorbRight | LawBoolOrAbsorbLeft | LawBoolOrAbsorbRight | LawBoolAndComplementLeft | LawBoolAndComplementRight | LawBoolAndComplementChainLeftLeft | LawBoolAndComplementChainLeftRight | LawBoolAndComplementChainRightLeft | LawBoolAndComplementChainRightRight | LawBoolOrComplementLeft | LawBoolOrComplementRight | LawBoolOrComplementChainLeftLeft | LawBoolOrComplementChainLeftRight | LawBoolOrComplementChainRightLeft | LawBoolOrComplementChainRightRight | LawBoolAndConsensusNotOrLeft | LawBoolAndConsensusNotOrRight | LawBoolAndConsensusOrNotLeft | LawBoolAndConsensusOrNotRight | LawBoolOrConsensusNotAndLeft | LawBoolOrConsensusNotAndRight | LawBoolOrConsensusAndNotLeft | LawBoolOrConsensusAndNotRight | LawBoolAndChainLeftLeft | LawBoolAndChainLeftRight | LawBoolAndChainRightLeft | LawBoolAndChainRightRight | LawBoolOrChainLeftLeft | LawBoolOrChainLeftRight | LawBoolOrChainRightLeft | LawBoolOrChainRightRight | LawBoolIdempotent
+data ClassMethodExprType = ClassMethodExprTypeBool | ClassMethodExprTypeFunctor | ClassMethodExprTypeCompose | ClassMethodExprTypeFoldable | ClassMethodExprTypeBuild | ClassMethodExprTypeUnknown
 data ClassMethodExprEffect = ClassMethodExprEffectPure | ClassMethodExprEffectUnknown
 data ClassMethodExprSignature = ClassMethodExprSignature ClassMethodExprType ClassMethodExprEffect
 data ClassMethodExprSignatureFamily = ClassMethodExprSignatureFamilyBoolPure
   | ClassMethodExprSignatureFamilyComposePure
   | ClassMethodExprSignatureFamilyFunctorPure
+  | ClassMethodExprSignatureFamilyFoldablePure
   | ClassMethodExprSignatureFamilyOther
 data ClassMethodExprDispatchKey = ClassMethodExprDispatchKey ClassMethodExprRootKind ClassMethodExprSignatureFamily
 data ClassLawRuleList = ClassLawRuleListNil | ClassLawRuleListNode ClassLawRule ClassLawRuleList
-data ClassMethodExprRootKind = ClassMethodExprRootKindNot | ClassMethodExprRootKindAnd | ClassMethodExprRootKindOr | ClassMethodExprRootKindCompose | ClassMethodExprRootKindMap | ClassMethodExprRootKindBool | ClassMethodExprRootKindVar | ClassMethodExprRootKindOther
+data ClassMethodExprRootKind = ClassMethodExprRootKindNot | ClassMethodExprRootKindAnd | ClassMethodExprRootKindOr | ClassMethodExprRootKindCompose | ClassMethodExprRootKindMap | ClassMethodExprRootKindFoldr | ClassMethodExprRootKindBuild | ClassMethodExprRootKindBool | ClassMethodExprRootKindVar | ClassMethodExprRootKindOther
 
 kernel_class_dispatch = class_dispatch_static
 class_dispatch_default_resolved =
@@ -39,6 +40,12 @@ rewrite_bool_law_expr expr =
       CCompose (rewrite_bool_law_expr left) (rewrite_bool_law_expr right)
     CMap f xs ->
       CMap (rewrite_bool_law_expr f) (rewrite_bool_law_expr xs)
+    CBuild g ->
+      CBuild (rewrite_bool_law_expr g)
+    CFoldr f z xs ->
+      CFoldr (rewrite_bool_law_expr f) (rewrite_bool_law_expr z) (rewrite_bool_law_expr xs)
+    CApply f x ->
+      CApply (rewrite_bool_law_expr f) (rewrite_bool_law_expr x)
 
 class_method_expr_type expr =
   case expr of
@@ -63,6 +70,8 @@ class_method_expr_type expr =
         _ -> ClassMethodExprTypeUnknown
     CCompose _ _ -> ClassMethodExprTypeCompose
     CMap _ _ -> ClassMethodExprTypeFunctor
+    CFoldr _ _ _ -> ClassMethodExprTypeFoldable
+    CBuild _ -> ClassMethodExprTypeBuild
     CId -> ClassMethodExprTypeFunctor
     _ -> ClassMethodExprTypeUnknown
 
@@ -100,6 +109,25 @@ class_method_expr_effect expr =
             ClassMethodExprEffectPure -> ClassMethodExprEffectPure
             _ -> ClassMethodExprEffectUnknown
         _ -> ClassMethodExprEffectUnknown
+    CBuild g ->
+      class_method_expr_effect g
+    CFoldr f z xs ->
+      case class_method_expr_effect f of
+        ClassMethodExprEffectPure ->
+          case class_method_expr_effect z of
+            ClassMethodExprEffectPure ->
+              case class_method_expr_effect xs of
+                ClassMethodExprEffectPure -> ClassMethodExprEffectPure
+                _ -> ClassMethodExprEffectUnknown
+            _ -> ClassMethodExprEffectUnknown
+        _ -> ClassMethodExprEffectUnknown
+    CApply f x ->
+      case class_method_expr_effect f of
+        ClassMethodExprEffectPure ->
+          case class_method_expr_effect x of
+            ClassMethodExprEffectPure -> ClassMethodExprEffectPure
+            _ -> ClassMethodExprEffectUnknown
+        _ -> ClassMethodExprEffectUnknown
 
 class_method_expr_signature expr =
   ClassMethodExprSignature (class_method_expr_type expr) (class_method_expr_effect expr)
@@ -112,6 +140,8 @@ class_method_expr_signature_family signature =
       ClassMethodExprSignatureFamilyComposePure
     ClassMethodExprSignature ClassMethodExprTypeFunctor ClassMethodExprEffectPure ->
       ClassMethodExprSignatureFamilyFunctorPure
+    ClassMethodExprSignature ClassMethodExprTypeFoldable ClassMethodExprEffectPure ->
+      ClassMethodExprSignatureFamilyFoldablePure
     _ -> ClassMethodExprSignatureFamilyOther
 
 class_method_expr_dispatch_key root_kind signature =
@@ -141,6 +171,12 @@ class_law_rules_for_dispatch_key key =
           case signature_family of
             ClassMethodExprSignatureFamilyFunctorPure -> class_law_rules_map
             _ -> class_law_rules_empty
+        ClassMethodExprRootKindFoldr ->
+          case signature_family of
+            ClassMethodExprSignatureFamilyFoldablePure -> class_law_rules_foldr
+            _ -> class_law_rules_empty
+        ClassMethodExprRootKindBuild ->
+          class_law_rules_empty
         ClassMethodExprRootKindBool ->
           class_law_rules_empty
         ClassMethodExprRootKindVar ->
@@ -249,6 +285,10 @@ class_law_rules_compose =
 class_law_rules_map =
   ClassLawRuleListNode LawMapIdentity
     (ClassLawRuleListNode LawMapFusion ClassLawRuleListNil)
+
+class_law_rules_foldr =
+  ClassLawRuleListNode LawFoldrMapFusion
+    (ClassLawRuleListNode LawFoldrBuildFusion ClassLawRuleListNil)
 
 class_law_rules_not =
   ClassLawRuleListNode LawBoolDoubleNot
@@ -434,6 +474,8 @@ class_method_expr_root_kind expr =
     COr _ _ -> ClassMethodExprRootKindOr
     CCompose _ _ -> ClassMethodExprRootKindCompose
     CMap _ _ -> ClassMethodExprRootKindMap
+    CFoldr _ _ _ -> ClassMethodExprRootKindFoldr
+    CBuild _ -> ClassMethodExprRootKindBuild
     CBool _ -> ClassMethodExprRootKindBool
     CVar _ -> ClassMethodExprRootKindVar
     _ -> ClassMethodExprRootKindOther
@@ -473,6 +515,14 @@ class_law_rule_guard_with_signature rule expr signature =
     LawMapFusion ->
       case expr of
         CMap _ _ -> is_pure && class_method_expr_map_compatible expr
+        _ -> false
+    LawFoldrMapFusion ->
+      case expr of
+        CFoldr _ _ (CMap _ _) -> is_pure
+        _ -> false
+    LawFoldrBuildFusion ->
+      case expr of
+        CFoldr _ _ (CBuild _) -> is_pure
         _ -> false
     LawBoolDoubleNot ->
       is_bool_pure &&
@@ -734,6 +784,14 @@ rewrite_class_law_rule rule expr =
           case inner of
             CMap g xs -> CMap (CCompose f g) xs
             _ -> expr
+        _ -> expr
+    LawFoldrMapFusion ->
+      case expr of
+        CFoldr f z (CMap g xs) -> CFoldr (CCompose f g) z xs
+        _ -> expr
+    LawFoldrBuildFusion ->
+      case expr of
+        CFoldr f z (CBuild g) -> CApply (CApply g f) z
         _ -> expr
     LawBoolDoubleNot ->
       case expr of
@@ -1072,6 +1130,9 @@ class_method_expr_cost expr =
     COr left right -> 1 + class_method_expr_cost left + class_method_expr_cost right
     CCompose left right -> 1 + class_method_expr_cost left + class_method_expr_cost right
     CMap f xs -> 1 + class_method_expr_cost f + class_method_expr_cost xs
+    CBuild g -> 1 + class_method_expr_cost g
+    CFoldr f z xs -> 1 + class_method_expr_cost f + class_method_expr_cost z + class_method_expr_cost xs
+    CApply f x -> 1 + class_method_expr_cost f + class_method_expr_cost x
 
 class_law_expr_has_map_fusion_candidate expr =
   case expr of
@@ -1079,6 +1140,12 @@ class_law_expr_has_map_fusion_candidate expr =
       case inner of
         CMap _ _ -> true
         _ -> class_law_expr_has_map_fusion_candidate inner
+    CFoldr _ _ inner ->
+      case inner of
+        CMap _ _ -> true
+        _ -> class_law_expr_has_map_fusion_candidate inner
+    CBuild g -> class_law_expr_has_map_fusion_candidate g
+    CApply f x -> class_law_expr_has_map_fusion_candidate f || class_law_expr_has_map_fusion_candidate x
     CNot inner -> class_law_expr_has_map_fusion_candidate inner
     CAnd left right -> class_law_expr_has_map_fusion_candidate left || class_law_expr_has_map_fusion_candidate right
     COr left right -> class_law_expr_has_map_fusion_candidate left || class_law_expr_has_map_fusion_candidate right

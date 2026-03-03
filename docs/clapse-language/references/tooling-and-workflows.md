@@ -126,6 +126,8 @@ deno run -A scripts/clapse.mjs bench [iterations]
     `just native-source-version-propagation-gate` in raw producer mode
     (`CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1`) so source-version transitivity
     is checked independently, plus
+    `just native-fold-laws-gate` to ensure `Foldable`/`Buildable` law surface
+    appears in collapsed debug artifacts, plus
     `scripts/record-kernel-smoke.mjs` without template fallback overrides, plus
     `scripts/native-selfhost-probe.mjs` with default transitive depth `2`
     (`CLAPSE_NATIVE_SELFHOST_PROBE_HOPS` to override).
@@ -275,6 +277,7 @@ Current targets in `Justfile`:
 - `just pass-manifest-check`
 - `just native-compile-smoke`
 - `just compile-debug-smoke`
+- `just native-fold-laws-gate`
 - `just native-entrypoint-dce-strict-gate`
 - `just native-entrypoint-exports-dce-gate`
 - `just native-ir-liveness-size-gate`
