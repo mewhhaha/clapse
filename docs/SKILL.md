@@ -121,7 +121,7 @@ Entrypoint reachability pruning now runs in the native compiler response path:
 - runner compile requests no longer preprocess source for host-side reachability
   graphing
 - `entrypoint_exports` is passed through to native compiler requests; when unset,
-  kernel response shaping falls back to source exports then `main`
+  kernel response shaping for native modes falls back to source exports then `main`
 - explicit roots now accept identifiers and symbolic operator names; unknown
   explicit roots fail compile (`unknown entrypoint root`)
 - top-level function definitions not reachable from roots are removed in the
@@ -132,8 +132,8 @@ Entrypoint reachability pruning now runs in the native compiler response path:
 - simple function-body `let` temp chains (including multi-digit labels like
   `t10`) are pruned for dead bindings and surviving temporaries are
   renumbered densely from `t0` when request-shape pruning is active
-  (`entrypoint_exports` set, or `compile_mode` set to `debug`,
-  `native-debug`, `kernel-debug`, or `kernel-native-debug`)
+  (`entrypoint_exports` set, or `compile_mode` set to `kernel-native`,
+  `debug`, `native-debug`, `kernel-debug`, or `kernel-native-debug`)
 - temp liveness no longer treats `tN`-looking tokens in comments or string
   literals as live references during native temp-chain pruning, so dead
   temporaries hidden behind those regions are removed correctly.

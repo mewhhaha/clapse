@@ -32,9 +32,11 @@ deno run -A scripts/clapse.mjs bench [iterations]
     Debug compile modes are `debug` / `native-debug` (with `kernel-debug` alias).
     CLI/runner command aliases are accepted for underscore forms:
     `compile_debug`, `compile_native`, and `compile_native_debug`.
-    Entrypoint reachability pruning is enforced in native compile response
+    Entrypoint reachability pruning is enforced in kernel-native compile response
     shaping for compile requests: roots are explicit `entrypoint_exports`
     (when present), otherwise source `export` list, with `main` fallback.
+    Omitted `entrypoint_exports` for `kernel-native` therefore defaults to source
+    export declarations as roots.
     Runner requests now forward `entrypoint_exports` directly and rely on
     native compiler response shaping for reachability pruning and import closure
     handling.

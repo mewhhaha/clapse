@@ -1718,6 +1718,7 @@ int32_t clapse_run(int32_t request_handle) {
     if (mode_seg.ok) {
       enable_entrypoint_pruning = segment_equals_literal(mode_seg, "debug") ||
         segment_equals_literal(mode_seg, "native-debug") ||
+        segment_equals_literal(mode_seg, "kernel-native") ||
         segment_equals_literal(mode_seg, "kernel-debug") ||
         segment_equals_literal(mode_seg, "kernel-native-debug");
     }
