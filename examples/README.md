@@ -14,6 +14,8 @@ be used as a backtick operator without a declaration (for example
 - `closures.clapse`: closure creation and use
 - `signatures_and_collections.clapse`: function signatures with optional named
   witness constraints and `[]` collection literals
+- `collection_literal_targets.clapse`: class-dispatched `[]` literals targeting
+  `List`, `Vec`, `Seq`, and `Array` via `CollectionLiteral` instances
 - `let_bindings.clapse`: local `let ... in ...` bindings inside function bodies
 - `case_of.clapse`: `case ... of` expression matching over multiple values and
   constructor patterns

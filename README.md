@@ -337,8 +337,12 @@ Collection literal lowering model:
 
 - `[]` lowers to `collection_empty 0`
 - `[a, b, c]` lowers to repeated `collection_extend` calls
-- you can override `collection_empty` / `collection_extend` with your own
-  definitions to customize concrete collection behavior
+- these names are class methods on `CollectionLiteral`, so expected type can
+  select different targets (`List`, `Vec`, `Seq`, `Array`, ...)
+- compiler prelude ships a `CollectionLiteral List` instance that routes through
+  class operations (`build`/`foldr`) for `List` (`Nil`/`Cons`)
+- you can provide your own `CollectionLiteral` instances to customize concrete
+  collection behavior
 
 `do` and `ado` notation are intentionally not supported.
 

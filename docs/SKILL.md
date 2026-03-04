@@ -26,7 +26,10 @@ the current wasm compiler unless explicitly marked `skip`.
    selected compiler, require kernel-native non-stub output, and only use
    observed `__clapse_contract.source_version` when `--source-version` is not
    provided.
-8. Use
+8. Canonical module export syntax is `export { ... }`; legacy
+   `export a, b` remains accepted for compatibility but is deprecated for
+   new code.
+9. Use
    `deno run -A scripts/run-clapse-compiler-wasm.mjs compile-debug <input.clapse> [output.wasm] [artifacts-dir]`
    for unified wasm+IR debug flows.
 
@@ -118,7 +121,8 @@ The command returns a single compile response with:
 Entrypoint reachability pruning now runs in the runner before compile request:
 
 - roots are explicit `entrypoint_exports` (when provided), otherwise source
-  `export` list, with `main` fallback
+  `export { ... }` declarations, with deprecated `export a, b` fallback still
+  accepted for compatibility, and `main` fallback
 - compile commands now build a module import graph from entry module imports, using
   preferred quoted import syntax:
   - `import "mod/path" { symbol, type TypeName }`
@@ -129,6 +133,8 @@ Entrypoint reachability pruning now runs in the runner before compile request:
   resolve to `lib/compiler/prelude.clapse` without extra include configuration
 - legacy dotted imports (`import module.name`) are still supported but deprecated
   for greenfield code
+- legacy prelude list constructors (`ListNil`/`ListCons`) are rewritten to
+  `Nil`/`Cons` in runner demand-driven compile input with deprecation warnings
 - if include paths are configured and a module import cannot be resolved, compilation
   fails immediately with an unresolved-import error; unresolved relative/absolute
   quoted imports always fail. Missing/invalid `clapse.json` still falls back to
@@ -158,6 +164,10 @@ Entrypoint reachability pruning now runs in the runner before compile request:
   temporaries hidden behind those regions are removed correctly.
 - `CLAPSE_ENTRYPOINT_DCE` and `CLAPSE_INTERNAL_ENTRYPOINT_DCE` remain as
   legacy toggles but no longer control request shaping behavior
+- compiler prelude list surface is class-first:
+  `data List a = Nil | Cons a (List a)`, with default collection literal hooks
+  implemented through `CollectionLiteral` class methods
+  (`CollectionLiteral List` via `build` + `foldr`)
 - non-kernel compile responses now emit a reachability-shaped wasm bundle in the
   compile producer path (shared by raw and validated ABI calls): exports follow
   `entrypoint_exports` / entrypoint exports, and bundle size tracks reachable

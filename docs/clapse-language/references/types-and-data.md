@@ -22,7 +22,7 @@ Lowercase primitive-backed declarations use `primitive`.
 
 Prelude abstraction preview also includes:
 
-- `data List a = ListNil | ListCons a (List a)`
+- `data List a = Nil | Cons a (List a)`
 - `data Reader r a = Reader : (r -> a) -> Reader r a`
 - `data State s a = State : (s -> Pair a s) -> State s a`
 - `data Map k v = Map (List (Pair k v))` (list-backed map baseline)
@@ -67,4 +67,9 @@ Collection literals are abstract syntax and currently lower to:
 - `collection_empty`
 - repeated `collection_extend`
 
+These names are class methods on `CollectionLiteral`, so the expected target
+type can dispatch literal construction across multiple collection shapes.
+
+In compiler prelude defaults, these hooks are implemented through class
+operations (`build` + `foldr`) for `List`.
 This is currently a pure collection encoding, not a contiguous buffer/slice ABI.

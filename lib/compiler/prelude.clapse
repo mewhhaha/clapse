@@ -1,5 +1,5 @@
 module compiler.prelude
-export id, compose, map_replace_default, ap_default, then_m_default, keep_left_default, keep_right_default, alt_default, map_replace, then_m, keep_left, keep_right, alt, Pair, Maybe, maybe_map, maybe_with_default, maybe_bind, List, Map, map_empty, map_lookup_by, map_member_by, map_insert_by, map_remove_by, map_from_list_by, Set, set_empty, set_member_by, set_insert_by, set_remove_by, set_from_list_by, Reader, run_reader, reader_pure, reader_map, reader_ap, reader_bind, ask_reader, asks_reader, local_reader, State, run_state, eval_state, exec_state, state_pure, state_map, state_ap, state_bind, get_state, put_state, modify_state, gets_state, Unit, Lazy, force, lazy, not, and, or, xor, implies, byte, char, Boolean, Functor, Foldable, Buildable, Filterable, Applicative, Monad, Alternative, any, all
+export id, compose, map_replace_default, ap_default, then_m_default, keep_left_default, keep_right_default, alt_default, map_replace, then_m, keep_left, keep_right, alt, Pair, Maybe, maybe_map, maybe_with_default, maybe_bind, List, Map, map_empty, map_lookup_by, map_member_by, map_insert_by, map_remove_by, map_from_list_by, Set, set_empty, set_member_by, set_insert_by, set_remove_by, set_from_list_by, Reader, run_reader, reader_pure, reader_map, reader_ap, reader_bind, ask_reader, asks_reader, local_reader, State, run_state, eval_state, exec_state, state_pure, state_map, state_ap, state_bind, get_state, put_state, modify_state, gets_state, Unit, Lazy, force, lazy, not, and, or, xor, implies, byte, char, Boolean, Functor, Foldable, Buildable, Filterable, CollectionLiteral, Applicative, Monad, Alternative, any, all
 
 infixl 1 >>=
 infixl 1 >>
@@ -42,6 +42,10 @@ class Buildable t where
   build : ((a -> t a -> t a) -> t a -> t a) -> t a
 law Buildable foldr_build = foldr f z (build g) => g f z
 
+class CollectionLiteral c where
+  collection_empty : i64 -> c a
+  collection_extend : c a -> a -> c a
+
 any pred xs = foldr (\x -> \acc -> pred x || acc) false xs
 
 all pred xs = foldr (\x -> \acc -> pred x && acc) true xs
@@ -83,7 +87,7 @@ data ByteIntent = ByteIntent
 data CharIntent = CharIntent
 data Pair a b = Pair a b
 data Maybe a = Just a | Nothing
-data List a = ListNil | ListCons a (List a)
+data List a = Nil | Cons a (List a)
 data Unit = Unit
 
 maybe_map f m =
@@ -121,58 +125,10 @@ instance Alternative Maybe where
       Just _ -> a
       Nothing -> b
 
-list_reverse xs = list_reverse_with xs ListNil
-
-list_reverse_with xs acc =
-  case xs of
-    ListNil -> acc
-    ListCons x rest -> list_reverse_with rest (ListCons x acc)
-
-list_map f xs =
-  case xs of
-    ListNil -> ListNil
-    ListCons x rest -> ListCons (f x) (list_map f rest)
-
-list_foldl f acc xs =
-  case xs of
-    ListNil -> acc
-    ListCons x rest -> list_foldl f (f acc x) rest
-
-list_foldr f z xs =
-  case xs of
-    ListNil -> z
-    ListCons x rest -> f x (list_foldr f z rest)
-
-list_build g = g ListCons ListNil
-
-list_filter pred xs =
-  case xs of
-    ListNil -> ListNil
-    ListCons x rest ->
-      case pred x of
-        true -> ListCons x (list_filter pred rest)
-        _ -> list_filter pred rest
-
-list_any pred xs =
-  case xs of
-    ListNil -> false
-    ListCons x rest ->
-      case pred x of
-        true -> true
-        _ -> list_any pred rest
-
-list_all pred xs =
-  case xs of
-    ListNil -> true
-    ListCons x rest ->
-      case pred x of
-        true -> list_all pred rest
-        _ -> false
-
 data Map k v = Map (List (Pair k v))
 data Set a = Set (List a)
 
-map_empty = Map ListNil
+map_empty = Map Nil
 
 map_lookup_by eq_key key m =
   case m of
@@ -180,8 +136,8 @@ map_lookup_by eq_key key m =
 
 map_lookup_list_by eq_key key entries =
   case entries of
-    ListNil -> Nothing
-    ListCons pair rest ->
+    Nil -> Nothing
+    Cons pair rest ->
       case pair of
         Pair entry_key entry_value ->
           case eq_key key entry_key of
@@ -199,13 +155,13 @@ map_insert_by eq_key key value m =
 
 map_insert_list_by eq_key key value entries =
   case entries of
-    ListNil -> ListCons (Pair key value) ListNil
-    ListCons pair rest ->
+    Nil -> Cons (Pair key value) Nil
+    Cons pair rest ->
       case pair of
         Pair entry_key _ ->
           case eq_key key entry_key of
-            true -> ListCons (Pair key value) rest
-            _ -> ListCons pair (map_insert_list_by eq_key key value rest)
+            true -> Cons (Pair key value) rest
+            _ -> Cons pair (map_insert_list_by eq_key key value rest)
 
 map_remove_by eq_key key m =
   case m of
@@ -213,24 +169,24 @@ map_remove_by eq_key key m =
 
 map_remove_list_by eq_key key entries =
   case entries of
-    ListNil -> ListNil
-    ListCons pair rest ->
+    Nil -> Nil
+    Cons pair rest ->
       case pair of
         Pair entry_key _ ->
           case eq_key key entry_key of
             true -> rest
-            _ -> ListCons pair (map_remove_list_by eq_key key rest)
+            _ -> Cons pair (map_remove_list_by eq_key key rest)
 
 map_from_list_by eq_key pairs = map_from_list_by_with eq_key pairs map_empty
 
 map_from_list_by_with eq_key pairs acc =
   case pairs of
-    ListNil -> acc
-    ListCons pair rest ->
+    Nil -> acc
+    Cons pair rest ->
       case pair of
         Pair key value -> map_from_list_by_with eq_key rest (map_insert_by eq_key key value acc)
 
-set_empty = Set ListNil
+set_empty = Set Nil
 
 set_member_by eq_value value s =
   case s of
@@ -241,7 +197,7 @@ set_insert_by eq_value value s =
     Set items ->
       case set_member_by eq_value value s of
         true -> Set items
-        _ -> Set (ListCons value items)
+        _ -> Set (Cons value items)
 
 set_remove_by eq_value value s =
   case s of
@@ -251,26 +207,46 @@ set_from_list_by eq_value values = set_from_list_by_with eq_value values set_emp
 
 set_from_list_by_with eq_value values acc =
   case values of
-    ListNil -> acc
-    ListCons value rest -> set_from_list_by_with eq_value rest (set_insert_by eq_value value acc)
+    Nil -> acc
+    Cons value rest -> set_from_list_by_with eq_value rest (set_insert_by eq_value value acc)
 
 data Reader r a = Reader : (r -> a) -> Reader r a
 data State s a = State : (s -> Pair a s) -> State s a
 
 instance Functor List where
-  fmap = list_map
+  fmap f xs =
+    case xs of
+      Nil -> Nil
+      Cons x rest -> Cons (f x) (fmap f rest)
   <$> = fmap
   <$ = map_replace
 
 instance Foldable List where
-  foldr = list_foldr
-  foldl = list_foldl
+  foldr f z xs =
+    case xs of
+      Nil -> z
+      Cons x rest -> f x (foldr f z rest)
+
+  foldl f acc xs =
+    case xs of
+      Nil -> acc
+      Cons x rest -> foldl f (f acc x) rest
 
 instance Filterable List where
-  filter = list_filter
+  filter pred xs =
+    case xs of
+      Nil -> Nil
+      Cons x rest ->
+        case pred x of
+          true -> Cons x (filter pred rest)
+          _ -> filter pred rest
 
 instance Buildable List where
-  build = list_build
+  build g = g Cons Nil
+
+instance CollectionLiteral List where
+  collection_empty _ = build (\cons -> \nil -> nil)
+  collection_extend xs x = build (\cons -> \nil -> foldr cons (cons x nil) xs)
 
 run_reader ra env =
   case ra of

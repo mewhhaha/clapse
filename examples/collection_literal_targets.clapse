@@ -1,0 +1,33 @@
+import "prelude" { CollectionLiteral, List, add }
+
+data Vec a = VecNil | VecCons a (Vec a)
+data Seq a = SeqNil | SeqSnoc (Seq a) a
+data Array a = Array i64 (Seq a)
+
+instance CollectionLiteral Vec where
+  collection_empty _ = VecNil
+  collection_extend xs x = VecCons x xs
+
+instance CollectionLiteral Seq where
+  collection_empty _ = SeqNil
+  collection_extend xs x = SeqSnoc xs x
+
+instance CollectionLiteral Array where
+  collection_empty _ = Array 0 SeqNil
+  collection_extend arr x =
+    case arr of
+      Array len xs -> Array (add len 1) (SeqSnoc xs x)
+
+as_list : List i64
+as_list = [1, 2, 3]
+
+as_vec : Vec i64
+as_vec = [1, 2, 3]
+
+as_seq : Seq i64
+as_seq = [1, 2, 3]
+
+as_array : Array i64
+as_array = [1, 2, 3]
+
+main = 0

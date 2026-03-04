@@ -584,15 +584,19 @@ function parseTopLevelDataPrimitiveDefinedNames(rawLine) {
   return null;
 }
 
-function parseExportNames(rawLine) {
+function parseExportDecl(rawLine) {
   const line = stripLineComment(rawLine).trim();
-  const match = line.match(/^export\s+(.*)$/u);
+  const match = line.match(/^export\b\s+(.*)$/u);
   if (!match) {
-    return [];
+    return { names: [], isLegacySyntax: false, hasExport: false };
   }
+  const raw = match[1].trim();
+  const braceMatch = raw.match(/^\{\s*(.*)\s*\}$/u);
+  const listText = braceMatch ? braceMatch[1] : raw;
+  const isLegacySyntax = !braceMatch;
   const out = [];
   const seen = new Set();
-  for (const part of match[1].split(",")) {
+  for (const part of listText.split(",")) {
     const name = normalizeFunctionName(part);
     if (!isFunctionName(name) || seen.has(name)) {
       continue;
@@ -600,7 +604,49 @@ function parseExportNames(rawLine) {
     seen.add(name);
     out.push(name);
   }
-  return out;
+  return {
+    names: out,
+    isLegacySyntax,
+    hasExport: out.length > 0,
+  };
+}
+
+function parseExportNames(rawLine) {
+  return parseExportDecl(rawLine).names;
+}
+
+function rewriteLegacyListConstructors(rawSource, sourcePath, warnings) {
+  const source = String(rawSource ?? "");
+  if (!source.includes("ListNil") && !source.includes("ListCons")) {
+    return source;
+  }
+  const lines = source.split(/\r?\n/);
+  let changed = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (!line.includes("ListNil") && !line.includes("ListCons")) {
+      continue;
+    }
+    const rewritten = line.replace(/\bListCons\b/gu, "Cons").replace(
+      /\bListNil\b/gu,
+      "Nil",
+    );
+    if (rewritten === line) {
+      continue;
+    }
+    lines[i] = rewritten;
+    changed = true;
+    if (warnings instanceof Map) {
+      const warningKey = `${sourcePath}:list-ctor:${i}`;
+      if (!warnings.has(warningKey)) {
+        warnings.set(
+          warningKey,
+          `${sourcePath}:${i + 1}: deprecated List constructors ListNil/ListCons rewritten to Nil/Cons`,
+        );
+      }
+    }
+  }
+  return changed ? lines.join("\n") : source;
 }
 
 function parseFunctionDefinitionName(rawLine) {
@@ -781,6 +827,7 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
   const importEntries = [];
   const exportNames = [];
   const exportNameSet = new Set();
+  const legacyExportLines = [];
   const functionDefLines = [];
   const boundaryLines = [];
   for (let i = 0; i < lines.length; i += 1) {
@@ -818,9 +865,15 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
       boundaryLines.push(i);
       continue;
     }
-    const parsedExportNames = parseExportNames(rawLine);
-    if (parsedExportNames.length > 0) {
-      for (const name of parsedExportNames) {
+    const parsedExportDecl = parseExportDecl(rawLine);
+    if (parsedExportDecl.hasExport) {
+      if (parsedExportDecl.isLegacySyntax) {
+        legacyExportLines.push({
+          lineNo: i,
+          line: rawLine,
+        });
+      }
+      for (const name of parsedExportDecl.names) {
         if (!exportNameSet.has(name)) {
           exportNameSet.add(name);
           exportNames.push(name);
@@ -884,6 +937,7 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
     importEntries,
     exportNames,
     exportNameSet,
+    legacyExportLines,
     functionSpans,
     functionNames: new Set(functionDefLines.map((entry) => entry.name)),
   };
@@ -939,9 +993,24 @@ async function buildDemandDrivenCompileInput(
       continue;
     }
     seen.add(sourcePath);
-    const source = await Deno.readTextFile(sourcePath);
+    const rawSource = await Deno.readTextFile(sourcePath);
+    const source = rewriteLegacyListConstructors(
+      rawSource,
+      sourcePath,
+      deprecationWarnings,
+    );
     const info = parseModuleSourceInfo(source, sourcePath);
     const resolvedImportEntries = [];
+    for (const legacyExport of info.legacyExportLines ?? []) {
+      const warningKey = `${sourcePath}:export:${legacyExport.lineNo}`;
+      if (!deprecationWarnings.has(warningKey)) {
+        const exportText = String(legacyExport.line ?? "").trim();
+        deprecationWarnings.set(
+          warningKey,
+          `${sourcePath}:${legacyExport.lineNo + 1}: deprecated export form '${exportText}' (preferred: export { symbols })`,
+        );
+      }
+    }
     for (const importEntry of info.importEntries) {
       if (importEntry.isQuoted !== true && !importEntry.hasBindingList &&
         String(importEntry.alias ?? "").trim().length === 0) {
@@ -1301,7 +1370,7 @@ async function buildDemandDrivenCompileInput(
       const exportNamesFromLine = parseExportNames(rawLine);
       if (exportNamesFromLine.length > 0) {
         if (!emittedExport && exported.length > 0) {
-          lines.push(`export ${exported.join(", ")}`);
+          lines.push(`export { ${exported.join(", ")} }`);
           emittedExport = true;
         }
         continue;

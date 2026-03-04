@@ -71,12 +71,12 @@ is_operator_continue_byte b =
 is_operator_start_byte b =
   is_operator_head_byte b || (b == 45) || (b == 61)
 
-reverse_list list = reverse_list_impl list ListNil
+reverse_list list = reverse_list_impl list Nil
 
 reverse_list_impl list acc =
   case list of
-    ListNil -> acc
-    ListCons head rest -> reverse_list_impl rest (ListCons head acc)
+    Nil -> acc
+    Cons head rest -> reverse_list_impl rest (Cons head acc)
 
 skip_line_ws handle i line_end =
   case (i < line_end) of
@@ -146,8 +146,8 @@ name_ref_eq left right =
 
 name_list_member_by_content name names =
   case names of
-    ListNil -> false
-    ListCons item rest ->
+    Nil -> false
+    Cons item rest ->
       case (name_ref_eq name item) of
         true -> true
         _ -> name_list_member_by_content name rest
@@ -155,12 +155,12 @@ name_list_member_by_content name names =
 name_list_insert_unique name names =
   case (name_list_member_by_content name names) of
     true -> names
-    _ -> ListCons name names
+    _ -> Cons name names
 
 maybe_name_ref_to_list maybe_name =
   case maybe_name of
-    MissingName -> ListNil
-    PresentName name -> ListCons name ListNil
+    MissingName -> Nil
+    PresentName name -> Cons name Nil
 
 is_identifier_span_valid_rest handle i end =
   case (i == end) of
@@ -412,8 +412,8 @@ token_is_keyword handle start seg_len =
 
 int_list_member item list =
   case list of
-    ListNil -> false
-    ListCons head rest ->
+    Nil -> false
+    Cons head rest ->
       case (item == head) of
         true -> true
         _ -> int_list_member item rest
@@ -421,12 +421,12 @@ int_list_member item list =
 int_list_insert_unique item list =
   case int_list_member item list of
     true -> list
-    _ -> ListCons item list
+    _ -> Cons item list
 
 int_list_append left right =
   case left of
-    ListNil -> right
-    ListCons head rest -> ListCons head (int_list_append rest right)
+    Nil -> right
+    Cons head rest -> Cons head (int_list_append rest right)
 
 temp_index_from_token handle start end =
   case (end - start) of
@@ -512,8 +512,8 @@ collect_temp_refs_loop request_handle start end acc =
 
 binding_deps_for_temp temp bindings =
   case bindings of
-    ListNil -> ListNil
-    ListCons binding rest ->
+    Nil -> Nil
+    Cons binding rest ->
       case binding of
         TempBinding bind_temp _ _ _ _ _ _ deps ->
           case (bind_temp == temp) of
@@ -522,8 +522,8 @@ binding_deps_for_temp temp bindings =
 
 collect_live_bindings request_handle bindings pending live =
   case pending of
-    ListNil -> live
-    ListCons head rest ->
+    Nil -> live
+    Cons head rest ->
       case int_list_member head live of
         true -> collect_live_bindings request_handle bindings rest live
         _ ->
@@ -534,19 +534,19 @@ collect_live_bindings request_handle bindings pending live =
 
 build_rename_map bindings live new_idx acc =
   case bindings of
-    ListNil -> acc
-    ListCons binding rest ->
+    Nil -> acc
+    Cons binding rest ->
       case binding of
         TempBinding temp _ _ _ _ _ _ _ ->
           case int_list_member temp live of
             true ->
-              build_rename_map rest live (new_idx + 1) (ListCons (Pair temp new_idx) acc)
+              build_rename_map rest live (new_idx + 1) (Cons (Pair temp new_idx) acc)
             _ -> build_rename_map rest live new_idx acc
 
 rename_lookup temp rename_map =
   case rename_map of
-    ListNil -> MissingInt
-    ListCons pair rest ->
+    Nil -> MissingInt
+    Cons pair rest ->
       case pair of
         Pair old new ->
           case (old == temp) of
@@ -601,7 +601,7 @@ is_line_keyword request_handle start line_end keyword =
     _ -> false
 
 collect_temp_refs request_handle start end =
-  collect_temp_refs_loop request_handle start end ListNil
+  collect_temp_refs_loop request_handle start end Nil
 
 parse_temp_chain_body request_handle line_start fn_end has_let bindings seen_temps =
   case (line_start >= fn_end) of
@@ -639,7 +639,7 @@ parse_temp_chain_body request_handle line_start fn_end has_let bindings seen_tem
                                       deps = collect_temp_refs request_handle rhs_start line_end
                                       binding = TempBinding idx line_start line_end name_start name_end rhs_start line_end deps
                                       seen_temps1 = int_list_insert_unique idx seen_temps
-                                  in parse_temp_chain_body request_handle next_line fn_end true (ListCons binding bindings) seen_temps1
+                                  in parse_temp_chain_body request_handle next_line fn_end true (Cons binding bindings) seen_temps1
                                 _ -> MissingTempChain
                         _ -> MissingTempChain
                     _ -> MissingTempChain
@@ -684,14 +684,14 @@ parse_temp_chain request_handle fn_start fn_end =
       body_start = next_line_start request_handle header_end fn_end
   in case (body_start >= fn_end) of
     true -> MissingTempChain
-    _ -> parse_temp_chain_body request_handle body_start fn_end false ListNil ListNil
+    _ -> parse_temp_chain_body request_handle body_start fn_end false Nil Nil
 
 parse_temp_chain_fallback request_handle fn_start fn_end =
   let header_end = find_line_end request_handle fn_start fn_end
       body_start = next_line_start request_handle header_end fn_end
   in case (body_start >= fn_end) of
     true -> MissingTempChain
-    _ -> parse_temp_chain_fallback_body request_handle body_start fn_end false ListNil ListNil
+    _ -> parse_temp_chain_fallback_body request_handle body_start fn_end false Nil Nil
 
 parse_temp_chain_fallback_body request_handle line_start fn_end has_let bindings seen_temps =
   case (line_start >= fn_end) of
@@ -748,7 +748,7 @@ parse_temp_chain_fallback_body request_handle line_start fn_end has_let bindings
                                       binding =
                                         TempBinding idx line_start line_end name_start name_end rhs_start line_end deps
                                       seen_temps1 = int_list_insert_unique idx seen_temps
-                                  in parse_temp_chain_fallback_body request_handle next_line fn_end true (ListCons binding bindings) seen_temps1
+                                  in parse_temp_chain_fallback_body request_handle next_line fn_end true (Cons binding bindings) seen_temps1
                                 _ -> MissingTempChain
                         _ -> MissingTempChain
                     _ -> MissingTempChain
@@ -758,7 +758,7 @@ skip_export_delims handle i line_end =
   case (i < line_end) of
     true ->
       let b = slice_get_u8 handle i
-      in case (is_space_or_tab_byte b || (b == 44)) of
+      in case (is_space_or_tab_byte b || (b == 44) || (b == 123) || (b == 125)) of
         true -> skip_export_delims handle (i + 1) line_end
         _ -> i
     _ -> i
@@ -903,19 +903,19 @@ collect_entrypoint_roots request_handle i req_len acc =
 entrypoint_roots_from_request request_handle req_len =
   let roots_start = find_entrypoint_exports_array_start request_handle req_len
   in case (roots_start == req_len) of
-    true -> ListNil
-    _ -> collect_entrypoint_roots request_handle roots_start req_len ListNil
+    true -> Nil
+    _ -> collect_entrypoint_roots request_handle roots_start req_len Nil
 
 finalize_open_fn open_fn fn_end acc =
   case open_fn of
     OpenFnNone -> acc
-    OpenFnSome name fn_start -> ListCons (FnInfo name fn_start fn_end) acc
+    OpenFnSome name fn_start -> Cons (FnInfo name fn_start fn_end) acc
 
 finalize_last_fn_info request_handle source_end open_fn acc =
   case open_fn of
     OpenFnNone -> acc
     OpenFnSome name fn_start ->
-      ListCons (FnInfo name fn_start source_end) acc
+      Cons (FnInfo name fn_start source_end) acc
 
 collect_function_infos_loop request_handle source_end line_start open_fn acc =
   case (line_start < source_end) of
@@ -934,12 +934,12 @@ collect_function_infos_loop request_handle source_end line_start open_fn acc =
       reverse_list (finalize_last_fn_info request_handle source_end open_fn acc)
 
 collect_function_infos request_handle source_start source_end =
-  collect_function_infos_loop request_handle source_end source_start OpenFnNone ListNil
+  collect_function_infos_loop request_handle source_end source_start OpenFnNone Nil
 
 find_matching_fn_name_for_root root fn_infos =
   case fn_infos of
-    ListNil -> MissingName
-    ListCons fn_info rest ->
+    Nil -> MissingName
+    Cons fn_info rest ->
       case fn_info of
         FnInfo fn_name _ _ ->
           case (name_ref_eq root fn_name) of
@@ -948,8 +948,8 @@ find_matching_fn_name_for_root root fn_infos =
 
 seed_reachable_from_roots roots fn_infos acc =
   case roots of
-    ListNil -> acc
-    ListCons root rest ->
+    Nil -> acc
+    Cons root rest ->
       let acc1 =
         case find_matching_fn_name_for_root root fn_infos of
           MissingName -> acc
@@ -958,8 +958,8 @@ seed_reachable_from_roots roots fn_infos acc =
 
 find_matching_fn_name_for_token token_handle token_start token_len fn_infos =
   case fn_infos of
-    ListNil -> MissingName
-    ListCons fn_info rest ->
+    Nil -> MissingName
+    Cons fn_info rest ->
       case fn_info of
         FnInfo fn_name _ _ ->
           case fn_name of
@@ -1038,8 +1038,8 @@ scan_function_body_token loop request_handle i body_end fn_infos reachable chang
 
 expand_reachable_once fn_infos request_handle reachable changed =
   case fn_infos of
-    ListNil -> Pair reachable changed
-    ListCons fn_info rest ->
+    Nil -> Pair reachable changed
+    Cons fn_info rest ->
       case fn_info of
         FnInfo fn_name fn_start fn_end ->
           case (name_list_member_by_content fn_name reachable) of
@@ -1057,18 +1057,18 @@ expand_reachable_fixpoint fn_infos request_handle reachable =
 
 collect_unreachable_spans fn_infos reachable acc =
   case fn_infos of
-    ListNil -> reverse_list acc
-    ListCons fn_info rest ->
+    Nil -> reverse_list acc
+    Cons fn_info rest ->
       case fn_info of
         FnInfo fn_name fn_start fn_end ->
           case (name_list_member_by_content fn_name reachable) of
             true -> collect_unreachable_spans rest reachable acc
-            _ -> collect_unreachable_spans rest reachable (ListCons (Span fn_start fn_end) acc)
+            _ -> collect_unreachable_spans rest reachable (Cons (Span fn_start fn_end) acc)
 
 spans_total_removed spans =
   case spans of
-    ListNil -> 0
-    ListCons span rest ->
+    Nil -> 0
+    Cons span rest ->
       case span of
         Span span_start span_end -> (span_end - span_start) + spans_total_removed rest
 
@@ -1200,8 +1200,8 @@ emit_final_line request_handle ownership_mode chain fn_end out out_i =
   case chain of
     TempChain final_line_start final_line_end expr_start expr_end bindings ->
       let final_refs = collect_temp_refs request_handle expr_start expr_end
-          live = collect_live_bindings request_handle bindings final_refs ListNil
-          rename_map = build_rename_map bindings live 0 ListNil
+          live = collect_live_bindings request_handle bindings final_refs Nil
+          rename_map = build_rename_map bindings live 0 Nil
           prefix_len = expr_start - final_line_start
           line_next = next_line_start request_handle final_line_end fn_end
           out1 = copy_slice_segment request_handle ownership_mode request_handle final_line_start out out_i prefix_len 0
@@ -1219,12 +1219,12 @@ emit_final_line request_handle ownership_mode chain fn_end out out_i =
 emit_temp_chain request_handle ownership_mode chain fn_end out out_i =
   case chain of
     TempChain final_line_start final_line_end final_expr_start final_expr_end bindings ->
-      let live = collect_live_bindings request_handle bindings (collect_temp_refs request_handle final_expr_start final_expr_end) ListNil
-          rename_map = build_rename_map bindings live 0 ListNil
+      let live = collect_live_bindings request_handle bindings (collect_temp_refs request_handle final_expr_start final_expr_end) Nil
+          rename_map = build_rename_map bindings live 0 Nil
           emit_bindings list acc_out acc_i =
             case list of
-              ListNil -> Pair acc_out acc_i
-              ListCons binding rest ->
+              Nil -> Pair acc_out acc_i
+              Cons binding rest ->
                 let emitted = emit_binding_line request_handle ownership_mode binding rename_map live fn_end acc_out acc_i
                     out1 = case emitted of
                       Pair out1' _ -> out1'
@@ -1241,8 +1241,8 @@ emit_temp_chain request_handle ownership_mode chain fn_end out out_i =
 
 match_unreachable_span fn_start _spans spans =
   case spans of
-    ListNil -> Pair false ListNil
-    ListCons span rest ->
+    Nil -> Pair false Nil
+    Cons span rest ->
       case span of
         Span span_start span_end ->
           case (span_start == fn_start) of
@@ -1278,11 +1278,11 @@ rewrite_function request_handle ownership_mode source_end fn_start fn_end out ou
 
 emit_pruned_source request_handle ownership_mode source_end fn_infos unreachable_spans out out_i cursor =
   case fn_infos of
-    ListNil ->
+    Nil ->
       let tail_len = source_end - cursor
           out1 = copy_slice_segment request_handle ownership_mode request_handle cursor out out_i tail_len 0
       in Pair out1 (out_i + tail_len)
-    ListCons fn_info rest ->
+    Cons fn_info rest ->
       case fn_info of
         FnInfo _ fn_start fn_end ->
           let gap_len = fn_start - cursor
@@ -1302,12 +1302,12 @@ emit_pruned_source request_handle ownership_mode source_end fn_infos unreachable
 
 copy_pruned_segments request_handle ownership_mode src source_end cursor dst dst_at spans =
   case spans of
-    ListNil ->
+    Nil ->
       let tail_len_raw = source_end - cursor
       in case (tail_len_raw > 0) of
         true -> copy_slice_segment request_handle ownership_mode src cursor dst dst_at tail_len_raw 0
         _ -> dst
-    ListCons span rest ->
+    Cons span rest ->
       case span of
         Span span_start span_end ->
           let keep_len_raw = span_start - cursor
@@ -1327,17 +1327,17 @@ copy_pruned_segments request_handle ownership_mode src source_end cursor dst dst
 resolve_root_names request_handle req_len source_start source_end =
   let explicit_roots = entrypoint_roots_from_request request_handle req_len
   in case explicit_roots of
-    ListNil ->
-      let export_roots = collect_export_roots_from_source request_handle source_end source_start ListNil
+    Nil ->
+      let export_roots = collect_export_roots_from_source request_handle source_end source_start Nil
       in case export_roots of
-        ListNil -> ListCons (NameRef fallback_root_main 0 (slice_len fallback_root_main)) ListNil
+        Nil -> Cons (NameRef fallback_root_main 0 (slice_len fallback_root_main)) Nil
         _ -> export_roots
     _ -> explicit_roots
 
 all_roots_known roots fn_infos =
   case roots of
-    ListNil -> true
-    ListCons root rest ->
+    Nil -> true
+    Cons root rest ->
       case find_matching_fn_name_for_root root fn_infos of
         MissingName -> false
         _ -> all_roots_known rest fn_infos
@@ -1347,28 +1347,28 @@ native_pruned_source_segment_checked request_handle ownership_mode req_len sourc
       fn_infos = collect_function_infos request_handle source_start source_end
       explicit_roots = entrypoint_roots_from_request request_handle req_len
       roots = resolve_root_names request_handle req_len source_start source_end
-      seeded = seed_reachable_from_roots roots fn_infos ListNil
+      seeded = seed_reachable_from_roots roots fn_infos Nil
       explicit_array_present = find_entrypoint_exports_array_start request_handle req_len != req_len
       explicit_roots_known = all_roots_known explicit_roots fn_infos
   in case explicit_array_present of
     true ->
       case explicit_roots of
-        ListNil -> PrunedSourceErr entrypoint_root_invalid_error
+        Nil -> PrunedSourceErr entrypoint_root_invalid_error
         _ ->
           case explicit_roots_known of
             true ->
               case seeded of
-                ListNil -> PrunedSourceErr entrypoint_root_unknown_error
+                Nil -> PrunedSourceErr entrypoint_root_unknown_error
                 _ -> native_pruned_source_segment_checked_impl request_handle ownership_mode source_start source_len source_end fn_infos seeded
             _ -> PrunedSourceErr entrypoint_root_unknown_error
     _ ->
       case seeded of
-        ListNil -> PrunedSourceOk (SourceSegment request_handle source_start source_len)
+        Nil -> PrunedSourceOk (SourceSegment request_handle source_start source_len)
         _ -> native_pruned_source_segment_checked_impl request_handle ownership_mode source_start source_len source_end fn_infos seeded
 
 native_pruned_source_segment_checked_impl request_handle ownership_mode source_start source_len source_end fn_infos seeded =
   let reachable = expand_reachable_fixpoint fn_infos request_handle seeded
-      unreachable_spans = collect_unreachable_spans fn_infos reachable ListNil
+      unreachable_spans = collect_unreachable_spans fn_infos reachable Nil
       out = slice_new_u8 source_len
       rewritten = emit_pruned_source request_handle ownership_mode source_end fn_infos unreachable_spans out 0 source_start
       rewrite_out = slice_new_u8 (source_len * 2 + 128)

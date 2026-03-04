@@ -102,6 +102,23 @@ case of
   | otherwise -> x
 ```
 
+## Export Declarations
+
+Canonical export declarations use the brace list form:
+
+```haskell
+main x = x + 1
+helper x = x - 1
+
+export { main, helper }
+```
+
+The legacy comma-separated form is deprecated but still supported:
+
+```haskell
+export main, helper
+```
+
 `case` arity rules:
 - Pattern-arm `case` requires arm pattern arity to match scrutinee arity.
 - Guard-arm `case` requires zero scrutinees and `| guard -> expr` arms.
@@ -281,14 +298,26 @@ instance Functor Maybe where
   fmap = maybe_map
 
 instance Foldable List where
-  foldr = list_foldr
-  foldl = list_foldl
+  foldr f z xs =
+    case xs of
+      Nil -> z
+      Cons x rest -> f x (foldr f z rest)
+  foldl f acc xs =
+    case xs of
+      Nil -> acc
+      Cons x rest -> foldl f (f acc x) rest
 
 instance Filterable List where
-  filter = list_filter
+  filter pred xs =
+    case xs of
+      Nil -> Nil
+      Cons x rest ->
+        case pred x of
+          true -> Cons x (filter pred rest)
+          _ -> filter pred rest
 
 instance Buildable List where
-  build = list_build
+  build g = g Cons Nil
 
 instance Applicative Maybe where
   pure = Just
@@ -325,7 +354,7 @@ Core prelude abstraction preview:
 ```haskell
 data Pair a b = Pair a b
 data Maybe a = Just a | Nothing
-data List a = ListNil | ListCons a (List a)
+data List a = Nil | Cons a (List a)
 
 data Reader r a = Reader : (r -> a) -> Reader r a
 run_reader : Reader r a -> r -> a
@@ -365,7 +394,7 @@ runtime-backed maps/sets.
 Use class methods directly for collection pipelines:
 
 ```haskell
-numbers = ListCons 1 (ListCons 2 (ListCons 3 ListNil))
+numbers = Cons 1 (Cons 2 (Cons 3 Nil))
 squared = fmap square numbers
 selected = filter even squared
 sum_left = foldl add 0 selected
@@ -559,4 +588,33 @@ Applicative/Functor shorthand operators map to named functions from the prelude:
 [1, 2, 3]
 ```
 
-Current lowering model uses `collection_empty`/`collection_extend`; this is not a packed linear buffer ABI.
+Current lowering model uses `collection_empty`/`collection_extend`.
+These names are class methods on `CollectionLiteral`, so expected type can
+select target collection shape.
+In compiler prelude defaults, `CollectionLiteral List` routes through class
+operations (`build` + `foldr`) for `List`.
+
+Example target overloading:
+
+```haskell
+data Vec a = VecNil | VecCons a (Vec a)
+data Seq a = SeqNil | SeqSnoc (Seq a) a
+data Array a = Array i64 (Seq a)
+
+instance CollectionLiteral Vec where
+  collection_empty _ = VecNil
+  collection_extend xs x = VecCons x xs
+
+instance CollectionLiteral Seq where
+  collection_empty _ = SeqNil
+  collection_extend xs x = SeqSnoc xs x
+
+instance CollectionLiteral Array where
+  collection_empty _ = Array 0 SeqNil
+  collection_extend arr x =
+    case arr of
+      Array len xs -> Array (add len 1) (SeqSnoc xs x)
+
+as_vec : Vec i64
+as_vec = [1, 2, 3]
+```

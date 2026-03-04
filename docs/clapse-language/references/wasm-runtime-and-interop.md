@@ -150,7 +150,11 @@ The struct field/tag operations are now emitted in-module:
 
 ## Why `[]` Is Not Packed Buffer Today
 
-- `[]` lowers to abstract collection builtins (`collection_empty`/`collection_extend`).
+- `[]` lowers to abstract collection hooks (`collection_empty`/`collection_extend`).
+- Those names are `CollectionLiteral` class methods, so target type can choose
+  collection representation.
+- In compiler prelude defaults, `CollectionLiteral List` is implemented via
+  class ops (`build` + `foldr`) for `List`.
 - It currently behaves like a high-level pure collection encoding, not contiguous mutable memory.
 
 ## Buffer/Slice Direction (Current)
@@ -158,6 +162,7 @@ The struct field/tag operations are now emitted in-module:
 Clapse keeps `[]` as an abstract collection syntax and uses explicit slice intrinsics for JS interop.
 
 - `[]` still lowers to `collection_empty` / `collection_extend`
+- compiler prelude defaults route `CollectionLiteral List` through `build`/`foldr`
 - packed interop bytes use linear-memory slice descriptors
 - intrinsics currently available: `slice_len`, `slice_get_u8`, `slice_set_u8`, `slice_eq_u8`, `str_to_slice`, `slice_to_string`, `slice_new_u8`, `slice_data_ptr`, `slice_len_raw`
 - low-level region/memory helpers are available: `region_mark`, `region_alloc`, `region_reset`, `memcpy_u8`, `memset_u8`

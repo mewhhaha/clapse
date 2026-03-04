@@ -45,9 +45,16 @@ deno run -A scripts/clapse.mjs bench [iterations]
     requiring `include`.
     Legacy dotted imports (`import module.name`) remain supported but are
     deprecated for new code.
+    Collection literals (`[]`, `[a, b, c]`) lower through
+    `collection_empty`/`collection_extend` as `CollectionLiteral` class methods,
+    so target type can dispatch to non-`List` collection representations.
+    Legacy prelude list constructors (`ListNil`/`ListCons`) are rewritten to
+    `Nil`/`Cons` in runner demand-driven compile paths with deprecation
+    warnings.
     The runner then executes fixed-point root propagation across modules.
     Roots are explicit `entrypoint_exports` when present, otherwise source
-    `export` declarations, with `main` fallback.
+    `export { ... }` declarations (legacy `export a, b` form is deprecated but
+    still supported), with `main` fallback.
     Runner requests now forward the resolved `entrypoint_exports` and a
     demand-driven `inputSourceOverride` to the compiler, so only required
     modules/functions/imports are compiled. DCE propagation now consumes:
