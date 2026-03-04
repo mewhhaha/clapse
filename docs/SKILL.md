@@ -131,6 +131,24 @@ The command returns a single compile response with:
 
 - `lowered_ir.txt` (IR before collapse)
 - `collapsed_ir.txt` (post-collapse IR)
+- `ok` (true/false)
+- `error_code` (machine-readable error id; present on `ok: false`)
+- `error` (human-readable error message)
+- `public_exports` (user-facing exported function names in the emitted module)
+- `abi_exports` (ABI/runtime exports, including `clapse_run` and memory)
+
+`clapse_run` is an ABI export used by host/runtime integration and should not be
+treated as a user-visible entrypoint. Use `public_exports` to discover user-callable
+entrypoints.
+
+JS ABI-boundary fail-closed behavior now rejects placeholder compile payloads
+by default (tiny placeholder wasm and source-echo marker responses). Legacy
+marker-shaped source-echo artifacts are normalized at the boundary before
+strict validation. Structured placeholder contract failures return:
+
+- `ok: false`
+- `error_code` (for example `compile_placeholder_response`)
+- `error` describing the placeholder contract violation
 
 Entrypoint reachability pruning now runs in the runner before compile request:
 
@@ -181,8 +199,9 @@ Entrypoint reachability pruning now runs in the runner before compile request:
   implemented through `CollectionLiteral` class methods
   (`CollectionLiteral List` via `build` + `foldr`)
 - non-kernel compile responses now emit a reachability-shaped wasm bundle in the
-  compile producer path (shared by raw and validated ABI calls): exports follow
-  `entrypoint_exports` / entrypoint exports, and bundle size tracks reachable
+  compile producer path (shared by raw and validated ABI calls). `public_exports`
+  follows selected `entrypoint_exports` / entrypoint exports, while `abi_exports`
+  carries runtime ABI exports like `clapse_run`. Bundle size tracks reachable
   function count. Kernel self-host compile requests continue to require
   compiler-ABI output
 - `just native-temp-pruning-gate` is now part of `pre-tag-verify` to enforce
@@ -396,8 +415,8 @@ must disappear when compiling with `entrypoint_exports=["main"]`.
   `scripts/check-browser-compiler-wasm.mjs`: released `clapse_compiler.wasm`
   must be native ABI (`clapse_run` + memory), non-tiny, and pass kernel-native
   compile-smoke checks (`backend: "kernel-native"`, non-empty
-  `artifacts.lowered_ir.txt` / `artifacts.collapsed_ir.txt`, and `main` export
-  in emitted module); release bundles must publish `clapse_compiler.d.ts` when
+  `artifacts.lowered_ir.txt` / `artifacts.collapsed_ir.txt`, and `public_exports`
+  containing `main`); release bundles must publish `clapse_compiler.d.ts` when
   produced.
 - Keep `just pre-tag-verify` aligned with strict-native bootstrap defaults: it
   now generates `artifacts/strict-native/seed.wasm` before verification and uses

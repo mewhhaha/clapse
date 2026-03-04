@@ -11,6 +11,8 @@ const COMPILE_DEBUG_ARTIFACT_FILES = [
   "lowered_ir.txt",
   "collapsed_ir.txt",
 ];
+const KNOWN_PLACEHOLDER_WASM_BYTES = 122;
+const KNOWN_PLACEHOLDER_ERROR_CODE = "compile_placeholder_response";
 
 function fromBase64(input) {
   const raw = atob(input);
@@ -296,6 +298,139 @@ function isCompileLikeRequest(requestObject) {
   return cmd === "compile" || cmd === "compile-debug";
 }
 
+function normalizePlaceholderSourceText(value) {
+  return String(value ?? "").replace(/\r\n/g, "\n");
+}
+
+function sourceEchoArtifactPayload(artifactText, label, sourceText) {
+  const marker = `(${label}) `;
+  if (typeof artifactText !== "string") {
+    return null;
+  }
+  const text = normalizePlaceholderSourceText(artifactText);
+  if (!text.startsWith(marker)) {
+    return null;
+  }
+  const payload = text.slice(marker.length);
+  const source = normalizePlaceholderSourceText(sourceText);
+  if (source.length === 0) {
+    return null;
+  }
+  return payload === source ||
+    payload.startsWith(source) ||
+    source.startsWith(payload)
+    ? payload
+    : null;
+}
+
+function sourceEchoArtifactMatches(artifactText, label, sourceText) {
+  return sourceEchoArtifactPayload(artifactText, label, sourceText) !== null;
+}
+
+function isSourceEchoCompileResponse(requestObject, responseObject) {
+  const artifacts = responseObject?.artifacts;
+  if (!artifacts || typeof artifacts !== "object" || Array.isArray(artifacts)) {
+    return false;
+  }
+  const lowered = artifacts["lowered_ir.txt"];
+  const collapsed = artifacts["collapsed_ir.txt"];
+  if (typeof lowered !== "string" || typeof collapsed !== "string") {
+    return false;
+  }
+  const sourceText = requestObject?.input_source;
+  return sourceEchoArtifactMatches(lowered, "lowered_ir", sourceText) &&
+    sourceEchoArtifactMatches(collapsed, "collapsed_ir", sourceText);
+}
+
+function normalizeSourceEchoCompileResponse(requestObject, responseObject) {
+  if (
+    typeof responseObject !== "object" ||
+    responseObject === null ||
+    Array.isArray(responseObject)
+  ) {
+    return responseObject;
+  }
+  const artifacts = responseObject.artifacts;
+  if (!artifacts || typeof artifacts !== "object" || Array.isArray(artifacts)) {
+    return responseObject;
+  }
+  const sourceText = requestObject?.input_source;
+  const loweredPayload = sourceEchoArtifactPayload(
+    artifacts["lowered_ir.txt"],
+    "lowered_ir",
+    sourceText,
+  );
+  const collapsedPayload = sourceEchoArtifactPayload(
+    artifacts["collapsed_ir.txt"],
+    "collapsed_ir",
+    sourceText,
+  );
+  if (loweredPayload === null || collapsedPayload === null) {
+    return responseObject;
+  }
+  return {
+    ...responseObject,
+    artifacts: {
+      ...artifacts,
+      "lowered_ir.txt": loweredPayload,
+      "collapsed_ir.txt": collapsedPayload,
+    },
+  };
+}
+
+function detectPlaceholderCompileShape(responseObject) {
+  if (
+    typeof responseObject !== "object" ||
+    responseObject === null ||
+    Array.isArray(responseObject)
+  ) {
+    return false;
+  }
+  if (typeof responseObject.wasm_base64 !== "string" ||
+    responseObject.wasm_base64.length === 0
+  ) {
+    return false;
+  }
+  let wasmBytes;
+  try {
+    wasmBytes = decodeWasmBase64(responseObject.wasm_base64);
+  } catch {
+    return false;
+  }
+  if (wasmBytes.length !== KNOWN_PLACEHOLDER_WASM_BYTES) {
+    return false;
+  }
+  const publicExports = responseObject.public_exports;
+  const abiExports = responseObject.abi_exports;
+  const legacyExports = responseObject.exports;
+  if (
+    (Array.isArray(publicExports) && publicExports.length > 0) ||
+    (Array.isArray(abiExports) && abiExports.length > 0) ||
+    (Array.isArray(legacyExports) && legacyExports.length > 0)
+  ) {
+    return false;
+  }
+  const dts = typeof responseObject.dts === "string"
+    ? responseObject.dts.trim()
+    : "";
+  return dts.length === 0 || dts === "export {}";
+}
+
+function buildPlaceholderCompileError(responseObject, errorCode, message, meta) {
+  const base = {
+    ok: false,
+    error_code: errorCode,
+    error: message,
+  };
+  if (typeof responseObject?.backend === "string" && responseObject.backend.length > 0) {
+    base.backend = responseObject.backend;
+  }
+  if (meta && typeof meta === "object" && Object.keys(meta).length > 0) {
+    base.meta = meta;
+  }
+  return base;
+}
+
 function findLegacyExportDecl(inputSource) {
   if (typeof inputSource !== "string" || inputSource.length === 0) {
     return null;
@@ -381,6 +516,10 @@ function isKernelNativeCompileRequest(requestObject) {
   return compileMode(requestObject) === "kernel-native";
 }
 
+function shouldFailClosedPlaceholderCompileResponse(requestObject) {
+  return !isCompilerKernelInputPath(requestObject);
+}
+
 function assertCompileArtifactsContract(responseObject) {
   const artifacts = responseObject.artifacts;
   assertObject(artifacts, "compile response.artifacts");
@@ -402,6 +541,41 @@ function hasCompilerAbiExports(exportNames) {
     exportNames.includes("__memory");
   const hasRun = exportNames.includes("clapse_run");
   return hasMemory && hasRun;
+}
+
+function assertCompileExportEntry(entry, idx, fieldLabel) {
+  const label = fieldLabel ?? "exports";
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    throw new Error(`compile response: ${label}[${idx}] must be an object`);
+  }
+  if (typeof entry.name !== "string" || entry.name.length === 0) {
+    throw new Error(
+      `compile response: ${label}[${idx}].name must be a non-empty string`,
+    );
+  }
+  if (!Number.isInteger(entry.arity) || entry.arity < 0) {
+    throw new Error(
+      `compile response: ${label}[${idx}].arity must be a non-negative integer`,
+    );
+  }
+}
+
+function parseCompileExportList(responseObject, fieldLabel) {
+  const hasField = Object.prototype.hasOwnProperty.call(
+    responseObject,
+    fieldLabel,
+  );
+  if (!hasField) {
+    return null;
+  }
+  const raw = responseObject[fieldLabel];
+  if (!Array.isArray(raw)) {
+    throw new Error(`compile response: '${fieldLabel}' must be an array`);
+  }
+  for (let i = 0; i < raw.length; i += 1) {
+    assertCompileExportEntry(raw[i], i, fieldLabel);
+  }
+  return raw;
 }
 
 function attachCompileContractMetadata(
@@ -466,31 +640,76 @@ function validateCompileResponseContract(
   responseObject,
   options = {},
 ) {
-  assertObject(responseObject, "compile response");
-  if (typeof responseObject.ok !== "boolean") {
+  const boundaryResponse = normalizeSourceEchoCompileResponse(
+    requestObject,
+    responseObject,
+  );
+  assertObject(boundaryResponse, "compile response");
+  if (typeof boundaryResponse.ok !== "boolean") {
     throw new Error("compile response: missing boolean 'ok'");
   }
-  if (responseObject.ok !== true) {
-    return responseObject;
+  if (boundaryResponse.ok !== true) {
+    return boundaryResponse;
+  }
+  if (shouldFailClosedPlaceholderCompileResponse(requestObject)) {
+    if (isSourceEchoCompileResponse(requestObject, boundaryResponse)) {
+      return buildPlaceholderCompileError(
+        boundaryResponse,
+        KNOWN_PLACEHOLDER_ERROR_CODE,
+        "compile response appears to contain source-echo placeholder artifacts",
+        {
+          reason: "source_echo_artifacts",
+        },
+      );
+    }
+    if (detectPlaceholderCompileShape(boundaryResponse)) {
+      return buildPlaceholderCompileError(
+        boundaryResponse,
+        KNOWN_PLACEHOLDER_ERROR_CODE,
+        "compile response appears to be a known tiny placeholder artifact",
+        {
+          reason: "tiny_placeholder_shape",
+          wasm_bytes: boundaryResponse.wasm_base64
+            ? decodeWasmBase64(boundaryResponse.wasm_base64).length
+            : 0,
+        },
+      );
+    }
   }
   if (
-    typeof responseObject.backend !== "string" ||
-    responseObject.backend.length === 0
+    typeof boundaryResponse.backend !== "string" ||
+    boundaryResponse.backend.length === 0
   ) {
     throw new Error("compile response: missing non-empty string 'backend'");
   }
-  if (responseObject.backend !== "kernel-native") {
+  if (boundaryResponse.backend !== "kernel-native") {
     throw new Error(
-      `compile response: unsupported backend '${responseObject.backend}' (expected kernel-native)`,
+      `compile response: unsupported backend '${boundaryResponse.backend}' (expected kernel-native)`,
     );
   }
   if (
-    typeof responseObject.wasm_base64 !== "string" ||
-    responseObject.wasm_base64.length === 0
+    typeof boundaryResponse.wasm_base64 !== "string" ||
+    boundaryResponse.wasm_base64.length === 0
   ) {
     throw new Error("compile response: missing non-empty string 'wasm_base64'");
   }
-  let normalizedResponse = responseObject;
+  const publicExports = parseCompileExportList(boundaryResponse, "public_exports");
+  const abiExports = parseCompileExportList(boundaryResponse, "abi_exports");
+  const legacyExports = parseCompileExportList(boundaryResponse, "exports");
+  if (publicExports === null && legacyExports === null && abiExports === null) {
+    throw new Error(
+      "compile response: missing export lists; expected public_exports, abi_exports, or legacy exports",
+    );
+  }
+  let normalizedResponse = {
+    ...boundaryResponse,
+    ...(legacyExports !== null && { exports: legacyExports }),
+    ...(publicExports !== null && { public_exports: publicExports }),
+    ...(abiExports !== null && { abi_exports: abiExports }),
+  };
+  if (publicExports === null && legacyExports !== null) {
+    normalizedResponse.public_exports = legacyExports;
+  }
   let contractMeta = {};
   if (compileRequestNeedsCompilerAbiOutput(requestObject)) {
     const abiResult = assertCompilerAbiOutputContract(normalizedResponse);

@@ -66,10 +66,15 @@ deno run -A scripts/clapse.mjs bench [iterations]
     Unknown explicit roots now fail compile with `unknown entrypoint root`.
     Unreachable top-level function definitions are removed in the native
     compile stage before compile artifacts are emitted.
+    Compile responses expose:
+    - `public_exports`: user-visible entrypoints for `main`-style execution
+    - `abi_exports`: ABI/runtime exports, including `clapse_run` and memory exports
     Non-kernel compile responses emit a reachability-shaped wasm bundle in the
-    compile producer path used by both raw and validated ABI calls (exports
-    follow selected roots, bundle size tracks reachable function count), while
-    kernel self-host compile requests still require full compiler ABI output.
+    compile producer path used by both raw and validated ABI calls:
+    `public_exports` follows selected roots, while `abi_exports` carries ABI/runtime
+    scaffolding (for example `clapse_run`). Bundle size tracks reachable function
+    count, while kernel self-host compile requests still require full compiler ABI
+    output.
     Legacy env
     toggles `CLAPSE_ENTRYPOINT_DCE` and `CLAPSE_INTERNAL_ENTRYPOINT_DCE` remain
     for compatibility but do not control compile request shaping anymore.
@@ -82,6 +87,10 @@ deno run -A scripts/clapse.mjs bench [iterations]
   - compile response validation is strict/fail-closed at the JS boundary:
     compile success must provide `backend: "kernel-native"` and non-empty
     `wasm_base64`; debug modes must also provide required debug artifacts.
+    Known tiny placeholder payloads and source-echo marker responses fail closed
+    with structured errors (`ok: false`, `error_code`, `error`). Legacy marker
+    shaped source-echo compile artifacts are normalized at the boundary before
+    strict placeholder checks.
   - `CLAPSE_COMPILE_ENGINE=native|kernel-native` remains accepted for explicit
     native intent on plain `compile`.
   - compiler wasm is resolved from `CLAPSE_COMPILER_WASM_PATH`, then
@@ -179,7 +188,7 @@ deno run -A scripts/clapse.mjs bench [iterations]
     `artifacts.lowered_ir.txt` and `artifacts.collapsed_ir.txt`
   - missing compile debug artifacts are treated as hard runner errors.
   - known placeholder stub compile payloads are rejected by native/debug compile
-    commands in the runner.
+    commands in the runner with `ok: false`, `error_code`, and `error`.
   - this contract is native-only; host-bridge compile execution is rejected.
   - strict native boundary gate:
   - `just native-boundary-strict-smoke` requires kernel-native compile contract
@@ -323,7 +332,7 @@ Current targets in `Justfile`:
   - now hard-fails if generated `clapse_compiler.wasm` is not browser-runnable
     (`scripts/check-browser-compiler-wasm.mjs`):
     native ABI + kernel-native compile smoke response contract +
-    emitted `main` export validity
+    emitted `public_exports` containing `main`
   - release metadata now tracks one or more CLI binaries passed to
     `scripts/release-metadata.mjs` via repeated `--cli-bin` flags; each binary
     is added as a separate manifest entry and checksum line.
