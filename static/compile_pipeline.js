@@ -131,10 +131,15 @@ function parseImportedModuleRefs(source) {
   return imports;
 }
 
-export function tryDebugCompile(session, inputSource, options = null) {
+export function tryDebugCompile(
+  session,
+  inputSource,
+  options = null,
+  compileMode = "debug",
+) {
   try {
     const response = session.call(
-      buildCompileRequest(inputSource, "debug", options),
+      buildCompileRequest(inputSource, compileMode, options),
     );
     if (isCompileResponse(response)) {
       return { ok: true, response };
@@ -158,6 +163,7 @@ export function compileDebugWithLoop({
   moduleSources,
   explicitEntrypointExports = [],
   includeEntrypointExports = true,
+  compileMode = "debug",
 }) {
   const sources = moduleSources instanceof Map ? moduleSources : new Map();
   if (!sources.has(entryPath) || typeof sources.get(entryPath) !== "string") {
@@ -209,11 +215,16 @@ export function compileDebugWithLoop({
 
     const entryRoots = [...(rootsByModule.get(entryPath) ?? new Set(["main"]))];
     const compileSource = mergeModuleSourcesByPath(sources, neededModules);
-    const compileResult = tryDebugCompile(session, compileSource, {
-      inputPath: entryPath,
-      entrypointExports: entryRoots,
-      includeEntrypointExports,
-    });
+    const compileResult = tryDebugCompile(
+      session,
+      compileSource,
+      {
+        inputPath: entryPath,
+        entrypointExports: entryRoots,
+        includeEntrypointExports,
+      },
+      compileMode,
+    );
     if (!compileResult.ok) {
       return {
         ...compileResult,

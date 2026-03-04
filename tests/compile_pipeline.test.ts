@@ -10,6 +10,7 @@ const compileDebugLoop = compileDebugWithLoop as (args: {
   moduleSources: Map<string, string>;
   explicitEntrypointExports?: string[];
   includeEntrypointExports?: boolean;
+  compileMode?: string | null;
 }) => {
   ok: boolean;
   passes: number;
@@ -213,6 +214,55 @@ Deno.test(
     }
   },
 );
+
+Deno.test("compileDebugWithLoop can skip compile_mode when requested", () => {
+  const calls: string[] = [];
+  const session = {
+    call(request: {
+      command: string;
+      compile_mode?: string;
+      entrypoint_exports?: string[];
+      input_path?: string;
+    }) {
+      calls.push(`mode:${request.compile_mode ?? "missing"}`);
+      calls.push(request.command);
+      if (request.command === "compile") {
+        calls.push(
+          `entrypoint=${(request.entrypoint_exports ?? []).join(",")}`,
+        );
+        calls.push(`input=${request.input_path}`);
+        return {
+          ok: true,
+          wasm_base64: "AA==",
+          artifacts: {
+            "lowered_ir.txt": "ok",
+            "collapsed_ir.txt": "ok",
+          },
+        };
+      }
+      throw new Error(`Unexpected command: ${request.command}`);
+    },
+  };
+
+  const result: CompileDebugLoopResult = compileDebugLoop({
+    session,
+    entryPath: "repl/input.clapse",
+    moduleSources: new Map([
+      ["repl/input.clapse", "export main\nmain = add 1 2"],
+    ]),
+    explicitEntrypointExports: ["main"],
+    compileMode: null,
+  });
+
+  if (!result.ok) {
+    throw new Error("Expected compile loop to succeed.");
+  }
+  if (!calls.includes("mode:missing")) {
+    throw new Error(
+      `Expected compile_mode to be omitted, got: ${calls.join(",")}`,
+    );
+  }
+});
 
 Deno.test(
   "compileDebugWithLoop fails when entrypoint_exports is unsupported",

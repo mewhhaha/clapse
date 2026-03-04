@@ -930,6 +930,7 @@ async function runCompile({ forceFormat = false } = {}) {
         moduleSources,
         explicitEntrypointExports: runtimeEntrypointRoots,
         includeEntrypointExports: true,
+        compileMode: null,
       });
       if (runtimeCompileResult.ok) {
         compileResponse = runtimeCompileResult.response;
@@ -937,7 +938,7 @@ async function runCompile({ forceFormat = false } = {}) {
     }
 
     if (!runtimeCompileResult?.ok) {
-      const splitResult = runCompilePipeline(session, compileSource, "debug", {
+      const splitResult = runCompilePipeline(session, compileSource, null, {
         inputPath: REPL_INPUT_PATH,
         entrypointExports: runtimeEntrypointRoots,
         includeEntrypointExports: true,
