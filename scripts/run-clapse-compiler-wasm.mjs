@@ -305,18 +305,6 @@ function stripLineComment(rawLine) {
   return marker >= 0 ? line.slice(0, marker) : line;
 }
 
-function parseModuleName(rawLine) {
-  const line = stripLineComment(rawLine).trim();
-  const quoted = line.match(/^module\s+"([^"]+)"/u);
-  if (quoted) {
-    return quoted[1].trim();
-  }
-  const match = line.match(
-    /^module\s+([A-Za-z_][A-Za-z0-9_$.']*(?:\.[A-Za-z_][A-Za-z0-9_$.']*)*)/u,
-  );
-  return match ? match[1] : "";
-}
-
 function parseImportBindings(rawBindings) {
   const valueBindings = new Map();
   const typeBindings = new Map();
@@ -939,8 +927,10 @@ async function resolveImportTarget(importEntry, sourcePath, moduleSearchDirs) {
 function parseModuleSourceInfo(sourceText, sourcePath) {
   const source = String(sourceText);
   const lines = source.split(/\r?\n/);
-  let moduleName = "";
-  let moduleDeclLine = "";
+  const sourceBase = sourcePath.split("/").pop() ?? "";
+  let moduleName = sourceBase.endsWith(".clapse")
+    ? sourceBase.slice(0, sourceBase.length - ".clapse".length)
+    : sourceBase;
   const importEntries = [];
   const exportNames = [];
   const exportNameSet = new Set();
@@ -954,14 +944,12 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
       continue;
     }
     if (trimmed.startsWith("module ")) {
-      const parsedModuleName = parseModuleName(rawLine);
-      if (parsedModuleName.length > 0) {
-        moduleName = parsedModuleName;
-        if (moduleDeclLine.length === 0) {
-          moduleDeclLine = rawLine;
-        }
-      }
-      if (isTopLevelBoundaryLine(rawLine)) boundaryLines.push(i);
+      throw new Error(
+        `module declarations are no longer supported in ${sourcePath}; use path/specifier-based module identity instead`,
+      );
+    }
+    if (isTopLevelBoundaryLine(rawLine)) {
+      boundaryLines.push(i);
       continue;
     }
     const importDecl = parseImportDecl(rawLine);
@@ -1021,15 +1009,6 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
       boundaryLines.push(i);
       continue;
     }
-    if (isTopLevelBoundaryLine(rawLine)) {
-      boundaryLines.push(i);
-    }
-  }
-  if (moduleName.length === 0) {
-    const base = sourcePath.split("/").pop() ?? "";
-    moduleName = base.endsWith(".clapse")
-      ? base.slice(0, base.length - ".clapse".length)
-      : base;
   }
   const sortedBoundaries = [...new Set(boundaryLines)].sort((a, b) => a - b);
   const functionSpans = new Map();
@@ -1064,7 +1043,6 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
   return {
     sourcePath: toAbsolutePath(sourcePath),
     moduleName,
-    moduleDeclLine,
     sourceLines: lines,
     topLevelBoundaries: sortedBoundaries,
     importEntries,
@@ -1444,7 +1422,6 @@ async function buildDemandDrivenCompileInput(
     const exported = info.exportNames.filter((name) => roots.has(name));
     let dropIdx = 0;
     let pruneDeclIdx = 0;
-    let emittedModule = false;
     let emittedExport = false;
     for (let lineNo = 0; lineNo < info.sourceLines.length; lineNo += 1) {
       while (
@@ -1505,14 +1482,6 @@ async function buildDemandDrivenCompileInput(
         if (!emittedExport && exported.length > 0) {
           lines.push(`export { ${exported.join(", ")} }`);
           emittedExport = true;
-        }
-        continue;
-      }
-      const moduleNameFromLine = parseModuleName(rawLine);
-      if (moduleNameFromLine.length > 0) {
-        if (!emittedModule && info.moduleDeclLine.length > 0) {
-          lines.push(info.moduleDeclLine);
-          emittedModule = true;
         }
         continue;
       }

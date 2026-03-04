@@ -1,5 +1,5 @@
 ==================
-module with function, data, class, law, instance
+declarations with function, data, class, law, instance
 ==================
 
 id x = x
@@ -147,19 +147,15 @@ other x y = x `plus_op` y
           right: (identifier))))))
 
 ==================
-module / import / export declarations
+import / export declarations
 ==================
 
-module "Core"
 import "Parser"
 export { main, Request }
 
 ---
 
 (source_file
-  (declaration
-    (module_declaration
-      name: (string)))
   (declaration
     (import_declaration
       module: (string)))

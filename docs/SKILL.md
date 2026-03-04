@@ -27,15 +27,18 @@ the current wasm compiler unless explicitly marked `skip`.
    observed `__clapse_contract.source_version` when `--source-version` is not
    provided.
 8. Canonical module export syntax is `export { ... }`.
-9. Use
+9. `module` declarations are deprecated and removed. Module identity is derived
+   from source resolution (`clapse.json` include/specifier/path), not by
+   in-source `module` declarations.
+10. Use
    `deno run -A scripts/run-clapse-compiler-wasm.mjs compile-debug <input.clapse> [output.wasm] [artifacts-dir]`
    for unified wasm+IR debug flows.
-10. Treat `tree-sitter-clapse/queries/highlights.scm` generated marker region as
+11. Treat `tree-sitter-clapse/queries/highlights.scm` generated marker region as
     grammar-managed: update `docs/clapse-language/references/grammar.ebnf`
     first, regenerate with `just gen-ts-highlights`, and do not hand-edit lines
     between `; BEGIN GENERATED-HIGHLIGHTS FROM_EBNF` and
     `; END GENERATED-HIGHLIGHTS FROM_EBNF`.
-11. Keep native parse wired through `compiler/syntax_parser_entry` as the
+12. Keep native parse wired through `compiler/syntax_parser_entry` as the
     generated-parser migration seam; grammar-backed parser data should enter via
     that entry module rather than direct `compiler/syntax_parser` calls.
 

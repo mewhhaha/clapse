@@ -1,4 +1,3 @@
-module "bootstrap_phase8_pattern_and_operators"
 export { main }
 
 data Maybe a = Just a | Nothing

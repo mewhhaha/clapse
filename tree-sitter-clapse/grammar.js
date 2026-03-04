@@ -28,7 +28,6 @@ module.exports = grammar({
 
     declaration: ($) =>
       choice(
-        $.module_declaration,
         $.import_declaration,
         $.export_declaration,
         $.type_declaration,
@@ -301,13 +300,6 @@ module.exports = grammar({
       choice(
         $.integer,
         $.string,
-      ),
-
-    module_declaration: ($) =>
-      seq(
-        $._kw_module,
-        $._ws1,
-        field("name", $.string),
       ),
 
     import_declaration: ($) =>
@@ -1057,7 +1049,6 @@ module.exports = grammar({
     _kw_law: () => token(prec(1, "law")),
     _kw_instance: () => token(prec(1, "instance")),
     _kw_where: () => token(prec(1, "where")),
-    _kw_module: () => token(prec(1, "module")),
     _kw_import: () => token(prec(1, "import")),
     _kw_export: () => token(prec(1, "export")),
     _kw_as: () => token(prec(1, "as")),

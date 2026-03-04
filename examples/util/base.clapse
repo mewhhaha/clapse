@@ -1,4 +1,3 @@
-module "util/base"
 export { square }
 
 square x = x * x

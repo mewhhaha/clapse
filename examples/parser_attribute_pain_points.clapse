@@ -1,4 +1,3 @@
-module "parser_attribute_pain_points"
 export { main, fast_add, tagged_identity, tagged_guard }
 
 #[memo 64]

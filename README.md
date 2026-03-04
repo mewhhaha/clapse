@@ -29,9 +29,8 @@ Top-level declarations are line-oriented; function bodies can continue on
 indented lines for both guarded clauses and `name ... =` block RHS forms:
 
 ```haskell
-module entry
-import util.math
-export main
+import "util/math" as math
+export { main }
 
 identity x = x
 data Pair a b = Pair a b
@@ -46,9 +45,10 @@ id x = x
 
 Module directives:
 
-- `module <dotted_name>` declares a source module name (e.g.
-  `module util.math`).
-- `import <dotted_name>` imports another source module from the compile root.
+- `import "path/to/module"` imports another source module from configured
+  include roots.
+- `import "path/to/module" as alias` enables qualified references such as
+  `alias.symbol`.
 - `import host.<capability>` enables host builtin imports without requiring a
   source module file.
   - currently supported:
@@ -56,11 +56,11 @@ Module directives:
       section)
     - `import host.time` (enables `unix_time_ms` host import in generated wasm
       import section)
-- `export <name>[, <name> ...]` sets explicit wasm exports for the entry module.
+- `export { name1, name2 }` sets explicit wasm exports for the entry module.
 - When `export` is omitted in the entry module, all entry-module functions are
   exported.
 - `just clapse-bin && ./artifacts/bin/clapse compile <entry.clapse> [output.wasm]` resolves
-  dotted imports relative to the entry file directory (`util.math` ->
+  quoted module specifiers to source files (for example `"util/math"` ->
   `util/math.clapse`), merges modules, rewrites imported names to qualified
   internal symbols, then compiles a single optimized wasm module.
 - Compile also emits a TypeScript sidecar (`<output path with .d.ts extension>`)
@@ -1001,7 +1001,7 @@ just selfhost-check-wasm-bridge
 ```
 
 `selfhost-check-wasm-bridge` runs strict wasm-right parity using a minimal wasm
-module that exports `clapse_run`/`memory` and forwards requests through host
+binary that exports `clapse_run`/`memory` and forwards requests through host
 capability imports. This validates the runner path end-to-end while the full
 compiler-in-clapse wasm artifact is still in progress.
 

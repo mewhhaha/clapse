@@ -1,4 +1,3 @@
-module "bootstrap_phase10_frontend_lexer"
 export { main }
 
 primitive bool = true<1> | false<0>

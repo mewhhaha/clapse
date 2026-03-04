@@ -1,4 +1,3 @@
-module "util/json"
 export { byte_at, json_command_tag }
 import "slice_scan"
 

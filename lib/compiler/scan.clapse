@@ -1,4 +1,3 @@
-module "compiler/scan"
 import "compiler/prelude"
 export
   scan_is_space_byte

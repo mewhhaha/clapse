@@ -1,4 +1,3 @@
-module "compiler/syntax_show"
 import "compiler/prelude"
 export
   SyntaxCST

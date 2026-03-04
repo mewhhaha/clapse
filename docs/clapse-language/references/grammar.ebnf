@@ -1,10 +1,8 @@
 # Clapse Grammar (EBNF)
 
 Program          = { TopLevelDecl } EOF
-TopLevelDecl     = ModuleDecl | ImportDecl | ExportDecl | TypeDecl | SignatureDecl | ValueDecl
+TopLevelDecl     = ImportDecl | ExportDecl | TypeDecl | SignatureDecl | ValueDecl
                 | ClassDecl | InstanceDecl | LawDecl | DataDecl | PrimitiveDecl | TypeAliasDecl
-
-ModuleDecl       = "module" StringLiteral
 
 ImportDecl       = "import" StringLiteral
                 | "import" StringLiteral ImportSpecList
@@ -57,4 +55,4 @@ Character        = "'" char "'"
 
 # Notes:
 # - Layout-sensitive forms (let/case/guards/multi-line clauses) are defined in layout.md.
-# - StringLiteral in import/module form is the canonical module specifier.
+# - StringLiteral in import form is the canonical module specifier.

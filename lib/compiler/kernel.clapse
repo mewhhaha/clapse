@@ -1,4 +1,3 @@
-module "bootstrap_phase9_compiler_kernel"
 import "compiler/parser"
 import "compiler/prelude"
 import "compiler/formatter"

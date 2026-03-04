@@ -1,4 +1,3 @@
-module "compiler/formatter"
 import "compiler/prelude"
 import "compiler/scan"
 import "compiler/formatter_monadic"

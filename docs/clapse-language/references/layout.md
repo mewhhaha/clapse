@@ -2,14 +2,9 @@
 
 ## Canonical Module Header
 
-Use one declaration per line at module level for top-level declarations.
+`module` declarations are deprecated and rejected in this branch.
 
-```clapse
-module "spec"
-
-export { main }
-main = 1
-```
+Use standard top-level declarations directly; modules are resolved by source name.
 
 ## Import Forms
 

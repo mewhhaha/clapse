@@ -26,11 +26,9 @@ primitive bool = true<1> | false<0>
 
 ## Modules
 
-- Declare the module identity for a file with a quoted name:
+- Module declarations are removed in this branch.
 
-```haskell
-module "spec"
-```
+Modules are identified by source resolution (path or module specifier) only.
 
 ## Imports
 

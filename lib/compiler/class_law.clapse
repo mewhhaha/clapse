@@ -1,4 +1,3 @@
-module "compiler/class_law"
 import "compiler/parser"
 import "compiler/prelude"
 data ClassMethodExpr = CBool bool | CVar i64 | CNot ClassMethodExpr | CAnd ClassMethodExpr ClassMethodExpr | COr ClassMethodExpr ClassMethodExpr

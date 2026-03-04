@@ -3,9 +3,6 @@
 (string) @string
 (integer) @constant.numeric.integer
 
-(module_declaration
-  name: (string) @namespace)
-
 (import_declaration
   module: (string) @namespace)
 
@@ -333,7 +330,6 @@
   "import"
   "instance"
   "law"
-  "module"
   "of"
   "primitive"
   "type"

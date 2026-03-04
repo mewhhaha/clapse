@@ -1,4 +1,3 @@
-module "bootstrap_phase7_host_capability_pilot"
 import "host/time"
 export { main }
 

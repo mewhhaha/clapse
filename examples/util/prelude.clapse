@@ -1,4 +1,3 @@
-module "prelude"
 export { to_bool, from_bool, bool_not, bool_and, bool_or, and, or, not }
 
 primitive bool = true<1> | false<0>

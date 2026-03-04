@@ -1,4 +1,3 @@
-module "bootstrap_phase11_parser_combinator_pilot"
 export { main, main_stats, main_stream, main_bad_type, main_bad_type_union, main_bad_type_union_string }
 
 primitive bool = true<1> | false<0>

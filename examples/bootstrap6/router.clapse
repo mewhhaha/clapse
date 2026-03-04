@@ -1,4 +1,3 @@
-module "bootstrap6/router"
 export { parse_method, parse_route, dispatch }
 
 data Method = Get i64 | Put i64 | UnknownMethod i64

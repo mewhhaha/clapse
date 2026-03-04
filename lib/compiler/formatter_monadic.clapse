@@ -1,4 +1,3 @@
-module "compiler/formatter_monadic"
 import "compiler/prelude"
 import "compiler/scan"
 data OwnershipRewriteMode = OwnershipRewriteLinear | OwnershipRewriteCopyOnWrite

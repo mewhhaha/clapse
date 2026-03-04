@@ -1,4 +1,3 @@
-module "compiler/syntax_lexer"
 import "compiler/prelude"
 import "compiler/scan"
 export

@@ -28,10 +28,6 @@
       "members": [
         {
           "type": "SYMBOL",
-          "name": "module_declaration"
-        },
-        {
-          "type": "SYMBOL",
           "name": "import_declaration"
         },
         {
@@ -1323,27 +1319,6 @@
         {
           "type": "SYMBOL",
           "name": "string"
-        }
-      ]
-    },
-    "module_declaration": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "SYMBOL",
-          "name": "_kw_module"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "_ws1"
-        },
-        {
-          "type": "FIELD",
-          "name": "name",
-          "content": {
-            "type": "SYMBOL",
-            "name": "string"
-          }
         }
       ]
     },
@@ -5050,17 +5025,6 @@
         "content": {
           "type": "STRING",
           "value": "where"
-        }
-      }
-    },
-    "_kw_module": {
-      "type": "TOKEN",
-      "content": {
-        "type": "PREC",
-        "value": 1,
-        "content": {
-          "type": "STRING",
-          "value": "module"
         }
       }
     },

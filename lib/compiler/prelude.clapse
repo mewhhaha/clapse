@@ -1,4 +1,3 @@
-module "compiler/prelude"
 export { id, compose, map_replace_default, ap_default, then_m_default, keep_left_default, keep_right_default, alt_default, map_replace, then_m, keep_left, keep_right, alt, Pair, Maybe, maybe_map, maybe_with_default, maybe_bind, List, Map, map_empty, map_lookup_by, map_member_by, map_insert_by, map_remove_by, map_from_list_by, Set, set_empty, set_member_by, set_insert_by, set_remove_by, set_from_list_by, Reader, run_reader, reader_pure, reader_map, reader_ap, reader_bind, ask_reader, asks_reader, local_reader, State, run_state, eval_state, exec_state, state_pure, state_map, state_ap, state_bind, get_state, put_state, modify_state, gets_state, Unit, Lazy, force, lazy, not, and, or, xor, implies, byte, char, Boolean, Functor, Foldable, Buildable, Filterable, CollectionLiteral, Applicative, Monad, Alternative, any, all }
 
 infixl 1 >>=

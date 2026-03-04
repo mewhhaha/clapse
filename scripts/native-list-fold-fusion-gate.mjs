@@ -13,7 +13,9 @@ function normalizeLine(line) {
 }
 
 function extractMainLine(collapsedIr) {
-  const match = collapsedIr.match(/(?:^|\n)main\s*=\s*[^\n]*/u);
+  const match = collapsedIr.match(
+    /(?:^|\n)\s*(?:\(collapsed_ir\)\s*)?(?:[A-Za-z0-9_/'-]+\.)*main\s*=\s*[^\n]*/u,
+  );
   assert(match !== null && match.length > 0, "native-list-fold-fusion-gate: collapsed_ir.txt is missing main line");
   return normalizeLine(match[0]);
 }
@@ -24,7 +26,7 @@ async function run() {
   });
   try {
     const sourceText = [
-      "export main",
+      "export { main }",
       "main = foldl f z (fmap g xs)",
       "",
     ].join("\n");

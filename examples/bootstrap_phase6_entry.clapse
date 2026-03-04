@@ -1,4 +1,3 @@
-module "bootstrap_phase6_entry"
 import "bootstrap6/router"
 export { main }
 

@@ -113,7 +113,7 @@ async function run() {
     const dceOutputPath = `${tmpDir}/entrypoint_dce.wasm`;
     const dceArtifactsDir = `${tmpDir}/entrypoint-dce-artifacts`;
     const dceSource = [
-      "export main",
+      "export { main }",
       "main x = helper x",
       "helper x = x",
       `dead_fn x = x -- ${dceMarker}`,
@@ -156,19 +156,17 @@ async function run() {
     await Deno.writeTextFile(
       entryModulePath,
       [
-        "module smoke.entry",
-        "import smoke.util",
-        "export main",
-        "main x = smoke.util.live x",
-        `entry_dead x = smoke.util.dead_helper x -- ${entryDeadMarker}`,
+        "import \"smoke/util\" as util",
+        "export { main }",
+        "main x = util.live x",
+        `entry_dead x = util.dead_helper x -- ${entryDeadMarker}`,
         "",
       ].join("\n"),
     );
     await Deno.writeTextFile(
       utilModulePath,
       [
-        "module smoke.util",
-        "export live",
+        "export { live }",
         "live x = x",
         `dead_helper x = x -- ${importDeadMarker}`,
         "dead_chain x = dead_helper x",
@@ -178,7 +176,6 @@ async function run() {
     await Deno.writeTextFile(
       unusedModulePath,
       [
-        "module smoke.unused",
         `unused x = x -- ${unusedMarker}`,
         "",
       ].join("\n"),
@@ -229,7 +226,7 @@ async function run() {
     await Deno.writeTextFile(
       internalOnlyInputPath,
       [
-        "export main",
+        "export { main }",
         "main x = keep x",
         "keep x = x",
         `dead_internal x = x -- ${internalOnlyMarker}`,

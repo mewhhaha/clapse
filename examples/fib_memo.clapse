@@ -1,4 +1,3 @@
-module "fib_memo_example"
 export { fib, main }
 
 #[memo 128]

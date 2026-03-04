@@ -1,4 +1,3 @@
-module "memo_fib_plugin"
 export { memo_fib_probe }
 
 #[memo 64]

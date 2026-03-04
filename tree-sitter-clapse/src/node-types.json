@@ -581,10 +581,6 @@
           "named": true
         },
         {
-          "type": "module_declaration",
-          "named": true
-        },
-        {
           "type": "operator_declaration",
           "named": true
         },
@@ -1421,22 +1417,6 @@
     }
   },
   {
-    "type": "module_declaration",
-    "named": true,
-    "fields": {
-      "name": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "string",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
     "type": "operator_assoc",
     "named": true,
     "fields": {}
@@ -2113,10 +2093,6 @@
   },
   {
     "type": "let",
-    "named": false
-  },
-  {
-    "type": "module",
     "named": false
   },
   {
