@@ -937,7 +937,7 @@ async function runCompile({ forceFormat = false } = {}) {
     }
 
     if (!runtimeCompileResult?.ok) {
-      const splitResult = runCompilePipeline(session, compileSource);
+      const splitResult = runCompilePipeline(session, compileSource, "debug");
       compileResponse = splitResult.compileResponse ?? compileResponse;
       if (!artifactsResponse) {
         artifactsResponse = splitResult.artifactsResponse;

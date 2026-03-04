@@ -274,8 +274,10 @@ export function runArtifactsPipeline(session, inputSource) {
   return { artifactsResponse, artifactsError };
 }
 
-export function runCompilePipeline(session, inputSource) {
-  const compileResponse = session.call(buildCompileRequest(inputSource));
+export function runCompilePipeline(session, inputSource, compileMode = null) {
+  const compileResponse = session.call(
+    buildCompileRequest(inputSource, compileMode),
+  );
   const { artifactsResponse, artifactsError } = runArtifactsPipeline(
     session,
     inputSource,
