@@ -38,6 +38,32 @@ Queries shipped in `queries/`:
 - `tags.scm`
 - `rainbows.scm`
 
+`highlights.scm` uses a two-layer model:
+
+- A managed generated block derived from `docs/clapse-language/references/grammar.ebnf`
+- Hand-authored rules for node-level/edge-case captures that are not purely terminal-token driven
+
+## Query generation from grammar
+
+`queries/highlights.scm` contains a marker-bounded managed region generated from
+the EBNF grammar.
+
+Do not hand-edit generated lines between:
+
+- `; BEGIN GENERATED-HIGHLIGHTS FROM_EBNF`
+- `; END GENERATED-HIGHLIGHTS FROM_EBNF`
+
+Workflow from repo root:
+
+```bash
+just gen-syntax-check
+just gen-ts-highlights
+just gen-ts-highlights-check
+just ebnf-tree-sitter-drift-check
+just highlights
+just highlights-real
+```
+
 ## Strict behavior
 
 - Declarations are newline-delimited.

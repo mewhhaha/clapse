@@ -1,0 +1,14 @@
+module "compiler/syntax_parser_entry"
+import "compiler/syntax_parser"
+import compiler.syntax_cst_generated
+export { syntax_parse_entry, syntax_parse_is_ok, syntax_parse_grammar_rule_count }
+
+syntax_parse_grammar_rule_count = cst_rule_count
+
+syntax_parse_entry request_handle source_start source_end =
+  syntax_parse request_handle source_start source_end
+
+syntax_parse_is_ok parse_result =
+  case parse_result of
+    SyntaxParseOk -> true
+    _ -> false

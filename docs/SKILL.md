@@ -30,6 +30,14 @@ the current wasm compiler unless explicitly marked `skip`.
 9. Use
    `deno run -A scripts/run-clapse-compiler-wasm.mjs compile-debug <input.clapse> [output.wasm] [artifacts-dir]`
    for unified wasm+IR debug flows.
+10. Treat `tree-sitter-clapse/queries/highlights.scm` generated marker region as
+    grammar-managed: update `docs/clapse-language/references/grammar.ebnf`
+    first, regenerate with `just gen-ts-highlights`, and do not hand-edit lines
+    between `; BEGIN GENERATED-HIGHLIGHTS FROM_EBNF` and
+    `; END GENERATED-HIGHLIGHTS FROM_EBNF`.
+11. Keep native parse wired through `compiler/syntax_parser_entry` as the
+    generated-parser migration seam; grammar-backed parser data should enter via
+    that entry module rather than direct `compiler/syntax_parser` calls.
 
 ## Validation
 
@@ -45,6 +53,10 @@ just clapse-bin
 just docs-validate
 deno run -A scripts/lsp-wasm-fixtures.mjs
 just lsp-wasm-fixtures
+just gen-syntax-check
+just gen-ts-highlights
+just gen-ts-highlights-check
+just ebnf-tree-sitter-drift-check
 just highlights
 just highlights-expect
 just highlights-real
@@ -196,6 +208,12 @@ just native-ir-liveness-size-gate
 
 - Keep `docs/clapse-language/references/tooling-and-workflows.md` updated when
   `clapse.json` configuration shape changes.
+- When `docs/clapse-language/references/grammar.ebnf` changes, regenerate the
+  managed highlights region in `tree-sitter-clapse/queries/highlights.scm` via
+  `just gen-ts-highlights`, keep generated CST in sync via
+  `just gen-syntax-check`, and run `just ebnf-tree-sitter-drift-check`; then
+  re-run highlight validation (`just highlights`, `just highlights-real`, and
+  `just highlights-helix` for editor/runtime paths).
 - When compiler behavior around dispatch, class-method resolution, or rewrite
   simplification changes, update
   `docs/clapse-language/references/syntax-reference.md` and

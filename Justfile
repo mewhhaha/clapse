@@ -51,10 +51,21 @@ gen-syntax out='lib/compiler/syntax_cst_generated.clapse' grammar='docs/clapse-l
   deno run -A scripts/syntax/gen-cst-from-ebnf.mjs "{{grammar}}" "{{out}}"
 
 gen-syntax-check out='lib/compiler/syntax_cst_generated.clapse' grammar='docs/clapse-language/references/grammar.ebnf':
+  #!/usr/bin/env bash
+  set -euo pipefail
   tmp="$(mktemp "${TMPDIR:-/tmp}/syntax_cst_generated.XXXXXX")"
   deno run -A scripts/syntax/gen-cst-from-ebnf.mjs "{{grammar}}" "$tmp"
   diff -u "$tmp" "{{out}}"
   rm -f "$tmp"
+
+ebnf-tree-sitter-drift-check grammar='docs/clapse-language/references/grammar.ebnf' tree_sitter='tree-sitter-clapse/grammar.js':
+  deno run -A scripts/syntax/check-ebnf-tree-sitter-drift.mjs "{{grammar}}" "{{tree_sitter}}"
+
+gen-ts-highlights grammar='docs/clapse-language/references/grammar.ebnf' query='tree-sitter-clapse/queries/highlights.scm':
+  deno run -A scripts/syntax/gen-ts-highlights-from-ebnf.mjs --write "{{grammar}}" "{{query}}"
+
+gen-ts-highlights-check grammar='docs/clapse-language/references/grammar.ebnf' query='tree-sitter-clapse/queries/highlights.scm':
+  deno run -A scripts/syntax/gen-ts-highlights-from-ebnf.mjs --check "{{grammar}}" "{{query}}"
 
 pre-tag-verify:
   #!/usr/bin/env bash
@@ -65,6 +76,9 @@ pre-tag-verify:
   deno run -A scripts/guard-no-host-surface.mjs
   deno run -A scripts/check-browser-compiler-wasm.mjs --wasm "${verify_wasm}"
   deno run -A scripts/check-pass-manifest.mjs
+  just gen-syntax-check
+  just gen-ts-highlights-check
+  just ebnf-tree-sitter-drift-check
   CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-strict-producer-check "${verify_wasm}" "${probe_hops}"
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just native-source-version-propagation-gate "${verify_wasm}" "${probe_hops}"
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just compile-debug-smoke
