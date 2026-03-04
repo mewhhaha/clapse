@@ -323,6 +323,29 @@ function renderTypeScriptBindings(exportsList) {
   return lines.length > 0 ? `${lines.join("\n")}\n` : "export {}\n";
 }
 
+function resolveResponseExportEntries(response) {
+  const publicExports = Array.isArray(response?.public_exports)
+    ? response.public_exports
+    : null;
+  if (publicExports !== null) {
+    return publicExports;
+  }
+  return Array.isArray(response?.exports) ? response.exports : [];
+}
+
+function exportNamesFromEntries(exportEntries) {
+  const names = [];
+  if (!Array.isArray(exportEntries)) {
+    return names;
+  }
+  for (const item of exportEntries) {
+    if (item && typeof item.name === "string" && item.name.length > 0) {
+      names.push(item.name);
+    }
+  }
+  return names;
+}
+
 async function sha256Hex(bytes) {
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)]
@@ -406,16 +429,22 @@ async function compileNativeCandidate(opts, inputSource) {
   const exportNames = WebAssembly.Module.exports(module).map((entry) =>
     entry.name
   );
+  const publicExportEntries = resolveResponseExportEntries(response);
+  const abiExportEntries = Array.isArray(response.abi_exports)
+    ? response.abi_exports
+    : [];
   ensureCompilerOutputAbi(wasmBytes, exportNames);
   const dts = typeof response.dts === "string" && response.dts.length > 0
     ? response.dts
     : renderTypeScriptBindings(
-      Array.isArray(response.exports) ? response.exports : [],
+      publicExportEntries,
     );
   return {
     response,
     wasmBytes,
     exportNames,
+    publicExportEntries,
+    abiExportEntries,
     dts,
     sourceVersion: producerContract.sourceVersion,
     compileContractVersion: producerContract.compileContractVersion,
@@ -608,7 +637,8 @@ async function main() {
   const selectedMode = "native-bootstrap-compile";
   let selectedWasmBytes;
   let selectedDts;
-  let selectedExports;
+  let selectedPublicExportEntries;
+  let selectedAbiExportEntries;
   let nativeProbe = null;
 
   try {
@@ -638,7 +668,8 @@ async function main() {
     }
     selectedWasmBytes = nativeCandidate.wasmBytes;
     selectedDts = nativeCandidate.dts;
-    selectedExports = nativeCandidate.exportNames;
+    selectedPublicExportEntries = nativeCandidate.publicExportEntries;
+    selectedAbiExportEntries = nativeCandidate.abiExportEntries;
 
     await ensureParentDir(opts.outWasm);
     await Deno.writeFile(opts.outWasm, selectedWasmBytes);
@@ -674,7 +705,9 @@ async function main() {
           dts: outDts,
           size_bytes: selectedWasmBytes.length,
           sha256: await sha256Hex(selectedWasmBytes),
-          exports: selectedExports,
+          exports: exportNamesFromEntries(selectedPublicExportEntries),
+          public_exports: selectedPublicExportEntries,
+          abi_exports: selectedAbiExportEntries,
           source_version: nativeCandidate.sourceVersion,
           compile_contract_version: nativeCandidate.compileContractVersion,
         },

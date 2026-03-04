@@ -1676,20 +1676,44 @@ function assertObject(value, ctx) {
   }
 }
 
-function assertCompileExportEntry(entry, idx) {
+function assertCompileExportEntry(entry, idx, label = "exports") {
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-    throw new Error(`compile response: exports[${idx}] must be an object`);
+    throw new Error(`compile response: ${label}[${idx}] must be an object`);
   }
   if (typeof entry.name !== "string" || entry.name.length === 0) {
     throw new Error(
-      `compile response: exports[${idx}].name must be a non-empty string`,
+      `compile response: ${label}[${idx}].name must be a non-empty string`,
     );
   }
   if (!Number.isInteger(entry.arity) || entry.arity < 0) {
     throw new Error(
-      `compile response: exports[${idx}].arity must be a non-negative integer`,
+      `compile response: ${label}[${idx}].arity must be a non-negative integer`,
     );
   }
+}
+
+function parseCompileExportList(response, label) {
+  const hasField = Object.prototype.hasOwnProperty.call(response, label);
+  if (!hasField) {
+    return null;
+  }
+  const raw = response[label];
+  if (!Array.isArray(raw)) {
+    throw new Error(`compile response: '${label}' must be an array`);
+  }
+  for (let i = 0; i < raw.length; i += 1) {
+    assertCompileExportEntry(raw[i], i, label);
+  }
+  return raw;
+}
+
+function preferredPublicExports(response) {
+  const publicExports = parseCompileExportList(response, "public_exports");
+  if (publicExports !== null) {
+    return publicExports;
+  }
+  const legacyExports = parseCompileExportList(response, "exports");
+  return legacyExports !== null ? legacyExports : [];
 }
 
 function decodeCompileResponse(response, inputPath) {
@@ -1701,6 +1725,10 @@ function decodeCompileResponse(response, inputPath) {
     const mode = String(response.backend ?? "unknown");
     const backend = mode.length > 0 && mode !== "unknown"
       ? ` [backend=${mode}]`
+      : "";
+    const errorCode = typeof response.error_code === "string" &&
+      response.error_code.length > 0
+      ? ` [error_code=${response.error_code}]`
       : "";
     const rawError = response.error;
     const err = rawError === undefined
@@ -1714,7 +1742,7 @@ function decodeCompileResponse(response, inputPath) {
           return String(rawError);
         }
       })();
-    throw new Error(`compile${backend} failed for ${inputPath}: ${err}`);
+    throw new Error(`compile${backend}${errorCode} failed for ${inputPath}: ${err}`);
   }
   if (
     typeof response.wasm_base64 !== "string" ||
@@ -1722,20 +1750,31 @@ function decodeCompileResponse(response, inputPath) {
   ) {
     throw new Error("compile response: missing non-empty 'wasm_base64'");
   }
-  if (response.exports !== undefined && !Array.isArray(response.exports)) {
+  const publicExports = parseCompileExportList(response, "public_exports");
+  const abiExportsValue = parseCompileExportList(response, "abi_exports");
+  const legacyExports = parseCompileExportList(response, "exports");
+  if (
+    publicExports === null &&
+    legacyExports === null &&
+    abiExportsValue === null
+  ) {
     throw new Error(
-      "compile response: 'exports' must be an array when present",
+      "compile response: missing export lists; expected public_exports, abi_exports, or legacy exports",
     );
   }
-  if (Array.isArray(response.exports)) {
-    for (let i = 0; i < response.exports.length; i += 1) {
-      assertCompileExportEntry(response.exports[i], i);
-    }
+  const normalizedResponse = {
+    ...response,
+    ...(legacyExports !== null && { exports: legacyExports }),
+    ...(publicExports !== null && { public_exports: publicExports }),
+    ...(abiExportsValue !== null && { abi_exports: abiExportsValue }),
+  };
+  if (publicExports === null && legacyExports !== null) {
+    normalizedResponse.public_exports = legacyExports;
   }
   if (response.dts !== undefined && typeof response.dts !== "string") {
     throw new Error("compile response: 'dts' must be a string when present");
   }
-  return response;
+  return normalizedResponse;
 }
 
 function decodeSelfhostArtifactsResponse(response, inputPath) {
@@ -1805,7 +1844,7 @@ async function writeCompileArtifacts(outputPath, response, options = {}) {
   const dts = typeof response.dts === "string"
     ? response.dts
     : renderTypeScriptBindings(
-      Array.isArray(response.exports) ? response.exports : [],
+      preferredPublicExports(response),
     );
   await Deno.writeTextFile(dtsPath, dts);
 }
@@ -1861,7 +1900,7 @@ function isKnownStubCompileArtifact(wasmBytes, response) {
   if (!(wasmBytes instanceof Uint8Array) || wasmBytes.length !== 122) {
     return false;
   }
-  const exportsList = Array.isArray(response?.exports) ? response.exports : [];
+  const exportsList = preferredPublicExports(response);
   const dts = typeof response?.dts === "string" ? response.dts.trim() : "";
   return exportsList.length === 0 && (dts.length === 0 || dts === "export {}");
 }

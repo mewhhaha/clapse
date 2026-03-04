@@ -74,6 +74,19 @@ function contractMeta(response) {
   return raw;
 }
 
+function preferredPublicExports(response) {
+  const publicExports = Array.isArray(response?.public_exports)
+    ? response.public_exports
+    : null;
+  if (publicExports !== null) {
+    return publicExports;
+  }
+  const legacyExports = Array.isArray(response?.exports)
+    ? response.exports
+    : [];
+  return legacyExports;
+}
+
 function boundaryFallbackContractKeys(response) {
   const contract = contractMeta(response);
   const keys = [];
@@ -104,7 +117,7 @@ function isKnownStubCompileArtifact(wasmBytes, response) {
   if (!(wasmBytes instanceof Uint8Array) || wasmBytes.length !== KNOWN_STUB_WASM_BYTES) {
     return false;
   }
-  const exportsList = Array.isArray(response?.exports) ? response.exports : [];
+  const exportsList = preferredPublicExports(response);
   const dts = typeof response?.dts === "string" ? response.dts.trim() : "";
   return exportsList.length === 0 && (dts.length === 0 || dts === "export {}");
 }
