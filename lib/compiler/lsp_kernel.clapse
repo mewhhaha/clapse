@@ -6,16 +6,28 @@ export
   LspSymbolLookup
   lsp_missing_input_source_error
   lsp_missing_symbol_error
+  lsp_missing_query_error
+  lsp_missing_new_name_error
   lsp_symbol_index_response
   lsp_hover_response
   lsp_definition_response
+  lsp_completion_response
+  lsp_signature_help_response
+  lsp_semantic_tokens_response
+  lsp_workspace_symbol_response
+  lsp_references_response
+  lsp_rename_response
   lsp_next_newline
   lsp_next_line_start
   lsp_line_token
   lsp_doc_content_range
   lsp_has_declaration_sep
   lsp_strings_equal
+  lsp_declaration_match
+  lsp_find_field
   lsp_find_symbol_field
+  lsp_find_query_field
+  lsp_find_new_name_field
   lsp_lookup_symbol
   lsp_symbol_index_count
   lsp_symbol_index_fill
@@ -34,6 +46,8 @@ data LspSymbolLookup =
 
 lsp_missing_input_source_error = str_to_slice "lsp request missing input_source"
 lsp_missing_symbol_error = str_to_slice "lsp request missing symbol"
+lsp_missing_query_error = str_to_slice "lsp request missing query"
+lsp_missing_new_name_error = str_to_slice "lsp request missing new_name"
 
 lsp_symbol_index_prefix = str_to_slice "{\"ok\":true,\"backend\":\"clapse\",\"symbols\":\""
 lsp_symbol_index_suffix = str_to_slice "\"}"
@@ -45,6 +59,34 @@ lsp_hover_suffix = str_to_slice "\"}"
 lsp_definition_not_found = str_to_slice "{\"ok\":true,\"backend\":\"clapse\",\"found\":false}"
 lsp_definition_found_prefix = str_to_slice "{\"ok\":true,\"backend\":\"clapse\",\"found\":true,\"signature\":\""
 lsp_definition_suffix = str_to_slice "\"}"
+lsp_completion_no_items = str_to_slice "{\"ok\":true,\"backend\":\"clapse\",\"items\":[]}"
+lsp_completion_prefix = str_to_slice "{\"ok\":true,\"backend\":\"clapse\",\"items\":["
+lsp_completion_suffix = str_to_slice "]}"
+lsp_completion_item_prefix = str_to_slice "{\"label\":\""
+lsp_completion_item_mid = str_to_slice "\",\"type_hint\":\"value\",\"rank\":1,\"detail\":\""
+lsp_completion_item_suffix = str_to_slice "\"}"
+lsp_signature_help_prefix = str_to_slice "{\"ok\":true,\"backend\":\"clapse\",\"signatures\":["
+lsp_signature_entry_prefix = str_to_slice "{\"label\":\""
+lsp_signature_entry_mid = str_to_slice "\",\"parameters\":[],\"activeParameter\":0,\"documentation\":null}"
+lsp_signature_help_suffix = str_to_slice "],\"activeSignature\":0,\"activeParameter\":0}"
+lsp_signature_help_empty = str_to_slice "{\"ok\":true,\"backend\":\"clapse\",\"signatures\":[],\"activeSignature\":0,\"activeParameter\":0}"
+lsp_semantic_tokens_empty = str_to_slice "{\"ok\":true,\"backend\":\"clapse\",\"data\":[]}"
+lsp_workspace_symbol_prefix = str_to_slice "{\"ok\":true,\"backend\":\"clapse\",\"symbols\":["
+lsp_workspace_symbol_suffix = str_to_slice "]}"
+lsp_workspace_symbol_item_prefix = str_to_slice "{\"name\":\""
+lsp_workspace_symbol_item_mid = str_to_slice "\",\"kind\":12}"
+lsp_json_comma = str_to_slice ","
+lsp_references_found_prefix = str_to_slice "{\"ok\":true,\"backend\":\"clapse\",\"found\":true,\"symbol\":\""
+lsp_references_location = str_to_slice "{\"uri\":\"\",\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":0,\"character\":0}}"
+lsp_references_locations_prefix = str_to_slice "\",\"locations\":["
+lsp_references_suffix = str_to_slice "]}"
+lsp_references_empty = str_to_slice "{\"ok\":true,\"backend\":\"clapse\",\"locations\":[]}"
+lsp_workspace_symbol_empty = str_to_slice "{\"ok\":true,\"backend\":\"clapse\",\"symbols\":[]}"
+lsp_rename_prefix = str_to_slice "{\"ok\":true,\"backend\":\"clapse\",\"changes\":{\""
+lsp_rename_item_prefix = str_to_slice "{\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":0,\"character\":0},\"newText\":\""
+lsp_rename_item_suffix = str_to_slice "\"}}"
+lsp_rename_suffix = str_to_slice "]}}"
+lsp_rename_empty = str_to_slice "{\"ok\":true,\"backend\":\"clapse\",\"changes\":{\"\":[]}}"
 
 lsp_next_newline request_handle i req_len =
   case (i >= req_len) of
@@ -126,14 +168,207 @@ lsp_strings_equal request_handle a_start a_len b_start b_len =
               _ -> false
       in rec_eq request_handle 0 a_len a_start b_start
 
-lsp_find_symbol_field request_handle req_len =
-  let symbol_start = scan_find_json_key_value_start request_handle 0 req_len "\"symbol\""
-      symbol_end = case (symbol_start == req_len) of
+lsp_find_field request_handle key req_len =
+  let value_start = scan_find_json_key_value_start request_handle 0 req_len key
+      value_end = case (value_start == req_len) of
         true -> req_len
-        _ -> json_slice_end request_handle symbol_start req_len
-  in case (symbol_start == req_len || symbol_end == req_len) of
+        _ -> json_slice_end request_handle value_start req_len
+  in case (value_start == req_len || value_end == req_len) of
     true -> LspFieldMissing
-    _ -> LspFieldFound symbol_start symbol_end
+    _ -> LspFieldFound value_start value_end
+
+lsp_find_symbol_field request_handle req_len =
+  lsp_find_field request_handle "\"symbol\"" req_len
+
+lsp_find_query_field request_handle req_len =
+  lsp_find_field request_handle "\"query\"" req_len
+
+lsp_find_new_name_field request_handle req_len =
+  lsp_find_field request_handle "\"new_name\"" req_len
+
+lsp_declaration_match request_handle token_start token_end query_start query_end =
+  let token_len = token_end - token_start
+      query_len = query_end - query_start
+      max_start = token_end - query_len
+  in case (query_len <= 0 || token_len < query_len) of
+    true -> false
+    _ -> lsp_declaration_match_from request_handle token_start max_start query_start query_len
+
+lsp_declaration_match_from request_handle i max_start query_start query_len =
+  case (i > max_start) of
+    true -> false
+    _ ->
+      let match = lsp_strings_equal request_handle i query_len query_start query_len
+      in case match of
+        true -> true
+        _ -> lsp_declaration_match_from request_handle (i + 1) max_start query_start query_len
+
+lsp_declaration_query_len_acc request_handle line_start source_end query_start query_end first_match completion_mode =
+  case (line_start >= source_end) of
+    true -> 0
+    _ ->
+      let line_end = lsp_next_newline request_handle line_start source_end
+          next_line = lsp_next_line_start request_handle line_end source_end
+          token = lsp_line_token request_handle line_start line_end
+      in case token of
+        LspFieldFound token_start token_end ->
+          case lsp_has_declaration_sep request_handle token_end line_end token_end of
+            true ->
+              case lsp_declaration_match request_handle token_start token_end query_start query_end of
+                true ->
+                  let token_len = token_end - token_start
+                      item_len =
+                        (case first_match of
+                          true -> 0
+                          _ -> 1) +
+                        (case completion_mode of
+                          true -> (slice_len lsp_completion_item_prefix + token_len + slice_len lsp_completion_item_mid + token_len + slice_len lsp_completion_item_suffix)
+                          _ -> (slice_len lsp_workspace_symbol_item_prefix + token_len + slice_len lsp_workspace_symbol_item_mid))
+                  in item_len + lsp_declaration_query_len_acc request_handle next_line source_end query_start query_end false completion_mode
+                _ -> lsp_declaration_query_len_acc request_handle next_line source_end query_start query_end first_match completion_mode
+            _ -> lsp_declaration_query_len_acc request_handle next_line source_end query_start query_end first_match completion_mode
+        _ -> lsp_declaration_query_len_acc request_handle next_line source_end query_start query_end first_match completion_mode
+
+lsp_declaration_query_fill request_handle line_start source_end query_start query_end ownership_mode out out_i first_match completion_mode =
+  case (line_start >= source_end) of
+    true -> out_i
+    _ ->
+      let line_end = lsp_next_newline request_handle line_start source_end
+          next_line = lsp_next_line_start request_handle line_end source_end
+          token = lsp_line_token request_handle line_start line_end
+      in case token of
+        LspFieldFound token_start token_end ->
+          case lsp_has_declaration_sep request_handle token_end line_end token_end of
+            true ->
+              case lsp_declaration_match request_handle token_start token_end query_start query_end of
+                true ->
+                  let out1 = case first_match of
+                        true -> out
+                        _ -> copy_slice_literal request_handle ownership_mode out out_i lsp_json_comma
+                      next_i = case first_match of
+                        true -> out_i
+                        _ -> out_i + 1
+                      token_len = token_end - token_start
+                      out2 = case completion_mode of
+                        true ->
+                          let p1 = next_i + slice_len lsp_completion_item_prefix
+                              p2 = p1 + token_len
+                              p3 = p2 + slice_len lsp_completion_item_mid
+                              p4 = p3 + token_len
+                              x1 = copy_slice_literal request_handle ownership_mode out1 next_i lsp_completion_item_prefix
+                              x2 = copy_slice_segment request_handle ownership_mode request_handle token_start x1 p1 token_len 0
+                              x3 = copy_slice_literal request_handle ownership_mode x2 p2 lsp_completion_item_mid
+                              x4 = copy_slice_segment request_handle ownership_mode request_handle token_start x3 p3 token_len 0
+                          in copy_slice_literal request_handle ownership_mode x4 p4 lsp_completion_item_suffix
+                        _ ->
+                          let p1 = next_i + slice_len lsp_workspace_symbol_item_prefix
+                              p2 = p1 + token_len
+                              x1 = copy_slice_literal request_handle ownership_mode out1 next_i lsp_workspace_symbol_item_prefix
+                              x2 = copy_slice_segment request_handle ownership_mode request_handle token_start x1 p1 token_len 0
+                          in copy_slice_literal request_handle ownership_mode x2 p2 lsp_workspace_symbol_item_mid
+                  in lsp_declaration_query_fill request_handle next_line source_end query_start query_end ownership_mode out2 (case completion_mode of
+                    true -> (next_i + slice_len lsp_completion_item_prefix + token_len + slice_len lsp_completion_item_mid + token_len + slice_len lsp_completion_item_suffix)
+                    _ -> (next_i + slice_len lsp_workspace_symbol_item_prefix + token_len + slice_len lsp_workspace_symbol_item_mid)) false completion_mode
+                _ -> lsp_declaration_query_fill request_handle next_line source_end query_start query_end ownership_mode out first_match completion_mode
+            _ -> lsp_declaration_query_fill request_handle next_line source_end query_start query_end ownership_mode out first_match completion_mode
+        _ -> lsp_declaration_query_fill request_handle next_line source_end query_start query_end ownership_mode out first_match completion_mode
+
+lsp_declaration_refs_len request_handle line_start source_end symbol_start symbol_end first_match =
+  case (line_start >= source_end) of
+    true -> 0
+    _ ->
+      let line_end = lsp_next_newline request_handle line_start source_end
+          next_line = lsp_next_line_start request_handle line_end source_end
+          token = lsp_line_token request_handle line_start line_end
+      in case token of
+        LspFieldFound token_start token_end ->
+          case lsp_has_declaration_sep request_handle token_end line_end token_end of
+            true ->
+              case lsp_declaration_match request_handle token_start token_end symbol_start symbol_end of
+                true ->
+                  let separator_len = case first_match of
+                    true -> 0
+                    _ -> 1
+                  in separator_len + slice_len lsp_references_location + lsp_declaration_refs_len request_handle next_line source_end symbol_start symbol_end false
+                _ -> lsp_declaration_refs_len request_handle next_line source_end symbol_start symbol_end first_match
+            _ -> lsp_declaration_refs_len request_handle next_line source_end symbol_start symbol_end first_match
+        _ -> lsp_declaration_refs_len request_handle next_line source_end symbol_start symbol_end first_match
+
+lsp_declaration_refs_fill request_handle line_start source_end symbol_start symbol_end ownership_mode out out_i first_match =
+  case (line_start >= source_end) of
+    true -> out_i
+    _ ->
+      let line_end = lsp_next_newline request_handle line_start source_end
+          next_line = lsp_next_line_start request_handle line_end source_end
+          token = lsp_line_token request_handle line_start line_end
+      in case token of
+        LspFieldFound token_start token_end ->
+          case lsp_has_declaration_sep request_handle token_end line_end token_end of
+            true ->
+              case lsp_declaration_match request_handle token_start token_end symbol_start symbol_end of
+                true ->
+                  let out1 = case first_match of
+                        true -> out
+                        _ -> copy_slice_literal request_handle ownership_mode out out_i lsp_json_comma
+                      next_i = case first_match of
+                        true -> out_i
+                        _ -> out_i + 1
+                      out2 = copy_slice_literal request_handle ownership_mode out1 next_i lsp_references_location
+                  in lsp_declaration_refs_fill request_handle next_line source_end symbol_start symbol_end ownership_mode out2 (next_i + slice_len lsp_references_location) false
+                _ -> lsp_declaration_refs_fill request_handle next_line source_end symbol_start symbol_end ownership_mode out first_match
+            _ -> lsp_declaration_refs_fill request_handle next_line source_end symbol_start symbol_end ownership_mode out first_match
+        _ -> lsp_declaration_refs_fill request_handle next_line source_end symbol_start symbol_end ownership_mode out first_match
+
+lsp_rename_payload_len request_handle line_start source_end symbol_start symbol_end new_name_start new_name_end first_match =
+  let new_name_len = new_name_end - new_name_start
+  in case (line_start >= source_end) of
+    true -> 0
+    _ ->
+      let line_end = lsp_next_newline request_handle line_start source_end
+          next_line = lsp_next_line_start request_handle line_end source_end
+          token = lsp_line_token request_handle line_start line_end
+      in case token of
+        LspFieldFound token_start token_end ->
+          case lsp_has_declaration_sep request_handle token_end line_end token_end of
+            true ->
+              case lsp_declaration_match request_handle token_start token_end symbol_start symbol_end of
+                true ->
+                  let separator_len = case first_match of
+                    true -> 0
+                    _ -> 1
+                  in separator_len + slice_len lsp_rename_item_prefix + new_name_len + slice_len lsp_rename_item_suffix + lsp_rename_payload_len request_handle next_line source_end symbol_start symbol_end new_name_start new_name_end false
+                _ -> lsp_rename_payload_len request_handle next_line source_end symbol_start symbol_end new_name_start new_name_end first_match
+            _ -> lsp_rename_payload_len request_handle next_line source_end symbol_start symbol_end new_name_start new_name_end first_match
+        _ -> lsp_rename_payload_len request_handle next_line source_end symbol_start symbol_end new_name_start new_name_end first_match
+
+lsp_rename_payload_fill request_handle line_start source_end symbol_start symbol_end new_name_start new_name_end ownership_mode out out_i first_match =
+  let new_name_len = new_name_end - new_name_start
+  in case (line_start >= source_end) of
+    true -> out_i
+    _ ->
+      let line_end = lsp_next_newline request_handle line_start source_end
+          next_line = lsp_next_line_start request_handle line_end source_end
+          token = lsp_line_token request_handle line_start line_end
+      in case token of
+        LspFieldFound token_start token_end ->
+          case lsp_has_declaration_sep request_handle token_end line_end token_end of
+            true ->
+              case lsp_declaration_match request_handle token_start token_end symbol_start symbol_end of
+                true ->
+                  let out1 = case first_match of
+                        true -> out
+                        _ -> copy_slice_literal request_handle ownership_mode out out_i lsp_json_comma
+                      next_i = case first_match of
+                        true -> out_i
+                        _ -> out_i + 1
+                      p1 = next_i + slice_len lsp_rename_item_prefix
+                      p2 = p1 + new_name_len
+                      out2 = copy_slice_literal request_handle ownership_mode out1 next_i lsp_rename_item_prefix
+                      out3 = json_copy_escaped_segment request_handle ownership_mode request_handle new_name_start new_name_len 0 out2 p1
+                  in lsp_rename_payload_fill request_handle next_line source_end symbol_start symbol_end new_name_start new_name_end ownership_mode (copy_slice_literal request_handle ownership_mode out3 p2 lsp_rename_item_suffix) (p2 + slice_len lsp_rename_item_suffix) false
+                _ -> lsp_rename_payload_fill request_handle next_line source_end symbol_start symbol_end new_name_start new_name_end ownership_mode out first_match
+            _ -> lsp_rename_payload_fill request_handle next_line source_end symbol_start symbol_end new_name_start new_name_end ownership_mode out first_match
+        _ -> lsp_rename_payload_fill request_handle next_line source_end symbol_start symbol_end new_name_start new_name_end ownership_mode out first_match
 
 lsp_lookup_symbol request_handle source_end symbol_start symbol_end line_start doc_start doc_end =
   case (line_start >= source_end) of
@@ -158,10 +393,10 @@ lsp_lookup_symbol request_handle source_end symbol_start symbol_end line_start d
           case doc of
             LspFieldFound doc_line_start doc_line_end ->
               lsp_lookup_symbol request_handle source_end symbol_start symbol_end next_line doc_line_start doc_line_end
-        _ ->
-          case is_blank of
-            true -> lsp_lookup_symbol request_handle source_end symbol_start symbol_end next_line source_end source_end
-            _ -> lsp_lookup_symbol request_handle source_end symbol_start symbol_end next_line source_end source_end
+            _ ->
+              case is_blank of
+                true -> lsp_lookup_symbol request_handle source_end symbol_start symbol_end next_line source_end source_end
+                _ -> lsp_lookup_symbol request_handle source_end symbol_start symbol_end next_line source_end source_end
 
 lsp_escape_length request_handle start len =
   json_escape_extra_len request_handle start len 0 0
@@ -265,10 +500,146 @@ lsp_definition_response request_handle ownership_mode req_len =
           in case decl of
             LspDeclarationNone -> lsp_definition_not_found
             LspDeclarationFound decl_start decl_end _ _ _ _ _ ->
-              let signature_len = decl_end - decl_start
+                let signature_len = decl_end - decl_start
                   signature_esc = lsp_escape_length request_handle decl_start signature_len
                   total_len = slice_len lsp_definition_found_prefix + signature_esc + slice_len lsp_definition_suffix
                   out = slice_new_u8 total_len
                   out1 = copy_slice_literal request_handle ownership_mode out 0 lsp_definition_found_prefix
                   out2 = json_copy_escaped_segment request_handle ownership_mode request_handle decl_start signature_len 0 out1 (slice_len lsp_definition_found_prefix)
               in copy_slice_literal request_handle ownership_mode out2 (slice_len lsp_definition_found_prefix + signature_esc) lsp_definition_suffix
+
+lsp_completion_response request_handle ownership_mode req_len =
+  let source_start = find_input_source_start request_handle 0 req_len
+      query = lsp_find_query_field request_handle req_len
+  in case (source_start == req_len) of
+    true -> error_response_from_message request_handle ownership_mode lsp_missing_input_source_error
+    _ ->
+      case query of
+        LspFieldMissing -> error_response_from_message request_handle ownership_mode lsp_missing_query_error
+        LspFieldFound query_start query_end ->
+          let query_len = query_end - query_start
+          in case (query_len == 0) of
+            true -> lsp_completion_no_items
+            _ ->
+              let source_end = json_slice_end request_handle source_start req_len
+                  payload_len = lsp_declaration_query_len_acc request_handle source_start source_end query_start query_end true true
+              in case (payload_len == 0) of
+                true -> lsp_completion_no_items
+                _ ->
+                  let total_len = slice_len lsp_completion_prefix + payload_len + slice_len lsp_completion_suffix
+                      out = slice_new_u8 total_len
+                      out1 = copy_slice_literal request_handle ownership_mode out 0 lsp_completion_prefix
+                      end_i = lsp_declaration_query_fill request_handle source_start source_end query_start query_end ownership_mode out1 (slice_len lsp_completion_prefix) true true
+                  in copy_slice_literal request_handle ownership_mode out1 end_i lsp_completion_suffix
+
+lsp_signature_help_response request_handle ownership_mode req_len =
+  let source_start = find_input_source_start request_handle 0 req_len
+      query = lsp_find_query_field request_handle req_len
+  in case (source_start == req_len) of
+    true -> error_response_from_message request_handle ownership_mode lsp_missing_input_source_error
+    _ ->
+      case query of
+        LspFieldMissing -> lsp_signature_help_empty
+        LspFieldFound query_start query_end ->
+          let query_len = query_end - query_start
+          in case (query_len == 0) of
+            true -> lsp_signature_help_empty
+            _ ->
+              let entry_len =
+                    slice_len lsp_signature_entry_prefix + query_len +
+                    slice_len lsp_signature_entry_mid
+                  total_len = slice_len lsp_signature_help_prefix + entry_len + slice_len lsp_signature_help_suffix
+                  out = slice_new_u8 total_len
+                  p1 = slice_len lsp_signature_help_prefix
+                  p2 = p1 + slice_len lsp_signature_entry_prefix
+                  p3 = p2 + query_len
+                  p4 = p3 + slice_len lsp_signature_entry_mid
+                  out1 = copy_slice_literal request_handle ownership_mode out 0 lsp_signature_help_prefix
+                  out2 = copy_slice_literal request_handle ownership_mode out1 p1 lsp_signature_entry_prefix
+                  out3 = json_copy_escaped_segment request_handle ownership_mode request_handle query_start query_len 0 out2 p2
+                  out4 = copy_slice_literal request_handle ownership_mode out3 p3 lsp_signature_entry_mid
+                  out5 = copy_slice_literal request_handle ownership_mode out4 p4 lsp_signature_help_suffix
+              in out5
+
+lsp_semantic_tokens_response request_handle ownership_mode req_len =
+  let source_start = find_input_source_start request_handle 0 req_len
+  in case (source_start == req_len) of
+    true -> error_response_from_message request_handle ownership_mode lsp_missing_input_source_error
+    _ -> lsp_semantic_tokens_empty
+
+lsp_workspace_symbol_response request_handle ownership_mode req_len =
+  let source_start = find_input_source_start request_handle 0 req_len
+      query = lsp_find_query_field request_handle req_len
+  in case (source_start == req_len) of
+    true -> error_response_from_message request_handle ownership_mode lsp_missing_input_source_error
+    _ ->
+      case query of
+        LspFieldMissing -> error_response_from_message request_handle ownership_mode lsp_missing_query_error
+        LspFieldFound query_start query_end ->
+          let query_len = query_end - query_start
+          in case (query_len == 0) of
+            true -> lsp_workspace_symbol_empty
+            _ ->
+              let source_end = json_slice_end request_handle source_start req_len
+                  payload_len = lsp_declaration_query_len_acc request_handle source_start source_end query_start query_end true false
+              in case (payload_len == 0) of
+                true -> lsp_workspace_symbol_empty
+                _ ->
+                  let total_len = slice_len lsp_workspace_symbol_prefix + payload_len + slice_len lsp_workspace_symbol_suffix
+                      out = slice_new_u8 total_len
+                      out1 = copy_slice_literal request_handle ownership_mode out 0 lsp_workspace_symbol_prefix
+                      end_i = lsp_declaration_query_fill request_handle source_start source_end query_start query_end ownership_mode out1 (slice_len lsp_workspace_symbol_prefix) true false
+                  in copy_slice_literal request_handle ownership_mode out1 end_i lsp_workspace_symbol_suffix
+
+lsp_references_response request_handle ownership_mode req_len =
+  let source_start = find_input_source_start request_handle 0 req_len
+      symbol = lsp_find_symbol_field request_handle req_len
+  in case (source_start == req_len) of
+    true -> error_response_from_message request_handle ownership_mode lsp_missing_input_source_error
+    _ ->
+      case symbol of
+        LspFieldMissing -> error_response_from_message request_handle ownership_mode lsp_missing_symbol_error
+        LspFieldFound symbol_start symbol_end ->
+          let source_end = json_slice_end request_handle source_start req_len
+              payload_len = lsp_declaration_refs_len request_handle source_start source_end symbol_start symbol_end true
+          in case (payload_len == 0) of
+            true -> lsp_references_empty
+            _ ->
+              let symbol_len = symbol_end - symbol_start
+                  total_len = slice_len lsp_references_found_prefix + symbol_len + slice_len lsp_references_locations_prefix + payload_len + slice_len lsp_references_suffix
+                  out = slice_new_u8 total_len
+                  out1 = copy_slice_literal request_handle ownership_mode out 0 lsp_references_found_prefix
+                  out2 = json_copy_escaped_segment request_handle ownership_mode request_handle symbol_start symbol_len 0 out1 (slice_len lsp_references_found_prefix)
+                  out3 = copy_slice_literal request_handle ownership_mode out2 (slice_len lsp_references_found_prefix + symbol_len) lsp_references_locations_prefix
+                  start_i = slice_len lsp_references_found_prefix + symbol_len + slice_len lsp_references_locations_prefix
+                  end_i = lsp_declaration_refs_fill request_handle source_start source_end symbol_start symbol_end ownership_mode out3 start_i true
+              in copy_slice_literal request_handle ownership_mode out3 end_i lsp_references_suffix
+
+lsp_rename_response request_handle ownership_mode req_len =
+  let source_start = find_input_source_start request_handle 0 req_len
+      symbol = lsp_find_symbol_field request_handle req_len
+      new_name = lsp_find_new_name_field request_handle req_len
+  in case (source_start == req_len) of
+    true -> error_response_from_message request_handle ownership_mode lsp_missing_input_source_error
+    _ ->
+          case symbol of
+        LspFieldMissing -> error_response_from_message request_handle ownership_mode lsp_missing_symbol_error
+        LspFieldFound _ _ ->
+          case new_name of
+            LspFieldMissing -> error_response_from_message request_handle ownership_mode lsp_missing_new_name_error
+            LspFieldFound new_name_start new_name_end ->
+              let source_end = json_slice_end request_handle source_start req_len
+                  symbol_start = let LspFieldFound s _ = symbol in s
+                  symbol_end = let LspFieldFound _ e = symbol in e
+                  payload_len = lsp_rename_payload_len request_handle source_start source_end symbol_start symbol_end new_name_start new_name_end true
+              in case (payload_len == 0) of
+                true -> lsp_rename_empty
+                _ ->
+                  let symbol_len = symbol_end - symbol_start
+                      total_len = slice_len lsp_rename_prefix + symbol_len + slice_len (str_to_slice "\":[") + payload_len + slice_len lsp_rename_suffix
+                      out = slice_new_u8 total_len
+                      out1 = copy_slice_literal request_handle ownership_mode out 0 lsp_rename_prefix
+                      out2 = copy_slice_segment request_handle ownership_mode request_handle symbol_start out1 (slice_len lsp_rename_prefix) symbol_len 0
+                      out3 = copy_slice_literal request_handle ownership_mode out2 (slice_len lsp_rename_prefix + symbol_len) (str_to_slice "\":[")
+                      end_i = lsp_rename_payload_fill request_handle source_start source_end symbol_start symbol_end new_name_start new_name_end ownership_mode out3 (slice_len lsp_rename_prefix + symbol_len + 3) true
+                  in copy_slice_literal request_handle ownership_mode out3 end_i lsp_rename_suffix

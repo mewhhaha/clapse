@@ -77,13 +77,13 @@ selfhost_ok_response request_handle ownership_mode =
     true -> selfhost_ok_response_no_input_source request_handle ownership_mode req_len
     _ -> selfhost_source_response request_handle ownership_mode source_start req_len
 
-parse_ok_response request_handle ownership_mode source_start source_len =
+parse_ok_response request_handle ownership_mode source_handle source_start source_len =
   json_response_with_escaped_slice_segment
     request_handle
     ownership_mode
     json_parse_prefix
     json_parse_suffix
-    request_handle
+    source_handle
     source_start
     source_len
 

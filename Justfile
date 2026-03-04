@@ -93,6 +93,7 @@ pre-tag-verify:
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" deno run -A scripts/record-kernel-smoke.mjs
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just docs-validate
   CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just lsp-wasm-fixtures
+  CLAPSE_COMPILER_WASM_PATH="${verify_wasm}" just formatter-golden-fixtures
   just semantics-check
 
 ci-local:

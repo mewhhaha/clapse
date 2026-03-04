@@ -10,7 +10,10 @@ import "host/clapse"
 export { clapse_run }
 
 data CommandTag = CommandCompile | CommandEmitWat | CommandFormat | CommandSelfhost
-  | CommandLspSymbolIndex | CommandLspHover | CommandLspDefinition | CommandUnknown
+  | CommandLspSymbolIndex | CommandLspHover | CommandLspDefinition | CommandLspCompletion
+  | CommandLspSignatureHelp | CommandLspSemanticTokens | CommandLspWorkspaceSymbol
+  | CommandLspReferences | CommandLspRename
+  | CommandUnknown
   | CommandParse
 data MonadicLine = MonadicLineNil
   | MonadicLineNode
@@ -1523,12 +1526,31 @@ command_tag_at request_handle value_start req_len =
                   case parse_command_tag request_handle value_start req_len "selfhost-artifacts" CommandSelfhost of
                     Just tag -> Just tag
                     _ ->
-                      case parse_command_tag request_handle value_start req_len "lsp-symbol-index" CommandLspSymbolIndex of
+                          case parse_command_tag request_handle value_start req_len "lsp-symbol-index" CommandLspSymbolIndex of
                         Just tag -> Just tag
                         _ ->
                           case parse_command_tag request_handle value_start req_len "lsp-hover" CommandLspHover of
                             Just tag -> Just tag
-                            _ -> parse_command_tag request_handle value_start req_len "lsp-definition" CommandLspDefinition
+                            _ ->
+                              case parse_command_tag request_handle value_start req_len "lsp-definition" CommandLspDefinition of
+                                Just tag -> Just tag
+                                _ ->
+                                  case parse_command_tag request_handle value_start req_len "lsp-completion" CommandLspCompletion of
+                                    Just tag -> Just tag
+                                    _ ->
+                                      case parse_command_tag request_handle value_start req_len "lsp-signature-help" CommandLspSignatureHelp of
+                                        Just tag -> Just tag
+                                        _ ->
+                                          case parse_command_tag request_handle value_start req_len "lsp-semantic-tokens" CommandLspSemanticTokens of
+                                            Just tag -> Just tag
+                                            _ ->
+                                              case parse_command_tag request_handle value_start req_len "lsp-workspace-symbol" CommandLspWorkspaceSymbol of
+                                                Just tag -> Just tag
+                                                _ ->
+                                                  case parse_command_tag request_handle value_start req_len "lsp-references" CommandLspReferences of
+                                                    Just tag -> Just tag
+                                                    _ ->
+                                                      parse_command_tag request_handle value_start req_len "lsp-rename" CommandLspRename
 
 find_command_tag request_handle i req_len =
   let value_start = scan_find_json_key_value_start request_handle i req_len "\"command\""
@@ -1558,4 +1580,10 @@ clapse_run request_handle =
     CommandLspSymbolIndex -> lsp_symbol_index_response tagged_request ownership_mode (slice_len tagged_request)
     CommandLspHover -> lsp_hover_response tagged_request ownership_mode (slice_len tagged_request)
     CommandLspDefinition -> lsp_definition_response tagged_request ownership_mode (slice_len tagged_request)
+    CommandLspCompletion -> lsp_completion_response tagged_request ownership_mode (slice_len tagged_request)
+    CommandLspSignatureHelp -> lsp_signature_help_response tagged_request ownership_mode (slice_len tagged_request)
+    CommandLspSemanticTokens -> lsp_semantic_tokens_response tagged_request ownership_mode (slice_len tagged_request)
+    CommandLspWorkspaceSymbol -> lsp_workspace_symbol_response tagged_request ownership_mode (slice_len tagged_request)
+    CommandLspReferences -> lsp_references_response tagged_request ownership_mode (slice_len tagged_request)
+    CommandLspRename -> lsp_rename_response tagged_request ownership_mode (slice_len tagged_request)
     CommandUnknown -> unknown_error_response tagged_request ownership_mode

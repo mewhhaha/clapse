@@ -1,19 +1,38 @@
 import "compiler/prelude"
+import "compiler/json_response_helpers"
 export
   SyntaxCST
   syntax_render_cst
+  syntax_cst_handle
   syntax_cst_start
   syntax_cst_len
 
-data SyntaxCST = SyntaxCST Int Int
+data SyntaxCST = SyntaxCST a Int Int
 
-syntax_render_cst source_start source_end =
-  SyntaxCST source_start source_end
+syntax_cst_render_prefix = str_to_slice "{\"kind\":\"SyntaxCST\",\"status\":\"ok\",\"source\":\""
+syntax_cst_render_suffix = str_to_slice "\"}"
+
+syntax_render_cst request_handle ownership_mode source_start source_end =
+  let source_len = source_end - source_start
+      escaped_extra = json_escape_extra_len request_handle source_start source_len 0 0
+      escaped_len = source_len + escaped_extra
+      prefix_len = slice_len syntax_cst_render_prefix
+      suffix_len = slice_len syntax_cst_render_suffix
+      total_len = prefix_len + escaped_len + suffix_len
+      out = slice_new_u8 total_len
+      with_prefix = copy_slice_literal request_handle ownership_mode out 0 syntax_cst_render_prefix
+      with_source = json_copy_escaped_segment request_handle ownership_mode request_handle source_start source_len 0 with_prefix prefix_len
+      with_suffix = copy_slice_literal request_handle ownership_mode with_source (prefix_len + escaped_len) syntax_cst_render_suffix
+  in SyntaxCST with_suffix 0 total_len
+
+syntax_cst_handle cst =
+  case cst of
+    SyntaxCST handle _ _ -> handle
 
 syntax_cst_start cst =
   case cst of
-    SyntaxCST start _ -> start
+    SyntaxCST _ start _ -> start
 
 syntax_cst_len cst =
   case cst of
-    SyntaxCST start end -> end - start
+    SyntaxCST _ _ len -> len

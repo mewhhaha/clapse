@@ -193,7 +193,8 @@ Entrypoint reachability pruning now runs in the runner before compile request:
   full compiler ABI output (and avoids tiny DCE fallback artifacts).
 - `just native-parse-command-gate` enforces true raw parse-command availability
   by calling `callCompilerWasmRaw` with `{"command":"parse"}` and requiring
-  `ok: true` plus `artifacts["parsed_cst.txt"]`.
+  `ok: true` plus `artifacts["parsed_cst.txt"]` (a structured, JSON-like
+  parsed-CST string).
 
 Smoke gate:
 
@@ -215,6 +216,10 @@ must disappear when compiling with `entrypoint_exports=["main"]`.
 
 - Keep `docs/clapse-language/references/tooling-and-workflows.md` updated when
   `clapse.json` configuration shape changes.
+- Keep `scripts/lsp-wasm.mjs` and `scripts/lsp-wasm-fixtures.mjs` synchronized
+  with declaration-based completion/workspace-symbol behavior and deterministic
+  `references`/`rename` normalization so declaration indexes are used as
+  non-stub baselines for those paths.
 - When `docs/clapse-language/references/grammar.ebnf` changes, regenerate the
   managed highlights region in `tree-sitter-clapse/queries/highlights.scm` via
   `just gen-ts-highlights`, keep generated CST in sync via
@@ -406,8 +411,9 @@ must disappear when compiling with `entrypoint_exports=["main"]`.
   configurable transitive depth via `--probe-hops <n>` (or
   `CLAPSE_STRICT_NATIVE_SEED_PROBE_HOPS`), default `1`.
 - Keep formatter behavior aligned with runtime behavior: canonical formatter
-  normalization (string/comment-preserving whitespace collapse, 100-character
-  max-width wrapping at `=>`, `=`, `->`, `>>=`, `>>`, `&&`, `||`, and monadic
+  normalization (string/comment-preserving inline whitespace collapse, strict
+  parenthesized application spacing normalization, 100-character max-width
+  wrapping at `=>`, `=`, `->`, `>>=`, `>>`, `&&`, `||`, and monadic
   chain normalization for `>>=`/`>>`) now runs in the Clapse kernel and is
   returned by the `format` command response already normalized.
 - Keep formatter resilience docs aligned with runtime behavior: CLI/LSP
@@ -569,8 +575,8 @@ must disappear when compiling with `entrypoint_exports=["main"]`.
   `scripts/build-native-producer-seed.mjs`. This path emits compile responses
   with source-derived artifacts + producer contract metadata directly from wasm
   (no JS fallback in the hot path), and validates raw producer behavior plus
-  raw parse-command contract (`ok: true`, non-empty
-  `artifacts["parsed_cst.txt"]`) with
+  raw parse-command contract (`ok: true`, non-empty `artifacts["parsed_cst.txt"]`
+  as a structured, JSON-like CST text payload) with
   `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1` before writing output. The seed
   template now uses static scratch workspaces plus widened temp-rewrite output
   buffers to avoid stack/data overlap and response corruption when embedded seed
@@ -609,22 +615,33 @@ must disappear when compiling with `entrypoint_exports=["main"]`.
 
 ## LSP migration status
 
-- In this first step, `clapse`-core now owns semantic extraction for:
+- In this step, `clapse`-core now owns semantic extraction and transport for:
   - declaration symbol index (`lsp-symbol-index`)
   - hover payload lookup (`lsp-hover`)
   - definition lookup (`lsp-definition`)
+  - completion (`lsp-completion`)
+  - signature help (`lsp-signature-help`)
+  - semantic tokens (`lsp-semantic-tokens`)
+  - workspace symbols (`lsp-workspace-symbol`)
+  - references (`lsp-references`)
+  - rename (`lsp-rename`)
 - JS now sends `lsp-symbol-index` on open/change for `coreSymbolIndex`, and
-  `textDocument/hover` / `textDocument/definition` attempt core lookups first
-  with JSON responses marked `backend: "clapse"`, then fall back to JS local
-  logic.
-- JS-side LSP features still implemented in transport for this release: rename,
-  references, document symbols, and code actions.
+  migrated entrypoints now route through kernel responses marked
+  `backend: "clapse"` in `scripts/lsp-wasm.mjs` (`hover`, `definition`,
+  `completion`, `signatureHelp`, `semanticTokens`, `workspaceSymbol`, `references`,
+  and `rename` paths); document symbols and code actions remain local for now.
+- Initialize now advertises kernel-owned completion/signature/semantic/workspace symbol
+  capabilities to keep protocol parity with kernel routing.
+- Fixture coverage for migrated methods is now present in
+  `examples/lsp_wasm_fixtures.json` and validated by
+  `scripts/lsp-wasm-fixtures.mjs` (`definition_rename_and_code_action` verifies
+  backend usage and end-to-end shape for completion/signature/semantic/workspace
+  symbol/reference/rename flows).
 - Fixture checkpoint: `definition_rename_and_code_action` in
   `examples/lsp_wasm_fixtures.json` now asserts core backend usage for hover and
   definition when `CLAPSE_EXPECT_CORE_LSP_BACKENDS=1` is set.
-- Next steps: add core entrypoints for `references`, `documentSymbol`, and code
-  action payload generation, then remove remaining local fallbacks after parity
-  tests pass.
+- Next steps: add core entrypoints for `documentSymbol` and code action payload
+  generation, then remove remaining local fallbacks after parity tests pass.
 
 ## Memory model checkpoint
 

@@ -168,6 +168,8 @@ format_collapse_code request_handle ownership_mode source start end scratch out_
           is_string_quote = in_string && !escaped && is_quote
           is_string_data = in_string && !escaped && !is_escape && !is_quote && !is_space
           is_space_outside = !in_string && is_space
+          is_space_after_open = is_space_outside && (out_i > 0) && (slice_get_u8 request_handle scratch (out_i - 1) == char '(')
+          is_space_before_close = is_space_outside && (start + i + 1 < end) && (slice_get_u8 request_handle (start + i + 1) == char ')')
           is_space_at_segment_start = is_space_outside && is_space_or_start
       let collapse_state =
             case is_string_escape of
@@ -200,8 +202,14 @@ format_collapse_code request_handle ownership_mode source start end scratch out_
         4 ->
           format_collapse_code request_handle ownership_mode source start end scratch out_i (i + 1) false false true
         5 ->
-          let next_space = slice_set_u8 request_handle ownership_mode scratch out_i format_space_byte
-          in format_collapse_code request_handle ownership_mode source start end next_space (out_i + 1) (i + 1) false false true
+          case prev_space of
+            true -> format_collapse_code request_handle ownership_mode source start end scratch out_i (i + 1) false false true
+            _ ->
+              case (is_space_after_open || is_space_before_close) of
+                true -> format_collapse_code request_handle ownership_mode source start end scratch out_i (i + 1) false false true
+                _ ->
+                  let next_space = slice_set_u8 request_handle ownership_mode scratch out_i format_space_byte
+                  in format_collapse_code request_handle ownership_mode source start end next_space (out_i + 1) (i + 1) false false true
         _ ->
           format_collapse_code request_handle ownership_mode source start end next_char (out_i + 1) (i + 1) false false false
 
@@ -972,5 +980,3 @@ format_nonprogress_error_message error =
     FormatNonProgressCopyChainBody -> "format non-progress recursion in format_copy_chain_body"
     FormatNonProgressNormalizeMonadicLines -> "format non-progress recursion in format_normalize_monadic_lines"
     _ -> "format non-progress recursion detected in monadic formatter"
-
-

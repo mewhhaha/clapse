@@ -155,7 +155,18 @@ function renameExpectationPass(actual, expectation, uri) {
   if (actual === null || typeof actual !== "object") {
     return false;
   }
-  const edits = actual?.changes?.[uri];
+  const changes = actual?.changes;
+  if (changes === null || typeof changes !== "object") {
+    return false;
+  }
+  const allEdits = Array.isArray(changes)
+    ? changes
+    : Object.values(changes).flatMap((entry) =>
+      Array.isArray(entry) ? entry : []
+    );
+  const edits = Array.isArray(changes?.[uri])
+    ? changes?.[uri]
+    : allEdits;
   if (!Array.isArray(edits)) {
     return false;
   }
@@ -164,7 +175,94 @@ function renameExpectationPass(actual, expectation, uri) {
     return false;
   }
   if (typeof expectation.newName === "string" && expectation.newName.length > 0) {
-    return edits.every((edit) => String(edit?.newText ?? "") === expectation.newName);
+    return allEdits.every((edit) => String(edit?.newText ?? "") === expectation.newName);
+  }
+  return true;
+}
+
+function completionExpectationPass(actual, expectation) {
+  if (expectation === undefined) {
+    return true;
+  }
+  if (expectation === null) {
+    return !Array.isArray(actual) || actual.length === 0;
+  }
+  if (!Array.isArray(actual)) {
+    return false;
+  }
+  if (typeof expectation.exactCount === "number" && actual.length !== expectation.exactCount) {
+    return false;
+  }
+  if (typeof expectation.minCount === "number" && actual.length < expectation.minCount) {
+    return false;
+  }
+  if (typeof expectation.containsLabel === "string") {
+    return actual.some((entry) => String(entry?.label ?? "").includes(expectation.containsLabel));
+  }
+  return true;
+}
+
+function signatureHelpExpectationPass(actual, expectation) {
+  if (expectation === undefined) {
+    return true;
+  }
+  if (expectation === null) {
+    return !actual || !Array.isArray(actual?.signatures) || actual.signatures.length === 0;
+  }
+  if (!actual || !Array.isArray(actual?.signatures)) {
+    return false;
+  }
+  if (typeof expectation.exactCount === "number" && actual.signatures.length !== expectation.exactCount) {
+    return false;
+  }
+  if (typeof expectation.minCount === "number" && actual.signatures.length < expectation.minCount) {
+    return false;
+  }
+  if (typeof expectation.labelContains === "string") {
+    return actual.signatures.some((entry) =>
+      String(entry?.label ?? "").includes(expectation.labelContains)
+    );
+  }
+  return true;
+}
+
+function semanticTokensExpectationPass(actual, expectation) {
+  if (expectation === undefined) {
+    return true;
+  }
+  if (expectation === null) {
+    return !actual || !Array.isArray(actual?.data) || actual.data.length === 0;
+  }
+  if (!actual || !Array.isArray(actual?.data)) {
+    return false;
+  }
+  if (typeof expectation.exactDataLen === "number") {
+    return actual.data.length === expectation.exactDataLen;
+  }
+  if (typeof expectation.minDataLen === "number") {
+    return actual.data.length >= expectation.minDataLen;
+  }
+  return true;
+}
+
+function workspaceSymbolExpectationPass(actual, expectation) {
+  if (expectation === undefined) {
+    return true;
+  }
+  if (expectation === null) {
+    return !Array.isArray(actual) || actual.length === 0;
+  }
+  if (!Array.isArray(actual)) {
+    return false;
+  }
+  if (typeof expectation.exactCount === "number" && actual.length !== expectation.exactCount) {
+    return false;
+  }
+  if (typeof expectation.minCount === "number" && actual.length < expectation.minCount) {
+    return false;
+  }
+  if (typeof expectation.containsName === "string") {
+    return actual.some((entry) => String(entry?.name ?? "") === expectation.containsName);
   }
   return true;
 }
@@ -516,6 +614,14 @@ async function run() {
       const { expected, exact } = diagnosticsExpectation(scenario);
       const definitionReq = scenario?.definition;
       const definitionExpectation = scenario?.definitionExpectation;
+      const completionReq = scenario?.completion;
+      const completionExpectation = scenario?.completionExpectation;
+      const signatureHelpReq = scenario?.signatureHelp;
+      const signatureHelpExpectation = scenario?.signatureHelpExpectation;
+      const semanticTokensReq = scenario?.semanticTokens;
+      const semanticTokensExpectation = scenario?.semanticTokensExpectation;
+      const workspaceSymbolReq = scenario?.workspaceSymbol;
+      const workspaceSymbolExpectation = scenario?.workspaceSymbolExpectation;
       const prepareRenameReq = scenario?.prepareRename;
       const prepareRenameExpectation = scenario?.prepareRenameExpectation;
       const renameReq = scenario?.rename;
@@ -589,6 +695,12 @@ async function run() {
       const hoverPass = hoverExpectationPass(hoverResp, hoverExpectation);
       const hoverBackend = hoverResp?.backend ?? "js";
       const hoverBackendPass = backendExpectationPass(hoverBackend, expectedBackends?.hover);
+      let completionBackend = "js";
+      let signatureBackend = "js";
+      let semanticTokensBackend = "js";
+      let workspaceSymbolBackend = "js";
+      let referencesBackend = "js";
+      let renameBackend = "js";
 
       let definitionResp = null;
       let definitionPass = true;
@@ -607,6 +719,71 @@ async function run() {
       }
       const definitionBackend = definitionResp?.backend ?? "js";
       const definitionBackendPass = backendExpectationPass(definitionBackend, expectedBackends?.definition);
+
+      let completionResp = null;
+      let completionPass = true;
+      if (completionReq && (typeof completionReq === "object" || completionReq === true)) {
+        const completionLine = Number(completionReq?.line ?? line);
+        const completionCharacter = Number(completionReq?.character ?? character);
+        completionResp = await sendRequest("textDocument/completion", {
+          textDocument: { uri },
+          position: { line: completionLine, character: completionCharacter },
+          context: { triggerKind: 1 },
+        });
+        completionPass = completionExpectationPass(completionResp, completionExpectation);
+        if (completionResp !== null && completionResp !== undefined) {
+          completionBackend = "clapse";
+        }
+      }
+
+      let signatureHelpResp = null;
+      let signatureHelpPass = true;
+      if (signatureHelpReq && typeof signatureHelpReq === "object") {
+        const signatureLine = Number(signatureHelpReq?.line ?? line);
+        const signatureCharacter = Number(signatureHelpReq?.character ?? character);
+        signatureHelpResp = await sendRequest("textDocument/signatureHelp", {
+          textDocument: { uri },
+          position: { line: signatureLine, character: signatureCharacter },
+        });
+        signatureHelpPass = signatureHelpExpectationPass(
+          signatureHelpResp,
+          signatureHelpExpectation,
+        );
+        if (signatureHelpResp !== null && signatureHelpResp !== undefined) {
+          signatureBackend = "clapse";
+        }
+      }
+
+      let semanticTokensResp = null;
+      let semanticTokensPass = true;
+      if (semanticTokensReq !== undefined) {
+        semanticTokensResp = await sendRequest("textDocument/semanticTokens/full", {
+          textDocument: { uri },
+        });
+        semanticTokensPass = semanticTokensExpectationPass(
+          semanticTokensResp,
+          semanticTokensExpectation,
+        );
+        if (semanticTokensResp !== null && semanticTokensResp !== undefined) {
+          semanticTokensBackend = "clapse";
+        }
+      }
+
+      let workspaceSymbolResp = null;
+      let workspaceSymbolPass = true;
+      if (workspaceSymbolReq && typeof workspaceSymbolReq === "object") {
+        const query = String(workspaceSymbolReq?.query ?? "");
+        workspaceSymbolResp = await sendRequest("workspace/symbol", {
+          query,
+        });
+        workspaceSymbolPass = workspaceSymbolExpectationPass(
+          workspaceSymbolResp,
+          workspaceSymbolExpectation,
+        );
+        if (workspaceSymbolResp !== null && workspaceSymbolResp !== undefined) {
+          workspaceSymbolBackend = "clapse";
+        }
+      }
 
       let renameResp = null;
       let renamePass = true;
@@ -635,6 +812,9 @@ async function run() {
           newName,
         });
         renamePass = renameExpectationPass(renameResp, renameExpectation, uri);
+        if (renameResp !== null && typeof renameResp === "object") {
+          renameBackend = "clapse";
+        }
       }
 
       let referencesResp = null;
@@ -653,6 +833,7 @@ async function run() {
           referencesExpectation,
           uri,
         );
+        referencesBackend = referencesResp === null ? "js" : "clapse";
       }
 
       let documentSymbolsResp = null;
@@ -705,6 +886,10 @@ async function run() {
         hoverBackendPass &&
         definitionPass &&
         definitionBackendPass &&
+        completionPass &&
+        signatureHelpPass &&
+        semanticTokensPass &&
+        workspaceSymbolPass &&
         prepareRenamePass &&
         renamePass &&
         referencesPass &&
@@ -737,6 +922,34 @@ async function run() {
           backendPass: definitionBackendPass,
           passed: definitionPass,
         },
+        completion: {
+          request: completionReq ?? null,
+          expectation: completionExpectation ?? null,
+          actual: completionResp,
+          backend: completionBackend,
+          passed: completionPass,
+        },
+        signatureHelp: {
+          request: signatureHelpReq ?? null,
+          expectation: signatureHelpExpectation ?? null,
+          actual: signatureHelpResp,
+          backend: signatureBackend,
+          passed: signatureHelpPass,
+        },
+        semanticTokens: {
+          request: semanticTokensReq ?? null,
+          expectation: semanticTokensExpectation ?? null,
+          actual: semanticTokensResp,
+          backend: semanticTokensBackend,
+          passed: semanticTokensPass,
+        },
+        workspaceSymbol: {
+          request: workspaceSymbolReq ?? null,
+          expectation: workspaceSymbolExpectation ?? null,
+          actual: workspaceSymbolResp,
+          backend: workspaceSymbolBackend,
+          passed: workspaceSymbolPass,
+        },
         rename: {
           request: prepareRenameReq ?? null,
           expectation: prepareRenameExpectation ?? null,
@@ -747,12 +960,14 @@ async function run() {
           request: renameReq ?? null,
           expectation: renameExpectation ?? null,
           actual: renameResp,
+          backend: renameBackend,
           passed: renamePass,
         },
         references: {
           request: referencesReq ?? null,
           expectation: referencesExpectation ?? null,
           actual: referencesResp,
+          backend: referencesBackend,
           passed: referencesPass,
         },
         documentSymbols: {
@@ -797,14 +1012,56 @@ async function run() {
         if (!definitionBackendPass) {
           failures.push(`definition backend mismatch: expected ${expectedBackends?.definition}, got ${definitionBackend}`);
         }
+        if (!completionPass) {
+          failures.push("completion expectation mismatch");
+        }
+        if (completionBackend !== undefined && expectedBackends?.completion !== undefined) {
+          if (completionBackend !== expectedBackends?.completion) {
+            failures.push(`completion backend mismatch: expected ${expectedBackends?.completion}, got ${completionBackend}`);
+          }
+        }
+        if (!signatureHelpPass) {
+          failures.push("signatureHelp expectation mismatch");
+        }
+        if (signatureBackend !== undefined && expectedBackends?.signatureHelp !== undefined) {
+          if (signatureBackend !== expectedBackends?.signatureHelp) {
+            failures.push(`signatureHelp backend mismatch: expected ${expectedBackends?.signatureHelp}, got ${signatureBackend}`);
+          }
+        }
+        if (!semanticTokensPass) {
+          failures.push("semanticTokens expectation mismatch");
+        }
+        if (semanticTokensBackend !== undefined && expectedBackends?.semanticTokens !== undefined) {
+          if (semanticTokensBackend !== expectedBackends?.semanticTokens) {
+            failures.push(`semanticTokens backend mismatch: expected ${expectedBackends?.semanticTokens}, got ${semanticTokensBackend}`);
+          }
+        }
+        if (!workspaceSymbolPass) {
+          failures.push("workspaceSymbol expectation mismatch");
+        }
+        if (workspaceSymbolBackend !== undefined && expectedBackends?.workspaceSymbol !== undefined) {
+          if (workspaceSymbolBackend !== expectedBackends?.workspaceSymbol) {
+            failures.push(`workspaceSymbol backend mismatch: expected ${expectedBackends?.workspaceSymbol}, got ${workspaceSymbolBackend}`);
+          }
+        }
         if (!renamePass) {
-          failures.push("rename expectation mismatch");
+          failures.push("renameEdits expectation mismatch");
         }
         if (!prepareRenamePass) {
           failures.push("prepare rename expectation mismatch");
         }
         if (!referencesPass) {
           failures.push("references expectation mismatch");
+        }
+        if (referencesBackend !== undefined && expectedBackends?.references !== undefined) {
+          if (referencesBackend !== expectedBackends?.references) {
+            failures.push(`references backend mismatch: expected ${expectedBackends?.references}, got ${referencesBackend}`);
+          }
+        }
+        if (renameBackend !== undefined && expectedBackends?.rename !== undefined) {
+          if (renameBackend !== expectedBackends?.rename) {
+            failures.push(`rename backend mismatch: expected ${expectedBackends?.rename}, got ${renameBackend}`);
+          }
         }
         if (!documentSymbolsPass) {
           failures.push("document symbol expectation mismatch");

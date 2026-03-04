@@ -350,10 +350,10 @@ Current targets in `Justfile`:
 - Formatter is implemented in the Clapse kernel and returned by `format`
   requests with normalization already applied. CLI (`format` command) and LSP
   `textDocument/formatting` now forward kernel output directly:
-  - collapse repeated internal whitespace in expressions while preserving
-    indentation, string literals, and line comments
-  - normalize repeated spaces before parenthesized application arguments
-    (for example `f    (g x)` -> `f (g x)`)
+  - inline whitespace collapse in expressions while preserving indentation,
+    string literals, and line comments
+  - normalize parenthesized application spacing, including trimming redundant
+    spaces immediately inside parens (for example `f    ( g )` -> `f (g)`)
   - enforce a max line width of 100 with vertical wrapping
   - prefer breaking at ` => `, ` = `, ` -> `, ` >>= `, ` >> `, ` && `, ` || `
   - continuation lines are indented by two spaces
@@ -362,10 +362,13 @@ Current targets in `Justfile`:
   - compile diagnostics from wasm compiler responses
   - hover for `--|` doc comments, falling back to declaration line text when docs are missing
   - definitions
+  - completion
+  - signature help
+  - semantic tokens (full)
+  - workspace symbols
   - references
   - document symbols
   - prepare rename + rename edits
-  - rename
   - quick-fix code actions (rename/doc-comment suggestions)
 - LSP reads `plugins` from `clapse.json` and adds compiled plugin artifacts to
   compiler compile requests via `plugin_wasm_paths`.

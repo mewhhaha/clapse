@@ -398,6 +398,15 @@ async function scopeDiagnosticsForSource(source, config) {
   return diagnostics;
 }
 
+function isSuppressedCompileDiagnosticMessage(message) {
+  const normalized = String(message);
+  return (
+    normalized.includes("native compile not implemented yet") ||
+    normalized.includes("compile [backend=kernel-native] failed") ||
+    normalized.includes("compile response: missing non-empty string 'backend'")
+  );
+}
+
 function getWasmPath() {
   const candidates = [
     Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "",
@@ -610,6 +619,78 @@ async function requestKernelDefinition(wasmPath, uri, source, symbol) {
   return null;
 }
 
+async function requestKernelCompletion(wasmPath, source, query) {
+  const response = await callCompilerWasm(wasmPath, {
+    command: "lsp-completion",
+    input_source: source,
+    query,
+  });
+  if (response && response.ok === true && response.backend === "clapse") {
+    return response;
+  }
+  return null;
+}
+
+async function requestKernelSignatureHelp(wasmPath, source, query) {
+  const response = await callCompilerWasm(wasmPath, {
+    command: "lsp-signature-help",
+    input_source: source,
+    query,
+  });
+  if (response && response.ok === true && response.backend === "clapse") {
+    return response;
+  }
+  return null;
+}
+
+async function requestKernelSemanticTokens(wasmPath, source) {
+  const response = await callCompilerWasm(wasmPath, {
+    command: "lsp-semantic-tokens",
+    input_source: source,
+  });
+  if (response && response.ok === true && response.backend === "clapse") {
+    return response;
+  }
+  return null;
+}
+
+async function requestKernelWorkspaceSymbol(wasmPath, source, query) {
+  const response = await callCompilerWasm(wasmPath, {
+    command: "lsp-workspace-symbol",
+    input_source: source,
+    query,
+  });
+  if (response && response.ok === true && response.backend === "clapse") {
+    return response;
+  }
+  return null;
+}
+
+async function requestKernelReferences(wasmPath, source, symbol) {
+  const response = await callCompilerWasm(wasmPath, {
+    command: "lsp-references",
+    input_source: source,
+    symbol,
+  });
+  if (response && response.ok === true && response.backend === "clapse") {
+    return response;
+  }
+  return null;
+}
+
+async function requestKernelRename(wasmPath, source, symbol, newName) {
+  const response = await callCompilerWasm(wasmPath, {
+    command: "lsp-rename",
+    input_source: source,
+    symbol,
+    new_name: newName,
+  });
+  if (response && response.ok === true && response.backend === "clapse") {
+    return response;
+  }
+  return null;
+}
+
 function isIdentChar(ch) {
   return /[A-Za-z0-9_$.']/u.test(ch);
 }
@@ -649,19 +730,40 @@ async function formatSource(wasmPath, uri, source) {
 
 async function compileDiagnostics(wasmPath, uri, source, config) {
   const scopeDiagnostics = await scopeDiagnosticsForSource(source, config);
-  const pluginWasmPaths = await resolveProjectPluginWasmPaths(config, wasmPath);
-  const response = await callCompilerWasm(wasmPath, {
-    command: "compile",
-    input_path: uri,
-    input_source: source,
-    plugin_wasm_paths: pluginWasmPaths,
-  });
+  let pluginWasmPaths = [];
+  try {
+    pluginWasmPaths = await resolveProjectPluginWasmPaths(config, wasmPath);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (isSuppressedCompileDiagnosticMessage(message)) {
+      return scopeDiagnostics;
+    }
+    throw err;
+  }
+  let response = null;
+  try {
+    response = await callCompilerWasm(wasmPath, {
+      command: "compile",
+      input_path: uri,
+      input_source: source,
+      plugin_wasm_paths: pluginWasmPaths,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (isSuppressedCompileDiagnosticMessage(message)) {
+      return scopeDiagnostics;
+    }
+    throw err;
+  }
   if (response && typeof response === "object" && response.ok === true) {
     return scopeDiagnostics;
   }
   const message = response && typeof response.error === "string"
     ? response.error
     : "compile failed";
+  if (isSuppressedCompileDiagnosticMessage(message)) {
+    return scopeDiagnostics;
+  }
   const parsed = parseLineError(message);
   const diagnostics = [...scopeDiagnostics];
   if (parsed) {
@@ -686,6 +788,19 @@ async function compileDiagnostics(wasmPath, uri, source, config) {
     message,
   });
   return diagnostics;
+}
+
+function diagnosticsFromError(err) {
+  const message = err instanceof Error ? err.message : String(err);
+  return [{
+    range: {
+      start: { line: 0, character: 0 },
+      end: { line: 0, character: 1 },
+    },
+    severity: 1,
+    source: "clapse",
+    message,
+  }];
 }
 
 function encodeMessage(payload) {
@@ -782,6 +897,281 @@ function buildRange(line, start, end) {
   };
 }
 
+function isValidPosition(pos) {
+  return pos !== null &&
+    typeof pos === "object" &&
+    Number.isFinite(Number(pos.line)) &&
+    Number.isFinite(Number(pos.character)) &&
+    pos.line >= 0 &&
+    pos.character >= 0;
+}
+
+function isValidRange(range) {
+  if (range === null || typeof range !== "object") {
+    return false;
+  }
+  if (!isValidPosition(range.start) || !isValidPosition(range.end)) {
+    return false;
+  }
+  return true;
+}
+
+function isValidUri(uri) {
+  return typeof uri === "string" && uri.length > 0;
+}
+
+function normalizeReferenceOrRenameRange(edit, fallbackRange) {
+  const range = edit?.range;
+  if (isValidRange(range)) {
+    return range;
+  }
+  return fallbackRange;
+}
+
+function normalizeRangeFromIndex(index, symbol) {
+  const occurrences = index?.occurrences?.get?.(String(symbol));
+  if (!Array.isArray(occurrences) || occurrences.length === 0) {
+    return buildRange(0, 0, 0);
+  }
+  const first = occurrences[0];
+  return buildRange(first.line, first.start, first.end);
+}
+
+function sortLocations(a, b) {
+  if (a.uri !== b.uri) {
+    return String(a.uri).localeCompare(String(b.uri));
+  }
+  if (a.range.start.line !== b.range.start.line) {
+    return a.range.start.line - b.range.start.line;
+  }
+  if (a.range.start.character !== b.range.start.character) {
+    return a.range.start.character - b.range.start.character;
+  }
+  return a.range.end.character - b.range.end.character;
+}
+
+function uniqueLocations(entries) {
+  const seen = new Set();
+  const out = [];
+  for (const entry of entries) {
+    const uri = String(entry?.uri ?? "");
+    const s = entry?.range?.start ?? {};
+    const e = entry?.range?.end ?? {};
+    const key = [uri, Number(s.line), Number(s.character), Number(e.line), Number(e.character)]
+      .join(":");
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push(entry);
+  }
+  return out;
+}
+
+function declarationRangeFromIndex(index, symbol) {
+  const declaration = index?.declarations?.get?.(String(symbol));
+  if (declaration === undefined || declaration === null) {
+    return buildRange(0, 0, 0);
+  }
+  return buildRange(declaration.line, declaration.start, declaration.end);
+}
+
+function buildCompletionItemsFromIndex(index, query) {
+  const declarationIndex = index?.declarations;
+  if (!(declarationIndex instanceof Map)) {
+    return [];
+  }
+  const queryText = String(query ?? "");
+  if (queryText.length === 0) {
+    return [];
+  }
+  return Array.from(declarationIndex.entries())
+    .filter(([name]) => name.includes(queryText))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, entry]) => ({
+      label: name,
+      kind: 3,
+      detail: entry?.doc ?? "",
+      sortText: "0",
+      documentation: "",
+    }));
+}
+
+function buildSignatureHelpFromIndex(index, symbol) {
+  const symbolText = String(symbol ?? "");
+  if (symbolText.length === 0) {
+    return {
+      signatures: [],
+      activeSignature: 0,
+      activeParameter: 0,
+    };
+  }
+  const declaration = index?.declarations?.get?.(symbolText);
+  const sourceText = String(index?.sourceText ?? "");
+  const lines = sourceText.split("\n");
+  const signatureLine = declaration
+    ? String(lines[declaration.line] ?? "").trim()
+    : symbolText;
+  const label = signatureLine.length > 0 ? signatureLine : symbolText;
+  return {
+    signatures: [{
+      label,
+      documentation: declaration?.doc ? String(declaration.doc) : null,
+      parameters: [],
+      activeParameter: 0,
+    }],
+    activeSignature: 0,
+    activeParameter: 0,
+  };
+}
+
+function buildWorkspaceSymbolsFromIndex(index, uri, query) {
+  const declarationIndex = index?.declarations;
+  const queryText = String(query ?? "");
+  if (!(declarationIndex instanceof Map) || queryText.length === 0) {
+    return [];
+  }
+  return Array.from(declarationIndex.entries())
+    .filter(([name]) => name.includes(queryText))
+      .sort(([, left], [, right]) =>
+        (left.line - right.line) || (left.start - right.start) || left.end - right.end
+      )
+      .map(([name, entry]) => ({
+        name,
+        kind: 12,
+        location: {
+          uri: String(uri),
+          range: declarationRangeFromIndex({ declarations: declarationIndex }, name),
+        },
+        containerName: "",
+        detail: String(entry?.doc ?? ""),
+        deprecated: false,
+      }));
+}
+
+function buildReferenceLocationsFromIndex(index, symbol, uri) {
+  const occurrences = index?.occurrences?.get?.(String(symbol));
+  if (!Array.isArray(occurrences)) {
+    return [];
+  }
+  return occurrences
+    .map((entry) => ({
+      uri: String(uri),
+      range: buildRange(entry.line, entry.start, entry.end),
+    }))
+    .sort(sortLocations);
+}
+
+function buildRenameChangesFromIndex(index, symbol, uri, newName) {
+  const locations = buildReferenceLocationsFromIndex(index, symbol, uri);
+  return {
+    [String(uri)]: locations.map((location) => ({
+      range: location.range,
+      newText: String(newName),
+    })),
+  };
+}
+
+function normalizeReferenceResponse(coreResp, index, symbol, uri) {
+  if (coreResp === null || typeof coreResp !== "object") {
+    return null;
+  }
+  const raw = coreResp.locations;
+  if (!Array.isArray(raw)) {
+    return null;
+  }
+
+  const defaultUri = String(uri);
+  const fallback = Array.isArray(index?.occurrences?.get?.(symbol))
+    ? index.occurrences.get(symbol).map((entry) => ({
+      uri: defaultUri,
+      range: buildRange(entry.line, entry.start, entry.end),
+    }))
+    : [];
+  const baseFallback = fallback;
+
+  const normalized = raw.map((entry) => {
+    const occurrence = Array.isArray(index?.occurrences?.get?.(String(symbol)))
+      ? index.occurrences.get(String(symbol))[0]
+      : null;
+    const fallbackRange = occurrence === null
+      ? normalizeRangeFromIndex(index, symbol)
+      : buildRange(occurrence.line, occurrence.start, occurrence.end);
+    const fallbackUri = isValidUri(entry?.uri) ? entry.uri : defaultUri;
+    const range = normalizeReferenceOrRenameRange(entry, fallbackRange);
+    return {
+      uri: fallbackUri,
+      range,
+    };
+  });
+
+  if (normalized.length > 0) {
+    return uniqueLocations(normalized).sort(sortLocations);
+  }
+
+  return baseFallback.map((entry) => ({
+    uri: entry.uri,
+    range: entry.range,
+  }));
+}
+
+function normalizeRenamePayloadPayload(response, index, symbol, uri, newName) {
+  if (response === null || typeof response !== "object") {
+    return null;
+  }
+  const changes = response.changes;
+  if (changes === null || typeof changes !== "object") {
+    return null;
+  }
+  const raw = Array.isArray(changes[String(symbol)]) ? changes[String(symbol)] : null;
+  if (raw === null) {
+    return null;
+  }
+
+  const defaultUri = String(uri);
+  const occurrences = index?.occurrences?.get?.(String(symbol));
+  const fallback = Array.isArray(occurrences)
+    ? occurrences
+    : [];
+
+  const normalized = raw.map((entry, i) => {
+    const selected = Array.isArray(fallback) && fallback.length > 0
+      ? fallback[i] ?? fallback[0]
+      : null;
+    const fallbackRange = selected === null
+      ? normalizeRangeFromIndex(index, symbol)
+      : buildRange(selected.line, selected.start, selected.end);
+    const range = normalizeReferenceOrRenameRange(entry, fallbackRange);
+    const rawNewText = entry?.newText;
+    const newText = typeof rawNewText === "string" && rawNewText.length > 0
+      ? rawNewText
+      : String(newName);
+    if (!isValidPosition(range.start) || !isValidPosition(range.end)) {
+      return {
+        range: buildRange(0, 0, 0),
+        newText,
+      };
+    }
+    return {
+      range,
+      newText,
+    };
+  });
+
+  if (normalized.length > 0) {
+    return {
+      [defaultUri]: normalized,
+    };
+  }
+
+  return {
+    [defaultUri]: fallback.map((entry) => ({
+      range: buildRange(entry.line, entry.start, entry.end),
+      newText: String(newName),
+    })),
+  };
+}
+
 function safeTextForLine(lineText) {
   return typeof lineText === "string" ? lineText : "";
 }
@@ -824,6 +1214,62 @@ function toDocumentSymbols(index) {
   });
 }
 
+function buildCompletionItemsFromKernel(coreResp) {
+  const items = Array.isArray(coreResp?.items) ? coreResp.items : [];
+  return items.map((entry) => {
+    const kindName = String(entry?.type_hint ?? "value");
+    const label = String(entry?.label ?? "");
+    const rank = Number(entry?.rank ?? 0);
+    return {
+      label,
+      kind: kindName === "function" ? 3 : 1,
+      detail: String(entry?.type_hint ?? ""),
+      sortText: String(rank),
+      documentation: typeof entry?.detail === "string" ? entry.detail : "",
+    };
+  });
+}
+
+function buildSignatureHelpFromKernel(coreResp) {
+  const signatures = Array.isArray(coreResp?.signatures)
+    ? coreResp.signatures
+    : [];
+  return {
+    signatures: signatures.map((sig) => ({
+      label: String(sig?.label ?? ""),
+      documentation: sig?.documentation ?? null,
+      parameters: Array.isArray(sig?.parameters) ? sig.parameters : [],
+      activeParameter: Number(sig?.activeParameter ?? 0),
+    })),
+    activeSignature: Number(coreResp?.activeSignature ?? 0),
+    activeParameter: Number(coreResp?.activeParameter ?? 0),
+  };
+}
+
+function buildWorkspaceSymbolsFromKernelWithIndex(uri, coreResp, index) {
+  const symbols = Array.isArray(coreResp?.symbols) ? coreResp.symbols : [];
+  if (symbols.length === 0) {
+    return [];
+  }
+  return symbols.map((entry) => {
+    const name = String(entry?.name ?? "");
+    const declaration = index?.declarations?.get?.(name);
+    return {
+      name,
+      kind: Number(entry?.kind ?? 12),
+      location: {
+        uri: String(uri),
+        range: declaration
+          ? declarationRangeFromIndex(index, name)
+          : buildRange(0, 0, 0),
+      },
+      containerName: "",
+      detail: String(entry?.detail ?? ""),
+      deprecated: false,
+    };
+  });
+}
+
 export async function runLspServer() {
   const wasmPath = getWasmPath();
   await validateCompilerWasmAbi(wasmPath);
@@ -847,9 +1293,55 @@ export async function runLspServer() {
           capabilities: {
             textDocumentSync: 1,
             documentFormattingProvider: true,
+            completionProvider: { resolveProvider: false, triggerCharacters: ["."] },
+            signatureHelpProvider: { triggerCharacters: ["("] },
+            semanticTokensProvider: {
+              full: { delta: false },
+              range: false,
+              legend: {
+                tokenTypes: [
+                  "namespace",
+                  "type",
+                  "class",
+                  "enum",
+                  "interface",
+                  "struct",
+                  "typeParameter",
+                  "parameter",
+                  "variable",
+                  "property",
+                  "enumMember",
+                  "event",
+                  "function",
+                  "method",
+                  "macro",
+                  "keyword",
+                  "modifier",
+                  "comment",
+                  "string",
+                  "number",
+                  "regexp",
+                  "operator",
+                ],
+                tokenModifiers: [
+                  "declaration",
+                  "definition",
+                  "readonly",
+                  "static",
+                  "deprecated",
+                  "abstract",
+                  "async",
+                  "modification",
+                  "documentation",
+                  "defaultLibrary",
+                  "local",
+                ],
+              },
+            },
             hoverProvider: true,
             definitionProvider: true,
             referencesProvider: true,
+            workspaceSymbolProvider: true,
             documentSymbolProvider: true,
             renameProvider: { prepareProvider: true },
             codeActionProvider: { codeActionKinds: ["quickfix"] },
@@ -889,12 +1381,17 @@ export async function runLspServer() {
           });
           const config = await resolveProjectConfig(uri, workspaceRootPath);
           docConfigs.set(uri, config);
-          const diagnostics = await compileDiagnostics(
-            wasmPath,
-            uri,
-            String(text),
-            config,
-          );
+          let diagnostics = [];
+          try {
+            diagnostics = await compileDiagnostics(
+              wasmPath,
+              uri,
+              String(text),
+              config,
+            );
+          } catch (err) {
+            diagnostics = diagnosticsFromError(err);
+          }
           await sendNotification("textDocument/publishDiagnostics", {
             uri,
             diagnostics,
@@ -923,7 +1420,12 @@ export async function runLspServer() {
             coreSymbolIndex.delete(uri);
           });
           const config = docConfigs.get(uri) ?? await resolveProjectConfig(uri, workspaceRootPath);
-          const diagnostics = await compileDiagnostics(wasmPath, uri, text, config);
+          let diagnostics = [];
+          try {
+            diagnostics = await compileDiagnostics(wasmPath, uri, text, config);
+          } catch (err) {
+            diagnostics = diagnosticsFromError(err);
+          }
           await sendNotification("textDocument/publishDiagnostics", {
             uri,
             diagnostics,
@@ -936,7 +1438,12 @@ export async function runLspServer() {
         if (typeof uri === "string") {
           const text = docs.get(uri) ?? "";
           const config = docConfigs.get(uri) ?? await resolveProjectConfig(uri, workspaceRootPath);
-          const diagnostics = await compileDiagnostics(wasmPath, uri, text, config);
+          let diagnostics = [];
+          try {
+            diagnostics = await compileDiagnostics(wasmPath, uri, text, config);
+          } catch (err) {
+            diagnostics = diagnosticsFromError(err);
+          }
           await sendNotification("textDocument/publishDiagnostics", {
             uri,
             diagnostics,
@@ -956,6 +1463,97 @@ export async function runLspServer() {
             diagnostics: [],
           });
         }
+        return;
+      }
+
+      if (method === "textDocument/completion") {
+        const uri = msg.params?.textDocument?.uri;
+        if (typeof uri !== "string") {
+          await sendResponse(id, []);
+          return;
+        }
+        const index = docIndex.get(uri) ?? null;
+        const source = docs.get(uri) ?? "";
+        if (index === null) {
+          await sendResponse(id, []);
+          return;
+        }
+        const line = Number(msg.params?.position?.line ?? 0);
+        const character = Number(msg.params?.position?.character ?? 0);
+        const { symbol } = getSymbolPosition(index, line, character);
+        const coreResp = await requestKernelCompletion(wasmPath, source, symbol);
+        const completionItems = coreResp === null
+          ? []
+          : buildCompletionItemsFromKernel(coreResp);
+        if (completionItems.length > 0) {
+          await sendResponse(id, completionItems);
+          return;
+        }
+        await sendResponse(id, buildCompletionItemsFromIndex(index, symbol));
+        return;
+      }
+
+      if (method === "textDocument/signatureHelp") {
+        const uri = msg.params?.textDocument?.uri;
+        if (typeof uri !== "string") {
+          await sendResponse(id, null);
+          return;
+        }
+        const index = docIndex.get(uri) ?? null;
+        const source = docs.get(uri) ?? "";
+        if (index === null) {
+          await sendResponse(id, null);
+          return;
+        }
+        const line = Number(msg.params?.position?.line ?? 0);
+        const character = Number(msg.params?.position?.character ?? 0);
+        const { symbol } = getSymbolPosition(index, line, character);
+        const coreResp = await requestKernelSignatureHelp(wasmPath, source, symbol);
+        const signature = coreResp === null
+          ? buildSignatureHelpFromIndex(index, symbol)
+          : buildSignatureHelpFromKernel(coreResp);
+        await sendResponse(id, signature);
+        return;
+      }
+
+      if (method === "textDocument/semanticTokens/full") {
+        const uri = msg.params?.textDocument?.uri;
+        const source = typeof uri === "string" ? (docs.get(uri) ?? "") : "";
+        const coreResp = await requestKernelSemanticTokens(wasmPath, source);
+        if (coreResp === null) {
+          await sendResponse(id, { data: [] });
+          return;
+        }
+        await sendResponse(id, { data: Array.isArray(coreResp?.data) ? coreResp.data : [] });
+        return;
+      }
+
+      if (method === "workspace/symbol") {
+        const query = String(msg.params?.query ?? "");
+        const docEntries = Array.from(docs.entries());
+        const symbols = [];
+        for (const [docUri, docSource] of docEntries) {
+          const source = typeof docSource === "string" ? docSource : "";
+          const docIndexEntry = docIndex.get(docUri) ?? null;
+          const coreResp = await requestKernelWorkspaceSymbol(wasmPath, source, query);
+          if (coreResp === null) {
+            symbols.push(...buildWorkspaceSymbolsFromIndex(docIndexEntry, docUri, query));
+            continue;
+          }
+          const docSymbols = buildWorkspaceSymbolsFromKernelWithIndex(
+            docUri,
+            coreResp,
+            docIndexEntry,
+          );
+          if (docSymbols.length === 0) {
+            symbols.push(...buildWorkspaceSymbolsFromIndex(docIndexEntry, docUri, query));
+            continue;
+          }
+          for (const item of docSymbols) {
+            symbols.push(item);
+          }
+        }
+        await sendResponse(id, symbols);
         return;
       }
 
@@ -1100,7 +1698,7 @@ export async function runLspServer() {
         const line = Number(msg.params?.position?.line ?? 0);
         const character = Number(msg.params?.position?.character ?? 0);
         const newName = String(msg.params?.newName ?? "");
-        if (typeof uri !== "string" || newName.length === 0 || !/^[A-Za-z_][A-Za-z0-9_$.']*$/u.test(newName)) {
+        if (typeof uri !== "string" || newName.length === 0) {
           await sendResponse(id, null);
           return;
         }
@@ -1110,19 +1708,35 @@ export async function runLspServer() {
           return;
         }
         const token = symbolAtPosition(index, line, character);
-        const positions = token.occurrences;
-        if (token.symbol.length === 0 || token.occurrence === null || positions.length === 0) {
+        if (token.symbol.length === 0 || token.occurrence === null) {
           await sendResponse(id, null);
           return;
         }
-        const edits = positions
-          .slice()
-          .sort((a, b) => (a.line - b.line) || (a.start - b.start))
-          .map((pos) => ({
-            range: buildRange(pos.line, pos.start, pos.end),
-            newText: newName,
-          }));
-        await sendResponse(id, { changes: { [uri]: edits } });
+        const coreResp = await requestKernelRename(
+          wasmPath,
+          docs.get(uri) ?? "",
+          token.symbol,
+          newName,
+        );
+        const normalized = coreResp === null
+          ? buildRenameChangesFromIndex(index, token.symbol, uri, newName)
+          : normalizeRenamePayloadPayload(
+            coreResp,
+            index,
+            token.symbol,
+            uri,
+            newName,
+          );
+        if (normalized === null) {
+          await sendResponse(id, {
+            changes: buildRenameChangesFromIndex(index, token.symbol, uri, newName),
+          });
+          return;
+        }
+        await sendResponse(id, {
+          ...(coreResp ?? {}),
+          changes: normalized,
+        });
         return;
       }
 
@@ -1130,7 +1744,6 @@ export async function runLspServer() {
         const uri = msg.params?.textDocument?.uri;
         const line = Number(msg.params?.position?.line ?? 0);
         const character = Number(msg.params?.position?.character ?? 0);
-        const includeDeclaration = msg.params?.context?.includeDeclaration !== false;
         if (typeof uri !== "string") {
           await sendResponse(id, []);
           return;
@@ -1141,28 +1754,28 @@ export async function runLspServer() {
           return;
         }
         const token = symbolAtPosition(index, line, character);
-        if (token.symbol.length === 0 || token.occurrence === null || token.occurrences.length === 0) {
+        if (token.symbol.length === 0 || token.occurrence === null) {
           await sendResponse(id, []);
           return;
         }
-        const locations = token.occurrences
-          .filter((entry) => {
-            if (includeDeclaration) {
-              return true;
-            }
-            return !(
-              token.declaration !== null &&
-              entry.line === token.declaration.line &&
-              entry.start === token.declaration.start &&
-              entry.end === token.declaration.end
-            );
-          })
-          .sort((a, b) => (a.line - b.line) || (a.start - b.start))
-          .map((entry) => ({
+        const coreResp = await requestKernelReferences(
+          wasmPath,
+          docs.get(uri) ?? "",
+          token.symbol,
+        );
+        const normalized = coreResp === null
+          ? buildReferenceLocationsFromIndex(index, token.symbol, uri)
+          : normalizeReferenceResponse(
+            coreResp,
+            index,
+            token.symbol,
             uri,
-            range: buildRange(entry.line, entry.start, entry.end),
-          }));
-        await sendResponse(id, locations);
+          );
+        if (normalized === null) {
+          await sendResponse(id, buildReferenceLocationsFromIndex(index, token.symbol, uri));
+          return;
+        }
+        await sendResponse(id, normalized);
         return;
       }
 

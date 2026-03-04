@@ -48,7 +48,13 @@
       },
       "expectedBackends": {
         "hover": "clapse",
-        "definition": "clapse"
+        "definition": "clapse",
+        "completion": "clapse",
+        "signatureHelp": "clapse",
+        "semanticTokens": "clapse",
+        "workspaceSymbol": "clapse",
+        "references": "clapse",
+        "rename": "clapse"
       },
       "prepareRename": {
         "line": 1,
@@ -58,6 +64,31 @@
         "line": 1,
         "character": 9,
         "placeholder": "inc"
+      },
+      "completion": {
+        "line": 1,
+        "character": 10
+      },
+      "completionExpectation": {
+        "containsLabel": "inc"
+      },
+      "signatureHelp": {
+        "line": 1,
+        "character": 10
+      },
+      "signatureHelpExpectation": {
+        "exactCount": 1,
+        "labelContains": "inc"
+      },
+      "semanticTokens": true,
+      "semanticTokensExpectation": {
+        "exactDataLen": 0
+      },
+      "workspaceSymbol": {
+        "query": "inc"
+      },
+      "workspaceSymbolExpectation": {
+        "containsName": "inc"
       },
       "rename": {
         "line": 0,
