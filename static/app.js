@@ -125,6 +125,14 @@ Prelude will load from the selected release.
       <button
         type="button"
         class="tab-button"
+        data-tab-target="debug-compile"
+        aria-selected="false"
+      >
+        Debug WASM
+      </button>
+      <button
+        type="button"
+        class="tab-button"
         data-tab-target="output"
         aria-selected="false"
       >
@@ -152,6 +160,12 @@ Prelude will load from the selected release.
         <a id="wasm-download" href="#" download hidden>
           Download Compiled Wasm
         </a>
+      </section>
+
+      <section class="tab-panel" data-tab-panel="debug-compile" hidden>
+        <pre id="debug-compile-output" class="result-output">
+(Debug WASM output appears after compile.)
+        </pre>
       </section>
 
       <section class="tab-panel" data-tab-panel="output" hidden>
@@ -399,6 +413,7 @@ const elements = {
   loweredIrOutput: document.getElementById("lowered-ir-output"),
   collapsedIrOutput: document.getElementById("collapsed-ir-output"),
   compileOutput: document.getElementById("compile-output"),
+  debugCompileOutput: document.getElementById("debug-compile-output"),
   programOutput: document.getElementById("program-output"),
   wasmDownload: document.getElementById("wasm-download"),
   sourceTabButtons: [...document.querySelectorAll("[data-source-tab-target]")],
@@ -847,6 +862,7 @@ async function runCompile({ forceFormat = false } = {}) {
   setStatus(`Compiling with ${tag}...`);
   setDownloadLink(null, null);
   elements.programOutput.textContent = "Compiling...";
+  elements.debugCompileOutput.textContent = "Compiling debug output...";
 
   let irIssue = null;
 
@@ -886,31 +902,73 @@ async function runCompile({ forceFormat = false } = {}) {
       : [];
     const usedEntrypointField =
       debugCompileResult.usedEntrypointExports === true;
-    let compileResponse;
+    const runtimeEntrypointRoots =
+      debugEntrypointRoots.length > 0 ? debugEntrypointRoots : ["main"];
+    let debugCompileResponse = null;
+    let compileResponse = null;
     let artifactsResponse = null;
     let artifactsError = null;
+    let runtimeCompileResult = null;
 
     if (debugCompileResult.ok) {
-      compileResponse = debugCompileResult.response;
+      debugCompileResponse = debugCompileResult.response;
       if (
-        compileResponse.artifacts &&
-        typeof compileResponse.artifacts === "object" &&
-        !Array.isArray(compileResponse.artifacts)
+        debugCompileResponse &&
+        debugCompileResponse.artifacts &&
+        typeof debugCompileResponse.artifacts === "object" &&
+        !Array.isArray(debugCompileResponse.artifacts)
       ) {
         artifactsResponse = {
           ok: true,
-          artifacts: compileResponse.artifacts,
+          artifacts: debugCompileResponse.artifacts,
         };
-      } else {
-        const artifactsResult = runArtifactsPipeline(session, compileSource);
-        artifactsResponse = artifactsResult.artifactsResponse;
-        artifactsError = artifactsResult.artifactsError;
       }
-    } else {
+
+      runtimeCompileResult = compileDebugWithLoop({
+        session,
+        entryPath: REPL_INPUT_PATH,
+        moduleSources,
+        explicitEntrypointExports: runtimeEntrypointRoots,
+        includeEntrypointExports: true,
+      });
+      if (runtimeCompileResult.ok) {
+        compileResponse = runtimeCompileResult.response;
+      }
+    }
+
+    if (!runtimeCompileResult?.ok) {
       const splitResult = runCompilePipeline(session, compileSource);
-      compileResponse = splitResult.compileResponse;
-      artifactsResponse = splitResult.artifactsResponse;
-      artifactsError = splitResult.artifactsError;
+      compileResponse = splitResult.compileResponse ?? compileResponse;
+      if (!artifactsResponse) {
+        artifactsResponse = splitResult.artifactsResponse;
+      }
+      artifactsError = splitResult.artifactsError ?? artifactsError;
+    }
+
+    if (!artifactsResponse) {
+      const fallbackArtifactsResult = runArtifactsPipeline(
+        session,
+        compileSource,
+      );
+      artifactsResponse = fallbackArtifactsResult.artifactsResponse;
+      if (
+        !artifactsError &&
+        typeof fallbackArtifactsResult.artifactsError === "string"
+      ) {
+        artifactsError = fallbackArtifactsResult.artifactsError;
+      }
+    } else if (!artifactsError && runtimeCompileResult?.response) {
+      const runtimeArtifacts = runtimeCompileResult.response.artifacts;
+      if (
+        runtimeArtifacts &&
+        typeof runtimeArtifacts === "object" &&
+        !Array.isArray(runtimeArtifacts)
+      ) {
+        artifactsResponse = {
+          ok: true,
+          artifacts: runtimeArtifacts,
+        };
+      }
     }
 
     if (typeof artifactsError === "string" && artifactsError.length > 0) {
@@ -934,6 +992,30 @@ async function runCompile({ forceFormat = false } = {}) {
       }
     }
 
+    if (debugCompileResponse) {
+      const debugBytes = decodeWasmBase64(
+        String(debugCompileResponse.wasm_base64 ?? ""),
+      );
+      const debugExportsList = normalizeExports(debugCompileResponse.exports);
+      elements.debugCompileOutput.textContent = renderCompileOutput({
+        response: debugCompileResponse,
+        tag,
+        preludeSource,
+        source,
+        compileSource,
+        compilePasses: debugCompilePasses,
+        entrypointRoots: debugEntrypointRoots,
+        usedEntrypointField,
+        bytes: debugBytes,
+        extraExports: debugExportsList,
+        modeLabel: "Debug",
+      });
+    } else {
+      const debugFailure =
+        debugCompileResult.error ?? formatResponseError(debugCompileResponse);
+      elements.debugCompileOutput.textContent = `Debug compile failed:\n${debugFailure}`;
+    }
+
     if (compileResponse?.ok === true) {
       const wasmBase64 = String(compileResponse.wasm_base64 ?? "");
       if (wasmBase64.length === 0) {
@@ -945,31 +1027,20 @@ async function runCompile({ forceFormat = false } = {}) {
         const wasmBytes = decodeWasmBase64(wasmBase64);
         setDownloadLink(tag, wasmBytes);
         const exportsList = normalizeExports(compileResponse.exports);
-        const wasmText = formatWasmText(compileResponse, wasmBytes);
-        elements.compileOutput.textContent = [
-          `ok: true`,
-          `release: ${tag}`,
-          `prelude_bytes: ${UTF8_ENCODER.encode(preludeSource).length}`,
-          `source_bytes: ${UTF8_ENCODER.encode(source).length}`,
-          `combined_bytes: ${UTF8_ENCODER.encode(compileSource).length}`,
-          `compile_passes: ${debugCompilePasses}`,
-          `entrypoint_exports: ${
-            debugEntrypointRoots.length > 0
-              ? debugEntrypointRoots.join(", ")
-              : "main"
-          }`,
-          `entrypoint_field_used: ${usedEntrypointField ? "true" : "false"}`,
-          `bytes: ${wasmBytes.length}`,
-          `fnv1a32: ${fnv1aHex(wasmBytes)}`,
-          exportsList.length > 0
-            ? `exports: ${exportsList
-                .map((entry) => `${entry.name}/${entry.arity}`)
-                .join(", ")}`
-            : "exports: (none)",
-          "",
-          "wasm_text",
-          wasmText,
-        ].join("\n");
+        const runtimeEntrypointFieldUsed = runtimeCompileResult?.ok === true;
+        elements.compileOutput.textContent = renderCompileOutput({
+          response: compileResponse,
+          tag,
+          preludeSource,
+          source,
+          compileSource,
+          compilePasses: runtimeCompileResult?.passes ?? debugCompilePasses,
+          entrypointRoots: runtimeEntrypointRoots,
+          usedEntrypointField: runtimeEntrypointFieldUsed,
+          bytes: wasmBytes,
+          extraExports: exportsList,
+          modeLabel: "WASM",
+        });
 
         const outputResult = await evaluateProgramOutput(
           exportsList,
@@ -978,11 +1049,10 @@ async function runCompile({ forceFormat = false } = {}) {
         elements.programOutput.textContent = outputResult;
       }
     } else {
-      const compileError = formatResponseError(compileResponse);
-      elements.compileOutput.textContent = compileError;
+      elements.compileOutput.textContent = formatResponseError(compileResponse);
       elements.programOutput.textContent =
         "No runnable output: compile failed.";
-      setStatus(`Compile failed: ${compileError}`);
+      setStatus(`Compile failed: ${elements.compileOutput.textContent}`);
       setActiveTab("compile");
       return;
     }
@@ -1025,6 +1095,44 @@ function normalizeExports(value) {
     out.push({ name, arity });
   }
   return out;
+}
+
+function renderCompileOutput({
+  response,
+  tag,
+  preludeSource,
+  source,
+  compileSource,
+  compilePasses,
+  entrypointRoots,
+  usedEntrypointField,
+  bytes,
+  extraExports,
+  modeLabel,
+}) {
+  const exportsList = Array.isArray(extraExports) ? extraExports : [];
+  const preludeBytes = UTF8_ENCODER.encode(preludeSource).length;
+  const sourceBytes = UTF8_ENCODER.encode(source).length;
+  const combinedBytes = UTF8_ENCODER.encode(compileSource).length;
+  const wasmText = formatWasmText(response, bytes);
+  return [
+    `${modeLabel}: ok`,
+    `release: ${tag}`,
+    `prelude_bytes: ${preludeBytes}`,
+    `source_bytes: ${sourceBytes}`,
+    `combined_bytes: ${combinedBytes}`,
+    `compile_passes: ${compilePasses}`,
+    `entrypoint_exports: ${entrypointRoots.length > 0 ? entrypointRoots.join(", ") : "main"}`,
+    `entrypoint_field_used: ${usedEntrypointField ? "true" : "false"}`,
+    `bytes: ${bytes.length}`,
+    `fnv1a32: ${fnv1aHex(bytes)}`,
+    exportsList.length > 0
+      ? `exports: ${exportsList.map((entry) => `${entry.name}/${entry.arity}`).join(", ")}`
+      : "exports: (none)",
+    "",
+    "wasm_text",
+    wasmText,
+  ].join("\n");
 }
 
 async function evaluateProgramOutput(exportsList, wasmBytes) {
