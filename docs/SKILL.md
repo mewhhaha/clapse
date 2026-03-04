@@ -204,6 +204,10 @@ just native-entrypoint-exports-dce-gate
 just native-ir-liveness-size-gate
 ```
 
+`native-entrypoint-exports-dce-gate` also guards prelude-import list-only
+entrypoint pruning: non-list prelude paths (for example bool/Maybe helper paths)
+must disappear when compiling with `entrypoint_exports=["main"]`.
+
 ## Ongoing sync rule
 
 - Keep `docs/clapse-language/references/tooling-and-workflows.md` updated when

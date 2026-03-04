@@ -72,6 +72,18 @@ function assertErrorResponse(response, label, expectedErrorFragment) {
   );
 }
 
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function containsToken(text, token) {
+  const pattern = new RegExp(
+    `(?:^|[^A-Za-z0-9_])${escapeRegExp(token)}(?:$|[^A-Za-z0-9_])`,
+    "u",
+  );
+  return pattern.test(text);
+}
+
 function buildCompileRequest(inputPath, source, entrypointExports = null) {
   const request = {
     command: "compile",
@@ -154,6 +166,99 @@ async function run() {
     assert(
       operatorRootHasOperator,
       "native-entrypoint-exports-dce-gate: operator-root artifacts should keep operator marker",
+    );
+
+    const preludeInputPath = `${tmpDir}/entrypoint_exports_prelude_gate.clapse`;
+    const preludeBoolDeadMarker =
+      `native-entrypoint-exports-prelude-bool-${crypto.randomUUID()}`;
+    const preludeMaybeDeadMarker =
+      `native-entrypoint-exports-prelude-maybe-${crypto.randomUUID()}`;
+    const preludeSource = [
+      'import "prelude"',
+      "",
+      "export main, dead_bool, dead_maybe",
+      "numbers = Cons 1 (Cons 2 (Cons 3 Nil))",
+      "main = foldl (+) 0 (fmap (\\x -> x + 1) numbers)",
+      `dead_bool = and true false -- ${preludeBoolDeadMarker}`,
+      `dead_maybe = maybe_with_default 0 (Just 7) -- ${preludeMaybeDeadMarker}`,
+      "",
+    ].join("\n");
+    await Deno.writeTextFile(preludeInputPath, preludeSource);
+
+    const preludeBaselineResponse = await callCompilerWasmRaw(
+      wasmPath,
+      buildCompileRequest(preludeInputPath, preludeSource),
+    );
+    const preludeBaseline = readCompileArtifactsOrThrow(
+      preludeBaselineResponse,
+      "prelude-baseline",
+    );
+    const preludeBaselineHasDead = preludeBaseline.lowered.includes(
+      preludeBoolDeadMarker,
+    ) || preludeBaseline.collapsed.includes(preludeBoolDeadMarker) ||
+      preludeBaseline.lowered.includes(preludeMaybeDeadMarker) ||
+      preludeBaseline.collapsed.includes(preludeMaybeDeadMarker);
+    assert(
+      preludeBaselineHasDead,
+      "native-entrypoint-exports-dce-gate: prelude-baseline artifacts should retain non-list prelude dead markers",
+    );
+    const preludeBaselineHasBoolSymbol = containsToken(
+      preludeBaseline.lowered,
+      "and",
+    ) || containsToken(preludeBaseline.collapsed, "and") ||
+      containsToken(preludeBaseline.lowered, "bool_and") ||
+      containsToken(preludeBaseline.collapsed, "bool_and");
+    assert(
+      preludeBaselineHasBoolSymbol,
+      "native-entrypoint-exports-dce-gate: prelude-baseline artifacts should retain bool/and symbol for dead export",
+    );
+    const preludeBaselineHasMaybeSymbol = containsToken(
+      preludeBaseline.lowered,
+      "maybe_with_default",
+    ) || containsToken(preludeBaseline.collapsed, "maybe_with_default");
+    assert(
+      preludeBaselineHasMaybeSymbol,
+      "native-entrypoint-exports-dce-gate: prelude-baseline artifacts should retain maybe_with_default symbol for dead export",
+    );
+
+    const preludeSubsetResponse = await callCompilerWasmRaw(
+      wasmPath,
+      buildCompileRequest(preludeInputPath, preludeSource, ["main"]),
+    );
+    const preludeSubset = readCompileArtifactsOrThrow(
+      preludeSubsetResponse,
+      "prelude-subset",
+    );
+    const preludeSubsetHasDead = preludeSubset.lowered.includes(
+      preludeBoolDeadMarker,
+    ) || preludeSubset.collapsed.includes(preludeBoolDeadMarker) ||
+      preludeSubset.lowered.includes(preludeMaybeDeadMarker) ||
+      preludeSubset.collapsed.includes(preludeMaybeDeadMarker);
+    assert(
+      !preludeSubsetHasDead,
+      "native-entrypoint-exports-dce-gate: prelude-subset artifacts should prune non-list prelude dead markers",
+    );
+    const preludeSubsetHasBoolSymbol = containsToken(
+      preludeSubset.lowered,
+      "and",
+    ) || containsToken(preludeSubset.collapsed, "and") ||
+      containsToken(preludeSubset.lowered, "bool_and") ||
+      containsToken(preludeSubset.collapsed, "bool_and");
+    assert(
+      !preludeSubsetHasBoolSymbol,
+      "native-entrypoint-exports-dce-gate: prelude-subset artifacts should prune bool/and symbol",
+    );
+    const preludeSubsetHasMaybeSymbol = containsToken(
+      preludeSubset.lowered,
+      "maybe_with_default",
+    ) || containsToken(preludeSubset.collapsed, "maybe_with_default");
+    assert(
+      !preludeSubsetHasMaybeSymbol,
+      "native-entrypoint-exports-dce-gate: prelude-subset artifacts should prune maybe_with_default symbol",
+    );
+    assert(
+      preludeSubset.wasmBytes.length < preludeBaseline.wasmBytes.length,
+      `native-entrypoint-exports-dce-gate: prelude subset wasm bytes should strictly shrink (${preludeSubset.wasmBytes.length} >= ${preludeBaseline.wasmBytes.length})`,
     );
 
     const unknownRootResponse = await callCompilerWasmRaw(
