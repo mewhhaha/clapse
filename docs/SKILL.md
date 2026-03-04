@@ -26,9 +26,7 @@ the current wasm compiler unless explicitly marked `skip`.
    selected compiler, require kernel-native non-stub output, and only use
    observed `__clapse_contract.source_version` when `--source-version` is not
    provided.
-8. Canonical module export syntax is `export { ... }`; legacy
-   `export a, b` remains accepted for compatibility but is deprecated for
-   new code.
+8. Canonical module export syntax is `export { ... }`.
 9. Use
    `deno run -A scripts/run-clapse-compiler-wasm.mjs compile-debug <input.clapse> [output.wasm] [artifacts-dir]`
    for unified wasm+IR debug flows.
@@ -121,24 +119,22 @@ The command returns a single compile response with:
 Entrypoint reachability pruning now runs in the runner before compile request:
 
 - roots are explicit `entrypoint_exports` (when provided), otherwise source
-  `export { ... }` declarations, with deprecated `export a, b` fallback still
-  accepted for compatibility, and `main` fallback
+  `export { ... }` declarations and `main` fallback
 - compile commands now build a module import graph from entry module imports, using
   preferred quoted import syntax:
   - `import "mod/path" { symbol, type TypeName }`
   - `import "mod/path" as alias`
   plus `clapse.json` `include` search paths for bare specifiers and relative
   resolution for `./`, `../`, `/`
-- prelude aliases (`"prelude"`, `"compiler/prelude"`, `"compiler.prelude"`)
+- prelude aliases (`"prelude"`, `"compiler/prelude"`)
   resolve to `lib/compiler/prelude.clapse` without extra include configuration
-- legacy dotted imports (`import module.name`) are still supported but deprecated
-  for greenfield code
-- legacy prelude list constructors (`ListNil`/`ListCons`) are rewritten to
+
+- prelude list constructors (`ListNil`/`ListCons`) are rewritten to
   `Nil`/`Cons` in runner demand-driven compile input with deprecation warnings
 - if include paths are configured and a module import cannot be resolved, compilation
   fails immediately with an unresolved-import error; unresolved relative/absolute
   quoted imports always fail. Missing/invalid `clapse.json` still falls back to
-  legacy fail-open include behavior for non-relative imports
+  import resolution behavior for non-relative imports
 - per-module reachability is propagated through both local calls and qualified
   `Module.symbol` references, plus explicit imported binding usage, so imported
   module roots are computed transitively until a fixed point
@@ -177,6 +173,12 @@ Entrypoint reachability pruning now runs in the runner before compile request:
   native dead-temp pruning and temp renumbering behavior in the temp-chain path.
   Keep this gate conservative in CI-facing change plans until compiler outputs
   match expected pruning proofs.
+- `kernel-native` compile requests for `lib/compiler/kernel.clapse` now bypass
+  entrypoint request-shaping in the wasm runner so bootstrap/self-host preserves
+  full compiler ABI output (and avoids tiny DCE fallback artifacts).
+- `just native-parse-command-gate` enforces true raw parse-command availability
+  by calling `callCompilerWasmRaw` with `{"command":"parse"}` and requiring
+  `ok: true` plus `artifacts["parsed_cst.txt"]`.
 
 Smoke gate:
 
@@ -184,6 +186,7 @@ Smoke gate:
 just compile-debug-smoke
 just native-list-fold-fusion-gate
 just native-fold-laws-gate
+just native-parse-command-gate
 just native-entrypoint-dce-strict-gate
 just native-entrypoint-exports-dce-gate
 just native-ir-liveness-size-gate
@@ -442,8 +445,7 @@ just native-ir-liveness-size-gate
     explicit `entrypoint_exports` (or source exports, then `main`), and send
     a pruned `inputSourceOverride` with only required modules/functions/imports.
     Preferred import forms are quoted specifiers with explicit symbols or alias;
-    legacy dotted imports remain compatibility-only and are deprecated for new
-    code.
+    import specifiers and qualified aliases are preferred as canonical forms.
     Unknown explicit roots still fail compile (`unknown entrypoint root`).
   Runtime toggle: `CLAPSE_COMPILE_ENGINE=native|kernel-native` pins plain
   `compile` to kernel-native mode. Host-bridge compile execution is removed from
@@ -531,8 +533,9 @@ just native-ir-liveness-size-gate
   strict-native bootstrap seed artifact (`artifacts/strict-native/seed.wasm`).
   It now retains a pre-existing seed only when
   `native-strict-producer-check`, `native-source-version-propagation-gate`,
-  `native-entrypoint-dce-strict-gate`, and `native-entrypoint-exports-dce-gate`
-  all pass. When retention fails, it first tries promoting a validated
+  `native-entrypoint-dce-strict-gate`, `native-entrypoint-exports-dce-gate`,
+  and `native-parse-command-gate` all pass. When retention fails, it first
+  tries promoting a validated
   `artifacts/strict-native/native_producer_seed.wasm`, and only then falls back
   to rebuilding via `just bootstrap-native-producer-seed`.
   `just bootstrap-native-producer-seed [seed] [out] [meta] [depth] [source_version]`
@@ -540,7 +543,9 @@ just native-ir-liveness-size-gate
   `scripts/native-producer-seed-template.c` via
   `scripts/build-native-producer-seed.mjs`. This path emits compile responses
   with source-derived artifacts + producer contract metadata directly from wasm
-  (no JS fallback in the hot path), and validates raw producer behavior with
+  (no JS fallback in the hot path), and validates raw producer behavior plus
+  raw parse-command contract (`ok: true`, non-empty
+  `artifacts["parsed_cst.txt"]`) with
   `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1` before writing output. The seed
   template now uses static scratch workspaces plus widened temp-rewrite output
   buffers to avoid stack/data overlap and response corruption when embedded seed

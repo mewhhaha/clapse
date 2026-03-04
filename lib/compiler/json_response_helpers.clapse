@@ -1,5 +1,5 @@
-module compiler.json_response_helpers
-import compiler.prelude
+module "compiler/json_response_helpers"
+import "compiler/prelude"
 export
   copy_slice_literal
   copy_slice_segment

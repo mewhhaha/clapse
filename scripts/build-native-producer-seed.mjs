@@ -406,6 +406,26 @@ async function validateRawProducer(wasmPath, sourceVersion, hops = 2) {
       "emit-wat template response should include template memory shape",
     );
 
+    const parseMarker = `parse_seed_marker_${crypto.randomUUID()}`;
+    const parseResp = await callCompilerWasmRaw(wasmPath, {
+      command: "parse",
+      input_path: "examples/native_parse_seed_probe.clapse",
+      input_source: `${parseMarker} x = x\nmain = ${parseMarker} 7\n`,
+    });
+    ensure(
+      parseResp && parseResp.ok === true,
+      "parse response should be ok=true",
+    );
+    const parsedCst = parseResp?.artifacts?.["parsed_cst.txt"];
+    ensure(
+      typeof parsedCst === "string" && parsedCst.length > 0,
+      "parse response should include non-empty parsed_cst.txt",
+    );
+    ensure(
+      parsedCst.includes(parseMarker),
+      "parse response should include source marker",
+    );
+
     return {
       hops,
       output_bytes: finalBytes.length,

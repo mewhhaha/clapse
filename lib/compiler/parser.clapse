@@ -1,6 +1,6 @@
-module compiler.parser
-import compiler.prelude
-export is_fail_pos, parser_dispatch_default, parser_or_with, parser_bind_with, parser_then_with, parser_map_with, ap_with, parser_ap_with, parser_keep_left_with, parser_keep_right_with, parser_bind, parser_then, parser_map, parser_ap, parser_keep_left, parser_keep_right, parser_or, ParserDispatch, ClassDispatchMode, ClassDispatch, ClassFundepInfo, ClassEvidence, class_fundep_metadata_default, class_dispatch_default, class_dispatch_static, class_dispatch_dynamic, class_dispatch_default_resolved, class_dispatch_mode, class_dispatch_is_static, class_dispatch_is_dynamic, class_evidence_from_fundep, class_evidence_for_applicative, infer_class_dispatch, infer_class_dispatch_applicative, default_class_dispatch_from_evidence
+module "compiler/parser"
+import "compiler/prelude"
+export { is_fail_pos, parser_dispatch_default, parser_or_with, parser_bind_with, parser_then_with, parser_map_with, ap_with, parser_ap_with, parser_keep_left_with, parser_keep_right_with, parser_bind, parser_then, parser_map, parser_ap, parser_keep_left, parser_keep_right, parser_or, ParserDispatch, ClassDispatchMode, ClassDispatch, ClassFundepInfo, ClassEvidence, class_fundep_metadata_default, class_dispatch_default, class_dispatch_static, class_dispatch_dynamic, class_dispatch_default_resolved, class_dispatch_mode, class_dispatch_is_static, class_dispatch_is_dynamic, class_evidence_from_fundep, class_evidence_for_applicative, infer_class_dispatch, infer_class_dispatch_applicative, default_class_dispatch_from_evidence }
 
 data ParserDispatch = ParserDispatchDefault | ParserDispatchRightBiased
 data ClassDispatchMode = ClassDispatchStatic | ClassDispatchDynamic

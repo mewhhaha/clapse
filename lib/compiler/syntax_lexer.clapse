@@ -1,0 +1,116 @@
+module "compiler/syntax_lexer"
+import "compiler/prelude"
+import "compiler/scan"
+export
+  lex_skip_ws
+  lex_find_line_end
+  lex_next_line_start
+  lex_is_identifier_start
+  lex_is_identifier_part
+  lex_read_identifier_end
+  lex_read_quoted_string_end
+  lex_match_keyword
+  lex_match_word_end
+
+lex_skip_ws request_handle i req_len =
+  scan_skip_ws request_handle i req_len
+
+lex_find_line_end request_handle i req_len =
+  case (i < req_len) of
+    true ->
+      let b = slice_get_u8 request_handle i
+      in case (b == 10) (b == 13) of
+        true _ -> i
+        _ _ -> lex_find_line_end request_handle (i + 1) req_len
+    _ -> req_len
+
+lex_next_line_start request_handle line_end req_len =
+  case (line_end >= req_len) of
+    true -> req_len
+    _ ->
+      case (slice_get_u8 request_handle line_end == 13) of
+        true ->
+          let next = line_end + 1
+          in case (next < req_len && slice_get_u8 request_handle next == 10) of
+            true -> next + 1
+            _ -> next
+        _ -> line_end + 1
+
+lex_is_identifier_start b =
+  let is_underscore = (b == 95)
+      is_upper_a = (b >= 65)
+      is_upper_z = (b <= 90)
+      is_lower_a = (b >= 97)
+      is_lower_z = (b <= 122)
+  in is_underscore || (is_upper_a && is_upper_z) || (is_lower_a && is_lower_z)
+
+lex_is_identifier_part b =
+  let is_digit = (b >= 48) && (b <= 57)
+      is_start = lex_is_identifier_start b
+  in is_start || is_digit
+
+lex_read_identifier_end request_handle start req_len =
+  let start_ws = scan_skip_ws request_handle start req_len
+      not_started = (start_ws >= req_len)
+  in case not_started of
+    true -> start_ws
+    _ ->
+      case lex_is_identifier_start (slice_get_u8 request_handle start_ws) of
+        true -> lex_read_identifier_end_step request_handle (start_ws + 1) req_len
+        _ -> start_ws
+
+lex_read_identifier_end_step request_handle i req_len =
+  case (i < req_len) of
+    true ->
+      let b = slice_get_u8 request_handle i
+      in case (lex_is_identifier_part b) of
+        true -> lex_read_identifier_end_step request_handle (i + 1) req_len
+        _ -> i
+    _ -> i
+
+lex_read_quoted_string_end request_handle start req_len =
+  case (start < req_len && slice_get_u8 request_handle start == 34) of
+    true -> lex_read_quoted_string_end_step request_handle (start + 1) req_len false
+    _ -> req_len
+
+lex_read_quoted_string_end_step request_handle i req_len escaped =
+  case (i >= req_len) of
+    true -> req_len
+    _ ->
+      case escaped of
+        true -> lex_read_quoted_string_end_step request_handle (i + 1) req_len false
+        _ ->
+          let b = slice_get_u8 request_handle i
+          in case (b == 92) of
+            true -> lex_read_quoted_string_end_step request_handle (i + 1) req_len true
+            _ ->
+              case (b == 34) of
+                true -> i + 1
+                _ -> lex_read_quoted_string_end_step request_handle (i + 1) req_len false
+
+lex_match_keyword request_handle start req_len keyword =
+  let lit = str_to_slice keyword
+      lit_len = slice_len lit
+  in case (start + lit_len <= req_len) of
+    true ->
+      case lex_match_keyword_bytes request_handle start lit lit_len 0 of
+        true -> lex_match_word_end request_handle (start + lit_len) req_len
+        _ -> false
+    _ -> false
+
+lex_match_keyword_bytes request_handle start lit lit_len j = case (j == lit_len) of
+  true -> true
+  _ ->
+    case (slice_get_u8 request_handle (start + j) == slice_get_u8 lit j) of
+      true -> lex_match_keyword_bytes request_handle start lit lit_len (j + 1)
+      _ -> false
+
+lex_match_word_end request_handle pos req_len =
+  case (pos >= req_len) of
+    true -> true
+    _ ->
+      let b = slice_get_u8 request_handle pos
+          is_tail = lex_is_identifier_part b
+      in case is_tail of
+        true -> false
+        _ -> true

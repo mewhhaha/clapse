@@ -13,6 +13,7 @@ module.exports = grammar({
 
   conflicts: ($) => [
     [$._atom, $.record_projection_target],
+    [$.import_declaration, $.import_declaration],
   ],
 
   rules: {
@@ -303,23 +304,62 @@ module.exports = grammar({
       ),
 
     module_declaration: ($) =>
-      seq($._kw_module, $._ws1, field("name", $.module_name)),
+      seq(
+        $._kw_module,
+        $._ws1,
+        field("name", $.string),
+      ),
 
     import_declaration: ($) =>
-      seq($._kw_import, $._ws1, field("module", $.module_name)),
+      choice(
+        seq($._kw_import, $._ws1, field("module", $.string)),
+        seq(
+          $._kw_import,
+          $._ws1,
+          field("module", $.string),
+          $._ws1,
+          $._kw_as,
+          $._ws1,
+          field("alias", $.identifier),
+        ),
+        seq(
+          $._kw_import,
+          $._ws1,
+          field("module", $.string),
+          $._ws1,
+          "{",
+          optional($._ws1),
+          field("name", $.import_name),
+          repeat(
+            seq(
+              optional($._ws1),
+              ",",
+              optional($._ws1),
+              field("name", $.import_name),
+            ),
+          ),
+          optional($._ws1),
+          "}",
+        ),
+      ),
 
     export_declaration: ($) =>
       seq(
         $._kw_export,
         $._ws1,
+        "{",
+        optional($._ws1),
         field("name", $._export_name),
         repeat(
           seq(
+            optional($._ws1),
             ",",
             optional($._ws1),
             field("name", $._export_name),
           ),
         ),
+        optional($._ws1),
+        "}",
       ),
 
     class_declaration: ($) =>
@@ -992,7 +1032,13 @@ module.exports = grammar({
     backtick_operator: () => token(seq("`", /[a-z_][a-z0-9_']*/, "`")),
 
     capitalized_identifier: () => /[A-Z][A-Za-z0-9_']*/,
-    module_name: () => /[A-Za-z][A-Za-z0-9_']*(\.[A-Za-z][A-Za-z0-9_']*)*/,
+
+    import_name: ($) =>
+      choice(
+        $.identifier,
+        $.capitalized_identifier,
+        seq($._kw_type, $._ws1, field("type_name", $.capitalized_identifier)),
+      ),
 
     _export_name: ($) => choice($.identifier, $.capitalized_identifier),
 
@@ -1014,6 +1060,7 @@ module.exports = grammar({
     _kw_module: () => token(prec(1, "module")),
     _kw_import: () => token(prec(1, "import")),
     _kw_export: () => token(prec(1, "export")),
+    _kw_as: () => token(prec(1, "as")),
     _kw_type: () => token(prec(1, "type")),
     _kw_let: () => token(prec(1, "let")),
     _kw_in: () => token(prec(1, "in")),

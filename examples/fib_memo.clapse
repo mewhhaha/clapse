@@ -1,5 +1,5 @@
-module fib_memo_example
-export fib, main
+module "fib_memo_example"
+export { fib, main }
 
 #[memo 128]
 fib n = case eq n 0 of

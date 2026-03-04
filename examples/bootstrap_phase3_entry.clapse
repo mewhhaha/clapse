@@ -1,5 +1,5 @@
-module entry
-import util.math
-export main
+module "entry"
+import "util/math"
+export { main }
 
 main x = double x

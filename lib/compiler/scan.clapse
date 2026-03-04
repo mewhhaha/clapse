@@ -1,5 +1,5 @@
-module compiler.scan
-import compiler.prelude
+module "compiler/scan"
+import "compiler/prelude"
 export
   scan_is_space_byte
   scan_skip_ws

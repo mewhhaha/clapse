@@ -1,0 +1,20 @@
+module "compiler/syntax_show"
+import "compiler/prelude"
+export
+  SyntaxCST
+  syntax_render_cst
+  syntax_cst_start
+  syntax_cst_len
+
+data SyntaxCST = SyntaxCST Int Int
+
+syntax_render_cst source_start source_end =
+  SyntaxCST source_start source_end
+
+syntax_cst_start cst =
+  case cst of
+    SyntaxCST start _ -> start
+
+syntax_cst_len cst =
+  case cst of
+    SyntaxCST start end -> end - start

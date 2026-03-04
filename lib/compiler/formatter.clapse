@@ -1,9 +1,9 @@
-module compiler.formatter
-import compiler.prelude
-import compiler.scan
-import compiler.formatter_monadic
-import compiler.json_response
-export format_ok_response
+module "compiler/formatter"
+import "compiler/prelude"
+import "compiler/scan"
+import "compiler/formatter_monadic"
+import "compiler/json_response"
+export { format_ok_response }
 
 format_empty_response request_handle ownership_mode =
   json_response_with_literal_prefix_suffix request_handle ownership_mode json_format_prefix json_format_suffix

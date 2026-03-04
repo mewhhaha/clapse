@@ -1,6 +1,6 @@
-module util.json
-export byte_at, json_command_tag
-import slice_scan
+module "util/json"
+export { byte_at, json_command_tag }
+import "slice_scan"
 
 primitive bool = true<1> | false<0>
 data CommandTag = CommandCompile | CommandEmitWat | CommandFormat | CommandSelfhost

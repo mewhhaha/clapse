@@ -1,7 +1,7 @@
-module compiler.lsp_kernel
-import compiler.prelude
-import compiler.scan
-import compiler.json_response
+module "compiler/lsp_kernel"
+import "compiler/prelude"
+import "compiler/scan"
+import "compiler/json_response"
 export
   LspField
   LspSymbolLookup

@@ -16,6 +16,7 @@ function usage() {
     "  compile-native <input.clapse> [output.wasm] (alias: compile_native)",
     "  compile-native-debug <input.clapse> [output.wasm] [artifacts-dir] (alias: compile_native_debug)",
     "  compile-debug <input.clapse> [output.wasm] [artifacts-dir] (alias: compile_debug)",
+    "  parse <input.clapse> [out-dir]",
     "  emit-wat <input.clapse> [output.wat]",
     "  selfhost-artifacts <input.clapse> <out-dir>",
     "  format <file>",

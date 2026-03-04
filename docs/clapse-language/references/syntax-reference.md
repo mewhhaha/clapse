@@ -24,6 +24,26 @@ primitive bool = true<1> | false<0>
 - JS/TS remains an I/O boundary only; language semantics live in the Clapse
   kernel.
 
+## Modules
+
+- Declare the module identity for a file with a quoted name:
+
+```haskell
+module "spec"
+```
+
+## Imports
+
+- Canonical imports use quoted specifiers:
+
+```haskell
+import "prelude"
+
+import "collection" { foldl, map, type Foldable }
+
+import "math" as m
+```
+
 ## Functions
 
 Single equation:
@@ -113,11 +133,7 @@ helper x = x - 1
 export { main, helper }
 ```
 
-The legacy comma-separated form is deprecated but still supported:
-
-```haskell
-export main, helper
-```
+Use brace form for exports in canonical module sources.
 
 `case` arity rules:
 - Pattern-arm `case` requires arm pattern arity to match scrutinee arity.

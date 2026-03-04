@@ -40,11 +40,9 @@ deno run -A scripts/clapse.mjs bench [iterations]
     Specifiers resolve through `clapse.json` `include` paths (for bare
     specifiers) and filesystem-relative resolution for `./`, `../`, and `/`
     specifiers.
-    Built-in prelude aliases (`"prelude"`, `"compiler/prelude"`,
-    `"compiler.prelude"`) resolve to `lib/compiler/prelude.clapse` without
+    Built-in prelude aliases (`"prelude"`, `"compiler/prelude"`)
+    resolve to `lib/compiler/prelude.clapse` without
     requiring `include`.
-    Legacy dotted imports (`import module.name`) remain supported but are
-    deprecated for new code.
     Collection literals (`[]`, `[a, b, c]`) lower through
     `collection_empty`/`collection_extend` as `CollectionLiteral` class methods,
     so target type can dispatch to non-`List` collection representations.
@@ -53,8 +51,7 @@ deno run -A scripts/clapse.mjs bench [iterations]
     warnings.
     The runner then executes fixed-point root propagation across modules.
     Roots are explicit `entrypoint_exports` when present, otherwise source
-    `export { ... }` declarations (legacy `export a, b` form is deprecated but
-    still supported), with `main` fallback.
+    `export { ... }` declarations, with `main` fallback.
     Runner requests now forward the resolved `entrypoint_exports` and a
     demand-driven `inputSourceOverride` to the compiler, so only required
     modules/functions/imports are compiled. DCE propagation now consumes:
@@ -430,8 +427,7 @@ Current targets in `Justfile`:
   compiler as `plugin_wasm_paths`.
 
 - `include` contains directory names. Bare quoted import specifiers are resolved
-  by checking `<dir>/<specifier>` and `<dir>/<specifier>.clapse`
-  (with dotted fallback `<dir>/<specifier_with_dots_as_slashes>.clapse`).
+  by checking `<dir>/<specifier>` and `<dir>/<specifier>.clapse`.
   Relative/absolute specifiers (`./`, `../`, `/`) resolve from the importing
   file path.
 

@@ -1,5 +1,5 @@
-module slice_scan
-export slice_find_u8, slice_find_seq_u8
+module "slice_scan"
+export { slice_find_u8, slice_find_seq_u8 }
 
 primitive bool = true<1> | false<0>
 

@@ -1,6 +1,6 @@
-module compiler.class_law
-import compiler.parser
-import compiler.prelude
+module "compiler/class_law"
+import "compiler/parser"
+import "compiler/prelude"
 data ClassMethodExpr = CBool bool | CVar i64 | CNot ClassMethodExpr | CAnd ClassMethodExpr ClassMethodExpr | COr ClassMethodExpr ClassMethodExpr
   | CId | CCompose ClassMethodExpr ClassMethodExpr | CMap ClassMethodExpr ClassMethodExpr | CBuild ClassMethodExpr | CFoldr ClassMethodExpr ClassMethodExpr ClassMethodExpr | CApply ClassMethodExpr ClassMethodExpr
 data ClassLawRule = LawComposeLeftIdentity | LawComposeRightIdentity | LawComposeAssociateRight | LawMapIdentity | LawMapFusion | LawFoldrMapFusion | LawFoldrBuildFusion | LawBoolDoubleNot | LawBoolNotTrue | LawBoolNotFalse | LawBoolAndTrueLeft | LawBoolAndTrueRight | LawBoolAndFalseLeft | LawBoolAndFalseRight | LawBoolOrTrueLeft | LawBoolOrTrueRight | LawBoolOrFalseLeft | LawBoolOrFalseRight | LawBoolAndAbsorbLeft | LawBoolAndAbsorbRight | LawBoolOrAbsorbLeft | LawBoolOrAbsorbRight | LawBoolAndComplementLeft | LawBoolAndComplementRight | LawBoolAndComplementChainLeftLeft | LawBoolAndComplementChainLeftRight | LawBoolAndComplementChainRightLeft | LawBoolAndComplementChainRightRight | LawBoolOrComplementLeft | LawBoolOrComplementRight | LawBoolOrComplementChainLeftLeft | LawBoolOrComplementChainLeftRight | LawBoolOrComplementChainRightLeft | LawBoolOrComplementChainRightRight | LawBoolAndConsensusNotOrLeft | LawBoolAndConsensusNotOrRight | LawBoolAndConsensusOrNotLeft | LawBoolAndConsensusOrNotRight | LawBoolOrConsensusNotAndLeft | LawBoolOrConsensusNotAndRight | LawBoolOrConsensusAndNotLeft | LawBoolOrConsensusAndNotRight | LawBoolAndChainLeftLeft | LawBoolAndChainLeftRight | LawBoolAndChainRightLeft | LawBoolAndChainRightRight | LawBoolOrChainLeftLeft | LawBoolOrChainLeftRight | LawBoolOrChainRightLeft | LawBoolOrChainRightRight | LawBoolIdempotent

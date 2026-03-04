@@ -1,8 +1,8 @@
-module compiler.native_compile_reachability
-import compiler.prelude
-import compiler.scan
-import compiler.json_response_helpers
-export SourceSegment, PrunedSourceResult, native_pruned_source_segment, native_pruned_source_segment_checked
+module "compiler/native_compile_reachability"
+import "compiler/prelude"
+import "compiler/scan"
+import "compiler/json_response_helpers"
+export { SourceSegment, PrunedSourceResult, native_pruned_source_segment, native_pruned_source_segment_checked }
 
 data NameRef = NameRef a b c
 data MaybeNameRef = MissingName | PresentName a

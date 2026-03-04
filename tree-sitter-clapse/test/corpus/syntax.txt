@@ -150,19 +150,19 @@ other x y = x `plus_op` y
 module / import / export declarations
 ==================
 
-module Core
-import Parser
-export main, Request
+module "Core"
+import "Parser"
+export { main, Request }
 
 ---
 
 (source_file
   (declaration
     (module_declaration
-      name: (module_name)))
+      name: (string)))
   (declaration
     (import_declaration
-      module: (module_name)))
+      module: (string)))
   (declaration
     (export_declaration
       name: (identifier)

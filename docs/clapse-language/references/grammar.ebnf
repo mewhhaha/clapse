@@ -1,0 +1,60 @@
+# Clapse Grammar (EBNF)
+
+Program          = { TopLevelDecl } EOF
+TopLevelDecl     = ModuleDecl | ImportDecl | ExportDecl | TypeDecl | SignatureDecl | ValueDecl
+                | ClassDecl | InstanceDecl | LawDecl | DataDecl | PrimitiveDecl | TypeAliasDecl
+
+ModuleDecl       = "module" StringLiteral
+
+ImportDecl       = "import" StringLiteral
+                | "import" StringLiteral ImportSpecList
+                | "import" StringLiteral "as" Identifier
+
+ImportSpecList   = "{" [ ImportSpec { "," ImportSpec } ] "}"
+ImportSpec       = [ "type" ] Identifier
+
+ExportDecl       = "export" "{" [ ExportSymbol { "," ExportSymbol } ] "}"
+ExportSymbol     = [ "type" ] Identifier
+
+ValueDecl        = Pattern "=" Expr
+TypeDecl         = Identifier [ TypeParams ] ":" TypeExpr
+
+ClassDecl        = "class" Identifier [ TypeParams ] [ "|" Fundep ]? "where" ClassMember*
+InstanceDecl     = "instance" Identifier [ TypeParams ] "where" InstanceMember*
+LawDecl          = "law" Identifier "=" Expr "=>" Expr
+
+TypeAliasDecl    = "type" Identifier TypeParams "=" TypeExpr
+DataDecl         = "data" Identifier TypeParams "=" DataConstructor { "|" DataConstructor }
+PrimitiveDecl    = "primitive" Identifier "=" PrimitiveCtor { "|" PrimitiveCtor }
+
+TypeParams       = TypeParam+
+TypeParam        = Identifier | "_" | "(" Identifier ":" TypeExpr ")"
+TypeExpr         = TypeExpr "+" TypeExpr
+                 | Identifier
+                 | "(" TypeExpr ")"
+
+Expr             = Expr "+" Expr
+                 | Expr "->" Expr
+                 | Identifier
+                 | Literal
+                 | "(" Expr ")"
+                 | "case" CaseHead "of" CaseClause+
+
+CaseHead         = Expr | ""
+CaseClause       = Pattern "->" Expr | GuardClause
+GuardClause      = "|" Expr "->" Expr
+
+Pattern          = Identifier
+                 | "_"
+                 | "(" Pattern ")"
+                 | ConstructorPattern
+
+Identifier       = letter { letter | digit | "_" }
+StringLiteral    = '"' { char } '"'
+Literal          = Integer | StringLiteral | Character
+Integer          = ["-"] digit+
+Character        = "'" char "'"
+
+# Notes:
+# - Layout-sensitive forms (let/case/guards/multi-line clauses) are defined in layout.md.
+# - StringLiteral in import/module form is the canonical module specifier.

@@ -1,5 +1,5 @@
-module parser_layout_pain_points
-export dispatch, multiline_apply, long_let, nested_case_arm_body, case_arm_let_multiline
+module "parser_layout_pain_points"
+export { dispatch, multiline_apply, long_let, nested_case_arm_body, case_arm_let_multiline }
 
 primitive bool = true<1> | false<0>
 

@@ -1,4 +1,4 @@
-module util.base
-export square
+module "util/base"
+export { square }
 
 square x = x * x

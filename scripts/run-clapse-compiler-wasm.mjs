@@ -295,7 +295,8 @@ function isFunctionName(value) {
 }
 
 function isHostModuleName(rawName) {
-  return String(rawName).startsWith("host.");
+  const name = String(rawName ?? "").trim();
+  return name.startsWith("host.") || name.startsWith("host/");
 }
 
 function stripLineComment(rawLine) {
@@ -306,6 +307,10 @@ function stripLineComment(rawLine) {
 
 function parseModuleName(rawLine) {
   const line = stripLineComment(rawLine).trim();
+  const quoted = line.match(/^module\s+"([^"]+)"/u);
+  if (quoted) {
+    return quoted[1].trim();
+  }
   const match = line.match(
     /^module\s+([A-Za-z_][A-Za-z0-9_$.']*(?:\.[A-Za-z_][A-Za-z0-9_$.']*)*)/u,
   );
@@ -444,7 +449,7 @@ function canonicalImportLine(moduleName) {
   if (normalized.length === 0) {
     return "";
   }
-  return `import ${normalized}`;
+  return `import "${normalized}"`;
 }
 
 function escapeRegExp(text) {
@@ -611,6 +616,104 @@ function parseExportDecl(rawLine) {
   };
 }
 
+function addExportNamesFromFragment(fragment, names, seen) {
+  for (const part of String(fragment ?? "").split(",")) {
+    const token = part.trim().replace(/^\{/u, "").replace(/\}$/u, "").trim();
+    if (token.length === 0) {
+      continue;
+    }
+    const name = normalizeFunctionName(token);
+    if (!isFunctionName(name) || seen.has(name)) {
+      continue;
+    }
+    seen.add(name);
+    names.push(name);
+  }
+}
+
+function parseLayoutExportDecl(lines, startIndex) {
+  const rawLine = String(lines[startIndex] ?? "");
+  const line = stripLineComment(rawLine).trim();
+  if (!line.startsWith("export")) {
+    return { names: [], isLegacySyntax: false, hasExport: false, endLine: startIndex };
+  }
+  const after = line.slice("export".length).trim();
+  const names = [];
+  const seen = new Set();
+  let endLine = startIndex;
+
+  if (after.length === 0) {
+    for (let i = startIndex + 1; i < lines.length; i += 1) {
+      const blockRaw = String(lines[i] ?? "");
+      const blockTrimmed = stripLineComment(blockRaw).trim();
+      if (blockTrimmed.length === 0) {
+        endLine = i;
+        continue;
+      }
+      if (!/^\s/.test(blockRaw)) {
+        break;
+      }
+      if (blockTrimmed === "{" || blockTrimmed === "}") {
+        endLine = i;
+        if (blockTrimmed === "}") {
+          break;
+        }
+        continue;
+      }
+      addExportNamesFromFragment(blockTrimmed, names, seen);
+      endLine = i;
+    }
+    return {
+      names,
+      isLegacySyntax: false,
+      hasExport: names.length > 0,
+      endLine,
+    };
+  }
+
+  if (!after.startsWith("{") || after.includes("}")) {
+    return { names: [], isLegacySyntax: false, hasExport: false, endLine: startIndex };
+  }
+
+  const firstFragment = after.slice(1).trim();
+  if (firstFragment.length > 0) {
+    addExportNamesFromFragment(firstFragment, names, seen);
+  }
+  for (let i = startIndex + 1; i < lines.length; i += 1) {
+    const blockRaw = String(lines[i] ?? "");
+    const blockTrimmed = stripLineComment(blockRaw).trim();
+    if (blockTrimmed.length === 0) {
+      endLine = i;
+      continue;
+    }
+    if (!/^\s/.test(blockRaw)) {
+      break;
+    }
+    const closeAt = blockTrimmed.indexOf("}");
+    if (closeAt >= 0) {
+      const beforeClose = blockTrimmed.slice(0, closeAt).trim();
+      if (beforeClose.length > 0) {
+        addExportNamesFromFragment(beforeClose, names, seen);
+      }
+      endLine = i;
+      return {
+        names,
+        isLegacySyntax: false,
+        hasExport: names.length > 0,
+        endLine,
+      };
+    }
+    addExportNamesFromFragment(blockTrimmed, names, seen);
+    endLine = i;
+  }
+  return {
+    names,
+    isLegacySyntax: false,
+    hasExport: names.length > 0,
+    endLine,
+  };
+}
+
 function parseExportNames(rawLine) {
   return parseExportDecl(rawLine).names;
 }
@@ -728,13 +831,28 @@ async function resolveModuleImport(moduleName, moduleSearchDirs) {
   if (!Array.isArray(moduleSearchDirs) || moduleSearchDirs.length === 0) {
     return "";
   }
-  const moduleSuffix = normalizePath(`${moduleName.replace(/\./gu, "/")}.clapse`);
+  const rawModuleName = String(moduleName ?? "").trim();
+  if (rawModuleName.length === 0) {
+    return "";
+  }
+  const moduleNameWithSlash = normalizePath(rawModuleName.replace(/\./gu, "/"));
+  const moduleNames = new Set();
+  if (moduleNameWithSlash.length > 0) {
+    moduleNames.add(moduleNameWithSlash);
+  }
+  if (rawModuleName !== moduleNameWithSlash) {
+    moduleNames.add(rawModuleName);
+  }
   for (const dir of moduleSearchDirs) {
-    const candidate = toAbsolutePath(
-      normalizePath(`${normalizePath(dir)}/${moduleSuffix}`),
-    );
-    if (await fileExists(candidate)) {
-      return candidate;
+    const normalizedDir = normalizePath(dir);
+    for (const candidateName of moduleNames) {
+      const moduleSuffix = `${candidateName}.clapse`;
+      const candidate = toAbsolutePath(
+        normalizePath(`${normalizedDir}/${moduleSuffix}`),
+      );
+      if (await fileExists(candidate)) {
+        return candidate;
+      }
     }
   }
   return "";
@@ -774,12 +892,12 @@ async function resolveQuotedImportSpecifier(
       addMaybeClapseCandidate(joinPath(baseDir, spec));
     }
   } else if (Array.isArray(moduleSearchDirs) && moduleSearchDirs.length > 0) {
-    const slashPath = spec;
-    const dottedPath = spec.includes("/") ? "" : spec.replace(/\./gu, "/");
     for (const dir of moduleSearchDirs) {
-      addMaybeClapseCandidate(`${normalizePath(dir)}/${slashPath}`);
-      if (dottedPath.length > 0 && dottedPath !== slashPath) {
-        addMaybeClapseCandidate(`${normalizePath(dir)}/${dottedPath}`);
+      const normalizedDir = normalizePath(dir);
+      addMaybeClapseCandidate(`${normalizedDir}/${spec}`);
+      const specAsPath = spec.replace(/\./gu, "/");
+      if (specAsPath !== spec) {
+        addMaybeClapseCandidate(`${normalizedDir}/${specAsPath}`);
       }
     }
   }
@@ -787,7 +905,6 @@ async function resolveQuotedImportSpecifier(
     const preludeAliases = new Set([
       "prelude",
       "compiler/prelude",
-      "compiler.prelude",
     ]);
     if (preludeAliases.has(spec)) {
       addCandidate(toPath(new URL("lib/compiler/prelude.clapse", REPO_ROOT_URL)));
@@ -860,7 +977,9 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
         hasBindingList: importDecl.hasBindingList,
         valueBindings: importDecl.valueBindings,
         typeBindings: importDecl.typeBindings,
-        isHostModule: importDecl.isQuoted ? false : isHostModuleName(importDecl.moduleName),
+        isHostModule: importDecl.isQuoted
+          ? isHostModuleName(importDecl.specifier)
+          : isHostModuleName(importDecl.moduleName),
       });
       boundaryLines.push(i);
       continue;
@@ -881,6 +1000,20 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
       }
       boundaryLines.push(i);
       continue;
+    }
+    if (trimmed === "export" || trimmed.startsWith("export {")) {
+      const parsedLayoutExportDecl = parseLayoutExportDecl(lines, i);
+      if (parsedLayoutExportDecl.hasExport) {
+        for (const name of parsedLayoutExportDecl.names) {
+          if (!exportNameSet.has(name)) {
+            exportNameSet.add(name);
+            exportNames.push(name);
+          }
+        }
+        boundaryLines.push(i);
+        i = parsedLayoutExportDecl.endLine;
+        continue;
+      }
     }
     const functionName = parseFunctionDefinitionName(rawLine);
     if (functionName.length > 0) {
@@ -1513,6 +1646,7 @@ function usage() {
     "  compile-native-debug <input.clapse> [output.wasm] [artifacts-dir] [--entrypoint-export <name>] [--entrypoint-exports <csv>] (alias: compile_native_debug)",
     "  compile-debug <input.clapse> [output.wasm] [artifacts-dir] [--entrypoint-export <name>] [--entrypoint-exports <csv>] (alias: compile_debug)",
     "  emit-wat <input.clapse> [output.wat]",
+    "  parse <input.clapse> [out-dir]",
     "  selfhost-artifacts <input.clapse> <out-dir>",
     "  format <file>",
     "  format --write <file>",
@@ -1968,6 +2102,46 @@ function decodeEmitWatResponse(response, ctx) {
   return response.wat;
 }
 
+function decodeParseResponse(response, ctx) {
+  assertObject(response, "parse response");
+  if (typeof response.ok !== "boolean") {
+    throw new Error("parse response: missing boolean 'ok'");
+  }
+  if (!response.ok) {
+    const err = typeof response.error === "string"
+      ? response.error
+      : `parse error: ${ctx}`;
+    throw new Error(err);
+  }
+  const artifacts = response.artifacts;
+  if (artifacts && typeof artifacts === "object" && !Array.isArray(artifacts)) {
+    if (typeof artifacts["parsed_cst.txt"] === "string") {
+      return artifacts["parsed_cst.txt"];
+    }
+    if (typeof artifacts.parsed_cst === "string") {
+      return artifacts.parsed_cst;
+    }
+    if (typeof artifacts.parsedCst === "string") {
+      return artifacts.parsedCst;
+    }
+    if (typeof artifacts.cst === "string") {
+      return artifacts.cst;
+    }
+  }
+  if (typeof response.parsed_cst === "string") {
+    return response.parsed_cst;
+  }
+  if (typeof response.parsedCst === "string") {
+    return response.parsedCst;
+  }
+  if (typeof response.cst === "string") {
+    return response.cst;
+  }
+  throw new Error(
+    "parse response: missing string 'parsed_cst' (expected in response.artifacts.parsed_cst.txt)",
+  );
+}
+
 async function emitWatViaWasm(wasmPath, args) {
   if (args.length < 2 || args.length > 3) {
     throw new Error("usage: emit-wat <input.clapse> [output.wat]");
@@ -1989,7 +2163,21 @@ async function emitWatViaWasm(wasmPath, args) {
     await Deno.writeTextFile(outputPath, wat);
     return;
   }
-  await Deno.stdout.write(new TextEncoder().encode(wat));
+    await Deno.stdout.write(new TextEncoder().encode(wat));
+}
+
+async function parseViaWasm(wasmPath, inputPath, outDir) {
+  const outputDir = normalizePath(outDir || ".");
+  const outputBase = outputDir.length > 0 ? outputDir : ".";
+  const inputSource = await Deno.readTextFile(inputPath);
+  const response = await callCompilerWasm(wasmPath, {
+    command: "parse",
+    input_path: inputPath,
+    input_source: inputSource,
+  });
+  const parsedCst = decodeParseResponse(response, inputPath);
+  await Deno.mkdir(outputBase, { recursive: true });
+  await Deno.writeTextFile(`${outputBase}/parsed_cst.txt`, parsedCst);
 }
 
 function stripFrameTokenPunctuation(rawToken) {
@@ -2201,11 +2389,14 @@ export async function runWithArgs(rawArgs = cliArgs()) {
     const outputPath = parsed.positionals[1] ??
       inputPath.replace(/\.clapse$/u, ".wasm");
     const projectConfig = await readClapseProjectConfig(inputPath);
-    const demandDriven = await buildDemandDrivenCompileInput(
+    const demandDrivenBase = await buildDemandDrivenCompileInput(
       inputPath,
       parsed.entrypointExports,
       { projectConfig },
     );
+    const demandDriven = isCompilerKernelPath(inputPath)
+      ? { ...demandDrivenBase, entrypointExports: [] }
+      : demandDrivenBase;
     const compileEngine = String(Deno.env.get("CLAPSE_COMPILE_ENGINE") ?? "")
       .trim()
       .toLowerCase();
@@ -2234,11 +2425,14 @@ export async function runWithArgs(rawArgs = cliArgs()) {
     const outputPath = parsed.positionals[1] ??
       inputPath.replace(/\.clapse$/u, ".wasm");
     const projectConfig = await readClapseProjectConfig(inputPath);
-    const demandDriven = await buildDemandDrivenCompileInput(
+    const demandDrivenBase = await buildDemandDrivenCompileInput(
       inputPath,
       parsed.entrypointExports,
       { projectConfig },
     );
+    const demandDriven = isCompilerKernelPath(inputPath)
+      ? { ...demandDrivenBase, entrypointExports: [] }
+      : demandDrivenBase;
     await compileViaWasm(wasmPath, inputPath, outputPath, {
       compileMode: "kernel-native",
       projectConfig,
@@ -2261,11 +2455,14 @@ export async function runWithArgs(rawArgs = cliArgs()) {
     const artifactsDir = parsed.positionals[2] ??
       (defaultArtifactsDir.length > 0 ? defaultArtifactsDir : ".");
     const projectConfig = await readClapseProjectConfig(inputPath);
-    const demandDriven = await buildDemandDrivenCompileInput(
+    const demandDrivenBase = await buildDemandDrivenCompileInput(
       inputPath,
       parsed.entrypointExports,
       { projectConfig },
     );
+    const demandDriven = isCompilerKernelPath(inputPath)
+      ? { ...demandDrivenBase, entrypointExports: [] }
+      : demandDrivenBase;
     await compileViaWasm(wasmPath, inputPath, outputPath, {
       compileMode: "native-debug",
       projectConfig,
@@ -2290,11 +2487,14 @@ export async function runWithArgs(rawArgs = cliArgs()) {
     const artifactsDir = parsed.positionals[2] ??
       (defaultArtifactsDir.length > 0 ? defaultArtifactsDir : ".");
     const projectConfig = await readClapseProjectConfig(inputPath);
-    const demandDriven = await buildDemandDrivenCompileInput(
+    const demandDrivenBase = await buildDemandDrivenCompileInput(
       inputPath,
       parsed.entrypointExports,
       { projectConfig },
     );
+    const demandDriven = isCompilerKernelPath(inputPath)
+      ? { ...demandDrivenBase, entrypointExports: [] }
+      : demandDrivenBase;
     await compileViaWasm(wasmPath, inputPath, outputPath, {
       compileMode: "debug",
       projectConfig,
@@ -2307,6 +2507,13 @@ export async function runWithArgs(rawArgs = cliArgs()) {
   }
   if (args[0] === "emit-wat") {
     await emitWatViaWasm(wasmPath, args);
+    return;
+  }
+  if (args[0] === "parse") {
+    if (args.length < 2 || args.length > 3) {
+      throw new Error("usage: parse <input.clapse> [out-dir]");
+    }
+    await parseViaWasm(wasmPath, args[1], args[2] ?? ".");
     return;
   }
   if (args[0] === "format") {

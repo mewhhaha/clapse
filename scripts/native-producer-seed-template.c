@@ -50,6 +50,9 @@ static const char TAIL_ARROW[] = " -> ";
 static const char FORMAT_PREFIX[] = "{\"ok\":true,\"formatted\":\"";
 static const char FORMAT_SUFFIX[] = "\"}";
 
+static const char PARSE_PREFIX[] = "{\"ok\":true,\"artifacts\":{\"parsed_cst.txt\":\"";
+static const char PARSE_SUFFIX[] = "\"}}";
+
 static const char EMIT_WAT_PREFIX[] = "{\"ok\":true,\"wat\":\"";
 static const char EMIT_WAT_SUFFIX[] = "\"}";
 static const char EMIT_WAT_TEMPLATE[] =
@@ -1648,6 +1651,21 @@ static uint32_t build_format_response(Segment source_seg) {
   return handle;
 }
 
+static uint32_t build_parse_response(Segment source_seg) {
+  uint32_t total_len = cstr_len(PARSE_PREFIX) + source_seg.len + cstr_len(PARSE_SUFFIX);
+  uint32_t payload_ptr = 0u;
+  uint32_t handle = make_slice_response(total_len, &payload_ptr);
+  if (handle == 0u) {
+    return 0u;
+  }
+  uint8_t *dst = (uint8_t *) (uintptr_t) payload_ptr;
+  uint32_t cursor = 0u;
+  write_literal(dst, &cursor, PARSE_PREFIX);
+  write_segment(dst, &cursor, source_seg);
+  write_literal(dst, &cursor, PARSE_SUFFIX);
+  return handle;
+}
+
 static uint32_t build_emit_wat_response(Segment source_seg) {
   uint32_t total_len = cstr_len(EMIT_WAT_PREFIX) + source_seg.len + cstr_len(EMIT_WAT_SUFFIX);
   uint32_t payload_ptr = 0u;
@@ -1738,6 +1756,18 @@ int32_t clapse_run(int32_t request_handle) {
       return (int32_t) build_error_response("compile request pruning failed");
     }
     return (int32_t) build_compile_response(pruned_source, has_entrypoint_override);
+  }
+
+  if (segment_equals_literal(command_seg, "parse")) {
+    Segment source_seg = find_source_segment(req_ptr, req_len);
+    if (!source_seg.ok || source_seg.len == 0u) {
+      return (int32_t) build_error_response("parse request missing input_source");
+    }
+    source_seg = clone_segment(source_seg);
+    if (!source_seg.ok || source_seg.len == 0u) {
+      return (int32_t) build_error_response("parse request source copy failed");
+    }
+    return (int32_t) build_parse_response(source_seg);
   }
 
   if (segment_equals_literal(command_seg, "selfhost-artifacts")) {

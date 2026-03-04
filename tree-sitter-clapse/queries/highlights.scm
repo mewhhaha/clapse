@@ -4,16 +4,27 @@
 (integer) @constant.numeric.integer
 
 (module_declaration
-  name: (module_name) @namespace)
+  name: (string) @namespace)
 
 (import_declaration
-  module: (module_name) @namespace)
+  module: (string) @namespace)
+
+(import_declaration
+  alias: (identifier) @variable)
+
+(import_declaration
+  (import_name
+    (identifier) @variable))
+
+(import_declaration
+  (import_name
+    (capitalized_identifier) @type))
 
 (export_declaration
-  name: (identifier) @function)
+  (identifier) @function)
 
 (export_declaration
-  name: (capitalized_identifier) @constructor)
+  (capitalized_identifier) @constructor)
 
 (function_declaration
   name: (identifier) @function)

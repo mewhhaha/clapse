@@ -1,0 +1,166 @@
+module "compiler/syntax_parser"
+import "compiler/prelude"
+import "compiler/syntax_lexer"
+export
+  SyntaxParseResult
+  syntax_parse
+
+data SyntaxParseResult = SyntaxParseOk | SyntaxParseError Int
+
+syntax_parse request_handle source_start source_end =
+  parse_source request_handle source_start source_end
+
+parse_source request_handle i source_end =
+  case (i >= source_end) of
+    true -> SyntaxParseOk
+    _ ->
+      let line_start = lex_skip_ws request_handle i source_end
+      in case (line_start >= source_end) of
+        true -> SyntaxParseOk
+        _ -> parse_line request_handle line_start source_end
+
+parse_is_inline_ws b =
+  (b == 32) || (b == 9)
+
+parse_skip_inline_ws request_handle i line_end =
+  case (i < line_end) of
+    true ->
+      let b = slice_get_u8 request_handle i
+      in case (parse_is_inline_ws b) of
+        true -> parse_skip_inline_ws request_handle (i + 1) line_end
+        _ -> i
+    _ -> line_end
+
+parse_line request_handle line_start source_end =
+  let line_end = lex_find_line_end request_handle line_start source_end
+      next_line = lex_next_line_start request_handle line_end source_end
+      line_char = slice_get_u8 request_handle line_start
+  in case (line_char == 10) (line_char == 13) of
+    true _ -> parse_source request_handle next_line source_end
+    _ ->
+      case (line_char == 45) of
+        true ->
+          case (line_start + 1 < line_end && slice_get_u8 request_handle (line_start + 1) == 45) of
+            true -> parse_source request_handle next_line source_end
+            _ -> 
+              case lex_match_keyword request_handle line_start source_end "import" of
+                true -> parse_import_line request_handle line_start line_end source_end next_line
+                _ ->
+                  case lex_match_keyword request_handle line_start source_end "export" of
+                    true -> parse_export_line request_handle line_start line_end source_end next_line
+                    _ ->
+                      case lex_match_keyword request_handle line_start source_end "module" of
+                        true -> parse_module_line request_handle line_start line_end source_end next_line
+                        _ -> parse_source request_handle next_line source_end
+        _ ->
+          case lex_match_keyword request_handle line_start source_end "import" of
+            true -> parse_import_line request_handle line_start line_end source_end next_line
+            _ ->
+              case lex_match_keyword request_handle line_start source_end "export" of
+                true -> parse_export_line request_handle line_start line_end source_end next_line
+                _ ->
+                  case lex_match_keyword request_handle line_start source_end "module" of
+                    true -> parse_module_line request_handle line_start line_end source_end next_line
+                    _ -> parse_source request_handle next_line source_end
+
+parse_module_line request_handle line_start line_end source_end next_line =
+  let name_start = parse_skip_inline_ws request_handle (line_start + 6) line_end
+      name_end = lex_read_quoted_string_end request_handle name_start line_end
+      missing_quote = (name_end <= name_start) || (name_end > line_end)
+  in case (name_start >= line_end || missing_quote) of
+    true -> SyntaxParseError line_start
+    _ ->
+      let after_name = parse_skip_inline_ws request_handle name_end line_end
+      in case (after_name != line_end) of
+        true -> SyntaxParseError line_start
+        _ -> parse_source request_handle next_line source_end
+
+parse_import_line request_handle line_start line_end source_end next_line =
+  let path_start = parse_skip_inline_ws request_handle (line_start + 6) line_end
+      path_end = lex_read_quoted_string_end request_handle path_start line_end
+      invalid_path = (path_start >= line_end) || (path_end <= path_start) || (path_end > line_end)
+  in case invalid_path of
+    true -> SyntaxParseError line_start
+    _ ->
+      let after_path = parse_skip_inline_ws request_handle path_end line_end
+      in case (after_path >= line_end) of
+        true -> parse_source request_handle next_line source_end
+        _ ->
+          case lex_match_keyword request_handle after_path source_end "as" of
+            true ->
+              let as_ident_start = parse_skip_inline_ws request_handle (after_path + 2) line_end
+                  as_ident_end = lex_read_identifier_end request_handle as_ident_start line_end
+              in case (as_ident_start == as_ident_end) of
+                true -> SyntaxParseError line_start
+                _ ->
+                  let after_as_ident = parse_skip_inline_ws request_handle as_ident_end line_end
+                  in case (after_as_ident == line_end) of
+                    true -> parse_source request_handle next_line source_end
+                    _ -> SyntaxParseError line_start
+            _ ->
+              case (slice_get_u8 request_handle after_path == 123) of
+                true ->
+                  let list_start = parse_skip_inline_ws request_handle (after_path + 1) line_end
+                  in parse_named_export_list request_handle list_start line_end source_end next_line
+                _ -> SyntaxParseError line_start
+
+parse_export_line request_handle line_start line_end source_end next_line =
+  let list_start = parse_skip_inline_ws request_handle (line_start + 6) line_end
+      valid = (list_start < line_end) && (slice_get_u8 request_handle list_start == 123)
+      list_body_start = parse_skip_inline_ws request_handle (list_start + 1) line_end
+  in case valid of
+    true -> parse_named_export_list request_handle list_body_start line_end source_end next_line
+    _ -> SyntaxParseError line_start
+
+parse_named_export_list request_handle list_body_start line_end source_end next_line =
+  let first_token = parse_skip_inline_ws request_handle list_body_start line_end
+  in case (first_token >= line_end) of
+    true -> SyntaxParseError list_body_start
+    _ ->
+      case (slice_get_u8 request_handle first_token == 125) of
+        true -> parse_source request_handle next_line source_end
+        _ ->
+          let item_end = lex_read_identifier_end request_handle first_token line_end
+          in case (first_token == item_end) of
+            true -> SyntaxParseError first_token
+            _ ->
+              let after_item = parse_skip_inline_ws request_handle item_end line_end
+              in case (after_item >= line_end) of
+                true -> SyntaxParseError first_token
+                _ ->
+                  case (slice_get_u8 request_handle after_item == 125) of
+                    true -> parse_source request_handle next_line source_end
+                    _ ->
+                      case (slice_get_u8 request_handle after_item == 44) of
+                        true ->
+                          let next_item = parse_skip_inline_ws request_handle (after_item + 1) line_end
+                          in case (next_item >= line_end) of
+                            true -> SyntaxParseError first_token
+                            _ -> parse_import_list_continuation request_handle next_item line_end source_end next_line
+                        _ -> SyntaxParseError first_token
+
+parse_import_list_continuation request_handle i line_end source_end next_line =
+  case (i >= line_end) of
+    true -> SyntaxParseError i
+    _ ->
+      case (slice_get_u8 request_handle i == 125) of
+        true -> parse_source request_handle next_line source_end
+        _ ->
+          let item_end = lex_read_identifier_end request_handle i line_end
+          in case (i == item_end) of
+            true -> SyntaxParseError i
+            _ ->
+              let after_item = parse_skip_inline_ws request_handle item_end line_end
+              in case (after_item >= line_end) of
+                true -> SyntaxParseError i
+                _ ->
+                  case (slice_get_u8 request_handle after_item == 44) of
+                    true ->
+                      let next_item = parse_skip_inline_ws request_handle (after_item + 1) line_end
+                      in case (next_item >= line_end) of
+                        true -> SyntaxParseError i
+                        _ -> parse_import_list_continuation request_handle next_item line_end source_end next_line
+                    _ ->
+                      case (slice_get_u8 request_handle after_item == 125) of
+                        true -> parse_source request_handle next_line source_end
+                        _ -> SyntaxParseError i

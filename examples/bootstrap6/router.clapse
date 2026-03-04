@@ -1,5 +1,5 @@
-module bootstrap6.router
-export parse_method, parse_route, dispatch
+module "bootstrap6/router"
+export { parse_method, parse_route, dispatch }
 
 data Method = Get i64 | Put i64 | UnknownMethod i64
 data Route = Home i64 | Status i64 | UnknownRoute i64

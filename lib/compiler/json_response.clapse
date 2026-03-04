@@ -1,11 +1,14 @@
-module compiler.json_response
-import compiler.prelude
-import compiler.scan
-import compiler.json_response_helpers
+module "compiler/json_response"
+import "compiler/prelude"
+import "compiler/scan"
+import "compiler/json_response_helpers"
 export
   error_response_from_message
   selfhost_ok_response
   unknown_error_response
+  parse_ok_response
+  parse_missing_input_source_response
+  parse_error_response
   copy_slice_literal
   copy_slice_segment
   json_escape_extra_len
@@ -20,6 +23,8 @@ json_error_prefix = str_to_slice "{\"ok\":false,\"error\":\""
 json_error_suffix = str_to_slice "\"}"
 json_selfhost_prefix = str_to_slice "{\"ok\":true,\"artifacts\":{\"merged_module.txt\":\""
 json_selfhost_suffix = str_to_slice "\",\"type_info.txt\":\"KernelSelfhost\",\"type_info_error.txt\":\"\",\"lowered_ir.txt\":\"kernel:selfhost:lowered\",\"collapsed_ir.txt\":\"kernel:selfhost:collapsed\",\"exports.txt\":\"[ExportApi {exportName = \\\"main\\\", exportArity = 1}]\",\"wasm_stats.txt\":\"size_bytes=122\\nprefix_hex=0061736d0100000001130360017f017f60027f7f017f60037f7f7f017f020100\\n\"}}"
+json_parse_prefix = str_to_slice "{\"ok\":true,\"artifacts\":{\"parsed_cst.txt\":\""
+json_parse_suffix = str_to_slice "\"}}"
 json_unknown_error = str_to_slice "{\"ok\":false,\"error\":\"unsupported command\"}"
 
 json_response_from_slice request_handle ownership_mode literal =
@@ -72,6 +77,22 @@ selfhost_ok_response request_handle ownership_mode =
   in case (source_start == req_len) of
     true -> selfhost_ok_response_no_input_source request_handle ownership_mode req_len
     _ -> selfhost_source_response request_handle ownership_mode source_start req_len
+
+parse_ok_response request_handle ownership_mode source_start source_len =
+  json_response_with_escaped_slice_segment
+    request_handle
+    ownership_mode
+    json_parse_prefix
+    json_parse_suffix
+    request_handle
+    source_start
+    source_len
+
+parse_missing_input_source_response request_handle ownership_mode _ =
+  error_response_from_message request_handle ownership_mode "parse request missing input_source"
+
+parse_error_response request_handle ownership_mode message =
+  error_response_from_message request_handle ownership_mode message
 
 unknown_error_response request_handle ownership_mode =
   json_response_from_slice request_handle ownership_mode json_unknown_error

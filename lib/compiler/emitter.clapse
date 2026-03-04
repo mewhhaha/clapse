@@ -1,9 +1,9 @@
-module compiler.emitter
-import compiler.prelude
-import compiler.scan
-import compiler.json_response_helpers
-import compiler.json_response
-export emit_wat_response
+module "compiler/emitter"
+import "compiler/prelude"
+import "compiler/scan"
+import "compiler/json_response_helpers"
+import "compiler/json_response"
+export { emit_wat_response }
 
 json_error_prefix = str_to_slice "{\"ok\":false,\"error\":\""
 json_error_suffix = str_to_slice "\"}"

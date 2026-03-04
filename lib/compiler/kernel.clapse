@@ -1,17 +1,18 @@
-module bootstrap_phase9_compiler_kernel
-import compiler.parser
-import compiler.prelude
-import compiler.formatter
-import compiler.json_response
-import compiler.native_compile
-import compiler.emitter
-import compiler.scan
-import compiler.lsp_kernel
-import host.clapse
-export clapse_run
+module "bootstrap_phase9_compiler_kernel"
+import "compiler/parser"
+import "compiler/prelude"
+import "compiler/formatter"
+import "compiler/json_response"
+import "compiler/native_compile"
+import "compiler/emitter"
+import "compiler/scan"
+import "compiler/lsp_kernel"
+import "host/clapse"
+export { clapse_run }
 
 data CommandTag = CommandCompile | CommandEmitWat | CommandFormat | CommandSelfhost
   | CommandLspSymbolIndex | CommandLspHover | CommandLspDefinition | CommandUnknown
+  | CommandParse
 data MonadicLine = MonadicLineNil
   | MonadicLineNode
     Int
@@ -1508,6 +1509,9 @@ command_tag_at request_handle value_start req_len =
   case parse_command_tag request_handle value_start req_len "compile" CommandCompile of
     Just tag -> Just tag
     _ ->
+      case parse_command_tag request_handle value_start req_len "parse" CommandParse of
+        Just tag -> Just tag
+        _ ->
       case parse_command_tag request_handle value_start req_len "emit-wat" CommandEmitWat of
         Just tag -> Just tag
         _ ->
@@ -1548,6 +1552,7 @@ clapse_run request_handle =
       tag = command_tag tagged_request
   in case tag of
     CommandCompile -> compile_native_response tagged_request ownership_mode
+    CommandParse -> parse_native_response tagged_request ownership_mode
     CommandEmitWat -> emit_wat_response tagged_request ownership_mode
     CommandFormat -> format_ok_response tagged_request ownership_mode
     CommandSelfhost -> selfhost_ok_response tagged_request ownership_mode
