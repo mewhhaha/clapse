@@ -28,7 +28,7 @@ When behavior changes, update this file first, then update code.
 
 - Release dropdown data comes from GitHub Releases metadata:
   `https://api.github.com/repos/mewhhaha/clapse/releases`.
-- Supported releases must be `>= v0.1.0.12` and include both:
+- Supported releases must be `>= v0.1.0.29` and include both:
   - `clapse_compiler.wasm`
   - `prelude.clapse`
 - Selected release pages should open at:
@@ -60,12 +60,11 @@ for this page.
   - left source pane with tabs:
     - `Code` (editable)
     - `Prelude` (read-only)
-  - right output pane with tabs.
-- Right output tabs are:
-  - `IR`
-  - `Compile`
-  - `Problems`
-  - `Settings`
+  - right output pane with tabs:
+    - `Lowered IR`
+    - `Collapsed IR`
+    - `WASM`
+    - `Output`
 - Viewport is filled by the editor workspace under the header.
 
 ## Highlight Contract

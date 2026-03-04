@@ -194,11 +194,11 @@ const GITHUB_REPO = "clapse";
 const RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=50`;
 const RELEASES_PAGE = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
 const LOCAL_RELEASE_ARTIFACTS_ROOT = "./artifacts/releases";
-const MIN_SUPPORTED_RELEASE_TAG = "v0.1.0.28";
+const MIN_SUPPORTED_RELEASE_TAG = "v0.1.0.29";
 const MIN_SUPPORTED_RELEASE_VERSION = parseReleaseVersion(
   MIN_SUPPORTED_RELEASE_TAG,
 );
-const MIRRORED_RELEASE_TAGS = new Set(["v0.1.0.28", "v0.1.0.29"]);
+const MIRRORED_RELEASE_TAGS = new Set(["v0.1.0.29"]);
 const COMPILER_ASSET_NAME = "clapse_compiler.wasm";
 const COMPILER_ASSET_SUFFIX = "/artifacts/latest/clapse_compiler.wasm";
 const PRELUDE_ASSET_NAME = "prelude.clapse";
@@ -239,7 +239,7 @@ main = identity 7
   {
     id: "factorial",
     label: "Factorial (recursive)",
-    source: `import "prelude"
+    source: `import "prelude" { eq, mul, sub }
 
 export main
 
@@ -253,7 +253,7 @@ main = factorial 8
   {
     id: "fibonacci",
     label: "Fibonacci (recursive)",
-    source: `import "prelude"
+    source: `import "prelude" { eq, add, sub }
 
 export main
 
@@ -269,7 +269,7 @@ main = fibonacci 10
   {
     id: "gcd",
     label: "GCD (Euclid)",
-    source: `import "prelude"
+    source: `import "prelude" { eq, lt, sub }
 
 export main
 
@@ -287,7 +287,7 @@ main = gcd 84 30
   {
     id: "sum_to_n",
     label: "Sum to N",
-    source: `import "prelude"
+    source: `import "prelude" { eq, add, sub }
 
 export main
 
@@ -301,7 +301,7 @@ main = sum_to_n 10
   {
     id: "pow",
     label: "Power",
-    source: `import "prelude"
+    source: `import "prelude" { eq, mul, sub }
 
 export main
 
@@ -315,7 +315,7 @@ main = pow 3 10
   {
     id: "prelude-id",
     label: "Prelude: id",
-    source: `import "prelude"
+    source: `import "prelude" { id }
 
 export main
 
@@ -339,7 +339,7 @@ main = list_foldl add 0 (list_map square numbers)
   {
     id: "collapse-dead-code",
     label: "Collapsed: dead function",
-    source: `import "prelude"
+    source: `import "prelude" { eq, add, mul, sub }
 
 export main
 
@@ -357,7 +357,7 @@ main = keep_if_zero 11
   {
     id: "collapse-prelude-dead",
     label: "Collapsed: prelude and dead branch",
-    source: `import "prelude"
+    source: `import "prelude" { eq, id, list_filter, list_map, list_any, ListCons, ListNil }
 
 export main
 
