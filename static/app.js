@@ -1024,27 +1024,43 @@ async function runCompile({ forceFormat = false } = {}) {
         elements.programOutput.textContent =
           "No runnable output: wasm payload was empty.";
       } else {
-        const wasmBytes = decodeWasmBase64(wasmBase64);
-        setDownloadLink(tag, wasmBytes);
+        const runtimeBytes = decodeWasmBase64(wasmBase64);
+        setDownloadLink(tag, runtimeBytes);
+        const displayResponse = debugCompileResponse ?? compileResponse;
+        const displayBytes = debugCompileResponse
+          ? decodeWasmBase64(String(debugCompileResponse.wasm_base64 ?? ""))
+          : runtimeBytes;
+        const displayCompilePasses = debugCompileResponse
+          ? debugCompilePasses
+          : (runtimeCompileResult?.passes ?? debugCompilePasses);
+        const displayEntryRoots = debugCompileResponse
+          ? debugEntrypointRoots
+          : runtimeEntrypointRoots;
+        const displayEntrypointUsed = debugCompileResponse
+          ? usedEntrypointField
+          : runtimeCompileResult?.ok === true;
+        const displayExports = debugCompileResponse
+          ? normalizeExports(debugCompileResponse.exports)
+          : normalizeExports(compileResponse.exports);
+
         const exportsList = normalizeExports(compileResponse.exports);
-        const runtimeEntrypointFieldUsed = runtimeCompileResult?.ok === true;
         elements.compileOutput.textContent = renderCompileOutput({
-          response: compileResponse,
+          response: displayResponse,
           tag,
           preludeSource,
           source,
           compileSource,
-          compilePasses: runtimeCompileResult?.passes ?? debugCompilePasses,
-          entrypointRoots: runtimeEntrypointRoots,
-          usedEntrypointField: runtimeEntrypointFieldUsed,
-          bytes: wasmBytes,
-          extraExports: exportsList,
+          compilePasses: displayCompilePasses,
+          entrypointRoots: displayEntryRoots,
+          usedEntrypointField: displayEntrypointUsed,
+          bytes: displayBytes,
+          extraExports: displayExports,
           modeLabel: "WASM",
         });
 
         const outputResult = await evaluateProgramOutput(
           exportsList,
-          wasmBytes,
+          runtimeBytes,
         );
         elements.programOutput.textContent = outputResult;
       }
