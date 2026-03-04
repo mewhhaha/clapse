@@ -1146,8 +1146,11 @@ async function evaluateProgramOutput(exportsList, wasmBytes) {
   }
 
   try {
-    const runtime = await runWasmMain(wasmBytes);
-    const lines = [`main() => ${formatRuntimeValue(runtime.value)}`];
+    const args = defaultCallArgs(mainExport.arity);
+    const runtime = await runWasmMain(wasmBytes, args);
+    const lines = [
+      `main(${args.length ? args.join(", ") : ""}) => ${formatRuntimeValue(runtime.value)}`,
+    ];
     if (
       Number.isInteger(runtime.paramCount) &&
       runtime.paramCount !== mainExport.arity
@@ -1158,11 +1161,30 @@ async function evaluateProgramOutput(exportsList, wasmBytes) {
     }
     return lines.join("\n");
   } catch (err) {
-    return `main() failed: ${errorMessage(err)}`;
+    const defaultError = `main() failed: ${errorMessage(err)}`;
+    if (mainExport.arity <= 0) {
+      return defaultError;
+    }
+
+    const zeroArgs = new Array(mainExport.arity).fill(0);
+    try {
+      const runtime = await runWasmMain(wasmBytes, zeroArgs);
+      return `main(${zeroArgs.join(", ")}) => ${formatRuntimeValue(runtime.value)} (fallback args)`;
+    } catch {
+      return defaultError;
+    }
   }
 }
 
-async function runWasmMain(wasmBytes) {
+function defaultCallArgs(arity) {
+  const length = Number.isInteger(arity) ? arity : 0;
+  if (length <= 0) {
+    return [];
+  }
+  return Array.from({ length }, (_, idx) => idx + 1);
+}
+
+async function runWasmMain(wasmBytes, args = []) {
   const module = await WebAssembly.compile(wasmBytes);
   const imports = buildProgramImports(WebAssembly.Module.imports(module));
   const instance = extractWasmInstance(
@@ -1173,7 +1195,10 @@ async function runWasmMain(wasmBytes) {
     throw new Error("main export is not callable.");
   }
   const paramCount = Number.isInteger(main.length) ? main.length : null;
-  return { value: main(), paramCount };
+  if (args.length === 0) {
+    return { value: main(), paramCount };
+  }
+  return { value: main(...args), paramCount };
 }
 
 function buildProgramImports(imports) {
