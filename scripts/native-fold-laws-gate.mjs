@@ -31,7 +31,7 @@ async function run() {
       "class Buildable t where",
       "  build : ((a -> t a -> t a) -> t a -> t a) -> t a",
       "law Buildable foldr_build = foldr f z (build g) => g f z",
-      "export main",
+      "export { main }",
       "main = 0",
       "",
     ].join("\n");

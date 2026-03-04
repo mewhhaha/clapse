@@ -1,14 +1,15 @@
 import "compiler/prelude"
-export
-  copy_slice_literal
-  copy_slice_segment
-  json_escape_extra_len
-  json_copy_escaped_segment
-  json_response_with_literal_prefix_suffix
-  json_response_with_slice_segment
-  json_response_with_escaped_slice_segment
-  json_response_with_two_escaped_slice_segments
-  json_response_with_three_escaped_slice_segments
+export {
+  copy_slice_literal,
+  copy_slice_segment,
+  json_escape_extra_len,
+  json_copy_escaped_segment,
+  json_response_with_literal_prefix_suffix,
+  json_response_with_slice_segment,
+  json_response_with_escaped_slice_segment,
+  json_response_with_two_escaped_slice_segments,
+  json_response_with_three_escaped_slice_segments,
+}
 
 slice_set_u8_write request_handle ownership_mode target start value =
   slice_set_u8 target start value

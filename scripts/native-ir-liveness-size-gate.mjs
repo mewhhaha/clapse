@@ -76,7 +76,7 @@ async function run() {
     const inputPath = `${tmpDir}/gate.clapse`;
     const deadMarker = `native-ir-liveness-dead-${crypto.randomUUID()}`;
     const source = [
-      "export main, helper",
+      "export { main, helper }",
       "main x = keep x",
       "keep x = x",
       `helper x = dead_fn x -- ${deadMarker}`,

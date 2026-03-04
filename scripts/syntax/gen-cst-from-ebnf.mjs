@@ -142,7 +142,7 @@ function emitSyntaxClapse(rules, sourceLabel) {
     `-- source: ${sourceLabel}`,
     "",
     "import compiler.prelude",
-    "export CstExpr, CstRule, cst_rules, cst_rule_count",
+    "export { CstExpr, CstRule, cst_rules, cst_rule_count }",
     "",
     "data CstExpr =",
     "  CstExprChoice (List CstExpr)",
@@ -184,8 +184,11 @@ function emitSyntaxClapse(rules, sourceLabel) {
   if (ruleExports.length > 0) {
     allExports.push(ruleExports);
   }
-  const moduleExports = `export ${allExports.join(", ")}`;
-  return header.replace("export CstExpr, CstRule, cst_rules, cst_rule_count", moduleExports) +
+  const moduleExports = `export { ${allExports.join(", ")} }`;
+  return header.replace(
+      "export { CstExpr, CstRule, cst_rules, cst_rule_count }",
+      moduleExports,
+    ) +
     ruleData + "\n\n" + rulesBlock + "\n";
 }
 

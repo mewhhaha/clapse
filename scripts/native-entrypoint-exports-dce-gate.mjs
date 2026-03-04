@@ -108,7 +108,7 @@ async function run() {
     const deadMarker = `native-entrypoint-exports-dead-${crypto.randomUUID()}`;
     const operatorMarker = `native-entrypoint-exports-op-${crypto.randomUUID()}`;
     const source = [
-      "export main, helper, +.",
+      "export { main, helper, +. }",
       "main x = keep x",
       "keep x = x",
       `helper x = dead_fn x -- ${deadMarker}`,
@@ -176,7 +176,7 @@ async function run() {
     const preludeSource = [
       'import "prelude"',
       "",
-      "export main, dead_bool, dead_maybe",
+      "export { main, dead_bool, dead_maybe }",
       "numbers = Cons 1 (Cons 2 (Cons 3 Nil))",
       "main = foldl (+) 0 (fmap (\\x -> x + 1) numbers)",
       `dead_bool = and true false -- ${preludeBoolDeadMarker}`,

@@ -1,11 +1,12 @@
 import "compiler/prelude"
 import "compiler/json_response_helpers"
-export
-  SyntaxCST
-  syntax_render_cst
-  syntax_cst_handle
-  syntax_cst_start
-  syntax_cst_len
+export {
+  SyntaxCST,
+  syntax_render_cst,
+  syntax_cst_handle,
+  syntax_cst_start,
+  syntax_cst_len,
+}
 
 data SyntaxCST = SyntaxCST a Int Int
 

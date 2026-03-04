@@ -585,8 +585,10 @@ function parseExportDecl(rawLine) {
   }
   const raw = match[1].trim();
   const braceMatch = raw.match(/^\{\s*(.*)\s*\}$/u);
+  if (!braceMatch) {
+    return { names: [], isLegacySyntax: false, hasExport: false };
+  }
   const listText = braceMatch ? braceMatch[1] : raw;
-  const isLegacySyntax = !braceMatch;
   const out = [];
   const seen = new Set();
   for (const part of listText.split(",")) {
@@ -599,7 +601,7 @@ function parseExportDecl(rawLine) {
   }
   return {
     names: out,
-    isLegacySyntax,
+    isLegacySyntax: false,
     hasExport: out.length > 0,
   };
 }
@@ -630,36 +632,7 @@ function parseLayoutExportDecl(lines, startIndex) {
   const seen = new Set();
   let endLine = startIndex;
 
-  if (after.length === 0) {
-    for (let i = startIndex + 1; i < lines.length; i += 1) {
-      const blockRaw = String(lines[i] ?? "");
-      const blockTrimmed = stripLineComment(blockRaw).trim();
-      if (blockTrimmed.length === 0) {
-        endLine = i;
-        continue;
-      }
-      if (!/^\s/.test(blockRaw)) {
-        break;
-      }
-      if (blockTrimmed === "{" || blockTrimmed === "}") {
-        endLine = i;
-        if (blockTrimmed === "}") {
-          break;
-        }
-        continue;
-      }
-      addExportNamesFromFragment(blockTrimmed, names, seen);
-      endLine = i;
-    }
-    return {
-      names,
-      isLegacySyntax: false,
-      hasExport: names.length > 0,
-      endLine,
-    };
-  }
-
-  if (!after.startsWith("{") || after.includes("}")) {
+  if (after.length === 0 || !after.startsWith("{") || after.includes("}")) {
     return { names: [], isLegacySyntax: false, hasExport: false, endLine: startIndex };
   }
 
@@ -934,7 +907,6 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
   const importEntries = [];
   const exportNames = [];
   const exportNameSet = new Set();
-  const legacyExportLines = [];
   const functionDefLines = [];
   const boundaryLines = [];
   for (let i = 0; i < lines.length; i += 1) {
@@ -948,7 +920,11 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
         `module declarations are no longer supported in ${sourcePath}; use path/specifier-based module identity instead`,
       );
     }
-    if (isTopLevelBoundaryLine(rawLine)) {
+    if (
+      isTopLevelBoundaryLine(rawLine) &&
+      !trimmed.startsWith("import ") &&
+      !trimmed.startsWith("export")
+    ) {
       boundaryLines.push(i);
       continue;
     }
@@ -974,12 +950,6 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
     }
     const parsedExportDecl = parseExportDecl(rawLine);
     if (parsedExportDecl.hasExport) {
-      if (parsedExportDecl.isLegacySyntax) {
-        legacyExportLines.push({
-          lineNo: i,
-          line: rawLine,
-        });
-      }
       for (const name of parsedExportDecl.names) {
         if (!exportNameSet.has(name)) {
           exportNameSet.add(name);
@@ -989,7 +959,7 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
       boundaryLines.push(i);
       continue;
     }
-    if (trimmed === "export" || trimmed.startsWith("export {")) {
+    if (trimmed.startsWith("export {")) {
       const parsedLayoutExportDecl = parseLayoutExportDecl(lines, i);
       if (parsedLayoutExportDecl.hasExport) {
         for (const name of parsedLayoutExportDecl.names) {
@@ -1002,6 +972,11 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
         i = parsedLayoutExportDecl.endLine;
         continue;
       }
+    }
+    if (trimmed.startsWith("export") && !trimmed.startsWith("export {")) {
+      throw new Error(
+        `unsupported export declaration in ${sourcePath}:${i + 1}; use export { ... }`,
+      );
     }
     const functionName = parseFunctionDefinitionName(rawLine);
     if (functionName.length > 0) {
@@ -1048,7 +1023,6 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
     importEntries,
     exportNames,
     exportNameSet,
-    legacyExportLines,
     functionSpans,
     functionNames: new Set(functionDefLines.map((entry) => entry.name)),
   };
@@ -1112,16 +1086,6 @@ async function buildDemandDrivenCompileInput(
     );
     const info = parseModuleSourceInfo(source, sourcePath);
     const resolvedImportEntries = [];
-    for (const legacyExport of info.legacyExportLines ?? []) {
-      const warningKey = `${sourcePath}:export:${legacyExport.lineNo}`;
-      if (!deprecationWarnings.has(warningKey)) {
-        const exportText = String(legacyExport.line ?? "").trim();
-        deprecationWarnings.set(
-          warningKey,
-          `${sourcePath}:${legacyExport.lineNo + 1}: deprecated export form '${exportText}' (preferred: export { symbols })`,
-        );
-      }
-    }
     for (const importEntry of info.importEntries) {
       if (importEntry.isQuoted !== true && !importEntry.hasBindingList &&
         String(importEntry.alias ?? "").trim().length === 0) {

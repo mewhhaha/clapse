@@ -1,15 +1,16 @@
 import "compiler/prelude"
 import "compiler/scan"
-export
-  lex_skip_ws
-  lex_find_line_end
-  lex_next_line_start
-  lex_is_identifier_start
-  lex_is_identifier_part
-  lex_read_identifier_end
-  lex_read_quoted_string_end
-  lex_match_keyword
-  lex_match_word_end
+export {
+  lex_skip_ws,
+  lex_find_line_end,
+  lex_next_line_start,
+  lex_is_identifier_start,
+  lex_is_identifier_part,
+  lex_read_identifier_end,
+  lex_read_quoted_string_end,
+  lex_match_keyword,
+  lex_match_word_end,
+}
 
 lex_skip_ws request_handle i req_len =
   scan_skip_ws request_handle i req_len

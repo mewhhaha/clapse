@@ -27,6 +27,7 @@ the current wasm compiler unless explicitly marked `skip`.
    observed `__clapse_contract.source_version` when `--source-version` is not
    provided.
 8. Canonical module export syntax is `export { ... }`.
+   Unbraced export declarations are no longer supported (`export main`, `export x, y`).
 9. `module` declarations are deprecated and removed. Module identity is derived
    from source resolution (`clapse.json` include/specifier/path), not by
    in-source `module` declarations.

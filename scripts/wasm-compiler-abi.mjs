@@ -296,6 +296,42 @@ function isCompileLikeRequest(requestObject) {
   return cmd === "compile" || cmd === "compile-debug";
 }
 
+function findLegacyExportDecl(inputSource) {
+  if (typeof inputSource !== "string" || inputSource.length === 0) {
+    return null;
+  }
+  const lines = inputSource.split(/\r?\n/u);
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = String(lines[i] ?? "");
+    const commentAt = line.indexOf("--");
+    const code = (commentAt >= 0 ? line.slice(0, commentAt) : line).trim();
+    if (!code.startsWith("export")) {
+      continue;
+    }
+    if (/^export\s*\{/u.test(code)) {
+      continue;
+    }
+    return {
+      line: i + 1,
+      text: code,
+    };
+  }
+  return null;
+}
+
+function assertNoLegacyExportSyntax(requestObject) {
+  if (!isCompileLikeRequest(requestObject)) {
+    return;
+  }
+  const legacy = findLegacyExportDecl(requestObject?.input_source);
+  if (legacy === null) {
+    return;
+  }
+  throw new Error(
+    `unsupported export declaration in compile input at line ${legacy.line}: '${legacy.text}' (use export { ... })`,
+  );
+}
+
 function isSelfhostArtifactsRequest(requestObject) {
   if (!requestObject || typeof requestObject !== "object") {
     return false;
@@ -502,6 +538,7 @@ function validateSelfhostArtifactsResponseContract(responseObject) {
 export async function callCompilerWasm(path, requestObject, options = {}) {
   const { instance, runtime, wasmBytes } = await loadCompilerWasm(path);
   const requestForWire = requestObject;
+  assertNoLegacyExportSyntax(requestForWire);
   if (isCompileLikeRequest(requestForWire) && isWasmBootstrapSeedEnabled()) {
     if (isKernelNativeCompileRequest(requestForWire)) {
       throw new Error(
@@ -544,6 +581,7 @@ export async function callCompilerWasm(path, requestObject, options = {}) {
 export async function callCompilerWasmRaw(path, requestObject) {
   const { instance, runtime, wasmBytes } = await loadCompilerWasm(path);
   const requestForWire = requestObject;
+  assertNoLegacyExportSyntax(requestForWire);
   if (isCompileLikeRequest(requestForWire) && isWasmBootstrapSeedEnabled()) {
     if (isKernelNativeCompileRequest(requestForWire)) {
       throw new Error(

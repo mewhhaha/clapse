@@ -106,7 +106,7 @@ async function run() {
   try {
     const inputPath = `${tmpDir}/gate.clapse`;
     const source = [
-      "export main",
+      "export { main }",
       "main x =",
       "  let t0 = add x 1",
       `  let t1 = dead_fn x -- ${deadMarker}`,

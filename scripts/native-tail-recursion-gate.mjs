@@ -61,7 +61,7 @@ async function run() {
   try {
     const selfPath = `${tmpDir}/self_tail.clapse`;
     const selfSource = [
-      "export main, loop, non_tail",
+      "export { main, loop, non_tail }",
       "loop n = loop n",
       "non_tail n = add 1 (non_tail n)",
       "main x = loop x",
@@ -84,7 +84,7 @@ async function run() {
 
     const mutualPath = `${tmpDir}/mutual_tail.clapse`;
     const mutualSource = [
-      "export main, even, odd",
+      "export { main, even, odd }",
       "even n = odd n",
       "odd n = even n",
       "main x = even x",

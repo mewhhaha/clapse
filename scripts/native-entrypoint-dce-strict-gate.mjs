@@ -20,7 +20,7 @@ async function run() {
     const outputPath = `${tmpDir}/gate.wasm`;
     const artifactsDir = `${tmpDir}/artifacts`;
     const source = [
-      "export main",
+      "export { main }",
       "main x = keep x",
       "keep x = x",
       `dead_fn x = x -- ${deadFnMarker}`,

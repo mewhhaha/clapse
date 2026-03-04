@@ -131,6 +131,7 @@ helper x = x - 1
 export { main, helper }
 ```
 
+Legacy unbraced forms like `export main` or `export main, helper` are not supported.
 Use brace form for exports in canonical module sources.
 
 `case` arity rules:

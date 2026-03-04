@@ -1,24 +1,25 @@
 import "compiler/prelude"
-export
-  scan_is_space_byte
-  scan_skip_ws
-  scan_source_value_start_at
-  scan_source_value_start_at_colon
-  scan_source_value_start_at_quote
-  scan_source_value_start_at_quote_check
-  scan_matches_literal_at
-  scan_find_literal_start
-  scan_find_json_key_value_end
-  scan_find_json_key_value_start
-  scan_find_source_end
-  scan_find_source_end_limited
-  scan_find_source_end_scan_chunk_limited
-  scan_find_source_end_scan_state
-  scan_find_source_end_scan_state_next_i
-  scan_find_source_end_scan_state_next_parity
-  scan_find_source_end_scan_chunk
-  scan_max_source_scan_steps
-  scan_max_inline_request_len
+export {
+  scan_is_space_byte,
+  scan_skip_ws,
+  scan_source_value_start_at,
+  scan_source_value_start_at_colon,
+  scan_source_value_start_at_quote,
+  scan_source_value_start_at_quote_check,
+  scan_matches_literal_at,
+  scan_find_literal_start,
+  scan_find_json_key_value_end,
+  scan_find_json_key_value_start,
+  scan_find_source_end,
+  scan_find_source_end_limited,
+  scan_find_source_end_scan_chunk_limited,
+  scan_find_source_end_scan_state,
+  scan_find_source_end_scan_state_next_i,
+  scan_find_source_end_scan_state_next_parity,
+  scan_find_source_end_scan_chunk,
+  scan_max_source_scan_steps,
+  scan_max_inline_request_len,
+}
 
 scan_is_space_byte b =
   let is_space_32 = (b == 32)

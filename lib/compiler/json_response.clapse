@@ -1,22 +1,23 @@
 import "compiler/prelude"
 import "compiler/scan"
 import "compiler/json_response_helpers"
-export
-  error_response_from_message
-  selfhost_ok_response
-  unknown_error_response
-  parse_ok_response
-  parse_missing_input_source_response
-  parse_error_response
-  copy_slice_literal
-  copy_slice_segment
-  json_escape_extra_len
-  json_copy_escaped_segment
-  json_response_with_literal_prefix_suffix
-  json_response_with_slice_segment
-  json_response_with_escaped_slice_segment
-  find_input_source_start
-  json_slice_end
+export {
+  error_response_from_message,
+  selfhost_ok_response,
+  unknown_error_response,
+  parse_ok_response,
+  parse_missing_input_source_response,
+  parse_error_response,
+  copy_slice_literal,
+  copy_slice_segment,
+  json_escape_extra_len,
+  json_copy_escaped_segment,
+  json_response_with_literal_prefix_suffix,
+  json_response_with_slice_segment,
+  json_response_with_escaped_slice_segment,
+  find_input_source_start,
+  json_slice_end,
+}
 
 json_error_prefix = str_to_slice "{\"ok\":false,\"error\":\""
 json_error_suffix = str_to_slice "\"}"

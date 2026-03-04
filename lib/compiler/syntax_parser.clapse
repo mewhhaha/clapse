@@ -1,8 +1,9 @@
 import "compiler/prelude"
 import "compiler/syntax_lexer"
-export
-  SyntaxParseResult
-  syntax_parse
+export {
+  SyntaxParseResult,
+  syntax_parse,
+}
 
 data SyntaxParseResult = SyntaxParseOk | SyntaxParseError Int
 

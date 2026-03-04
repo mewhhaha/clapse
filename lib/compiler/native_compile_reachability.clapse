@@ -32,6 +32,7 @@ fallback_root_main = str_to_slice "main"
 entrypoint_exports_key = "\"entrypoint_exports\""
 entrypoint_root_invalid_error = str_to_slice "compile request entrypoint_exports contains invalid root"
 entrypoint_root_unknown_error = str_to_slice "unknown entrypoint root"
+export_syntax_invalid_error = str_to_slice "unsupported export declaration; use export { ... }"
 keyword_foldl = str_to_slice "foldl"
 keyword_fmap = str_to_slice "fmap"
 foldl_fmap_replacement_prefix = str_to_slice " = foldl (\\acc x -> "
@@ -803,10 +804,33 @@ collect_export_roots_from_source handle source_end line_start acc =
           after_export = skip_line_ws handle (trimmed + export_len) line_end
           acc1 =
             case has_prefix of
-              true -> collect_export_names_in_line handle after_export line_end acc
+              true ->
+                case (after_export < line_end && (slice_get_u8 handle after_export == 123)) of
+                  true -> collect_export_names_in_line handle (after_export + 1) line_end acc
+                  _ -> acc
               _ -> acc
       in collect_export_roots_from_source handle source_end next_start acc1
     _ -> acc
+
+source_has_unbraced_export_decl handle source_end line_start =
+  case (line_start < source_end) of
+    true ->
+      let line_end = find_line_end handle line_start source_end
+          next_start = next_line_start handle line_end source_end
+          trimmed = skip_line_ws handle line_start line_end
+          export_len = slice_len keyword_export
+          has_prefix =
+            (trimmed == line_start) &&
+            (trimmed + export_len <= line_end) &&
+            segment_eq_at handle trimmed keyword_export 0 export_len 0
+          after_export = skip_line_ws handle (trimmed + export_len) line_end
+          is_unbraced_export =
+            has_prefix &&
+            ((after_export >= line_end) || (slice_get_u8 handle after_export != 123))
+      in case is_unbraced_export of
+        true -> true
+        _ -> source_has_unbraced_export_decl handle source_end next_start
+    _ -> false
 
 find_entrypoint_exports_array_start request_handle req_len =
   let key_end = find_json_key_value_end_top_level request_handle req_len entrypoint_exports_key
@@ -1347,23 +1371,27 @@ native_pruned_source_segment_checked request_handle ownership_mode req_len sourc
       explicit_roots = entrypoint_roots_from_request request_handle req_len
       roots = resolve_root_names request_handle req_len source_start source_end
       seeded = seed_reachable_from_roots roots fn_infos Nil
+      has_unbraced_export = source_has_unbraced_export_decl request_handle source_end source_start
       explicit_array_present = find_entrypoint_exports_array_start request_handle req_len != req_len
       explicit_roots_known = all_roots_known explicit_roots fn_infos
-  in case explicit_array_present of
-    true ->
-      case explicit_roots of
-        Nil -> PrunedSourceErr entrypoint_root_invalid_error
-        _ ->
-          case explicit_roots_known of
-            true ->
-              case seeded of
-                Nil -> PrunedSourceErr entrypoint_root_unknown_error
-                _ -> native_pruned_source_segment_checked_impl request_handle ownership_mode source_start source_len source_end fn_infos seeded
-            _ -> PrunedSourceErr entrypoint_root_unknown_error
+  in case has_unbraced_export of
+    true -> PrunedSourceErr export_syntax_invalid_error
     _ ->
-      case seeded of
-        Nil -> PrunedSourceOk (SourceSegment request_handle source_start source_len)
-        _ -> native_pruned_source_segment_checked_impl request_handle ownership_mode source_start source_len source_end fn_infos seeded
+      case explicit_array_present of
+        true ->
+          case explicit_roots of
+            Nil -> PrunedSourceErr entrypoint_root_invalid_error
+            _ ->
+              case explicit_roots_known of
+                true ->
+                  case seeded of
+                    Nil -> PrunedSourceErr entrypoint_root_unknown_error
+                    _ -> native_pruned_source_segment_checked_impl request_handle ownership_mode source_start source_len source_end fn_infos seeded
+                _ -> PrunedSourceErr entrypoint_root_unknown_error
+        _ ->
+          case seeded of
+            Nil -> PrunedSourceOk (SourceSegment request_handle source_start source_len)
+            _ -> native_pruned_source_segment_checked_impl request_handle ownership_mode source_start source_len source_end fn_infos seeded
 
 native_pruned_source_segment_checked_impl request_handle ownership_mode source_start source_len source_end fn_infos seeded =
   let reachable = expand_reachable_fixpoint fn_infos request_handle seeded
