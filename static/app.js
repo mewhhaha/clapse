@@ -937,7 +937,11 @@ async function runCompile({ forceFormat = false } = {}) {
     }
 
     if (!runtimeCompileResult?.ok) {
-      const splitResult = runCompilePipeline(session, compileSource, "debug");
+      const splitResult = runCompilePipeline(session, compileSource, "debug", {
+        inputPath: REPL_INPUT_PATH,
+        entrypointExports: runtimeEntrypointRoots,
+        includeEntrypointExports: true,
+      });
       compileResponse = splitResult.compileResponse ?? compileResponse;
       if (!artifactsResponse) {
         artifactsResponse = splitResult.artifactsResponse;
@@ -1026,35 +1030,18 @@ async function runCompile({ forceFormat = false } = {}) {
       } else {
         const runtimeBytes = decodeWasmBase64(wasmBase64);
         setDownloadLink(tag, runtimeBytes);
-        const displayResponse = debugCompileResponse ?? compileResponse;
-        const displayBytes = debugCompileResponse
-          ? decodeWasmBase64(String(debugCompileResponse.wasm_base64 ?? ""))
-          : runtimeBytes;
-        const displayCompilePasses = debugCompileResponse
-          ? debugCompilePasses
-          : (runtimeCompileResult?.passes ?? debugCompilePasses);
-        const displayEntryRoots = debugCompileResponse
-          ? debugEntrypointRoots
-          : runtimeEntrypointRoots;
-        const displayEntrypointUsed = debugCompileResponse
-          ? usedEntrypointField
-          : runtimeCompileResult?.ok === true;
-        const displayExports = debugCompileResponse
-          ? normalizeExports(debugCompileResponse.exports)
-          : normalizeExports(compileResponse.exports);
-
         const exportsList = normalizeExports(compileResponse.exports);
         elements.compileOutput.textContent = renderCompileOutput({
-          response: displayResponse,
+          response: compileResponse,
           tag,
           preludeSource,
           source,
           compileSource,
-          compilePasses: displayCompilePasses,
-          entrypointRoots: displayEntryRoots,
-          usedEntrypointField: displayEntrypointUsed,
-          bytes: displayBytes,
-          extraExports: displayExports,
+          compilePasses: runtimeCompileResult?.passes ?? debugCompilePasses,
+          entrypointRoots: runtimeEntrypointRoots,
+          usedEntrypointField: runtimeCompileResult?.ok === true,
+          bytes: runtimeBytes,
+          extraExports: exportsList,
           modeLabel: "WASM",
         });
 
