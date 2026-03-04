@@ -868,15 +868,18 @@ async function runCompile({ forceFormat = false } = {}) {
     }
 
     const moduleSources = buildModuleSources(preludeSource, source);
-    const compileSource = source;
+    let compileSource = source;
 
     const debugCompileResult = compileDebugWithLoop({
       session,
       entryPath: REPL_INPUT_PATH,
       moduleSources,
       explicitEntrypointExports: ["main"],
-      includeEntrypointExports: true,
+      includeEntrypointExports: false,
     });
+    if (typeof debugCompileResult.compileSource === "string") {
+      compileSource = debugCompileResult.compileSource;
+    }
     const debugCompilePasses = debugCompileResult.passes ?? 1;
     const debugEntrypointRoots = Array.isArray(debugCompileResult.entryRoots)
       ? debugCompileResult.entryRoots

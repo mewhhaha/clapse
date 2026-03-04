@@ -9,6 +9,7 @@ const compileDebugLoop = compileDebugWithLoop as (args: {
   entryPath: string;
   moduleSources: Map<string, string>;
   explicitEntrypointExports?: string[];
+  includeEntrypointExports?: boolean;
 }) => {
   ok: boolean;
   passes: number;
@@ -368,3 +369,59 @@ Deno.test("compileDebugWithLoop passes prelude as a requested module", () => {
     );
   }
 });
+
+Deno.test(
+  "compileDebugWithLoop can skip entrypoint_exports for compile requests",
+  () => {
+    const requestFields: Array<string[]> = [];
+    const session = {
+      call(request: {
+        command: string;
+        entrypoint_exports?: string[];
+        input_source?: string;
+      }) {
+        requestFields.push([
+          request.command,
+          JSON.stringify(request.entrypoint_exports ?? null),
+        ]);
+        if (request.command === "compile") {
+          return {
+            ok: true,
+            wasm_base64: "AA==",
+            artifacts: {
+              "lowered_ir.txt": "ok",
+              "collapsed_ir.txt": "ok",
+            },
+          };
+        }
+        return {
+          ok: false,
+          error: `Unexpected command: ${request.command}`,
+        };
+      },
+    };
+
+    const result: CompileDebugLoopResult = compileDebugLoop({
+      session,
+      entryPath: "repl/input.clapse",
+      moduleSources: new Map([["repl/input.clapse", "export main\nmain = 1"]]),
+      explicitEntrypointExports: ["main"],
+      includeEntrypointExports: false,
+    });
+
+    if (!result.ok) {
+      throw new Error("Expected compile request to succeed.");
+    }
+    if (result.usedEntrypointExports !== false) {
+      throw new Error("Expected usedEntrypointExports to be false.");
+    }
+    if (requestFields.length === 0) {
+      throw new Error("Expected at least one compile request.");
+    }
+    if (requestFields.some((request) => request[1] !== "null")) {
+      throw new Error(
+        `Expected entrypoint_exports to be omitted, got: ${requestFields.join("|")}.`,
+      );
+    }
+  },
+);

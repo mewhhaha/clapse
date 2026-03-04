@@ -219,8 +219,9 @@ export function compileDebugWithLoop({
         ...compileResult,
         passes: pass,
         entryRoots,
+        compileSource,
         neededModules,
-        usedEntrypointExports: true,
+        usedEntrypointExports: includeEntrypointExports,
       };
     }
 
@@ -236,13 +237,18 @@ export function compileDebugWithLoop({
   }
 
   if (!response) {
+    const fallbackCompileSource = mergeModuleSourcesByPath(
+      sources,
+      neededModules,
+    );
     return {
       ok: false,
       error: "compile did not produce a response",
       passes: pass,
       entryRoots: [...(rootsByModule.get(entryPath) ?? new Set(["main"]))],
+      compileSource: fallbackCompileSource,
       neededModules,
-      usedEntrypointExports: true,
+      usedEntrypointExports: includeEntrypointExports,
     };
   }
 
@@ -251,8 +257,9 @@ export function compileDebugWithLoop({
     response,
     passes: pass,
     entryRoots: [...(rootsByModule.get(entryPath) ?? new Set(["main"]))],
+    compileSource: mergeModuleSourcesByPath(sources, neededModules),
     neededModules,
-    usedEntrypointExports: true,
+    usedEntrypointExports: includeEntrypointExports,
   };
 }
 
