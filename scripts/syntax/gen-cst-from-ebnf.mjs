@@ -18,10 +18,9 @@ if (import.meta.main) {
 }
 
 async function main() {
-  const sourcePath = await Deno.realPath(INPUT_GRAMMAR_PATH).catch(() => null);
   const grammarText = await readGrammar();
   const grammarRules = parseGrammar(grammarText);
-  const sourceLabel = sourcePath ?? FALLBACK_LABEL;
+  const sourceLabel = INPUT_GRAMMAR_PATH;
   const generated = emitSyntaxClapse(grammarRules, sourceLabel);
   await Deno.writeTextFile(OUTPUT_PATH, generated);
 }
