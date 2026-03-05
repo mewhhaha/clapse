@@ -71,6 +71,10 @@ async function run() {
     const selfResponse = await callCompilerWasmRaw(
       wasmPath,
       buildCompileRequest(selfPath, selfSource),
+      {
+        validateCompileContract: true,
+        withContractMetadata: true,
+      },
     );
     const selfCollapsed = readCollapsedArtifact(selfResponse, "self");
     assert(
@@ -94,6 +98,10 @@ async function run() {
     const mutualResponse = await callCompilerWasmRaw(
       wasmPath,
       buildCompileRequest(mutualPath, mutualSource),
+      {
+        validateCompileContract: true,
+        withContractMetadata: true,
+      },
     );
     const mutualCollapsed = readCollapsedArtifact(mutualResponse, "mutual");
     assert(

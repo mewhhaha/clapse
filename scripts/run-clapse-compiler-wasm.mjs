@@ -973,7 +973,7 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
         continue;
       }
     }
-    if (trimmed.startsWith("export") && !trimmed.startsWith("export {")) {
+    if (/^export\b/.test(trimmed) && !trimmed.startsWith("export {")) {
       throw new Error(
         `unsupported export declaration in ${sourcePath}:${i + 1}; use export { ... }`,
       );

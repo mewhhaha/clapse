@@ -121,6 +121,10 @@ async function run() {
     const baselineResponse = await callCompilerWasmRaw(
       wasmPath,
       buildCompileRequest(inputPath, source),
+      {
+        validateCompileContract: true,
+        withContractMetadata: true,
+      },
     );
     const baseline = readCompileArtifactsOrThrow(baselineResponse, "baseline");
     const baselineHasDead = baseline.lowered.includes(deadMarker) ||
@@ -133,6 +137,10 @@ async function run() {
     const subsetResponse = await callCompilerWasmRaw(
       wasmPath,
       buildCompileRequest(inputPath, source, ["main"]),
+      {
+        validateCompileContract: true,
+        withContractMetadata: true,
+      },
     );
     const subset = readCompileArtifactsOrThrow(subsetResponse, "subset");
     const subsetHasDead = subset.lowered.includes(deadMarker) ||
@@ -155,6 +163,10 @@ async function run() {
     const operatorRootResponse = await callCompilerWasmRaw(
       wasmPath,
       buildCompileRequest(inputPath, source, ["+."]),
+      {
+        validateCompileContract: true,
+        withContractMetadata: true,
+      },
     );
     const operatorRoot = readCompileArtifactsOrThrow(
       operatorRootResponse,
@@ -188,6 +200,10 @@ async function run() {
     const preludeBaselineResponse = await callCompilerWasmRaw(
       wasmPath,
       buildCompileRequest(preludeInputPath, preludeSource),
+      {
+        validateCompileContract: true,
+        withContractMetadata: true,
+      },
     );
     const preludeBaseline = readCompileArtifactsOrThrow(
       preludeBaselineResponse,
@@ -224,6 +240,10 @@ async function run() {
     const preludeSubsetResponse = await callCompilerWasmRaw(
       wasmPath,
       buildCompileRequest(preludeInputPath, preludeSource, ["main"]),
+      {
+        validateCompileContract: true,
+        withContractMetadata: true,
+      },
     );
     const preludeSubset = readCompileArtifactsOrThrow(
       preludeSubsetResponse,
@@ -264,6 +284,10 @@ async function run() {
     const unknownRootResponse = await callCompilerWasmRaw(
       wasmPath,
       buildCompileRequest(inputPath, source, ["missing_entrypoint_root"]),
+      {
+        validateCompileContract: true,
+        withContractMetadata: true,
+      },
     );
     assertErrorResponse(
       unknownRootResponse,

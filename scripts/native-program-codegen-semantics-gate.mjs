@@ -182,6 +182,10 @@ async function compileProgram(wasmPath, label, source) {
   const response = await callCompilerWasmRaw(
     wasmPath,
     buildCompileRequest(`${label}.clapse`, source),
+    {
+      validateCompileContract: true,
+      withContractMetadata: true,
+    },
   );
   assert(response && typeof response === "object",
     `native-program-codegen-semantics-gate: ${label} response must be an object`);
@@ -242,60 +246,87 @@ async function run() {
 
   const runA = await evaluateMain(programA);
   const runB = await evaluateMain(programB);
-
-  if (runA.ok && runB.ok) {
-    assert(
-      runA.result.text !== runB.result.text,
-      `native-program-codegen-semantics-gate: expected different runtime results, got ${runA.result.text} and ${runB.result.text}`,
-    );
-    await assertProgramMainResult(
-      wasmPath,
-      "identity-fn",
-      [
-        "export { main }",
-        "id x = x",
-        "main = id 7",
-        "",
-      ].join("\n"),
-      "tagged-int:7",
-    );
-    await assertProgramMainResult(
-      wasmPath,
-      "nested-add-mul",
-      [
-        "export { main }",
-        "main = mul (add 2 3) (add 1 1)",
-        "",
-      ].join("\n"),
-      "tagged-int:10",
-    );
-    await assertProgramMainResult(
-      wasmPath,
-      "def-call-chain",
-      [
-        "export { main }",
-        "id x = x",
-        "double x = add x x",
-        "inc x = add x 1",
-        "main = inc (double (id 3))",
-        "",
-      ].join("\n"),
-      "tagged-int:7",
-    );
-    console.log(
-      `native-program-codegen-semantics-gate: PASS (hash_a=${programA.wasmsum}; hash_b=${programB.wasmsum}; main_a=${runA.result.text}; main_b=${runB.result.text})`,
-    );
-    return;
-  }
-
-  const structuralA = structuralCodeSignature(programA.wasmBytes);
-  const structuralB = structuralCodeSignature(programB.wasmBytes);
   assert(
-    structuralA !== structuralB,
-    `native-program-codegen-semantics-gate: runtime helper unavailable (${runA.reason ?? "unknown"}, ${runB.reason ?? "unknown"}); structural code signature did not differ`,
+    runA.ok && runB.ok,
+    `native-program-codegen-semantics-gate: runtime helper unavailable (${runA.reason ?? "unknown"}, ${runB.reason ?? "unknown"})`,
+  );
+  assert(
+    runA.result.text !== runB.result.text,
+    `native-program-codegen-semantics-gate: expected different runtime results, got ${runA.result.text} and ${runB.result.text}`,
+  );
+  await assertProgramMainResult(
+    wasmPath,
+    "identity-fn",
+    [
+      "export { main }",
+      "id x = x",
+      "main = id 7",
+      "",
+    ].join("\n"),
+    "tagged-int:7",
+  );
+  await assertProgramMainResult(
+    wasmPath,
+    "nested-add-mul",
+    [
+      "export { main }",
+      "main = mul (add 2 3) (add 1 1)",
+      "",
+    ].join("\n"),
+    "tagged-int:10",
+  );
+  await assertProgramMainResult(
+    wasmPath,
+    "def-call-chain",
+    [
+      "export { main }",
+      "id x = x",
+      "double x = add x x",
+      "inc x = add x 1",
+      "main = inc (double (id 3))",
+      "",
+    ].join("\n"),
+    "tagged-int:7",
+  );
+  await assertProgramMainResult(
+    wasmPath,
+    "general-def-chain",
+    [
+      "export { main }",
+      "id x = x",
+      "double x = add x x",
+      "inc x = add x 1",
+      "main = add (inc (double 2)) (double (id 3))",
+      "",
+    ].join("\n"),
+    "tagged-int:11",
+  );
+  await assertProgramMainResult(
+    wasmPath,
+    "list-map-foldl",
+    [
+      'import "prelude"',
+      "export { main }",
+      "square x = mul x x",
+      "numbers = ListCons 1 (ListCons 2 (ListCons 3 ListNil))",
+      "main = list_foldl add 0 (list_map square numbers)",
+      "",
+    ].join("\n"),
+    "tagged-int:14",
+  );
+  await assertProgramMainResult(
+    wasmPath,
+    "if-and-case-bool",
+    [
+      "export { main }",
+      "guard = if lt 1 2 then 5 else 0",
+      "main = case True of True -> add guard 2 | False -> 0",
+      "",
+    ].join("\n"),
+    "tagged-int:7",
   );
   console.log(
-    `native-program-codegen-semantics-gate: PASS (hash_a=${programA.wasmsum}; hash_b=${programB.wasmsum}; fallback=code-structure)`,
+    `native-program-codegen-semantics-gate: PASS (hash_a=${programA.wasmsum}; hash_b=${programB.wasmsum}; main_a=${runA.result.text}; main_b=${runB.result.text})`,
   );
 }
 

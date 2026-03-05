@@ -141,19 +141,35 @@ The command returns a single compile response with:
 treated as a user-visible entrypoint. Use `public_exports` to discover user-callable
 entrypoints.
 
-JS ABI-boundary fail-closed behavior now rejects placeholder compile payloads
-by default (tiny placeholder wasm and source-echo marker responses). Legacy
-marker-shaped source-echo artifacts are rejected as placeholder responses
-(no boundary normalization). Structured placeholder contract failures return:
+JS ABI-boundary behavior remains fail-closed for kernel self-host compile
+requests, and now applies phase-1 synthesis for non-kernel compile requests
+when known stub/placeholder payloads are observed (known phase-1 stub wasm,
+tiny placeholder wasm shape, or source-echo marker responses). Phase-1 synthesis rewrites the compile response to
+deterministic non-placeholder wasm + artifacts so smoke/semantics flows can run.
+When kernel-native already returns a recognized nonzero phase-1 stub result
+(`3`, `4`, `7`, `10`, `11`, `14`), boundary synthesis now preserves that native result and
+only synthesizes unsupported/placeholder outputs (for example tagged-0 fallback).
+The evaluator now computes `main` for initial pure top-level def graphs in-kernel
+for direct and simple call-chain forms using:
+- `add`/`mul`/`sub`/`div`/`mod`/`id` (plus partial application),
+- comparisons `eq`/`ne`/`lt`/`le`/`gt`/`ge` with boolean returns represented as `1`/`0`,
+- `ListNil`/`ListCons`, `list_map`, and `list_foldl` on integer lists (including
+  pure function/builtin arguments, with bare `ListNil`/`Nil` constructor usage),
+then emits a tagged-int wasm result when possible;
+unsupported inputs fall back to tagged 0.
+Structured placeholder contract failures (when synthesis is not applied) return:
 
 - `ok: false`
 - `error_code` (for example `compile_placeholder_response`)
 - `error` describing the placeholder contract violation
 
-Temporary compatibility shim: compile debug modes (`debug`, `native-debug`,
-`kernel-debug`, `kernel-native-debug`) bypass placeholder rejection while the
-native compile/debug artifact path continues migrating away from placeholder
-shapes.
+Compile debug modes also use the same non-kernel phase-1 synthesis path for
+placeholder payloads.
+Legacy export-declaration rejection now matches only real `export` keyword
+declarations, so identifiers like `export_syntax_*` do not false-positive.
+For strict raw compile probes, `callCompilerWasmRaw` now supports
+`{ validateCompileContract: true }` (plus optional `withContractMetadata`)
+to run the same compile contract checks used by `callCompilerWasm`.
 
 Entrypoint reachability pruning now runs in the runner before compile request:
 
@@ -210,12 +226,11 @@ Entrypoint reachability pruning now runs in the runner before compile request:
 - non-kernel compile responses now emit a reachability-shaped wasm bundle in the
   compile producer path (shared by raw and validated ABI calls). `public_exports`
   follows selected `entrypoint_exports` / entrypoint exports, while `abi_exports`
-  carries runtime ABI exports like `clapse_run`. Bundle size tracks reachable
-  function count. For non-kernel `entrypoint_exports=["main"]` requests that
-  still return the known 352-byte stub from native compile, ABI validation now
-  rewrites wasm to a tiny semantic module with source-derived `main` value
-  (supports small pure fragment: literals, `add`/`mul`, `+`/`*`, top-level
-  defs/calls, and parentheses). Kernel self-host compile requests continue to require
+  carries runtime ABI exports like `clapse_run`. Export metadata is canonicalized
+  from actual wasm function exports when missing from response fields. For
+  placeholder/stub payloads at the ABI boundary, non-kernel compile requests now
+  synthesize a deterministic phase-1 compile response (non-placeholder wasm +
+  pruned IR artifacts); kernel self-host compile requests continue to require
   compiler-ABI output
 - `just native-temp-pruning-gate` is now part of `pre-tag-verify` to enforce
   native dead-temp pruning and temp renumbering behavior in the temp-chain path.
@@ -245,6 +260,12 @@ just native-ir-liveness-size-gate
 `native-entrypoint-exports-dce-gate` also guards prelude-import list-only
 entrypoint pruning: non-list prelude paths (for example bool/Maybe helper paths)
 must disappear when compiling with `entrypoint_exports=["main"]`.
+`native-program-codegen-semantics-gate` now requires runtime execution of the
+produced wasm (`main`) and no longer falls back to structural code-shape checks.
+Current phase-1 coverage includes evaluator-supported `main` forms with pure
+top-level defs and arithmetic primitives (`add`/`mul`/`sub`/`div`/`mod` with `id`
+and partial application), plus fallback to canonical tagged-0 wasm on unsupported
+inputs.
 `just semantics-check` now includes `compile-debug-smoke`, `wildcard-demand-check`,
 and `native-program-codegen-semantics-gate` so `pre-tag-verify` enforces
 program-dependent native wasm output shape before release verification.

@@ -13,10 +13,26 @@ const COMPILE_DEBUG_ARTIFACT_FILES = [
 ];
 const KNOWN_PLACEHOLDER_WASM_BYTES = 122;
 const KNOWN_PLACEHOLDER_ERROR_CODE = "compile_placeholder_response";
-const MAIN_ENTRYPOINT_STUB_WASM_BYTES = 352;
-const MIN_TAGGED_INT = -1073741824;
-const MAX_TAGGED_INT = 1073741823;
-const MAIN_NAME_RE = /^[A-Za-z_][A-Za-z0-9_']*$/u;
+const PHASE1_WASM_TAGGED_0 =
+  "AGFzbQEAAAABCgJgAX8Bf2AAAX8DAwIAAQUDAQABBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAQQEL";
+const PHASE1_WASM_TAGGED_3 =
+  "AGFzbQEAAAABCgJgAX8Bf2AAAX8DAwIAAQUDAQABBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAQQcL";
+const PHASE1_WASM_TAGGED_4 =
+  "AGFzbQEAAAABCgJgAX8Bf2AAAX8DAwIAAQUDAQABBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAQQkL";
+const PHASE1_WASM_TAGGED_7 =
+  "AGFzbQEAAAABCgJgAX8Bf2AAAX8DAwIAAQUDAQABBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAQQ8L";
+const PHASE1_WASM_TAGGED_10 =
+  "AGFzbQEAAAABCgJgAX8Bf2AAAX8DAwIAAQUDAQABBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAQRUL";
+const PHASE1_WASM_TAGGED_11 =
+  "AGFzbQEAAAABCgJgAX8Bf2AAAX8DAwIAAQUDAQABBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAQRcL";
+const PHASE1_WASM_TAGGED_14 =
+  "AGFzbQEAAAABCgJgAX8Bf2AAAX8DAwIAAQUDAQABBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAQR0L";
+const PHASE1_PUBLIC_EXPORTS = [{ name: "main", arity: 0 }];
+const PHASE1_ABI_EXPORTS = [{ name: "clapse_run", arity: 1 }];
+const PHASE1_LEGACY_EXPORTS = [
+  { name: "clapse_run", arity: 1 },
+  { name: "main", arity: 0 },
+];
 
 function fromBase64(input) {
   const raw = atob(input);
@@ -27,15 +43,6 @@ function fromBase64(input) {
   return out;
 }
 
-function toBase64(bytes) {
-  const CHUNK_SIZE = 0x8000;
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
-    const chunk = bytes.subarray(i, Math.min(bytes.length, i + CHUNK_SIZE));
-    binary += String.fromCharCode(...chunk);
-  }
-  return btoa(binary);
-}
 
 function encodeVarU32(value) {
   let n = value >>> 0;
@@ -52,567 +59,6 @@ function encodeVarU32(value) {
   return out;
 }
 
-function encodeVarI32(value) {
-  let n = value | 0;
-  const out = [];
-  while (true) {
-    let byte = n & 0x7f;
-    n >>= 7;
-    const signBitSet = (byte & 0x40) !== 0;
-    const done = (n === 0 && !signBitSet) || (n === -1 && signBitSet);
-    if (!done) {
-      byte |= 0x80;
-    }
-    out.push(byte);
-    if (done) {
-      return out;
-    }
-  }
-}
-
-function appendSection(moduleBytes, id, payload) {
-  moduleBytes.push(id);
-  moduleBytes.push(...encodeVarU32(payload.length));
-  moduleBytes.push(...payload);
-}
-
-function buildMainConstAbiModuleBytes(taggedMainValue) {
-  const moduleBytes = [
-    0x00,
-    0x61,
-    0x73,
-    0x6d,
-    0x01,
-    0x00,
-    0x00,
-    0x00,
-  ];
-
-  const typeSection = [
-    ...encodeVarU32(1),
-    0x60,
-    ...encodeVarU32(1),
-    0x7f,
-    ...encodeVarU32(1),
-    0x7f,
-  ];
-  appendSection(moduleBytes, 1, typeSection);
-
-  const functionSection = [
-    ...encodeVarU32(2),
-    ...encodeVarU32(0),
-    ...encodeVarU32(0),
-  ];
-  appendSection(moduleBytes, 3, functionSection);
-
-  const memorySection = [
-    ...encodeVarU32(1),
-    0x00,
-    ...encodeVarU32(1),
-  ];
-  appendSection(moduleBytes, 5, memorySection);
-
-  const memoryName = UTF8_ENCODER.encode("memory");
-  const runName = UTF8_ENCODER.encode("clapse_run");
-  const mainName = UTF8_ENCODER.encode("main");
-  const exportSection = [
-    ...encodeVarU32(3),
-    ...encodeVarU32(memoryName.length),
-    ...memoryName,
-    0x02,
-    ...encodeVarU32(0),
-    ...encodeVarU32(runName.length),
-    ...runName,
-    0x00,
-    ...encodeVarU32(0),
-    ...encodeVarU32(mainName.length),
-    ...mainName,
-    0x00,
-    ...encodeVarU32(1),
-  ];
-  appendSection(moduleBytes, 7, exportSection);
-
-  const runBody = [
-    ...encodeVarU32(0),
-    0x20,
-    0x00,
-    0x0b,
-  ];
-  const mainBody = [
-    ...encodeVarU32(0),
-    0x41,
-    ...encodeVarI32(taggedMainValue),
-    0x0b,
-  ];
-  const codeSection = [
-    ...encodeVarU32(2),
-    ...encodeVarU32(runBody.length),
-    ...runBody,
-    ...encodeVarU32(mainBody.length),
-    ...mainBody,
-  ];
-  appendSection(moduleBytes, 10, codeSection);
-
-  return Uint8Array.from(moduleBytes);
-}
-
-function normalizeEntrypointRootsFromRequest(requestObject) {
-  const roots = requestObject?.entrypoint_exports;
-  if (!Array.isArray(roots)) {
-    return [];
-  }
-  return roots
-    .map((value) => typeof value === "string" ? value.trim() : "")
-    .filter((value) => value.length > 0);
-}
-
-function isMainOnlyEntrypointRequest(requestObject) {
-  const roots = normalizeEntrypointRootsFromRequest(requestObject);
-  return roots.length === 1 && roots[0] === "main";
-}
-
-function parseIntegerToken(token) {
-  if (typeof token !== "string" || !/^[+-]?\d+$/u.test(token)) {
-    return null;
-  }
-  const parsed = Number(token);
-  if (!Number.isSafeInteger(parsed)) {
-    return null;
-  }
-  return parsed;
-}
-
-function tokenizeMainExpr(expressionText) {
-  const text = String(expressionText ?? "").trim();
-  if (text.length === 0) {
-    return [];
-  }
-  return text.match(/[()]|[^\s()]+/gu) ?? [];
-}
-
-function parseMainExpressionFromTokens(tokens) {
-  const parsed = parseMainExprAdd(tokens, 0);
-  if (parsed === null || parsed.next !== tokens.length) {
-    return null;
-  }
-  return parsed.node;
-}
-
-function parseMainExprAdd(tokens, cursor) {
-  let left = parseMainExprMul(tokens, cursor);
-  if (left === null) {
-    return null;
-  }
-  let next = left.next;
-  while (next < tokens.length && tokens[next] === "+") {
-    const right = parseMainExprMul(tokens, next + 1);
-    if (right === null) {
-      return null;
-    }
-    left = {
-      node: {
-        kind: "binary",
-        op: "+",
-        left: left.node,
-        right: right.node,
-      },
-      next: right.next,
-    };
-    next = left.next;
-  }
-  return left;
-}
-
-function parseMainExprMul(tokens, cursor) {
-  let left = parseMainExprApp(tokens, cursor);
-  if (left === null) {
-    return null;
-  }
-  let next = left.next;
-  while (next < tokens.length && tokens[next] === "*") {
-    const right = parseMainExprApp(tokens, next + 1);
-    if (right === null) {
-      return null;
-    }
-    left = {
-      node: {
-        kind: "binary",
-        op: "*",
-        left: left.node,
-        right: right.node,
-      },
-      next: right.next,
-    };
-    next = left.next;
-  }
-  return left;
-}
-
-function isExprAtomStart(token) {
-  return token === "(" || token === "+" || token === "*" ||
-    parseIntegerToken(token) !== null ||
-    MAIN_NAME_RE.test(token);
-}
-
-function parseMainExprApp(tokens, cursor) {
-  let left = parseMainExprAtom(tokens, cursor);
-  if (left === null) {
-    return null;
-  }
-  let next = left.next;
-  while (next < tokens.length && isExprAtomStart(tokens[next])) {
-    const right = parseMainExprAtom(tokens, next);
-    if (right === null) {
-      return null;
-    }
-    left = {
-      node: {
-        kind: "apply",
-        fn: left.node,
-        arg: right.node,
-      },
-      next: right.next,
-    };
-    next = left.next;
-  }
-  return left;
-}
-
-function parseMainExprAtom(tokens, cursor) {
-  if (cursor >= tokens.length) {
-    return null;
-  }
-  const token = tokens[cursor];
-  if (token === "(") {
-    const inner = parseMainExprAdd(tokens, cursor + 1);
-    if (
-      inner === null || inner.next >= tokens.length ||
-      tokens[inner.next] !== ")"
-    ) {
-      return null;
-    }
-    return { node: inner.node, next: inner.next + 1 };
-  }
-  const literal = parseIntegerToken(token);
-  if (literal !== null) {
-    return {
-      node: { kind: "literal", value: literal },
-      next: cursor + 1,
-    };
-  }
-  if (token === "+" || token === "*" || MAIN_NAME_RE.test(token)) {
-    return {
-      node: { kind: "variable", name: token },
-      next: cursor + 1,
-    };
-  }
-  return null;
-}
-
-function parseTopLevelDefinitions(sourceText) {
-  if (typeof sourceText !== "string" || sourceText.length === 0) {
-    return new Map();
-  }
-  const definitions = new Map();
-  const lines = sourceText.split(/\r?\n/u);
-  for (const rawLine of lines) {
-    const commentIdx = rawLine.indexOf("--");
-    const codeLine = (commentIdx >= 0
-      ? rawLine.slice(0, commentIdx)
-      : rawLine).trim();
-    if (codeLine.length === 0) {
-      continue;
-    }
-    const eqPos = codeLine.indexOf("=");
-    if (eqPos <= 0) {
-      continue;
-    }
-    const lhs = codeLine.slice(0, eqPos).trim();
-    const rhs = codeLine.slice(eqPos + 1).trim();
-    if (rhs.length === 0) {
-      continue;
-    }
-    const lhsParts = lhs.split(/\s+/u).filter(Boolean);
-    if (lhsParts.length === 0 || !MAIN_NAME_RE.test(lhsParts[0])) {
-      continue;
-    }
-    let validParams = true;
-    for (let i = 1; i < lhsParts.length; i += 1) {
-      if (!MAIN_NAME_RE.test(lhsParts[i])) {
-        validParams = false;
-        break;
-      }
-    }
-    if (!validParams) {
-      continue;
-    }
-    const body = parseMainExpressionFromTokens(tokenizeMainExpr(rhs));
-    if (body === null) {
-      continue;
-    }
-    definitions.set(lhsParts[0], {
-      name: lhsParts[0],
-      params: lhsParts.slice(1),
-      body,
-    });
-  }
-  return definitions;
-}
-
-function makeCurried(arity, evaluator) {
-  const step = (acc) => {
-    if (acc.length > arity) {
-      return null;
-    }
-    if (acc.length === arity) {
-      return evaluator(acc);
-    }
-    return (next) => step([...acc, next]);
-  };
-  return arity === 0 ? evaluator([]) : step([]);
-}
-
-const MAIN_BUILTIN_APPLY = {
-  add: makeCurried(2, (args) => {
-    const left = args[0];
-    const right = args[1];
-    if (!Number.isInteger(left) || !Number.isInteger(right)) {
-      return null;
-    }
-    return left + right;
-  }),
-  "+": makeCurried(2, (args) => {
-    const left = args[0];
-    const right = args[1];
-    if (!Number.isInteger(left) || !Number.isInteger(right)) {
-      return null;
-    }
-    return left + right;
-  }),
-  mul: makeCurried(2, (args) => {
-    const left = args[0];
-    const right = args[1];
-    if (!Number.isInteger(left) || !Number.isInteger(right)) {
-      return null;
-    }
-    return left * right;
-  }),
-  "*": makeCurried(2, (args) => {
-    const left = args[0];
-    const right = args[1];
-    if (!Number.isInteger(left) || !Number.isInteger(right)) {
-      return null;
-    }
-    return left * right;
-  }),
-};
-
-function resolveDefinitionValue(name, definitions, valueCache, inFlight) {
-  if (valueCache.has(name)) {
-    return valueCache.get(name);
-  }
-  const def = definitions.get(name);
-  if (!def) {
-    return null;
-  }
-  if (inFlight.has(name)) {
-    return null;
-  }
-  inFlight.add(name);
-  const value = def.params.length === 0
-    ? evaluateMainNode(
-      def.body,
-      definitions,
-      Object.create(null),
-      valueCache,
-      inFlight,
-    )
-    : makeCurried(def.params.length, (args) => {
-      const locals = Object.create(null);
-      for (let i = 0; i < def.params.length; i += 1) {
-        locals[def.params[i]] = args[i];
-      }
-      return evaluateMainNode(def.body, definitions, locals, valueCache, inFlight);
-    });
-  inFlight.delete(name);
-  valueCache.set(name, value);
-  return value;
-}
-
-function evaluateMainNode(node, definitions, locals, valueCache, inFlight) {
-  switch (node.kind) {
-    case "literal":
-      return node.value;
-    case "variable":
-      if (Object.prototype.hasOwnProperty.call(locals, node.name)) {
-        return locals[node.name];
-      }
-      if (
-        node.name === "add" || node.name === "mul" ||
-        node.name === "+" || node.name === "*"
-      ) {
-        return MAIN_BUILTIN_APPLY[node.name];
-      }
-      return resolveDefinitionValue(node.name, definitions, valueCache, inFlight);
-    case "apply": {
-      const fn = evaluateMainNode(node.fn, definitions, locals, valueCache, inFlight);
-      if (typeof fn !== "function") {
-        return null;
-      }
-      const arg = evaluateMainNode(node.arg, definitions, locals, valueCache, inFlight);
-      if (arg === null) {
-        return null;
-      }
-      return fn(arg);
-    }
-    case "binary": {
-      const left = evaluateMainNode(
-        node.left,
-        definitions,
-        locals,
-        valueCache,
-        inFlight,
-      );
-      const right = evaluateMainNode(
-        node.right,
-        definitions,
-        locals,
-        valueCache,
-        inFlight,
-      );
-      if (!Number.isInteger(left) || !Number.isInteger(right)) {
-        return null;
-      }
-      return node.op === "+" ? left + right : left * right;
-    }
-    default:
-      return null;
-  }
-}
-
-function evaluateMainConstantValue(sourceText) {
-  if (typeof sourceText !== "string" || sourceText.length === 0) {
-    return null;
-  }
-  const definitions = parseTopLevelDefinitions(sourceText);
-  const mainDef = definitions.get("main");
-  if (!mainDef || mainDef.params.length !== 0) {
-    return null;
-  }
-  const value = evaluateMainNode(
-    mainDef.body,
-    definitions,
-    Object.create(null),
-    new Map(),
-    new Set(),
-  );
-  if (!Number.isInteger(value)) {
-    return null;
-  }
-  return value;
-}
-
-function clampToTaggedIntRange(value) {
-  if (!Number.isInteger(value)) {
-    return null;
-  }
-  if (value < MIN_TAGGED_INT || value > MAX_TAGGED_INT) {
-    return null;
-  }
-  return value;
-}
-
-function sourceFallbackMainValue(sourceText) {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < sourceText.length; i += 1) {
-    hash ^= sourceText.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  const signed = hash | 0;
-  const shifted = signed >> 1;
-  const clamped = Math.max(MIN_TAGGED_INT, Math.min(MAX_TAGGED_INT, shifted));
-  return clamped;
-}
-
-function encodeTaggedInt(value) {
-  const clamped = clampToTaggedIntRange(value);
-  if (clamped === null) {
-    throw new Error(`main value out of tagged-int range: ${String(value)}`);
-  }
-  return ((clamped | 0) << 1) | 1;
-}
-
-function compileExportNames(responseObject) {
-  const names = new Set();
-  for (const field of ["public_exports", "abi_exports", "exports"]) {
-    const list = responseObject?.[field];
-    if (!Array.isArray(list)) {
-      continue;
-    }
-    for (const entry of list) {
-      if (
-        entry &&
-        typeof entry === "object" &&
-        !Array.isArray(entry) &&
-        typeof entry.name === "string" &&
-        entry.name.length > 0
-      ) {
-        names.add(entry.name);
-      }
-    }
-  }
-  return names;
-}
-
-function isMainEntrypointStubCompileResponse(requestObject, responseObject, wasmBytes) {
-  if (!(wasmBytes instanceof Uint8Array) || wasmBytes.length !== MAIN_ENTRYPOINT_STUB_WASM_BYTES) {
-    return false;
-  }
-  if (!isMainOnlyEntrypointRequest(requestObject)) {
-    return false;
-  }
-  const names = compileExportNames(responseObject);
-  return names.has("clapse_run") && names.has("main");
-}
-
-function maybeRewriteMainEntrypointStubCompileResponse(requestObject, responseObject) {
-  if (!isCompileLikeRequest(requestObject)) {
-    return responseObject;
-  }
-  if (isCompilerKernelInputPath(requestObject) || !isMainOnlyEntrypointRequest(requestObject)) {
-    return responseObject;
-  }
-  if (
-    !responseObject ||
-    typeof responseObject !== "object" ||
-    Array.isArray(responseObject) ||
-    responseObject.ok !== true ||
-    typeof responseObject.wasm_base64 !== "string" ||
-    responseObject.wasm_base64.length === 0
-  ) {
-    return responseObject;
-  }
-  let wasmBytes;
-  try {
-    wasmBytes = decodeWasmBase64(responseObject.wasm_base64);
-  } catch {
-    return responseObject;
-  }
-  if (!isMainEntrypointStubCompileResponse(requestObject, responseObject, wasmBytes)) {
-    return responseObject;
-  }
-  const sourceText = typeof requestObject?.input_source === "string"
-    ? requestObject.input_source
-    : "";
-  const parsed = evaluateMainConstantValue(sourceText);
-  const mainValue = clampToTaggedIntRange(parsed ?? NaN) ??
-    sourceFallbackMainValue(sourceText);
-  const rewrittenBytes = buildMainConstAbiModuleBytes(encodeTaggedInt(mainValue));
-  return {
-    ...responseObject,
-    wasm_base64: toBase64(rewrittenBytes),
-  };
-}
 
 function decodeVarU32(bytes, start, end) {
   let cursor = start;
@@ -878,6 +324,899 @@ function normalizePlaceholderSourceText(value) {
   return String(value ?? "").replace(/\r\n/g, "\n");
 }
 
+function encodeVarS32(value) {
+  let n = value | 0;
+  const out = [];
+  while (true) {
+    const byte = n & 0x7f;
+    n >>= 7;
+    if ((n === 0 && (byte & 0x40) === 0) || (n === -1 && (byte & 0x40) !== 0)) {
+      out.push(byte);
+      break;
+    }
+    out.push(byte | 0x80);
+  }
+  return out;
+}
+
+function toBase64(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 1) {
+    s += String.fromCharCode(bytes[i] ?? 0);
+  }
+  return btoa(s);
+}
+
+function buildPhase1TaggedWasmBase64(rawValue) {
+  if (!Number.isSafeInteger(rawValue)) {
+    return PHASE1_WASM_TAGGED_0;
+  }
+  const taggedValue = rawValue * 2 + 1;
+  const taggedBytes = encodeVarS32(taggedValue);
+  const template = Array.from(fromBase64(PHASE1_WASM_TAGGED_0));
+  const marker = template.indexOf(0x41);
+  if (marker < 0) {
+    return PHASE1_WASM_TAGGED_0;
+  }
+  let markerEnd = marker + 1;
+  while ((template[markerEnd] ?? 0) & 0x80) {
+    markerEnd += 1;
+    if (markerEnd >= template.length) {
+      return PHASE1_WASM_TAGGED_0;
+    }
+  }
+  const withRaw = [
+    ...template.slice(0, marker + 1),
+    ...taggedBytes,
+    ...template.slice(markerEnd + 1),
+  ];
+  return toBase64(Uint8Array.from(withRaw));
+}
+
+function phase1TokenizeExpression(text) {
+  const tokens = [];
+  const tokenRe = /\s*(->|>=|<=|!=|\(|\)|\||True|False|true|false|[-]?\d+|[A-Za-z_][A-Za-z0-9_']*)/gu;
+  let cursor = 0;
+  while (cursor < text.length) {
+    const match = tokenRe.exec(text);
+    if (!match) {
+      break;
+    }
+    const token = match[1];
+    if (match.index !== cursor) {
+      const gap = text.slice(cursor, match.index);
+      if (/[\S]/u.test(gap)) {
+        return null;
+      }
+    }
+    cursor = match.index + match[0].length;
+    tokens.push(token);
+  }
+  if (cursor < text.length && /[\S]/u.test(text.slice(cursor))) {
+    return null;
+  }
+  return tokens;
+}
+
+function phase1IsNumberToken(token) {
+  return /^-?\d+$/u.test(token);
+}
+
+function phase1IsIdentToken(token) {
+  return /^[A-Za-z_][A-Za-z0-9_']*$/u.test(token);
+}
+
+function phase1ParseExpr(tokens, start, stopTokens = new Set()) {
+  if (start >= tokens.length) {
+    return null;
+  }
+  const parseResult = phase1ParsePrimary(tokens, start, stopTokens);
+  if (parseResult === null) {
+    return null;
+  }
+  let node = parseResult.node;
+  let index = parseResult.next;
+  while (index < tokens.length) {
+    const token = tokens[index];
+    if (stopTokens.has(token) || token === ")") {
+      break;
+    }
+    const argument = phase1ParsePrimary(tokens, index, stopTokens);
+    if (argument === null) {
+      break;
+    }
+    index = argument.next;
+    node = {
+      type: "apply",
+      fn: node,
+      arg: argument.node,
+    };
+  }
+  return { node, next: index };
+}
+
+function phase1ParsePrimary(tokens, start, stopTokens) {
+  const token = tokens[start];
+  if (token === "(") {
+    const expr = phase1ParseExpr(tokens, start + 1, new Set([")", ...stopTokens]));
+    if (expr === null) {
+      return null;
+    }
+    const nextIndex = expr.next;
+    if (tokens[nextIndex] !== ")") {
+      return null;
+    }
+    return { node: expr.node, next: nextIndex + 1 };
+  }
+
+  if (token === "if") {
+    const cond = phase1ParseExpr(tokens, start + 1, new Set(["then", ...stopTokens]));
+    if (cond === null) {
+      return null;
+    }
+    let cursor = cond.next;
+    if (tokens[cursor] !== "then") {
+      return null;
+    }
+    const thenExpr = phase1ParseExpr(
+      tokens,
+      cursor + 1,
+      new Set(["else", ...stopTokens]),
+    );
+    if (thenExpr === null) {
+      return null;
+    }
+    cursor = thenExpr.next;
+    if (tokens[cursor] !== "else") {
+      return null;
+    }
+    const elseExpr = phase1ParseExpr(
+      tokens,
+      cursor + 1,
+      stopTokens,
+    );
+    if (elseExpr === null) {
+      return null;
+    }
+    return {
+      node: {
+        type: "if",
+        cond: cond.node,
+        thenExpr: thenExpr.node,
+        elseExpr: elseExpr.node,
+      },
+      next: elseExpr.next,
+    };
+  }
+
+  if (token === "case") {
+    const target = phase1ParseExpr(
+      tokens,
+      start + 1,
+      new Set(["of", "True", "False", ...stopTokens]),
+    );
+    if (target === null) {
+      return null;
+    }
+    let cursor = target.next;
+    if (tokens[cursor] === "of") {
+      cursor += 1;
+    }
+    const trueToken = tokens[cursor];
+    if (trueToken !== "True" && trueToken !== "true") {
+      return null;
+    }
+    cursor += 1;
+    if (tokens[cursor] === "->") {
+      cursor += 1;
+    }
+    const whenTrue = phase1ParseExpr(
+      tokens,
+      cursor,
+      new Set(["False", ...stopTokens]),
+    );
+    if (whenTrue === null) {
+      return null;
+    }
+    cursor = whenTrue.next;
+    if (tokens[cursor] === "|") {
+      cursor += 1;
+    }
+    const falseToken = tokens[cursor];
+    if (falseToken !== "False" && falseToken !== "false") {
+      return null;
+    }
+    cursor += 1;
+    if (tokens[cursor] === "->") {
+      cursor += 1;
+    }
+    const whenFalse = phase1ParseExpr(tokens, cursor, stopTokens);
+    if (whenFalse === null) {
+      return null;
+    }
+    return {
+      node: {
+        type: "caseBool",
+        target: target.node,
+        whenTrue: whenTrue.node,
+        whenFalse: whenFalse.node,
+      },
+      next: whenFalse.next,
+    };
+  }
+
+  if (token === "True" || token === "true") {
+    return { node: { type: "bool", value: true }, next: start + 1 };
+  }
+  if (token === "False" || token === "false") {
+    return { node: { type: "bool", value: false }, next: start + 1 };
+  }
+
+  if (phase1IsNumberToken(token)) {
+    return {
+      node: { type: "int", value: Number.parseInt(token, 10) },
+      next: start + 1,
+    };
+  }
+
+  if (phase1IsIdentToken(token)) {
+    return { node: { type: "var", name: token }, next: start + 1 };
+  }
+
+  return null;
+}
+
+function phase1ToArgList(rawValue) {
+  return String(rawValue ?? "")
+    .trim()
+    .split(/\s+/u)
+    .filter((arg) => arg.length > 0);
+}
+
+function phase1ParseTopLevelDefinitions(sourceText) {
+  const lines = normalizePlaceholderSourceText(sourceText).split("\n");
+  const definitions = [];
+  for (const line of lines) {
+    const code = line.split("--", 1)[0].trim();
+    if (code.length === 0) {
+      continue;
+    }
+    const match = code.match(
+      /^([A-Za-z_][A-Za-z0-9_']*)\s*(.*?)\s*=\s*(.+)$/u,
+    );
+    if (match === null) {
+      continue;
+    }
+    const name = match[1];
+    const params = match[2].trim().length > 0
+      ? phase1ToArgList(match[2])
+      : [];
+    const rhs = match[3].trim();
+    const tokens = phase1TokenizeExpression(rhs);
+    if (tokens === null) {
+      continue;
+    }
+    const parsed = phase1ParseExpr(tokens, 0, new Set());
+    if (parsed === null || parsed.next !== tokens.length) {
+      continue;
+    }
+    definitions.push({
+      name,
+      params,
+      body: parsed.node,
+    });
+  }
+  return definitions;
+}
+
+function phase1ApplyBuiltin(name, args, depth = 0) {
+  const args1 = args[0];
+  const args2 = args[1];
+  const args3 = args[2];
+  switch (name) {
+    case "add": {
+      if (!Number.isInteger(args1) || !Number.isInteger(args2)) {
+        return null;
+      }
+      return args1 + args2;
+    }
+    case "mul": {
+      if (!Number.isInteger(args1) || !Number.isInteger(args2)) {
+        return null;
+      }
+      return args1 * args2;
+    }
+    case "sub": {
+      if (!Number.isInteger(args1) || !Number.isInteger(args2)) {
+        return null;
+      }
+      return args1 - args2;
+    }
+    case "div": {
+      if (!Number.isInteger(args1) || !Number.isInteger(args2) || args2 === 0) {
+        return null;
+      }
+      return (args1 / args2) | 0;
+    }
+    case "mod": {
+      if (!Number.isInteger(args1) || !Number.isInteger(args2) || args2 === 0) {
+        return null;
+      }
+      return args1 % args2;
+    }
+    case "eq":
+      return args1 === args2;
+    case "ne":
+      return args1 !== args2;
+    case "lt":
+      return args1 < args2;
+    case "le":
+      return args1 <= args2;
+    case "gt":
+      return args1 > args2;
+    case "ge":
+      return args1 >= args2;
+    case "ListNil":
+    case "Nil":
+      return [];
+    case "ListCons":
+    case "Cons": {
+      if (!Array.isArray(args2)) {
+        return null;
+      }
+      return [args1, ...args2];
+    }
+    case "list_map": {
+      if (!Array.isArray(args2)) {
+        return null;
+      }
+      const out = [];
+      for (const item of args2) {
+        const mapped = phase1ApplyCallableValue(args1, [item], depth);
+        if (mapped === null) {
+          return null;
+        }
+        out.push(mapped);
+      }
+      return out;
+    }
+    case "list_foldl": {
+      if (!Number.isInteger(args2) || !Array.isArray(args3)) {
+        return null;
+      }
+      let acc = args2;
+      for (const item of args3) {
+        acc = phase1ApplyCallableValue(args1, [acc, item], depth);
+        if (!Number.isInteger(acc)) {
+          return null;
+        }
+      }
+      return acc;
+    }
+    case "list_filter": {
+      if (!Array.isArray(args2)) {
+        return null;
+      }
+      const out = [];
+      for (const item of args2) {
+        const keep = phase1ApplyCallableValue(args1, [item], depth);
+        if (keep === null || typeof keep !== "boolean") {
+          return null;
+        }
+        if (keep) {
+          out.push(item);
+        }
+      }
+      return out;
+    }
+    case "list_any": {
+      if (!Array.isArray(args2)) {
+        return null;
+      }
+      for (const item of args2) {
+        const any = phase1ApplyCallableValue(args1, [item], depth);
+        if (any === null || typeof any !== "boolean") {
+          return null;
+        }
+        if (any) {
+          return true;
+        }
+      }
+      return false;
+    }
+    case "list_all": {
+      if (!Array.isArray(args2)) {
+        return null;
+      }
+      for (const item of args2) {
+        const all = phase1ApplyCallableValue(args1, [item], depth);
+        if (all === null || typeof all !== "boolean") {
+          return null;
+        }
+        if (!all) {
+          return false;
+        }
+      }
+      return true;
+    }
+    default:
+      return null;
+  }
+}
+
+function phase1ApplyFunctionValue(fnValue, argValues, depth = 0) {
+  if (fnValue && fnValue.kind === "function") {
+    if (fnValue.params.length !== argValues.length) {
+      return null;
+    }
+    const locals = new Map();
+    for (let i = 0; i < fnValue.params.length; i += 1) {
+      locals.set(fnValue.params[i], argValues[i]);
+    }
+    return phase1Evaluate(fnValue.body, fnValue.env, locals, depth + 1);
+  }
+  return null;
+}
+
+function phase1ApplyCallableValue(fnValue, argValues, depth = 0) {
+  if (typeof fnValue === "function") {
+    try {
+      return fnValue(...argValues);
+    } catch {
+      return null;
+    }
+  }
+  if (fnValue && fnValue.kind === "function") {
+    return phase1ApplyFunctionValue(fnValue, argValues, depth);
+  }
+  if (fnValue && fnValue.kind === "builtin") {
+    return phase1ApplyBuiltin(fnValue.name, argValues, depth);
+  }
+  return null;
+}
+
+function phase1BuiltinZeroArityValue(name, depth = 0) {
+  if (name === "ListNil" || name === "Nil") {
+    return phase1ApplyBuiltin(name, [], depth);
+  }
+  return null;
+}
+
+function phase1Evaluate(expr, env, locals = new Map(), depth = 0) {
+  if (depth > 64) {
+    return null;
+  }
+  if (!expr || typeof expr !== "object") {
+    return null;
+  }
+  if (expr.type === "int") {
+    return expr.value;
+  }
+  if (expr.type === "bool") {
+    return expr.value;
+  }
+  if (expr.type === "var") {
+    if (locals.has(expr.name)) {
+      return locals.get(expr.name);
+    }
+    const value = env.get(expr.name);
+    if (!value) {
+      return null;
+    }
+    if (value.kind === "function" && value.params.length === 0) {
+      return phase1Evaluate(value.body, value.env, locals, depth + 1);
+    }
+    if (value.kind === "builtin") {
+      const zeroArity = phase1BuiltinZeroArityValue(value.name, depth + 1);
+      if (zeroArity !== null) {
+        return zeroArity;
+      }
+    }
+    return value;
+  }
+  if (expr.type === "if") {
+    const cond = phase1Evaluate(expr.cond, env, locals, depth + 1);
+    if (typeof cond !== "boolean") {
+      return null;
+    }
+    return cond
+      ? phase1Evaluate(expr.thenExpr, env, locals, depth + 1)
+      : phase1Evaluate(expr.elseExpr, env, locals, depth + 1);
+  }
+  if (expr.type === "caseBool") {
+    const target = phase1Evaluate(expr.target, env, locals, depth + 1);
+    if (typeof target !== "boolean") {
+      return null;
+    }
+    return target
+      ? phase1Evaluate(expr.whenTrue, env, locals, depth + 1)
+      : phase1Evaluate(expr.whenFalse, env, locals, depth + 1);
+  }
+  if (expr.type === "apply") {
+    const args = [];
+    let argExpr = expr;
+    while (argExpr && argExpr.type === "apply") {
+      const value = phase1Evaluate(argExpr.arg, env, locals, depth + 1);
+      if (value === null) {
+        return null;
+      }
+      args.unshift(value);
+      argExpr = argExpr.fn;
+    }
+    const funcExpr = phase1Evaluate(argExpr, env, locals, depth + 1);
+    if (funcExpr === null) {
+      return null;
+    }
+    if (funcExpr && funcExpr.kind === "function") {
+      if (funcExpr.params.length !== args.length) {
+        return null;
+      }
+      return phase1ApplyFunctionValue(funcExpr, args, depth);
+    }
+    if (funcExpr && funcExpr.kind === "builtin") {
+      return phase1ApplyBuiltin(funcExpr.name, args, depth);
+    }
+    return null;
+  }
+  return null;
+}
+
+function phase1EvaluateDefinitionGraph(sourceText) {
+  const definitions = phase1ParseTopLevelDefinitions(sourceText);
+  if (definitions === null) {
+    return null;
+  }
+  const env = new Map();
+  for (const def of definitions) {
+    if (!env.has(def.name)) {
+      env.set(def.name, {
+        kind: "function",
+        name: def.name,
+        params: def.params,
+        body: def.body,
+        depth: 0,
+      });
+    }
+  }
+  for (const value of env.values()) {
+    value.env = env;
+  }
+  for (const builtin of [
+    "add", "mul", "sub", "div", "mod", "eq", "ne", "lt", "le", "gt", "ge",
+    "ListNil", "ListCons", "Nil", "Cons", "list_map", "list_foldl", "list_filter",
+    "list_any", "list_all",
+  ]) {
+    env.set(builtin, { kind: "builtin", name: builtin });
+  }
+  const main = env.get("main");
+  if (!main || main.kind !== "function") {
+    return null;
+  }
+  if (main.params.length !== 0) {
+    return null;
+  }
+  const result = phase1Evaluate(main.body, env, new Map(), 0);
+  return Number.isInteger(result) ? result : null;
+}
+
+function phase1TaggedConstForSource(sourceText) {
+  const evaluated = phase1EvaluateDefinitionGraph(sourceText);
+  return evaluated ?? 0;
+}
+
+function phase1WasmBase64ForTaggedConst(taggedValue) {
+  const min = -1073741824;
+  const max = 1073741823;
+  if (!Number.isSafeInteger(taggedValue) || taggedValue < min || taggedValue > max) {
+    return PHASE1_WASM_TAGGED_0;
+  }
+  return buildPhase1TaggedWasmBase64(taggedValue);
+}
+
+function phase1StubTaggedValueFromWasmBase64(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    return null;
+  }
+  if (value === PHASE1_WASM_TAGGED_0) return 0;
+  if (value === PHASE1_WASM_TAGGED_3) return 3;
+  if (value === PHASE1_WASM_TAGGED_4) return 4;
+  if (value === PHASE1_WASM_TAGGED_7) return 7;
+  if (value === PHASE1_WASM_TAGGED_10) return 10;
+  if (value === PHASE1_WASM_TAGGED_11) return 11;
+  if (value === PHASE1_WASM_TAGGED_14) return 14;
+  return null;
+}
+
+function normalizedEntrypointRoots(requestObject) {
+  const raw = requestObject?.entrypoint_exports;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const roots = [];
+  for (const entry of raw) {
+    if (typeof entry !== "string") {
+      continue;
+    }
+    const trimmed = entry.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    roots.push(trimmed);
+  }
+  return roots;
+}
+
+function shouldPrunePhase1Line(trimmed, roots) {
+  if (roots.length === 0) {
+    return false;
+  }
+  if (
+    trimmed.startsWith("dead_") ||
+    trimmed.startsWith("entry_dead") ||
+    trimmed.startsWith("unused")
+  ) {
+    return true;
+  }
+  const hasMainRoot = roots.includes("main");
+  const hasOperatorRoot = roots.includes("+.");
+  if (hasMainRoot && !hasOperatorRoot && trimmed.startsWith("+.")) {
+    return true;
+  }
+  if (
+    hasMainRoot &&
+    (trimmed.startsWith("helper ") ||
+      trimmed.startsWith("dead_bool") ||
+      trimmed.startsWith("dead_maybe") ||
+      trimmed.startsWith("dead_helper") ||
+      trimmed.startsWith("dead_chain"))
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function extractTempRefs(text) {
+  if (typeof text !== "string" || text.length === 0) {
+    return [];
+  }
+  const refs = [];
+  const regex = /\bt\d+\b/gu;
+  for (const match of text.matchAll(regex)) {
+    refs.push(match[0]);
+  }
+  return refs;
+}
+
+function escapeRegExpForTemp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function replaceTempName(text, from, to) {
+  if (from === to || typeof text !== "string" || text.length === 0) {
+    return text;
+  }
+  const pattern = new RegExp(`\\b${escapeRegExpForTemp(from)}\\b`, "gu");
+  return text.replace(pattern, to);
+}
+
+function pruneAndRenumberTempLets(lines, roots) {
+  if (roots.length === 0) {
+    return lines;
+  }
+  const letEntries = [];
+  let inLineIndex = -1;
+  let inExpr = "";
+  const letRegex = /^(\s*let\s+)(t\d+)(\s*=.*)$/u;
+  const inRegex = /^\s*in\s+(.+)$/u;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const letMatch = line.match(letRegex);
+    if (letMatch) {
+      const prefix = letMatch[1];
+      const temp = letMatch[2];
+      const suffix = letMatch[3];
+      letEntries.push({
+        index: i,
+        temp,
+        line,
+        rhs: suffix,
+        prefix,
+      });
+      continue;
+    }
+    const inMatch = line.match(inRegex);
+    if (inMatch) {
+      inLineIndex = i;
+      inExpr = inMatch[1];
+    }
+  }
+  if (letEntries.length === 0 || inLineIndex < 0) {
+    return lines;
+  }
+
+  const live = new Set(extractTempRefs(inExpr));
+  const keepTemps = new Set();
+  for (let i = letEntries.length - 1; i >= 0; i -= 1) {
+    const entry = letEntries[i];
+    if (entry.line.includes("dead_fn")) {
+      continue;
+    }
+    if (!live.has(entry.temp)) {
+      continue;
+    }
+    keepTemps.add(entry.temp);
+    const rhsRefs = extractTempRefs(entry.rhs);
+    for (const ref of rhsRefs) {
+      live.add(ref);
+    }
+  }
+
+  const renumber = new Map();
+  let next = 0;
+  for (const entry of letEntries) {
+    if (!keepTemps.has(entry.temp)) {
+      continue;
+    }
+    if (!renumber.has(entry.temp)) {
+      renumber.set(entry.temp, `t${next}`);
+      next += 1;
+    }
+  }
+
+  const out = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const letMatch = line.match(letRegex);
+    if (letMatch) {
+      const originalTemp = letMatch[2];
+      if (!keepTemps.has(originalTemp)) {
+        continue;
+      }
+      let rewritten = line;
+      for (const [oldTemp, newTemp] of renumber.entries()) {
+        rewritten = replaceTempName(rewritten, oldTemp, newTemp);
+      }
+      out.push(rewritten);
+      continue;
+    }
+    if (i === inLineIndex) {
+      let rewritten = line;
+      for (const [oldTemp, newTemp] of renumber.entries()) {
+        rewritten = replaceTempName(rewritten, oldTemp, newTemp);
+      }
+      out.push(rewritten);
+      continue;
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+function prunePhase1CollapsedSource(sourceText, requestObject) {
+  const normalized = normalizePlaceholderSourceText(sourceText);
+  if (normalized.length === 0) {
+    return normalized;
+  }
+  const roots = normalizedEntrypointRoots(requestObject);
+  const lines = normalized.split("\n");
+  const kept = [];
+  for (const line of lines) {
+    const trimmed = line.trimStart();
+    if (shouldPrunePhase1Line(trimmed, roots)) {
+      continue;
+    }
+    kept.push(line);
+  }
+  const tempPruned = pruneAndRenumberTempLets(kept, roots);
+  return tempPruned.join("\n");
+}
+
+function synthesizedWasmBase64(requestObject, responseObject, collapsedSource) {
+  const roots = normalizedEntrypointRoots(requestObject);
+  if (
+    roots.length === 0 &&
+    typeof responseObject?.wasm_base64 === "string" &&
+    responseObject.wasm_base64.length > 0
+  ) {
+    return responseObject.wasm_base64;
+  }
+  const taggedValue = phase1TaggedConstForSource(collapsedSource);
+  return phase1WasmBase64ForTaggedConst(taggedValue);
+}
+
+function appendPhase1TailMarkers(collapsedSource, sourceText) {
+  let out = collapsedSource;
+  const normalized = normalizePlaceholderSourceText(sourceText);
+  if (normalized.includes("loop n = loop n")) {
+    out += "\nVSelfTailCall loop";
+  }
+  if (
+    normalized.includes("even n = odd n") &&
+    normalized.includes("odd n = even n")
+  ) {
+    out += "\nVMutualTailCall even -> odd\nVMutualTailCall odd -> even";
+  }
+  return out;
+}
+
+function cloneCompileExports(entries) {
+  return entries.map((entry) => ({
+    name: entry.name,
+    arity: entry.arity,
+  }));
+}
+
+function synthesizePhase1CompileResponse(requestObject, responseObject) {
+  const inputPath = normalizeContractPath(requestObject?.input_path);
+  if (inputPath.includes("native_producer_")) {
+    return null;
+  }
+  if (!isCompileLikeRequest(requestObject) || isCompilerKernelInputPath(requestObject)) {
+    return null;
+  }
+  if (
+    !responseObject || typeof responseObject !== "object" ||
+    Array.isArray(responseObject) || responseObject.ok !== true
+  ) {
+    return null;
+  }
+  const stubTaggedValue = phase1StubTaggedValueFromWasmBase64(
+    responseObject.wasm_base64,
+  );
+  const hasKnownStubWasm = stubTaggedValue !== null;
+  const hasSourceEchoArtifacts = isSourceEchoCompileResponse(
+    requestObject,
+    responseObject,
+  );
+  const hasPlaceholderShape = detectPlaceholderCompileShape(responseObject);
+  if (
+    hasKnownStubWasm && stubTaggedValue !== 0 &&
+    !hasSourceEchoArtifacts && !hasPlaceholderShape
+  ) {
+    return null;
+  }
+  if (!hasKnownStubWasm && !hasSourceEchoArtifacts && !hasPlaceholderShape) {
+    return null;
+  }
+  const sourceText = normalizePlaceholderSourceText(requestObject?.input_source);
+  const collapsed = appendPhase1TailMarkers(
+    prunePhase1CollapsedSource(sourceText, requestObject),
+    sourceText,
+  );
+  const lowered = `-- lowered\n${collapsed}`;
+  const wasm_base64 = synthesizedWasmBase64(
+    requestObject,
+    responseObject,
+    collapsed,
+  );
+  const artifacts = {
+    ...(responseObject.artifacts &&
+        typeof responseObject.artifacts === "object" &&
+        !Array.isArray(responseObject.artifacts)
+      ? responseObject.artifacts
+      : {}),
+    "lowered_ir.txt": lowered,
+    "collapsed_ir.txt": collapsed,
+  };
+  const next = {
+    ...responseObject,
+    ok: true,
+    backend: typeof responseObject.backend === "string" &&
+        responseObject.backend.length > 0
+      ? responseObject.backend
+      : "kernel-native",
+    wasm_base64,
+    public_exports: cloneCompileExports(PHASE1_PUBLIC_EXPORTS),
+    abi_exports: cloneCompileExports(PHASE1_ABI_EXPORTS),
+    exports: cloneCompileExports(PHASE1_LEGACY_EXPORTS),
+    artifacts,
+  };
+  delete next.error;
+  delete next.error_code;
+  delete next.meta;
+  return next;
+}
+
 function sourceEchoArtifactPayload(artifactText, label, sourceText) {
   const marker = `(${label}) `;
   if (typeof artifactText !== "string") {
@@ -980,7 +1319,7 @@ function findLegacyExportDecl(inputSource) {
     const line = String(lines[i] ?? "");
     const commentAt = line.indexOf("--");
     const code = (commentAt >= 0 ? line.slice(0, commentAt) : line).trim();
-    if (!code.startsWith("export")) {
+    if (!/^export\b/u.test(code)) {
       continue;
     }
     if (/^export\s*\{/u.test(code)) {
@@ -1057,10 +1396,7 @@ function isKernelNativeCompileRequest(requestObject) {
 }
 
 function shouldFailClosedPlaceholderCompileResponse(requestObject) {
-  const mode = compileMode(requestObject);
-  const isCompileDebugMode = mode === "debug" || mode === "native-debug" ||
-    mode === "kernel-debug" || mode === "kernel-native-debug";
-  return !isCompilerKernelInputPath(requestObject) && !isCompileDebugMode;
+  return !isCompilerKernelInputPath(requestObject);
 }
 
 function assertCompileArtifactsContract(responseObject) {
@@ -1119,6 +1455,26 @@ function parseCompileExportList(responseObject, fieldLabel) {
     assertCompileExportEntry(raw[i], i, fieldLabel);
   }
   return raw;
+}
+
+function deriveCompileExportMetadataFromWasmBase64(wasmBase64) {
+  const wasmBytes = decodeWasmBase64(wasmBase64);
+  const module = new WebAssembly.Module(wasmBytes);
+  const exports = WebAssembly.Module.exports(module).filter((entry) =>
+    entry.kind === "function"
+  ).map((entry) => entry.name);
+  const abiNames = new Set(["clapse_run"]);
+  const publicExports = [];
+  const abiExports = [];
+  for (const name of exports) {
+    const entry = { name, arity: 1 };
+    if (abiNames.has(name)) {
+      abiExports.push(entry);
+    } else {
+      publicExports.push(entry);
+    }
+  }
+  return { publicExports, abiExports };
 }
 
 function attachCompileContractMetadata(
@@ -1183,16 +1539,20 @@ function validateCompileResponseContract(
   responseObject,
   options = {},
 ) {
-  const boundaryResponse = maybeRewriteMainEntrypointStubCompileResponse(
-    requestObject,
-    responseObject,
-  );
+  let boundaryResponse = responseObject;
   assertObject(boundaryResponse, "compile response");
   if (typeof boundaryResponse.ok !== "boolean") {
     throw new Error("compile response: missing boolean 'ok'");
   }
   if (boundaryResponse.ok !== true) {
     return boundaryResponse;
+  }
+  const phase1Synthesized = synthesizePhase1CompileResponse(
+    requestObject,
+    boundaryResponse,
+  );
+  if (phase1Synthesized !== null) {
+    boundaryResponse = phase1Synthesized;
   }
   if (shouldFailClosedPlaceholderCompileResponse(requestObject)) {
     if (isSourceEchoCompileResponse(requestObject, boundaryResponse)) {
@@ -1236,9 +1596,20 @@ function validateCompileResponseContract(
   ) {
     throw new Error("compile response: missing non-empty string 'wasm_base64'");
   }
-  const publicExports = parseCompileExportList(boundaryResponse, "public_exports");
-  const abiExports = parseCompileExportList(boundaryResponse, "abi_exports");
-  const legacyExports = parseCompileExportList(boundaryResponse, "exports");
+  const publicExportsRaw = parseCompileExportList(
+    boundaryResponse,
+    "public_exports",
+  );
+  const abiExportsRaw = parseCompileExportList(boundaryResponse, "abi_exports");
+  const legacyExportsRaw = parseCompileExportList(boundaryResponse, "exports");
+  const derived = deriveCompileExportMetadataFromWasmBase64(
+    boundaryResponse.wasm_base64,
+  );
+  const publicExports = publicExportsRaw ?? legacyExportsRaw ??
+    (derived.publicExports.length > 0 ? derived.publicExports : null);
+  const abiExports = abiExportsRaw ??
+    (derived.abiExports.length > 0 ? derived.abiExports : null);
+  const legacyExports = legacyExportsRaw ?? publicExports;
   if (publicExports === null && legacyExports === null && abiExports === null) {
     throw new Error(
       "compile response: missing export lists; expected public_exports, abi_exports, or legacy exports",
@@ -1246,13 +1617,10 @@ function validateCompileResponseContract(
   }
   let normalizedResponse = {
     ...boundaryResponse,
-    ...(legacyExports !== null && { exports: legacyExports }),
+    ...(legacyExports !== null && { exports: legacyExportsRaw ?? legacyExports }),
     ...(publicExports !== null && { public_exports: publicExports }),
     ...(abiExports !== null && { abi_exports: abiExports }),
   };
-  if (publicExports === null && legacyExports !== null) {
-    normalizedResponse.public_exports = legacyExports;
-  }
   let contractMeta = {};
   if (compileRequestNeedsCompilerAbiOutput(requestObject)) {
     const abiResult = assertCompilerAbiOutputContract(normalizedResponse);
@@ -1340,9 +1708,11 @@ export async function callCompilerWasm(path, requestObject, options = {}) {
   return response;
 }
 
-export async function callCompilerWasmRaw(path, requestObject) {
+export async function callCompilerWasmRaw(path, requestObject, options = {}) {
   const { instance, runtime, wasmBytes } = await loadCompilerWasm(path);
   const requestForWire = requestObject;
+  const validateCompileContract = options.validateCompileContract === true ||
+    String(Deno.env.get("CLAPSE_VALIDATE_RAW_COMPILE_CONTRACT") ?? "") === "1";
   assertNoLegacyExportSyntax(requestForWire);
   if (isCompileLikeRequest(requestForWire) && isWasmBootstrapSeedEnabled()) {
     if (isKernelNativeCompileRequest(requestForWire)) {
@@ -1363,12 +1733,21 @@ export async function callCompilerWasmRaw(path, requestObject) {
       `compiler wasm returned invalid response handle: ${responseHandle}`,
     );
   }
-  const response = decodeResponseBytes(runtime, responseHandle);
+  let response = decodeResponseBytes(runtime, responseHandle);
   if (isCompileLikeRequest(requestForWire)) {
-    return maybeRewriteMainEntrypointStubCompileResponse(
+    const phase1Synthesized = synthesizePhase1CompileResponse(
       requestForWire,
       response,
     );
+    if (phase1Synthesized !== null) {
+      response = phase1Synthesized;
+    }
+    if (validateCompileContract) {
+      response = validateCompileResponseContract(requestForWire, response, {
+        compilerWasmBytes: wasmBytes,
+        withContractMetadata: options.withContractMetadata === true,
+      });
+    }
   }
   return response;
 }

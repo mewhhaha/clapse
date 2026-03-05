@@ -1,6 +1,32 @@
 {
-  "generated_at": "2026-03-04T12:57:03Z",
-  "tool": "Justfile bootstrap-strict-native-seed",
-  "mode": "native-producer-seed-retain",
-  "bootstrap": {"wasm": "artifacts/strict-native/native_producer_seed.wasm"}
+  "tool": "build-native-producer-seed",
+  "created_at": "2026-03-05T12:19:41.316Z",
+  "seed": {
+    "input_path": "artifacts/latest/clapse_compiler.wasm",
+    "input_sha256": "65e83c3377832e99269b65b998a25325486fa755a6ab4a1423e882ef45439516"
+  },
+  "output": {
+    "wasm_path": "artifacts/strict-native/seed.wasm",
+    "dts_path": "artifacts/strict-native/seed.d.ts",
+    "sha256": "a2b28af651084ec13fd7c006f02c39f251c1cfda53eb3d2fe9338c1313bcb78e",
+    "bytes": 19835055
+  },
+  "contract": {
+    "source_version": "native-source-2026-03-01-r2",
+    "compile_contract_version": "native-v1"
+  },
+  "chain_depth": 1,
+  "stages": [
+    {
+      "stage": 1,
+      "bytes": 19835055,
+      "sha256": "a2b28af651084ec13fd7c006f02c39f251c1cfda53eb3d2fe9338c1313bcb78e"
+    }
+  ],
+  "verification": {
+    "raw_producer_probe": {
+      "hops": 2,
+      "output_bytes": 11132217
+    }
+  }
 }

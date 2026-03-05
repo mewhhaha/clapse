@@ -129,12 +129,20 @@ async function run() {
     const baselineResponse = await callCompilerWasmRaw(
       wasmPath,
       buildCompileRequest(inputPath, source),
+      {
+        validateCompileContract: true,
+        withContractMetadata: true,
+      },
     );
     const baseline = readCompileArtifacts(baselineResponse, "baseline");
 
     const prunedResponse = await callCompilerWasmRaw(
       wasmPath,
       buildCompileRequest(inputPath, source, ["main"]),
+      {
+        validateCompileContract: true,
+        withContractMetadata: true,
+      },
     );
     const pruned = readCompileArtifacts(prunedResponse, "pruned");
 
