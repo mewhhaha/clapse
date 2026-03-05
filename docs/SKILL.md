@@ -135,20 +135,20 @@ The command returns a single compile response with:
 - `error_code` (machine-readable error id; present on `ok: false`)
 - `error` (human-readable error message)
 - `public_exports` (user-facing exported function names in the emitted module)
-- `abi_exports` (ABI/runtime exports, including `clapse_run` and memory)
+- `abi_exports` (ABI/runtime exports; compiler-kernel artifacts include `clapse_run` and memory)
 
-`clapse_run` is an ABI export used by host/runtime integration and should not be
-treated as a user-visible entrypoint. Use `public_exports` to discover user-callable
-entrypoints.
+`clapse_run` is an ABI export used by host/runtime integration for compiler
+artifacts and should not be treated as a user-visible entrypoint. Use
+`public_exports` to discover user-callable entrypoints.
 
 JS ABI-boundary behavior remains fail-closed for kernel self-host compile
 requests, and now applies phase-1 synthesis for non-kernel compile requests
 when known stub/placeholder payloads are observed (known phase-1 stub wasm,
 tiny placeholder wasm shape, or source-echo marker responses). Phase-1 synthesis rewrites the compile response to
 deterministic non-placeholder wasm + artifacts so smoke/semantics flows can run.
-When kernel-native already returns a recognized nonzero phase-1 stub result
-(`3`, `4`, `7`, `10`, `11`, `14`), boundary synthesis now preserves that native result and
-only synthesizes unsupported/placeholder outputs (for example tagged-0 fallback).
+For non-kernel compile requests, recognized phase-1 stub outputs are now always
+normalized through boundary synthesis so emitted wasm/public export shape is
+stable (user entrypoints only, no `clapse_run` ABI export).
 The evaluator now computes `main` for initial pure top-level def graphs in-kernel
 for direct and simple call-chain forms using:
 - `add`/`mul`/`sub`/`div`/`mod`/`id` (plus partial application),
@@ -225,9 +225,10 @@ Entrypoint reachability pruning now runs in the runner before compile request:
   (`CollectionLiteral List` via `build` + `foldr`)
 - non-kernel compile responses now emit a reachability-shaped wasm bundle in the
   compile producer path (shared by raw and validated ABI calls). `public_exports`
-  follows selected `entrypoint_exports` / entrypoint exports, while `abi_exports`
-  carries runtime ABI exports like `clapse_run`. Export metadata is canonicalized
-  from actual wasm function exports when missing from response fields. For
+  follows selected `entrypoint_exports` / entrypoint exports, and `abi_exports`
+  is empty for user-program outputs (compiler-kernel artifacts keep ABI/runtime
+  exports like `clapse_run`). Export metadata is canonicalized from actual wasm
+  function exports when missing from response fields. For
   placeholder/stub payloads at the ABI boundary, non-kernel compile requests now
   synthesize a deterministic phase-1 compile response (non-placeholder wasm +
   pruned IR artifacts); kernel self-host compile requests continue to require

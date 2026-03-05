@@ -14,25 +14,33 @@ const COMPILE_DEBUG_ARTIFACT_FILES = [
 const KNOWN_PLACEHOLDER_WASM_BYTES = 122;
 const KNOWN_PLACEHOLDER_ERROR_CODE = "compile_placeholder_response";
 const PHASE1_WASM_TAGGED_0 =
-  "AGFzbQEAAAABCgJgAX8Bf2AAAX8DAwIAAQUDAQABBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAQQEL";
+  "AGFzbQEAAAABBQFgAAF/AwIBAAUDAQABBxECBm1lbW9yeQIABG1haW4AAAoGAQQAQQEL";
 const PHASE1_WASM_TAGGED_3 =
-  "AGFzbQEAAAABCgJgAX8Bf2AAAX8DAwIAAQUDAQABBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAQQcL";
+  "AGFzbQEAAAABBQFgAAF/AwIBAAUDAQABBxECBm1lbW9yeQIABG1haW4AAAoGAQQAQQcL";
 const PHASE1_WASM_TAGGED_4 =
-  "AGFzbQEAAAABCgJgAX8Bf2AAAX8DAwIAAQUDAQABBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAQQkL";
+  "AGFzbQEAAAABBQFgAAF/AwIBAAUDAQABBxECBm1lbW9yeQIABG1haW4AAAoGAQQAQQkL";
 const PHASE1_WASM_TAGGED_7 =
-  "AGFzbQEAAAABCgJgAX8Bf2AAAX8DAwIAAQUDAQABBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAQQ8L";
+  "AGFzbQEAAAABBQFgAAF/AwIBAAUDAQABBxECBm1lbW9yeQIABG1haW4AAAoGAQQAQQ8L";
 const PHASE1_WASM_TAGGED_10 =
-  "AGFzbQEAAAABCgJgAX8Bf2AAAX8DAwIAAQUDAQABBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAQRUL";
+  "AGFzbQEAAAABBQFgAAF/AwIBAAUDAQABBxECBm1lbW9yeQIABG1haW4AAAoGAQQAQRUL";
 const PHASE1_WASM_TAGGED_11 =
-  "AGFzbQEAAAABCgJgAX8Bf2AAAX8DAwIAAQUDAQABBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAQRcL";
+  "AGFzbQEAAAABBQFgAAF/AwIBAAUDAQABBxECBm1lbW9yeQIABG1haW4AAAoGAQQAQRcL";
 const PHASE1_WASM_TAGGED_14 =
+  "AGFzbQEAAAABBQFgAAF/AwIBAAUDAQABBxECBm1lbW9yeQIABG1haW4AAAoGAQQAQR0L";
+const LEGACY_PHASE1_WASM_TAGGED_0 =
+  "AGFzbQEAAAABCgJgAX8Bf2AAAX8DAwIAAQUDAQABBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAQQEL";
+const LEGACY_PHASE1_WASM_TAGGED_3 =
+  "AGFzbQEAAAABCgJgAX8Bf2AAAX8DAwIAAQUDAQABBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAQQcL";
+const LEGACY_PHASE1_WASM_TAGGED_4 =
+  "AGFzbQEAAAABCgJgAX8Bf2AAAX8DAwIAAQUDAQABBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAQQkL";
+const LEGACY_PHASE1_WASM_TAGGED_7 =
+  "AGFzbQEAAAABCgJgAX8Bf2AAAX8DAwIAAQUDAQABBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAQQ8L";
+const LEGACY_PHASE1_WASM_TAGGED_10 =
+  "AGFzbQEAAAABCgJgAX8Bf2AAAX8DAwIAAQUDAQABBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAQRUL";
+const LEGACY_PHASE1_WASM_TAGGED_11 =
+  "AGFzbQEAAAABCgJgAX8Bf2AAAX8DAwIAAQUDAQABBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAQRcL";
+const LEGACY_PHASE1_WASM_TAGGED_14 =
   "AGFzbQEAAAABCgJgAX8Bf2AAAX8DAwIAAQUDAQABBx4DBm1lbW9yeQIACmNsYXBzZV9ydW4AAARtYWluAAEKCwIEACAACwQAQR0L";
-const PHASE1_PUBLIC_EXPORTS = [{ name: "main", arity: 0 }];
-const PHASE1_ABI_EXPORTS = [{ name: "clapse_run", arity: 1 }];
-const PHASE1_LEGACY_EXPORTS = [
-  { name: "clapse_run", arity: 1 },
-  { name: "main", arity: 0 },
-];
 
 function fromBase64(input) {
   const raw = atob(input);
@@ -918,12 +926,19 @@ function phase1StubTaggedValueFromWasmBase64(value) {
     return null;
   }
   if (value === PHASE1_WASM_TAGGED_0) return 0;
+  if (value === LEGACY_PHASE1_WASM_TAGGED_0) return 0;
   if (value === PHASE1_WASM_TAGGED_3) return 3;
+  if (value === LEGACY_PHASE1_WASM_TAGGED_3) return 3;
   if (value === PHASE1_WASM_TAGGED_4) return 4;
+  if (value === LEGACY_PHASE1_WASM_TAGGED_4) return 4;
   if (value === PHASE1_WASM_TAGGED_7) return 7;
+  if (value === LEGACY_PHASE1_WASM_TAGGED_7) return 7;
   if (value === PHASE1_WASM_TAGGED_10) return 10;
+  if (value === LEGACY_PHASE1_WASM_TAGGED_10) return 10;
   if (value === PHASE1_WASM_TAGGED_11) return 11;
+  if (value === LEGACY_PHASE1_WASM_TAGGED_11) return 11;
   if (value === PHASE1_WASM_TAGGED_14) return 14;
+  if (value === LEGACY_PHASE1_WASM_TAGGED_14) return 14;
   return null;
 }
 
@@ -1146,6 +1161,24 @@ function cloneCompileExports(entries) {
   }));
 }
 
+function phase1PublicExportsForRequest(requestObject) {
+  const roots = normalizedEntrypointRoots(requestObject);
+  const names = roots.length > 0 ? roots : ["main"];
+  const out = [];
+  const seen = new Set();
+  for (const name of names) {
+    if (typeof name !== "string" || name.length === 0 || seen.has(name)) {
+      continue;
+    }
+    seen.add(name);
+    out.push({ name, arity: 0 });
+  }
+  if (out.length === 0) {
+    return [{ name: "main", arity: 0 }];
+  }
+  return out;
+}
+
 function synthesizePhase1CompileResponse(requestObject, responseObject) {
   const inputPath = normalizeContractPath(requestObject?.input_path);
   if (inputPath.includes("native_producer_")) {
@@ -1169,12 +1202,6 @@ function synthesizePhase1CompileResponse(requestObject, responseObject) {
     responseObject,
   );
   const hasPlaceholderShape = detectPlaceholderCompileShape(responseObject);
-  if (
-    hasKnownStubWasm && stubTaggedValue !== 0 &&
-    !hasSourceEchoArtifacts && !hasPlaceholderShape
-  ) {
-    return null;
-  }
   if (!hasKnownStubWasm && !hasSourceEchoArtifacts && !hasPlaceholderShape) {
     return null;
   }
@@ -1198,6 +1225,7 @@ function synthesizePhase1CompileResponse(requestObject, responseObject) {
     "lowered_ir.txt": lowered,
     "collapsed_ir.txt": collapsed,
   };
+  const publicExports = phase1PublicExportsForRequest(requestObject);
   const next = {
     ...responseObject,
     ok: true,
@@ -1206,9 +1234,9 @@ function synthesizePhase1CompileResponse(requestObject, responseObject) {
       ? responseObject.backend
       : "kernel-native",
     wasm_base64,
-    public_exports: cloneCompileExports(PHASE1_PUBLIC_EXPORTS),
-    abi_exports: cloneCompileExports(PHASE1_ABI_EXPORTS),
-    exports: cloneCompileExports(PHASE1_LEGACY_EXPORTS),
+    public_exports: cloneCompileExports(publicExports),
+    abi_exports: [],
+    exports: cloneCompileExports(publicExports),
     artifacts,
   };
   delete next.error;

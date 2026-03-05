@@ -68,13 +68,14 @@ deno run -A scripts/clapse.mjs bench [iterations]
     compile stage before compile artifacts are emitted.
     Compile responses expose:
     - `public_exports`: user-visible entrypoints for `main`-style execution
-    - `abi_exports`: ABI/runtime exports, including `clapse_run` and memory exports
+    - `abi_exports`: ABI/runtime exports (compiler-kernel artifacts include
+      `clapse_run` and memory exports)
     Non-kernel compile responses emit a reachability-shaped wasm bundle in the
     compile producer path used by both raw and validated ABI calls:
-    `public_exports` follows selected roots, while `abi_exports` carries ABI/runtime
-    scaffolding (for example `clapse_run`). Bundle size tracks reachable function
-    count, while kernel self-host compile requests still require full compiler ABI
-    output.
+    `public_exports` follows selected roots, while `abi_exports` is empty for
+    user-program outputs (kernel self-host/compiler outputs keep compiler ABI).
+    Bundle size tracks reachable function count, while kernel self-host compile
+    requests still require full compiler ABI output.
     Legacy env
     toggles `CLAPSE_ENTRYPOINT_DCE` and `CLAPSE_INTERNAL_ENTRYPOINT_DCE` remain
     for compatibility but do not control compile request shaping anymore.
