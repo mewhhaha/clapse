@@ -8,7 +8,10 @@ const TARGET_DIR = "lib/compiler";
 const TARGET_PREFIX = "native_compile";
 const TARGET_SUFFIX = ".clapse";
 const JSON_COMPILE_SUFFIX_PREFIX = 'json_compile_suffix = str_to_slice "';
-const JSON_COMPILE_WASM_B64_PREFIX = 'json_compile_wasm_b64 = str_to_slice "';
+const JSON_COMPILE_WASM_B64_PREFIXES = [
+  'json_compile_wasm_b64 = str_to_slice "',
+  'json_compile_wasm_b64_default = str_to_slice "',
+];
 const SOURCE_VERSION_MARKER = '\\"source_version\\":\\"';
 const SOURCE_VERSION_END_MARKER =
   '\\",\\"compile_contract_version\\":\\"native-v1\\"}}';
@@ -351,16 +354,24 @@ async function updateFile(path, wasmBase64, sourceVersion) {
     "json_compile_suffix",
   );
   source = suffixRewrite.source;
-  const wasmRewrite = rewriteLiteralValue(
-    source,
-    JSON_COMPILE_WASM_B64_PREFIX,
-    () => wasmBase64,
-    path,
-    "json_compile_wasm_b64",
-  );
-  source = wasmRewrite.source;
+  let sourceWithWasm = source;
+  let updatedWasm = false;
+  for (const prefix of JSON_COMPILE_WASM_B64_PREFIXES) {
+    const rewrite = rewriteLiteralValue(
+      sourceWithWasm,
+      prefix,
+      () => wasmBase64,
+      path,
+      "json_compile_wasm_b64",
+    );
+    sourceWithWasm = rewrite.source;
+    if (rewrite.updated) {
+      updatedWasm = true;
+      break;
+    }
+  }
+  source = sourceWithWasm;
   const updatedSuffix = suffixRewrite.updated;
-  const updatedWasm = wasmRewrite.updated;
   if (!updatedSuffix || !updatedWasm) {
     console.log(
       `refresh-native-compile-payload: SKIP ${path} (missing payload markers)`,
