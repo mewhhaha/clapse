@@ -1,6 +1,7 @@
 name: main-release-dry-run
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
