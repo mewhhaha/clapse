@@ -130,6 +130,9 @@ native-entrypoint-dce-strict-gate:
 native-entrypoint-exports-dce-gate:
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/native-entrypoint-exports-dce-gate.mjs
 
+native-program-codegen-semantics-gate:
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/native-program-codegen-semantics-gate.mjs
+
 native-ir-liveness-size-gate:
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/native-ir-liveness-size-gate.mjs
 
@@ -555,7 +558,9 @@ release-candidate out='out/releases':
   deno run -A scripts/release-metadata.mjs --release-id "${release_id}" --clapse-version "${version}" --compiler-wasm "${compiler_wasm}" --compiler-dts "${compiler_dts}" "${cli_bin_args[@]}" --behavior-map "${behavior_map}" --artifact-map "${artifact_map}" --prelude-source "${prelude_source}" --out "${release_dir}/release-manifest.json" --checksums "${release_dir}/checksums.sha256"
   echo "release-candidate: PASS (${release_dir})"
 semantics-check:
+  just compile-debug-smoke
   just wildcard-demand-check
+  just native-program-codegen-semantics-gate
 
 wildcard-demand-check:
   deno run -A scripts/wildcard-demand-check.mjs

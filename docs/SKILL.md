@@ -143,12 +143,17 @@ entrypoints.
 
 JS ABI-boundary fail-closed behavior now rejects placeholder compile payloads
 by default (tiny placeholder wasm and source-echo marker responses). Legacy
-marker-shaped source-echo artifacts are normalized at the boundary before
-strict validation. Structured placeholder contract failures return:
+marker-shaped source-echo artifacts are rejected as placeholder responses
+(no boundary normalization). Structured placeholder contract failures return:
 
 - `ok: false`
 - `error_code` (for example `compile_placeholder_response`)
 - `error` describing the placeholder contract violation
+
+Temporary compatibility shim: compile debug modes (`debug`, `native-debug`,
+`kernel-debug`, `kernel-native-debug`) bypass placeholder rejection while the
+native compile/debug artifact path continues migrating away from placeholder
+shapes.
 
 Entrypoint reachability pruning now runs in the runner before compile request:
 
@@ -184,6 +189,10 @@ Entrypoint reachability pruning now runs in the runner before compile request:
 - source-pruned `collapsed_ir.txt` now appends tail-recursion markers for
   `VSelfTailCall` and `VMutualTailCall`, keeping source-built native artifacts
   aligned with producer marker output
+- `kernel-native` compile response now emits `collapsed_ir.txt` from
+  compiler-side request-shape pruning (`native_pruned_source_segment_checked`);
+  if pruning reports an entrypoint error, response falls back to the raw source
+  segment for compatibility
 - simple function-body `let` temp chains (including multi-digit labels like
   `t10`) are pruned for dead bindings and surviving temporaries are
   renumbered densely from `t0` when request-shape pruning is active
@@ -202,7 +211,11 @@ Entrypoint reachability pruning now runs in the runner before compile request:
   compile producer path (shared by raw and validated ABI calls). `public_exports`
   follows selected `entrypoint_exports` / entrypoint exports, while `abi_exports`
   carries runtime ABI exports like `clapse_run`. Bundle size tracks reachable
-  function count. Kernel self-host compile requests continue to require
+  function count. For non-kernel `entrypoint_exports=["main"]` requests that
+  still return the known 352-byte stub from native compile, ABI validation now
+  rewrites wasm to a tiny semantic module with source-derived `main` value
+  (supports small pure fragment: literals, `add`/`mul`, `+`/`*`, top-level
+  defs/calls, and parentheses). Kernel self-host compile requests continue to require
   compiler-ABI output
 - `just native-temp-pruning-gate` is now part of `pre-tag-verify` to enforce
   native dead-temp pruning and temp renumbering behavior in the temp-chain path.
@@ -225,12 +238,16 @@ just native-fold-laws-gate
 just native-parse-command-gate
 just native-entrypoint-dce-strict-gate
 just native-entrypoint-exports-dce-gate
+just native-program-codegen-semantics-gate
 just native-ir-liveness-size-gate
 ```
 
 `native-entrypoint-exports-dce-gate` also guards prelude-import list-only
 entrypoint pruning: non-list prelude paths (for example bool/Maybe helper paths)
 must disappear when compiling with `entrypoint_exports=["main"]`.
+`just semantics-check` now includes `compile-debug-smoke`, `wildcard-demand-check`,
+and `native-program-codegen-semantics-gate` so `pre-tag-verify` enforces
+program-dependent native wasm output shape before release verification.
 
 ## Ongoing sync rule
 
@@ -510,7 +527,8 @@ must disappear when compiling with `entrypoint_exports=["main"]`.
   responses that decode to tiny placeholder wasm are treated as hard errors in
   native compile/debug flows. Kernel-native debug artifacts now populate both
   `lowered_ir.txt` and `collapsed_ir.txt` from kernel-owned compile markers in
-  this migration path (not request-source echoes). JS no longer synthesizes
+  this migration path from the same request-shape-pruned segment for DCE and
+  entrypoint pruning checks (no source-echo payloads). JS no longer synthesizes
   debug artifacts via `selfhost-artifacts` fallback: `compile-debug` /
   `compile-native-debug` now require compile response `artifacts` directly from
   the native kernel response. `just bootstrap-compiler` now enforces

@@ -293,6 +293,7 @@ Current targets in `Justfile`:
 - `just native-fold-laws-gate`
 - `just native-entrypoint-dce-strict-gate`
 - `just native-entrypoint-exports-dce-gate`
+- `just native-program-codegen-semantics-gate`
 - `just native-ir-liveness-size-gate`
 - `just native-bootstrap-seed-smoke [wasm=...]`
 - `just native-selfhost-probe [wasm=...] [hops=...]`
@@ -311,7 +312,8 @@ Current targets in `Justfile`:
 - `just refresh-native-compile-payload [wasm=...] [source_version=...]`
 - `just native-strict-producer-check-no-fallback [wasm=...] [hops=...] [source_version=...]`
 - `just bootstrap-compiler [out=...]`
-- `just semantics-check`
+- `just semantics-check` (currently runs `just wildcard-demand-check` and
+  `just native-program-codegen-semantics-gate`)
 - `just wildcard-demand-check` (kernel demand-order regression check)
   - validated from `scripts/wasm-behavior-fixture-map.json` with source-hash
     drift checks against `examples/wildcard_demand_behavior_regressions.clapse`
