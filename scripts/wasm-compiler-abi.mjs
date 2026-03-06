@@ -2221,8 +2221,7 @@ function cloneCompileExports(entries) {
 
 function phase1PublicExportsForRequest(requestObject) {
   const roots = normalizedEntrypointRoots(requestObject);
-  const names = roots.length > 0 ? roots : ["main"];
-  return phase1PublicExportsForNames(names);
+  return phase1PublicExportsForNames(roots);
 }
 
 function phase1PublicExportsForNames(names, definitions = null) {
@@ -2235,9 +2234,6 @@ function phase1PublicExportsForNames(names, definitions = null) {
     }
     seen.add(name);
     out.push({ name, arity: arityByName.get(name) ?? 0 });
-  }
-  if (out.length === 0) {
-    return [{ name: "main", arity: 0 }];
   }
   return out;
 }
