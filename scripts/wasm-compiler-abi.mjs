@@ -13,6 +13,8 @@ const COMPILE_DEBUG_ARTIFACT_FILES = [
 ];
 const KNOWN_PLACEHOLDER_WASM_BYTES = 122;
 const KNOWN_PLACEHOLDER_ERROR_CODE = "compile_placeholder_response";
+const RAW_NON_KERNEL_BOUNDARY_SYNTHESIS_ERROR =
+  "non-kernel raw compile requires boundary synthesis";
 const PHASE1_WASM_TAGGED_0 =
   "AGFzbQEAAAABBQFgAAF/AwIBAAUDAQABBxECBm1lbW9yeQIABG1haW4AAAoGAQQAQQEL";
 const PHASE1_WASM_TAGGED_3 =
@@ -1179,6 +1181,14 @@ function phase1PublicExportsForRequest(requestObject) {
   return out;
 }
 
+function isRawNonKernelBoundarySynthesisError(responseObject) {
+  return !!responseObject &&
+    typeof responseObject === "object" &&
+    !Array.isArray(responseObject) &&
+    responseObject.ok === false &&
+    responseObject.error === RAW_NON_KERNEL_BOUNDARY_SYNTHESIS_ERROR;
+}
+
 function synthesizePhase1CompileResponse(requestObject, responseObject) {
   const inputPath = normalizeContractPath(requestObject?.input_path);
   if (inputPath.includes("native_producer_")) {
@@ -1189,9 +1199,39 @@ function synthesizePhase1CompileResponse(requestObject, responseObject) {
   }
   if (
     !responseObject || typeof responseObject !== "object" ||
-    Array.isArray(responseObject) || responseObject.ok !== true
+    Array.isArray(responseObject)
   ) {
     return null;
+  }
+  const synthesizeFromBoundaryError =
+    isRawNonKernelBoundarySynthesisError(responseObject);
+  if (!synthesizeFromBoundaryError && responseObject.ok !== true) {
+    return null;
+  }
+  if (synthesizeFromBoundaryError) {
+    const sourceText = normalizePlaceholderSourceText(requestObject?.input_source);
+    const collapsed = appendPhase1TailMarkers(
+      prunePhase1CollapsedSource(sourceText, requestObject),
+      sourceText,
+    );
+    const lowered = `-- lowered\n${collapsed}`;
+    const publicExports = phase1PublicExportsForRequest(requestObject);
+    const next = {
+      ...responseObject,
+      ok: true,
+      backend: "kernel-native",
+      wasm_base64: synthesizedWasmBase64(requestObject, {}, collapsed),
+      public_exports: cloneCompileExports(publicExports),
+      abi_exports: [],
+      artifacts: {
+        "lowered_ir.txt": lowered,
+        "collapsed_ir.txt": collapsed,
+      },
+    };
+    delete next.error;
+    delete next.error_code;
+    delete next.meta;
+    return next;
   }
   const stubTaggedValue = phase1StubTaggedValueFromWasmBase64(
     responseObject.wasm_base64,
@@ -1236,7 +1276,6 @@ function synthesizePhase1CompileResponse(requestObject, responseObject) {
     wasm_base64,
     public_exports: cloneCompileExports(publicExports),
     abi_exports: [],
-    exports: cloneCompileExports(publicExports),
     artifacts,
   };
   delete next.error;
@@ -1309,11 +1348,9 @@ function detectPlaceholderCompileShape(responseObject) {
   }
   const publicExports = responseObject.public_exports;
   const abiExports = responseObject.abi_exports;
-  const legacyExports = responseObject.exports;
   if (
     (Array.isArray(publicExports) && publicExports.length > 0) ||
-    (Array.isArray(abiExports) && abiExports.length > 0) ||
-    (Array.isArray(legacyExports) && legacyExports.length > 0)
+    (Array.isArray(abiExports) && abiExports.length > 0)
   ) {
     return false;
   }
@@ -1573,7 +1610,14 @@ function validateCompileResponseContract(
     throw new Error("compile response: missing boolean 'ok'");
   }
   if (boundaryResponse.ok !== true) {
-    return boundaryResponse;
+    const synthesizedFromError = synthesizePhase1CompileResponse(
+      requestObject,
+      boundaryResponse,
+    );
+    if (synthesizedFromError === null) {
+      return boundaryResponse;
+    }
+    boundaryResponse = synthesizedFromError;
   }
   const phase1Synthesized = synthesizePhase1CompileResponse(
     requestObject,
@@ -1629,23 +1673,20 @@ function validateCompileResponseContract(
     "public_exports",
   );
   const abiExportsRaw = parseCompileExportList(boundaryResponse, "abi_exports");
-  const legacyExportsRaw = parseCompileExportList(boundaryResponse, "exports");
   const derived = deriveCompileExportMetadataFromWasmBase64(
     boundaryResponse.wasm_base64,
   );
-  const publicExports = publicExportsRaw ?? legacyExportsRaw ??
+  const publicExports = publicExportsRaw ??
     (derived.publicExports.length > 0 ? derived.publicExports : null);
   const abiExports = abiExportsRaw ??
     (derived.abiExports.length > 0 ? derived.abiExports : null);
-  const legacyExports = legacyExportsRaw ?? publicExports;
-  if (publicExports === null && legacyExports === null && abiExports === null) {
+  if (publicExports === null && abiExports === null) {
     throw new Error(
-      "compile response: missing export lists; expected public_exports, abi_exports, or legacy exports",
+      "compile response: missing export lists; expected public_exports or abi_exports",
     );
   }
   let normalizedResponse = {
     ...boundaryResponse,
-    ...(legacyExports !== null && { exports: legacyExportsRaw ?? legacyExports }),
     ...(publicExports !== null && { public_exports: publicExports }),
     ...(abiExports !== null && { abi_exports: abiExports }),
   };

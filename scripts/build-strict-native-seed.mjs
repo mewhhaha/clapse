@@ -327,10 +327,7 @@ function resolveResponseExportEntries(response) {
   const publicExports = Array.isArray(response?.public_exports)
     ? response.public_exports
     : null;
-  if (publicExports !== null) {
-    return publicExports;
-  }
-  return Array.isArray(response?.exports) ? response.exports : [];
+  return publicExports !== null ? publicExports : [];
 }
 
 function exportNamesFromEntries(exportEntries) {

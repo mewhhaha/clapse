@@ -7,9 +7,6 @@ const DISABLE_FALLBACK_ENV = "CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK";
 const SEED_ABI_EXPORTS = [{ name: "clapse_run", arity: 1 }];
 const SEED_PUBLIC_EXPORTS = [];
 const SEED_DTS = "export declare function clapse_run(request_handle: number): number;\n";
-const SEED_EXPORTS = SEED_PUBLIC_EXPORTS.length > 0
-  ? SEED_PUBLIC_EXPORTS
-  : SEED_ABI_EXPORTS;
 
 const COMPILE_DEBUG_MODES = new Set([
   "kernel-native",
@@ -183,7 +180,6 @@ export async function buildWasmSeedCompileResponse(
     wasm_base64: toBase64(seedWasmBytes),
     public_exports: SEED_PUBLIC_EXPORTS,
     abi_exports: SEED_ABI_EXPORTS,
-    exports: SEED_EXPORTS,
     dts: SEED_DTS,
     artifacts: {
       "lowered_ir.txt": compileArtifactFromSource(sourceText, "lowered_ir"),

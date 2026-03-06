@@ -70,8 +70,15 @@ deno run -A scripts/clapse.mjs bench [iterations]
     - `public_exports`: user-visible entrypoints for `main`-style execution
     - `abi_exports`: ABI/runtime exports (compiler-kernel artifacts include
       `clapse_run` and memory exports)
-    Non-kernel compile responses emit a reachability-shaped wasm bundle in the
-    compile producer path used by both raw and validated ABI calls:
+    Compile responses no longer expose a legacy top-level `exports` list; use
+    `public_exports` for runnable program entrypoints and `abi_exports` for
+    runtime/compiler ABI exports.
+    Direct raw `clapse_run` non-kernel compile requests now fail closed with
+    `non-kernel raw compile requires boundary synthesis` instead of returning
+    the 352-byte mini compiler stub. Wrapper paths
+    (`callCompilerWasm`, `callCompilerWasmRaw` with contract validation, and the
+    runner CLI) recognize that explicit boundary error and synthesize the stable
+    reachability-shaped program response:
     `public_exports` follows selected roots, while `abi_exports` is empty for
     user-program outputs (kernel self-host/compiler outputs keep compiler ABI).
     Bundle size tracks reachable function count, while kernel self-host compile

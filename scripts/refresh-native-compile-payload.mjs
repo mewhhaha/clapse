@@ -81,13 +81,7 @@ function preferredPublicExports(response) {
   const publicExports = Array.isArray(response?.public_exports)
     ? response.public_exports
     : null;
-  if (publicExports !== null) {
-    return publicExports;
-  }
-  const legacyExports = Array.isArray(response?.exports)
-    ? response.exports
-    : [];
-  return legacyExports;
+  return publicExports !== null ? publicExports : [];
 }
 
 function boundaryFallbackContractKeys(response) {

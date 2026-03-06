@@ -1709,11 +1709,7 @@ function parseCompileExportList(response, label) {
 
 function preferredPublicExports(response) {
   const publicExports = parseCompileExportList(response, "public_exports");
-  if (publicExports !== null) {
-    return publicExports;
-  }
-  const legacyExports = parseCompileExportList(response, "exports");
-  return legacyExports !== null ? legacyExports : [];
+  return publicExports !== null ? publicExports : [];
 }
 
 function decodeCompileResponse(response, inputPath) {
@@ -1752,25 +1748,19 @@ function decodeCompileResponse(response, inputPath) {
   }
   const publicExports = parseCompileExportList(response, "public_exports");
   const abiExportsValue = parseCompileExportList(response, "abi_exports");
-  const legacyExports = parseCompileExportList(response, "exports");
   if (
     publicExports === null &&
-    legacyExports === null &&
     abiExportsValue === null
   ) {
     throw new Error(
-      "compile response: missing export lists; expected public_exports, abi_exports, or legacy exports",
+      "compile response: missing export lists; expected public_exports or abi_exports",
     );
   }
   const normalizedResponse = {
     ...response,
-    ...(legacyExports !== null && { exports: legacyExports }),
     ...(publicExports !== null && { public_exports: publicExports }),
     ...(abiExportsValue !== null && { abi_exports: abiExportsValue }),
   };
-  if (publicExports === null && legacyExports !== null) {
-    normalizedResponse.public_exports = legacyExports;
-  }
   if (response.dts !== undefined && typeof response.dts !== "string") {
     throw new Error("compile response: 'dts' must be a string when present");
   }

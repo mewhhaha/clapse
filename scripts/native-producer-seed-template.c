@@ -32,9 +32,11 @@ static const char JSON_ERROR_SUFFIX[] = "\"}";
 static const char ENTRYPOINT_ROOT_INVALID_ERROR[] =
   "compile request entrypoint_exports contains invalid root";
 static const char ENTRYPOINT_ROOT_UNKNOWN_ERROR[] = "unknown entrypoint root";
+static const char NON_KERNEL_BOUNDARY_SYNTHESIS_ERROR[] =
+  "non-kernel raw compile requires boundary synthesis";
 
 static const char COMPILE_PREFIX[] = "{\"ok\":true,\"backend\":\"kernel-native\",\"wasm_base64\":\"";
-static const char COMPILE_MID_A[] = "\",\"exports\":[{\"name\":\"clapse_run\",\"arity\":1},{\"name\":\"main\",\"arity\":1}],\"dts\":\"export declare function clapse_run(request_handle: number): number;\\nexport declare function main(arg0: number): number;\\n\",\"artifacts\":{\"lowered_ir.txt\":\"(lowered_ir) ";
+static const char COMPILE_MID_A[] = "\",\"public_exports\":[{\"name\":\"main\",\"arity\":1}],\"abi_exports\":[{\"name\":\"clapse_run\",\"arity\":1}],\"dts\":\"export declare function clapse_run(request_handle: number): number;\\nexport declare function main(arg0: number): number;\\n\",\"artifacts\":{\"lowered_ir.txt\":\"(lowered_ir) ";
 static const char COMPILE_MID_B[] = "\",\"collapsed_ir.txt\":\"(collapsed_ir) ";
 static const char COMPILE_SUFFIX_A[] = "\"},\"__clapse_contract\":{\"source_version\":\"";
 static const char COMPILE_SUFFIX_B[] = "\",\"compile_contract_version\":\"native-v1\"}}";
@@ -259,6 +261,25 @@ static int segment_equals_literal(Segment seg, const char *literal) {
     }
   }
   return 1;
+}
+
+static int segment_ends_with_literal(Segment seg, const char *literal) {
+  uint32_t lit_len = cstr_len(literal);
+  if (!seg.ok || seg.len < lit_len) {
+    return 0;
+  }
+  uint8_t *data = (uint8_t *) (uintptr_t) (seg.ptr + seg.len - lit_len);
+  for (uint32_t i = 0; i < lit_len; i += 1) {
+    if (data[i] != (uint8_t) literal[i]) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+static int segment_is_kernel_compiler_input_path(Segment seg) {
+  return segment_equals_literal(seg, "lib/compiler/kernel.clapse") ||
+    segment_ends_with_literal(seg, "/lib/compiler/kernel.clapse");
 }
 
 static uint32_t make_slice_response(uint32_t payload_len, uint32_t *payload_out) {
@@ -1754,6 +1775,9 @@ int32_t clapse_run(int32_t request_handle) {
         return (int32_t) build_error_response(prune_error_message);
       }
       return (int32_t) build_error_response("compile request pruning failed");
+    }
+    if (has_entrypoint_override && !segment_is_kernel_compiler_input_path(path_seg)) {
+      return (int32_t) build_error_response(NON_KERNEL_BOUNDARY_SYNTHESIS_ERROR);
     }
     return (int32_t) build_compile_response(pruned_source, has_entrypoint_override);
   }

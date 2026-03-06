@@ -136,6 +136,8 @@ The command returns a single compile response with:
 - `error` (human-readable error message)
 - `public_exports` (user-facing exported function names in the emitted module)
 - `abi_exports` (ABI/runtime exports; compiler-kernel artifacts include `clapse_run` and memory)
+- compile responses no longer carry legacy top-level `exports`; use `public_exports`
+  for user-callable entrypoints and `abi_exports` for runtime/compiler ABI
 
 `clapse_run` is an ABI export used by host/runtime integration for compiler
 artifacts and should not be treated as a user-visible entrypoint. Use
@@ -146,9 +148,13 @@ requests, and now applies phase-1 synthesis for non-kernel compile requests
 when known stub/placeholder payloads are observed (known phase-1 stub wasm,
 tiny placeholder wasm shape, or source-echo marker responses). Phase-1 synthesis rewrites the compile response to
 deterministic non-placeholder wasm + artifacts so smoke/semantics flows can run.
-For non-kernel compile requests, recognized phase-1 stub outputs are now always
-normalized through boundary synthesis so emitted wasm/public export shape is
-stable (user entrypoints only, no `clapse_run` ABI export).
+For non-kernel compile requests, direct raw `clapse_run` compile now fails
+closed with `non-kernel raw compile requires boundary synthesis` instead of
+returning the 352-byte mini compiler stub. `callCompilerWasm`,
+`callCompilerWasmRaw({ validateCompileContract: true })`, and the runner CLI
+recognize that explicit boundary error and synthesize the stable phase-1
+program response instead, so emitted wasm/public export shape stays user-only
+(`main`-style entrypoints, no `clapse_run` ABI export).
 The evaluator now computes `main` for initial pure top-level def graphs in-kernel
 for direct and simple call-chain forms using:
 - `add`/`mul`/`sub`/`div`/`mod`/`id` (plus partial application),
@@ -164,7 +170,8 @@ Structured placeholder contract failures (when synthesis is not applied) return:
 - `error` describing the placeholder contract violation
 
 Compile debug modes also use the same non-kernel phase-1 synthesis path for
-placeholder payloads.
+placeholder payloads. The same boundary synthesis path also handles the explicit
+raw non-kernel boundary error above.
 Legacy export-declaration rejection now matches only real `export` keyword
 declarations, so identifiers like `export_syntax_*` do not false-positive.
 For strict raw compile probes, `callCompilerWasmRaw` now supports
