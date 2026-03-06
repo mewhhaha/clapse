@@ -131,19 +131,29 @@ function codeSectionFunctionCount(wasmBytes) {
   return readVarU32(codePayload, 0).value;
 }
 
-function buildCompileRequest(inputPath, source) {
+function buildCompileRequest(
+  inputPath,
+  source,
+  compileMode = "kernel-native",
+  entrypointExports = ["main"],
+) {
   return {
     command: "compile",
-    compile_mode: "kernel-native",
+    compile_mode: compileMode,
     input_path: inputPath,
     input_source: source,
     plugin_wasm_paths: [],
-    entrypoint_exports: ["main"],
+    entrypoint_exports: entrypointExports,
   };
 }
 
-function requestForOracle(inputPath, source) {
-  return buildCompileRequest(inputPath, source);
+function requestForOracle(inputPath, source, entrypointExports = ["main"]) {
+  return buildCompileRequest(
+    inputPath,
+    source,
+    "kernel-native",
+    entrypointExports,
+  );
 }
 
 function normalizeMainResult(rawResult) {
@@ -192,10 +202,20 @@ async function evaluateMain(program) {
   }
 }
 
-async function compileProgram(wasmPath, label, source) {
+async function compileProgram(
+  wasmPath,
+  label,
+  source,
+  entrypointExports = ["main"],
+) {
   const response = await callCompilerWasmRaw(
     wasmPath,
-    buildCompileRequest(`${label}.clapse`, source),
+    buildCompileRequest(
+      `${label}.clapse`,
+      source,
+      "kernel-native",
+      entrypointExports,
+    ),
     {
       validateCompileContract: true,
       withContractMetadata: true,
@@ -221,7 +241,7 @@ async function compileProgram(wasmPath, label, source) {
     response?.artifacts?.["collapsed_ir.txt"],
     {
       context: `native-program-codegen-semantics-gate: ${label}`,
-      requiredDefs: ["main"],
+      requiredDefs: entrypointExports,
     },
   );
 
@@ -264,10 +284,36 @@ async function assertProgramMainResult(wasmPath, label, source, expected) {
   );
 }
 
-async function assertProgramCompileFails(wasmPath, label, source, errorCode) {
+async function assertProgramCompileExports(
+  wasmPath,
+  label,
+  source,
+  entrypointExports,
+  expectedPublicExports,
+) {
+  const program = await compileProgram(
+    wasmPath,
+    label,
+    source,
+    entrypointExports,
+  );
+  assert(
+    JSON.stringify(program.response.public_exports) ===
+      JSON.stringify(expectedPublicExports),
+    `native-program-codegen-semantics-gate: ${label} expected public exports ${JSON.stringify(expectedPublicExports)}, got ${JSON.stringify(program.response.public_exports)}`,
+  );
+}
+
+async function assertProgramCompileFails(
+  wasmPath,
+  label,
+  source,
+  errorCode,
+  compileMode = "kernel-native",
+) {
   const response = await callCompilerWasmRaw(
     wasmPath,
-    buildCompileRequest(`${label}.clapse`, source),
+    buildCompileRequest(`${label}.clapse`, source, compileMode),
     {
       validateCompileContract: true,
       withContractMetadata: true,
@@ -312,6 +358,16 @@ async function run() {
   assert(
     runA.result.text !== runB.result.text,
     `native-program-codegen-semantics-gate: expected different runtime results, got ${runA.result.text} and ${runB.result.text}`,
+  );
+  await assertProgramMainResult(
+    wasmPath,
+    "const-one",
+    [
+      "export { main }",
+      "main = 1",
+      "",
+    ].join("\n"),
+    "tagged-int:1",
   );
   await assertProgramMainResult(
     wasmPath,
@@ -395,6 +451,16 @@ async function run() {
       "",
     ].join("\n"),
     "tagged-int:3",
+  );
+  await assertProgramCompileExports(
+    wasmPath,
+    "explicit-helper-root-export-metadata",
+    [
+      "helper x = x",
+      "",
+    ].join("\n"),
+    ["helper"],
+    [{ name: "helper", arity: 1 }],
   );
   await assertProgramMainResult(
     wasmPath,

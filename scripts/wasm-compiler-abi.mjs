@@ -119,6 +119,8 @@ function parseWasmFunctionMetadata(bytes) {
   let functionSectionCount = 0;
   const exportNameByIndex = new Map();
   const wasmNameByIndex = new Map();
+  const typeParamCountByIndex = new Map();
+  const functionTypeIndexByIndex = new Map();
   while (cursor < bytes.length) {
     const sectionId = bytes[cursor];
     cursor += 1;
@@ -130,7 +132,23 @@ function parseWasmFunctionMetadata(bytes) {
     if (sectionEnd > bytes.length) {
       throw new Error("malformed wasm section");
     }
-    if (sectionId === 2) {
+    if (sectionId === 1) {
+      const typeCountInfo = decodeVarU32(bytes, cursor, sectionEnd);
+      let tCursor = typeCountInfo.next;
+      for (let i = 0; i < typeCountInfo.value; i += 1) {
+        const form = bytes[tCursor];
+        tCursor += 1;
+        if (form !== 0x60) {
+          throw new Error(`unsupported wasm type form: ${form}`);
+        }
+        const paramCountInfo = decodeVarU32(bytes, tCursor, sectionEnd);
+        tCursor = paramCountInfo.next;
+        typeParamCountByIndex.set(i, paramCountInfo.value);
+        tCursor += paramCountInfo.value;
+        const resultCountInfo = decodeVarU32(bytes, tCursor, sectionEnd);
+        tCursor = resultCountInfo.next + resultCountInfo.value;
+      }
+    } else if (sectionId === 2) {
       const importCountInfo = decodeVarU32(bytes, cursor, sectionEnd);
       let iCursor = importCountInfo.next;
       for (let i = 0; i < importCountInfo.value; i += 1) {
@@ -156,6 +174,15 @@ function parseWasmFunctionMetadata(bytes) {
     } else if (sectionId === 3) {
       const functionSectionCountInfo = decodeVarU32(bytes, cursor, sectionEnd);
       functionSectionCount = functionSectionCountInfo.value;
+      let fCursor = functionSectionCountInfo.next;
+      for (let i = 0; i < functionSectionCountInfo.value; i += 1) {
+        const typeIndexInfo = decodeVarU32(bytes, fCursor, sectionEnd);
+        functionTypeIndexByIndex.set(
+          importFunctionCount + i,
+          typeIndexInfo.value,
+        );
+        fCursor = typeIndexInfo.next;
+      }
     } else if (sectionId === 7) {
       const exportCountInfo = decodeVarU32(bytes, cursor, sectionEnd);
       let eCursor = exportCountInfo.next;
@@ -214,6 +241,8 @@ function parseWasmFunctionMetadata(bytes) {
     functionSectionCount,
     wasmNameByIndex,
     exportNameByIndex,
+    typeParamCountByIndex,
+    functionTypeIndexByIndex,
   };
 }
 
@@ -2622,15 +2651,18 @@ function parseCompileExportList(responseObject, fieldLabel) {
 
 function deriveCompileExportMetadataFromWasmBase64(wasmBase64) {
   const wasmBytes = decodeWasmBase64(wasmBase64);
-  const module = new WebAssembly.Module(wasmBytes);
-  const exports = WebAssembly.Module.exports(module).filter((entry) =>
-    entry.kind === "function"
-  ).map((entry) => entry.name);
+  const metadata = parseWasmFunctionMetadata(wasmBytes);
   const abiNames = new Set(["clapse_run"]);
   const publicExports = [];
   const abiExports = [];
-  for (const name of exports) {
-    const entry = { name, arity: 1 };
+  const exports = [...metadata.exportNameByIndex.entries()]
+    .sort((a, b) => a[0] - b[0]);
+  for (const [fnIndex, name] of exports) {
+    const typeIndex = metadata.functionTypeIndexByIndex.get(fnIndex);
+    const arity = typeof typeIndex === "number"
+      ? (metadata.typeParamCountByIndex.get(typeIndex) ?? 0)
+      : 0;
+    const entry = { name, arity };
     if (abiNames.has(name)) {
       abiExports.push(entry);
     } else {

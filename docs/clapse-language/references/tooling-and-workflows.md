@@ -84,9 +84,14 @@ deno run -A scripts/clapse.mjs bench [iterations]
     infix arithmetic/comparison forms, qualified callable names by final
     segment (for example `prelude.add`), and lambda values flowing through the
     supported list-map/fold forms.
-    If the requested `public_exports` fall outside that subset parser, boundary
-    synthesis emits a compatibility wasm stub for the selected public exports so
-    root-pruning and DCE flows still get a user-only output surface.
+    If the requested `public_exports` still require non-`main` structural
+    output outside that subset parser, boundary synthesis emits a compatibility
+    wasm stub for the selected public exports so root-pruning and DCE flows
+    still get a user-only output surface. Debug artifact requests can also use
+    that structural fallback when the executable subset does not yet cover the
+    requested program shape. Demand-driven debug module graphs now elide
+    stitched local imports before the request crosses the wasm boundary, but
+    unsupported debug shapes still use the compatibility stub today.
     If the source does parse in the subset but still cannot be lowered or
     evaluated, the boundary returns
     `error_code: "compile_phase1_unsupported"` instead of synthetic tagged
@@ -102,6 +107,9 @@ deno run -A scripts/clapse.mjs bench [iterations]
     `compile_strategy` is one of `compiler_raw`, `phase1_passthrough`,
     `phase1_executable`, `phase1_tagged`, or `phase1_compatibility_stub`, and
     `compatibility_used` is `true` only for the compatibility-stub path.
+    When a compile response omits explicit export metadata, the ABI layer now
+    derives function arities from wasm type/function sections instead of
+    assuming every function export takes one argument.
     Bundle size tracks reachable function count, while kernel self-host compile
     requests still require full compiler ABI output.
     Legacy env

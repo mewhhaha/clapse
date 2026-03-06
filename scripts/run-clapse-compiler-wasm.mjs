@@ -1424,16 +1424,11 @@ async function buildDemandDrivenCompileInput(
           (importUsage.has(keptImportEntry.key) ||
             keptImportEntry.isHostModule === true);
         if (keepImport && keptImportEntry) {
-          let importLine = String(keptImportEntry.line);
           const targetPath = String(keptImportEntry.resolvedPath ?? "");
           if (targetPath.length > 0) {
-            const targetInfo = moduleInfos.get(targetPath);
-            const targetModuleName = String(targetInfo?.moduleName ?? "");
-            const canonical = canonicalImportLine(targetModuleName);
-            if (canonical.length > 0) {
-              importLine = canonical;
-            }
+            continue;
           }
+          const importLine = String(keptImportEntry.line);
           if (!emittedImports.has(importLine)) {
             emittedImports.add(importLine);
             lines.push(importLine);

@@ -168,6 +168,9 @@ Compile responses now also expose:
   stub path was used
 Treat `phase1_compatibility_stub` as explicit migration debt, not normal
 compiler success.
+When a compile response omits explicit export metadata, the ABI layer now
+derives exported function arities from wasm type/function sections instead of
+defaulting every function export to arity `1`.
 The boundary synthesis path now prefers executable wasm emission for an initial
 first-order integer/boolean subset before falling back to constant synthesis.
 That executable subset supports:
@@ -179,12 +182,13 @@ That executable subset supports:
 - arithmetic/comparison builtins `add`/`mul`/`sub`/`div`/`mod`/`eq`/`ne`/`lt`/`le`/`gt`/`ge`
 
 If a non-kernel compile request is valid Clapse source but the requested
-`public_exports` are outside that executable/evaluator subset (for example,
-import-heavy prelude programs or syntax the subset parser does not cover yet),
-boundary synthesis now emits a compatibility wasm stub keyed to the requested
-public export surface instead of failing. That preserves user-only exports and
-keeps DCE/root-pruning gates meaningful while the full backend is still being
-built.
+`public_exports` are outside that executable/evaluator subset (currently this is
+primarily non-`main` rooted export surfaces that still need temporary
+structural output), boundary synthesis emits a compatibility wasm stub keyed to
+the requested public export surface instead of failing. Demand-driven module
+graph merges now drop inlined local imports before the wasm boundary, but debug
+requests still use the compatibility stub when the executable/tagged subset
+does not apply.
 
 If that executable path does not apply, the evaluator still computes `main` for
 initial pure top-level def graphs for direct and simple call-chain forms using:
