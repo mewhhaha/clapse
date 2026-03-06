@@ -75,7 +75,19 @@ deno run -A scripts/clapse.mjs bench [iterations]
     runtime/compiler ABI exports.
     Direct raw `clapse_run` non-kernel compile requests now fail closed with
     `non-kernel raw compile requires boundary synthesis` instead of returning
-    the 352-byte mini compiler stub. Wrapper paths
+    the 352-byte mini compiler stub.
+    Boundary synthesis now prefers executable wasm emission for a first-order
+    integer/boolean subset (`main`, direct top-level calls/recursion,
+    `if`, boolean `case`, and arithmetic/comparison builtins) before falling
+    back to constant synthesis for the older pure-evaluator subset.
+    If the requested `public_exports` fall outside that subset parser, boundary
+    synthesis emits a compatibility wasm stub for the selected public exports so
+    root-pruning and DCE flows still get a user-only output surface.
+    If the source does parse in the subset but still cannot be lowered or
+    evaluated, the boundary returns
+    `error_code: "compile_phase1_unsupported"` instead of synthetic tagged
+    constants.
+    Wrapper paths
     (`callCompilerWasm`, `callCompilerWasmRaw` with contract validation, and the
     runner CLI) recognize that explicit boundary error and synthesize the stable
     reachability-shaped program response:

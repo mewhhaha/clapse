@@ -1,6 +1,6 @@
 {
   "tool": "build-native-producer-seed",
-  "created_at": "2026-03-06T12:20:43.965Z",
+  "created_at": "2026-03-06T19:13:53.793Z",
   "seed": {
     "input_path": "artifacts/latest/clapse_compiler.wasm",
     "input_sha256": "65e83c3377832e99269b65b998a25325486fa755a6ab4a1423e882ef45439516"

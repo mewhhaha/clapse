@@ -5,7 +5,7 @@ import {
   callCompilerWasmRaw,
   decodeWasmBase64,
 } from "./wasm-compiler-abi.mjs";
-import { makeRuntime } from "./wasm-runtime.mjs";
+import { decodeInt, instantiateWithRuntime, makeRuntime } from "./wasm-runtime.mjs";
 
 const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder();
@@ -78,6 +78,17 @@ function assertPublicExportsMainOnly(response, label) {
   );
 }
 
+async function assertMainEvaluatesTo(bytes, expected, label) {
+  const { instance } = await instantiateWithRuntime(bytes);
+  const mainFn = instance.exports.main;
+  assert(typeof mainFn === "function", `${label}: missing main export`);
+  const result = mainFn();
+  assert(
+    decodeInt(result | 0) === expected,
+    `${label}: expected tagged-int:${expected}, got raw ${String(result)}`,
+  );
+}
+
 async function run() {
   const wasmPath = resolveCompilerWasmPath();
   const request = buildRequest();
@@ -98,10 +109,8 @@ async function run() {
   });
   assert(validated?.ok === true, "validated compile should synthesize success");
   const validatedBytes = decodeWasmBase64(validated.wasm_base64);
-  assert(
-    validatedBytes.length === 51,
-    `validated compile expected 51-byte identity wasm, got ${validatedBytes.length}`,
-  );
+  assert(validatedBytes.length > 0, "validated compile produced empty wasm");
+  await assertMainEvaluatesTo(validatedBytes, 7, "validated compile");
   assertPublicExportsMainOnly(validated, "validated compile");
 
   const rawWrapped = await callCompilerWasmRaw(wasmPath, request, {
@@ -110,10 +119,8 @@ async function run() {
   });
   assert(rawWrapped?.ok === true, "validated raw compile should synthesize success");
   const rawWrappedBytes = decodeWasmBase64(rawWrapped.wasm_base64);
-  assert(
-    rawWrappedBytes.length === 51,
-    `validated raw compile expected 51-byte identity wasm, got ${rawWrappedBytes.length}`,
-  );
+  assert(rawWrappedBytes.length > 0, "validated raw compile produced empty wasm");
+  await assertMainEvaluatesTo(rawWrappedBytes, 7, "validated raw compile");
   assertPublicExportsMainOnly(rawWrapped, "validated raw compile");
 
   console.log(

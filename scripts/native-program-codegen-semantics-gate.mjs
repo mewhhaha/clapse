@@ -121,6 +121,14 @@ function structuralCodeSignature(wasmBytes) {
   return `code=${functionCount}|${bodies.join(",")}`;
 }
 
+function codeSectionFunctionCount(wasmBytes) {
+  const codePayload = sectionPayloadById(wasmBytes, 10);
+  if (codePayload === null) {
+    return 0;
+  }
+  return readVarU32(codePayload, 0).value;
+}
+
 function buildCompileRequest(inputPath, source) {
   return {
     command: "compile",
@@ -224,6 +232,25 @@ async function assertProgramMainResult(wasmPath, label, source, expected) {
   );
 }
 
+async function assertProgramCompileFails(wasmPath, label, source, errorCode) {
+  const response = await callCompilerWasmRaw(
+    wasmPath,
+    buildCompileRequest(`${label}.clapse`, source),
+    {
+      validateCompileContract: true,
+      withContractMetadata: true,
+    },
+  );
+  assert(
+    response && typeof response === "object" && response.ok === false,
+    `native-program-codegen-semantics-gate: ${label} expected compile failure`,
+  );
+  assert(
+    response.error_code === errorCode,
+    `native-program-codegen-semantics-gate: ${label} expected error_code=${errorCode}, got ${String(response.error_code ?? "missing")}`,
+  );
+}
+
 async function run() {
   const wasmPath = resolveCompilerWasmPath();
 
@@ -324,6 +351,57 @@ async function run() {
       "",
     ].join("\n"),
     "tagged-int:7",
+  );
+  await assertProgramMainResult(
+    wasmPath,
+    "fibonacci-recursive-case-bool",
+    [
+      'import "prelude" { eq, add, sub }',
+      "export { main }",
+      "fibonacci n = case eq n 0 of",
+      "  true -> 0",
+      "  _ -> case eq n 1 of",
+      "    true -> 1",
+      "    _ -> add (fibonacci (sub n 1)) (fibonacci (sub n 2))",
+      "main = fibonacci 10",
+      "",
+    ].join("\n"),
+    "tagged-int:55",
+  );
+  const fibProgram = await compileProgram(
+    wasmPath,
+    "fibonacci-recursive-case-bool-codegen",
+    [
+      'import "prelude" { eq, add, sub }',
+      "export { main }",
+      "fibonacci n = case eq n 0 of",
+      "  true -> 0",
+      "  _ -> case eq n 1 of",
+      "    true -> 1",
+      "    _ -> add (fibonacci (sub n 1)) (fibonacci (sub n 2))",
+      "main = fibonacci 10",
+      "",
+    ].join("\n"),
+  );
+  assert(
+    fibProgram.wasmBytes.length > 51,
+    `native-program-codegen-semantics-gate: fibonacci should emit executable wasm, got ${fibProgram.wasmBytes.length} bytes (${structuralCodeSignature(fibProgram.wasmBytes)})`,
+  );
+  assert(
+    codeSectionFunctionCount(fibProgram.wasmBytes) >= 2,
+    `native-program-codegen-semantics-gate: fibonacci should emit multiple wasm functions (${structuralCodeSignature(fibProgram.wasmBytes)})`,
+  );
+  await assertProgramCompileFails(
+    wasmPath,
+    "unsupported-case-target",
+    [
+      "export { main }",
+      "main = case 1 of",
+      "  true -> 0",
+      "  _ -> 1",
+      "",
+    ].join("\n"),
+    "compile_phase1_unsupported",
   );
   console.log(
     `native-program-codegen-semantics-gate: PASS (hash_a=${programA.wasmsum}; hash_b=${programB.wasmsum}; main_a=${runA.result.text}; main_b=${runB.result.text})`,

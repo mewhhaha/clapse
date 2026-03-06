@@ -13,6 +13,7 @@ const COMPILE_DEBUG_ARTIFACT_FILES = [
 ];
 const KNOWN_PLACEHOLDER_WASM_BYTES = 122;
 const KNOWN_PLACEHOLDER_ERROR_CODE = "compile_placeholder_response";
+const PHASE1_UNSUPPORTED_ERROR_CODE = "compile_phase1_unsupported";
 const RAW_NON_KERNEL_BOUNDARY_SYNTHESIS_ERROR =
   "non-kernel raw compile requires boundary synthesis";
 const PHASE1_WASM_TAGGED_0 =
@@ -383,9 +384,540 @@ function buildPhase1TaggedWasmBase64(rawValue) {
   return toBase64(Uint8Array.from(withRaw));
 }
 
+function phase1FlattenApply(node) {
+  const args = [];
+  let cursor = node;
+  while (cursor && cursor.type === "apply") {
+    args.unshift(cursor.arg);
+    cursor = cursor.fn;
+  }
+  return { callee: cursor, args };
+}
+
+function phase1BuiltinArity(name) {
+  switch (name) {
+    case "ListNil":
+    case "Nil":
+      return 0;
+    case "ListCons":
+    case "Cons":
+      return 2;
+    case "add":
+    case "mul":
+    case "sub":
+    case "div":
+    case "mod":
+    case "eq":
+    case "ne":
+    case "lt":
+    case "le":
+    case "gt":
+    case "ge":
+      return 2;
+    case "list_map":
+    case "list_filter":
+    case "list_any":
+    case "list_all":
+      return 2;
+    case "list_foldl":
+      return 3;
+    default:
+      return null;
+  }
+}
+
+function phase1CollectReachableDefs(definitions, rootName) {
+  const defMap = new Map(definitions.map((def) => [def.name, def]));
+  const reachable = new Set();
+  const visiting = new Set();
+
+  function visitExpr(expr, locals) {
+    if (!expr || typeof expr !== "object") {
+      return true;
+    }
+    if (expr.type === "int" || expr.type === "bool") {
+      return true;
+    }
+    if (expr.type === "var") {
+      if (locals.has(expr.name)) {
+        return true;
+      }
+      const targetDef = defMap.get(expr.name);
+      if (!targetDef) {
+        return true;
+      }
+      return visitDef(expr.name);
+    }
+    if (expr.type === "if") {
+      return visitExpr(expr.cond, locals) &&
+        visitExpr(expr.thenExpr, locals) &&
+        visitExpr(expr.elseExpr, locals);
+    }
+    if (expr.type === "caseBool") {
+      return visitExpr(expr.target, locals) &&
+        visitExpr(expr.whenTrue, locals) &&
+        visitExpr(expr.whenFalse, locals);
+    }
+    if (expr.type === "apply") {
+      const flattened = phase1FlattenApply(expr);
+      const callee = flattened.callee;
+      if (!callee || callee.type !== "var") {
+        return false;
+      }
+      for (const arg of flattened.args) {
+        if (!visitExpr(arg, locals)) {
+          return false;
+        }
+      }
+      const builtinArity = phase1BuiltinArity(callee.name);
+      if (builtinArity !== null) {
+        return flattened.args.length === builtinArity;
+      }
+      const targetDef = defMap.get(callee.name);
+      if (!targetDef) {
+        return false;
+      }
+      if (targetDef.params.length !== flattened.args.length) {
+        return false;
+      }
+      return visitDef(callee.name);
+    }
+    return false;
+  }
+
+  function visitDef(name) {
+    if (reachable.has(name)) {
+      return true;
+    }
+    if (visiting.has(name)) {
+      return true;
+    }
+    const def = defMap.get(name);
+    if (!def) {
+      return false;
+    }
+    visiting.add(name);
+    const ok = visitExpr(def.body, new Set(def.params));
+    visiting.delete(name);
+    if (ok) {
+      reachable.add(name);
+    }
+    return ok;
+  }
+
+  if (!visitDef(rootName)) {
+    return null;
+  }
+  return {
+    defMap,
+    orderedDefs: definitions.filter((def) => reachable.has(def.name)),
+  };
+}
+
+function phase1WasmTypeSection(types) {
+  const payload = [...encodeVarU32(types.length)];
+  for (const paramCount of types) {
+    payload.push(0x60);
+    payload.push(...encodeVarU32(paramCount));
+    for (let i = 0; i < paramCount; i += 1) {
+      payload.push(0x7f);
+    }
+    payload.push(0x01, 0x7f);
+  }
+  return payload;
+}
+
+function phase1WasmFunctionSection(typeIndexes) {
+  const payload = [...encodeVarU32(typeIndexes.length)];
+  for (const typeIndex of typeIndexes) {
+    payload.push(...encodeVarU32(typeIndex));
+  }
+  return payload;
+}
+
+function phase1WasmMemorySection() {
+  return [0x01, 0x00, 0x01];
+}
+
+function phase1AppendName(payload, name) {
+  const bytes = UTF8_ENCODER.encode(name);
+  payload.push(...encodeVarU32(bytes.length));
+  for (const value of bytes) {
+    payload.push(value);
+  }
+}
+
+function phase1WasmExportSection(exportsList) {
+  const payload = [...encodeVarU32(exportsList.length)];
+  for (const entry of exportsList) {
+    phase1AppendName(payload, entry.name);
+    payload.push(entry.kind);
+    payload.push(...encodeVarU32(entry.index));
+  }
+  return payload;
+}
+
+function phase1WasmCodeSection(bodies) {
+  const payload = [...encodeVarU32(bodies.length)];
+  for (const body of bodies) {
+    const localsDecls = [0x00];
+    const encoded = [...localsDecls, ...body, 0x0b];
+    payload.push(...encodeVarU32(encoded.length));
+    payload.push(...encoded);
+  }
+  return payload;
+}
+
+function phase1WrapSection(id, payload) {
+  return [id, ...encodeVarU32(payload.length), ...payload];
+}
+
+function phase1EmitExprToWasm(expr, ctx) {
+  if (!expr || typeof expr !== "object") {
+    return null;
+  }
+  if (expr.type === "int") {
+    return [0x41, ...encodeVarS32(expr.value)];
+  }
+  if (expr.type === "bool") {
+    return [0x41, ...encodeVarS32(expr.value ? 1 : 0)];
+  }
+  if (expr.type === "var") {
+    if (ctx.locals.has(expr.name)) {
+      return [0x20, ...encodeVarU32(ctx.locals.get(expr.name))];
+    }
+    const targetIndex = ctx.functionIndexByName.get(expr.name);
+    const targetDef = ctx.defMap.get(expr.name);
+    if (
+      typeof targetIndex === "number" &&
+      targetDef &&
+      targetDef.params.length === 0
+    ) {
+      return [0x10, ...encodeVarU32(targetIndex)];
+    }
+    return null;
+  }
+  if (expr.type === "if") {
+    if (!phase1IsBoolConditionExpr(expr.cond, ctx, new Set())) {
+      return null;
+    }
+    const cond = phase1EmitExprToWasm(expr.cond, ctx);
+    const thenExpr = phase1EmitExprToWasm(expr.thenExpr, ctx);
+    const elseExpr = phase1EmitExprToWasm(expr.elseExpr, ctx);
+    if (cond === null || thenExpr === null || elseExpr === null) {
+      return null;
+    }
+    return [...cond, 0x04, 0x7f, ...thenExpr, 0x05, ...elseExpr, 0x0b];
+  }
+  if (expr.type === "caseBool") {
+    if (!phase1IsBoolConditionExpr(expr.target, ctx, new Set())) {
+      return null;
+    }
+    const cond = phase1EmitExprToWasm(expr.target, ctx);
+    const whenTrue = phase1EmitExprToWasm(expr.whenTrue, ctx);
+    const whenFalse = phase1EmitExprToWasm(expr.whenFalse, ctx);
+    if (cond === null || whenTrue === null || whenFalse === null) {
+      return null;
+    }
+    return [...cond, 0x04, 0x7f, ...whenTrue, 0x05, ...whenFalse, 0x0b];
+  }
+  if (expr.type === "apply") {
+    const flattened = phase1FlattenApply(expr);
+    const callee = flattened.callee;
+    if (!callee || callee.type !== "var") {
+      return null;
+    }
+    const out = [];
+    for (const arg of flattened.args) {
+      const emitted = phase1EmitExprToWasm(arg, ctx);
+      if (emitted === null) {
+        return null;
+      }
+      out.push(...emitted);
+    }
+    switch (callee.name) {
+      case "add":
+        return flattened.args.length === 2 ? [...out, 0x6a] : null;
+      case "sub":
+        return flattened.args.length === 2 ? [...out, 0x6b] : null;
+      case "mul":
+        return flattened.args.length === 2 ? [...out, 0x6c] : null;
+      case "div":
+        return flattened.args.length === 2 ? [...out, 0x6d] : null;
+      case "mod":
+        return flattened.args.length === 2 ? [...out, 0x6f] : null;
+      case "eq":
+        return flattened.args.length === 2 ? [...out, 0x46] : null;
+      case "ne":
+        return flattened.args.length === 2 ? [...out, 0x47] : null;
+      case "lt":
+        return flattened.args.length === 2 ? [...out, 0x48] : null;
+      case "gt":
+        return flattened.args.length === 2 ? [...out, 0x4a] : null;
+      case "le":
+        return flattened.args.length === 2 ? [...out, 0x4c] : null;
+      case "ge":
+        return flattened.args.length === 2 ? [...out, 0x4e] : null;
+      default: {
+        const targetIndex = ctx.functionIndexByName.get(callee.name);
+        const targetDef = ctx.defMap.get(callee.name);
+        if (
+          typeof targetIndex !== "number" ||
+          !targetDef ||
+          targetDef.params.length !== flattened.args.length
+        ) {
+          return null;
+        }
+        out.push(0x10, ...encodeVarU32(targetIndex));
+        return out;
+      }
+    }
+  }
+  return null;
+}
+
+function phase1IsBoolConditionExpr(expr, ctx, seenDefs) {
+  if (!expr || typeof expr !== "object") {
+    return false;
+  }
+  if (expr.type === "bool") {
+    return true;
+  }
+  if (expr.type === "if") {
+    return phase1IsBoolConditionExpr(expr.cond, ctx, seenDefs) &&
+      phase1IsBoolConditionExpr(expr.thenExpr, ctx, seenDefs) &&
+      phase1IsBoolConditionExpr(expr.elseExpr, ctx, seenDefs);
+  }
+  if (expr.type === "caseBool") {
+    return phase1IsBoolConditionExpr(expr.target, ctx, seenDefs) &&
+      phase1IsBoolConditionExpr(expr.whenTrue, ctx, seenDefs) &&
+      phase1IsBoolConditionExpr(expr.whenFalse, ctx, seenDefs);
+  }
+  if (expr.type === "apply") {
+    const flattened = phase1FlattenApply(expr);
+    const callee = flattened.callee;
+    if (!callee || callee.type !== "var") {
+      return false;
+    }
+    if (
+      callee.name === "eq" || callee.name === "ne" || callee.name === "lt" ||
+      callee.name === "le" || callee.name === "gt" || callee.name === "ge"
+    ) {
+      return flattened.args.length === 2;
+    }
+    const targetDef = ctx.defMap.get(callee.name);
+    if (!targetDef || seenDefs.has(targetDef.name)) {
+      return false;
+    }
+    seenDefs.add(targetDef.name);
+    const out = phase1IsBoolConditionExpr(targetDef.body, ctx, seenDefs);
+    seenDefs.delete(targetDef.name);
+    return out;
+  }
+  if (expr.type === "var" && !ctx.locals.has(expr.name)) {
+    const targetDef = ctx.defMap.get(expr.name);
+    if (!targetDef || targetDef.params.length !== 0 || seenDefs.has(targetDef.name)) {
+      return false;
+    }
+    seenDefs.add(targetDef.name);
+    const out = phase1IsBoolConditionExpr(targetDef.body, ctx, seenDefs);
+    seenDefs.delete(targetDef.name);
+    return out;
+  }
+  return false;
+}
+
+function phase1ExecutableWasmBase64ForSource(sourceText, requestObject) {
+  const roots = normalizedEntrypointRoots(requestObject);
+  if (roots.length > 1 || (roots.length === 1 && roots[0] !== "main")) {
+    return null;
+  }
+  const definitions = phase1ParseTopLevelDefinitions(sourceText);
+  if (definitions === null) {
+    return null;
+  }
+  const graph = phase1CollectReachableDefs(definitions, "main");
+  if (graph === null) {
+    return null;
+  }
+  const mainDef = graph.defMap.get("main");
+  if (!mainDef) {
+    return null;
+  }
+
+  const typeByArity = new Map();
+  const typeList = [];
+  function ensureType(paramCount) {
+    if (typeByArity.has(paramCount)) {
+      return typeByArity.get(paramCount);
+    }
+    const idx = typeList.length;
+    typeList.push(paramCount);
+    typeByArity.set(paramCount, idx);
+    return idx;
+  }
+
+  const functionIndexByName = new Map();
+  graph.orderedDefs.forEach((def, index) => functionIndexByName.set(def.name, index));
+  const mainWrapperIndex = graph.orderedDefs.length;
+
+  const bodies = [];
+  const typeIndexes = [];
+  for (const def of graph.orderedDefs) {
+    const locals = new Map();
+    def.params.forEach((param, index) => locals.set(param, index));
+    const emitted = phase1EmitExprToWasm(def.body, {
+      locals,
+      functionIndexByName,
+      defMap: graph.defMap,
+    });
+    if (emitted === null) {
+      return null;
+    }
+    bodies.push(emitted);
+    typeIndexes.push(ensureType(def.params.length));
+  }
+
+  const mainWrapperBody = [];
+  for (let i = 0; i < mainDef.params.length; i += 1) {
+    mainWrapperBody.push(0x20, ...encodeVarU32(i));
+  }
+  mainWrapperBody.push(
+    0x10,
+    ...encodeVarU32(functionIndexByName.get("main")),
+    0x41,
+    ...encodeVarS32(2),
+    0x6c,
+    0x41,
+    ...encodeVarS32(1),
+    0x6a,
+  );
+  bodies.push(mainWrapperBody);
+  typeIndexes.push(ensureType(mainDef.params.length));
+
+  const moduleBytes = [
+    0x00,
+    0x61,
+    0x73,
+    0x6d,
+    0x01,
+    0x00,
+    0x00,
+    0x00,
+    ...phase1WrapSection(1, phase1WasmTypeSection(typeList)),
+    ...phase1WrapSection(3, phase1WasmFunctionSection(typeIndexes)),
+    ...phase1WrapSection(5, phase1WasmMemorySection()),
+    ...phase1WrapSection(7, phase1WasmExportSection([
+      { name: "memory", kind: 0x02, index: 0 },
+      { name: "main", kind: 0x00, index: mainWrapperIndex },
+    ])),
+    ...phase1WrapSection(10, phase1WasmCodeSection(bodies)),
+  ];
+  return toBase64(appendClapseFuncMap(Uint8Array.from(moduleBytes)));
+}
+
+function phase1ParseExplicitExportNames(sourceText) {
+  if (typeof sourceText !== "string" || sourceText.length === 0) {
+    return [];
+  }
+  const lines = sourceText.split(/\r?\n/u);
+  for (const rawLine of lines) {
+    const code = phase1StripLineComment(rawLine).trim();
+    const match = code.match(/^export\s*\{(.*)\}\s*$/u);
+    if (match === null) {
+      continue;
+    }
+    return match[1]
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+  }
+  return [];
+}
+
+function phase1CompatibilityExportNames(requestObject, sourceText) {
+  const roots = normalizedEntrypointRoots(requestObject);
+  if (roots.length > 0) {
+    return roots;
+  }
+  const explicit = phase1ParseExplicitExportNames(sourceText);
+  if (explicit.length > 0) {
+    return explicit;
+  }
+  return ["main"];
+}
+
+function phase1CompatibilityStubWasmBase64(exportsList) {
+  const normalizedExports = Array.isArray(exportsList)
+    ? exportsList.filter((entry) =>
+      entry && typeof entry.name === "string" && entry.name.length > 0
+    )
+    : [];
+  if (normalizedExports.length === 0) {
+    return buildPhase1TaggedWasmBase64(0);
+  }
+
+  const typeByArity = new Map();
+  const typeList = [];
+  function ensureType(paramCount) {
+    if (typeByArity.has(paramCount)) {
+      return typeByArity.get(paramCount);
+    }
+    const idx = typeList.length;
+    typeList.push(paramCount);
+    typeByArity.set(paramCount, idx);
+    return idx;
+  }
+
+  const typeIndexes = [];
+  const bodies = [];
+  const wasmExports = [{ name: "memory", kind: 0x02, index: 0 }];
+  normalizedExports.forEach((entry, index) => {
+    const arity = Number.isInteger(entry.arity) && entry.arity >= 0
+      ? entry.arity
+      : 0;
+    typeIndexes.push(ensureType(arity));
+    bodies.push([0x41, ...encodeVarS32(1)]);
+    wasmExports.push({ name: entry.name, kind: 0x00, index });
+  });
+
+  const moduleBytes = [
+    0x00,
+    0x61,
+    0x73,
+    0x6d,
+    0x01,
+    0x00,
+    0x00,
+    0x00,
+    ...phase1WrapSection(1, phase1WasmTypeSection(typeList)),
+    ...phase1WrapSection(3, phase1WasmFunctionSection(typeIndexes)),
+    ...phase1WrapSection(5, phase1WasmMemorySection()),
+    ...phase1WrapSection(7, phase1WasmExportSection(wasmExports)),
+    ...phase1WrapSection(10, phase1WasmCodeSection(bodies)),
+  ];
+  return toBase64(Uint8Array.from(moduleBytes));
+}
+
+function phase1DefinitionsCoverExportNames(definitions, exportEntries) {
+  if (!Array.isArray(definitions)) {
+    return false;
+  }
+  const names = new Set(definitions.map((def) => def.name));
+  for (const entry of exportEntries) {
+    if (!entry || typeof entry.name !== "string" || entry.name.length === 0) {
+      continue;
+    }
+    if (!names.has(entry.name)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function phase1TokenizeExpression(text) {
   const tokens = [];
-  const tokenRe = /\s*(->|>=|<=|!=|\(|\)|\||True|False|true|false|[-]?\d+|[A-Za-z_][A-Za-z0-9_']*)/gu;
+  const tokenRe = /\s*(->|>=|<=|!=|\(|\)|\||_|True|False|true|false|[-]?\d+|[A-Za-z_][A-Za-z0-9_']*)/gu;
   let cursor = 0;
   while (cursor < text.length) {
     const match = tokenRe.exec(text);
@@ -503,7 +1035,7 @@ function phase1ParsePrimary(tokens, start, stopTokens) {
     const target = phase1ParseExpr(
       tokens,
       start + 1,
-      new Set(["of", "True", "False", ...stopTokens]),
+      new Set(["of", "True", "False", "true", "false", ...stopTokens]),
     );
     if (target === null) {
       return null;
@@ -523,7 +1055,7 @@ function phase1ParsePrimary(tokens, start, stopTokens) {
     const whenTrue = phase1ParseExpr(
       tokens,
       cursor,
-      new Set(["False", ...stopTokens]),
+      new Set(["False", "false", "_", ...stopTokens]),
     );
     if (whenTrue === null) {
       return null;
@@ -533,7 +1065,9 @@ function phase1ParsePrimary(tokens, start, stopTokens) {
       cursor += 1;
     }
     const falseToken = tokens[cursor];
-    if (falseToken !== "False" && falseToken !== "false") {
+    if (
+      falseToken !== "False" && falseToken !== "false" && falseToken !== "_"
+    ) {
       return null;
     }
     cursor += 1;
@@ -583,31 +1117,62 @@ function phase1ToArgList(rawValue) {
     .filter((arg) => arg.length > 0);
 }
 
+function phase1StripLineComment(line) {
+  return String(line ?? "").split("--", 1)[0];
+}
+
+function phase1LeadingIndent(line) {
+  const match = String(line ?? "").match(/^\s*/u);
+  return match ? match[0].length : 0;
+}
+
 function phase1ParseTopLevelDefinitions(sourceText) {
   const lines = normalizePlaceholderSourceText(sourceText).split("\n");
   const definitions = [];
-  for (const line of lines) {
-    const code = line.split("--", 1)[0].trim();
-    if (code.length === 0) {
+  for (let index = 0; index < lines.length;) {
+    const rawLine = lines[index];
+    const code = phase1StripLineComment(rawLine);
+    const trimmed = code.trim();
+    if (trimmed.length === 0) {
+      index += 1;
       continue;
     }
-    const match = code.match(
+    const match = trimmed.match(
       /^([A-Za-z_][A-Za-z0-9_']*)\s*(.*?)\s*=\s*(.+)$/u,
     );
     if (match === null) {
+      index += 1;
       continue;
     }
     const name = match[1];
     const params = match[2].trim().length > 0
       ? phase1ToArgList(match[2])
       : [];
-    const rhs = match[3].trim();
+    const rhsParts = [match[3].trim()];
+    const baseIndent = phase1LeadingIndent(code);
+    let nextIndex = index + 1;
+    while (nextIndex < lines.length) {
+      const continuationCode = phase1StripLineComment(lines[nextIndex]);
+      const continuationTrimmed = continuationCode.trim();
+      if (continuationTrimmed.length === 0) {
+        nextIndex += 1;
+        continue;
+      }
+      if (phase1LeadingIndent(continuationCode) <= baseIndent) {
+        break;
+      }
+      rhsParts.push(continuationTrimmed);
+      nextIndex += 1;
+    }
+    const rhs = rhsParts.join(" ");
     const tokens = phase1TokenizeExpression(rhs);
     if (tokens === null) {
+      index = nextIndex;
       continue;
     }
     const parsed = phase1ParseExpr(tokens, 0, new Set());
     if (parsed === null || parsed.next !== tokens.length) {
+      index = nextIndex;
       continue;
     }
     definitions.push({
@@ -615,8 +1180,9 @@ function phase1ParseTopLevelDefinitions(sourceText) {
       params,
       body: parsed.node,
     });
+    index = nextIndex;
   }
-  return definitions;
+  return definitions.length > 0 ? definitions : null;
 }
 
 function phase1ApplyBuiltin(name, args, depth = 0) {
@@ -911,14 +1477,16 @@ function phase1EvaluateDefinitionGraph(sourceText) {
 
 function phase1TaggedConstForSource(sourceText) {
   const evaluated = phase1EvaluateDefinitionGraph(sourceText);
-  return evaluated ?? 0;
+  return evaluated;
 }
 
 function phase1WasmBase64ForTaggedConst(taggedValue) {
   const min = -1073741824;
   const max = 1073741823;
-  if (!Number.isSafeInteger(taggedValue) || taggedValue < min || taggedValue > max) {
-    return PHASE1_WASM_TAGGED_0;
+  if (
+    !Number.isSafeInteger(taggedValue) || taggedValue < min || taggedValue > max
+  ) {
+    return null;
   }
   return buildPhase1TaggedWasmBase64(taggedValue);
 }
@@ -981,8 +1549,7 @@ function shouldPrunePhase1Line(trimmed, roots) {
   }
   if (
     hasMainRoot &&
-    (trimmed.startsWith("helper ") ||
-      trimmed.startsWith("dead_bool") ||
+    (trimmed.startsWith("dead_bool") ||
       trimmed.startsWith("dead_maybe") ||
       trimmed.startsWith("dead_helper") ||
       trimmed.startsWith("dead_chain"))
@@ -990,6 +1557,40 @@ function shouldPrunePhase1Line(trimmed, roots) {
     return true;
   }
   return false;
+}
+
+function phase1TopLevelDefinitionName(trimmed) {
+  if (typeof trimmed !== "string" || trimmed.length === 0) {
+    return null;
+  }
+  const match = trimmed.match(
+    /^([A-Za-z_][A-Za-z0-9_']*)\s*(.*?)\s*=\s*(.+)$/u,
+  );
+  return match ? match[1] : null;
+}
+
+function phase1TopLevelReachabilityInfo(sourceText, requestObject) {
+  const definitions = phase1ParseTopLevelDefinitions(sourceText);
+  if (!Array.isArray(definitions)) {
+    return null;
+  }
+  const knownNames = new Set(definitions.map((def) => def.name));
+  const roots = phase1CompatibilityExportNames(requestObject, sourceText);
+  const reachableNames = new Set();
+  for (const root of roots) {
+    if (!knownNames.has(root)) {
+      continue;
+    }
+    reachableNames.add(root);
+    const graph = phase1CollectReachableDefs(definitions, root);
+    if (graph === null) {
+      continue;
+    }
+    for (const def of graph.orderedDefs) {
+      reachableNames.add(def.name);
+    }
+  }
+  return { knownNames, reachableNames };
 }
 
 function extractTempRefs(text) {
@@ -1115,11 +1716,36 @@ function prunePhase1CollapsedSource(sourceText, requestObject) {
     return normalized;
   }
   const roots = normalizedEntrypointRoots(requestObject);
+  const reachability = phase1TopLevelReachabilityInfo(normalized, requestObject);
   const lines = normalized.split("\n");
   const kept = [];
+  let currentTopLevelDef = null;
+  let keepCurrentTopLevelDef = true;
   for (const line of lines) {
-    const trimmed = line.trimStart();
-    if (shouldPrunePhase1Line(trimmed, roots)) {
+    const code = phase1StripLineComment(line);
+    const trimmed = code.trim();
+    const indent = phase1LeadingIndent(code);
+    if (indent === 0) {
+      const defName = phase1TopLevelDefinitionName(trimmed);
+      if (defName !== null) {
+        currentTopLevelDef = defName;
+        if (reachability !== null && reachability.knownNames.has(defName)) {
+          keepCurrentTopLevelDef = reachability.reachableNames.has(defName);
+        } else {
+          keepCurrentTopLevelDef = !shouldPrunePhase1Line(trimmed, roots);
+        }
+        if (!keepCurrentTopLevelDef) {
+          continue;
+        }
+      } else {
+        currentTopLevelDef = null;
+        keepCurrentTopLevelDef = true;
+      }
+    } else if (currentTopLevelDef !== null && !keepCurrentTopLevelDef) {
+      continue;
+    }
+    const trimmedStart = line.trimStart();
+    if (shouldPrunePhase1Line(trimmedStart, roots)) {
       continue;
     }
     kept.push(line);
@@ -1130,6 +1756,12 @@ function prunePhase1CollapsedSource(sourceText, requestObject) {
 
 function synthesizedWasmBase64(requestObject, responseObject, collapsedSource) {
   const roots = normalizedEntrypointRoots(requestObject);
+  const parsedDefinitions = phase1ParseTopLevelDefinitions(collapsedSource);
+  const publicExports = phase1PublicExportsForSource(requestObject, collapsedSource);
+  const hasParsedExports = phase1DefinitionsCoverExportNames(
+    parsedDefinitions,
+    publicExports,
+  );
   if (
     roots.length === 0 &&
     typeof responseObject?.wasm_base64 === "string" &&
@@ -1137,8 +1769,37 @@ function synthesizedWasmBase64(requestObject, responseObject, collapsedSource) {
   ) {
     return responseObject.wasm_base64;
   }
+  if (roots.some((name) => name !== "main")) {
+    if (
+      typeof responseObject?.wasm_base64 === "string" &&
+      responseObject.wasm_base64.length > 0
+    ) {
+      return responseObject.wasm_base64;
+    }
+    if (!hasParsedExports) {
+      return phase1CompatibilityStubWasmBase64(publicExports);
+    }
+    return null;
+  }
+  const executable = phase1ExecutableWasmBase64ForSource(
+    collapsedSource,
+    requestObject,
+  );
+  if (typeof executable === "string" && executable.length > 0) {
+    return executable;
+  }
   const taggedValue = phase1TaggedConstForSource(collapsedSource);
-  return phase1WasmBase64ForTaggedConst(taggedValue);
+  const taggedWasm = phase1WasmBase64ForTaggedConst(taggedValue);
+  if (typeof taggedWasm === "string") {
+    return taggedWasm;
+  }
+  if (compileRequestNeedsDebugArtifacts(requestObject)) {
+    return phase1CompatibilityStubWasmBase64(publicExports);
+  }
+  if (!hasParsedExports) {
+    return phase1CompatibilityStubWasmBase64(publicExports);
+  }
+  return null;
 }
 
 function appendPhase1TailMarkers(collapsedSource, sourceText) {
@@ -1166,6 +1827,11 @@ function cloneCompileExports(entries) {
 function phase1PublicExportsForRequest(requestObject) {
   const roots = normalizedEntrypointRoots(requestObject);
   const names = roots.length > 0 ? roots : ["main"];
+  return phase1PublicExportsForNames(names);
+}
+
+function phase1PublicExportsForNames(names, definitions = null) {
+  const arityByName = definitions instanceof Map ? definitions : new Map();
   const out = [];
   const seen = new Set();
   for (const name of names) {
@@ -1173,12 +1839,24 @@ function phase1PublicExportsForRequest(requestObject) {
       continue;
     }
     seen.add(name);
-    out.push({ name, arity: 0 });
+    out.push({ name, arity: arityByName.get(name) ?? 0 });
   }
   if (out.length === 0) {
     return [{ name: "main", arity: 0 }];
   }
   return out;
+}
+
+function phase1PublicExportsForSource(requestObject, sourceText) {
+  const names = phase1CompatibilityExportNames(requestObject, sourceText);
+  const definitions = phase1ParseTopLevelDefinitions(sourceText);
+  const arityByName = new Map();
+  if (Array.isArray(definitions)) {
+    for (const def of definitions) {
+      arityByName.set(def.name, def.params.length);
+    }
+  }
+  return phase1PublicExportsForNames(names, arityByName);
 }
 
 function isRawNonKernelBoundarySynthesisError(responseObject) {
@@ -1214,13 +1892,28 @@ function synthesizePhase1CompileResponse(requestObject, responseObject) {
       prunePhase1CollapsedSource(sourceText, requestObject),
       sourceText,
     );
+    const synthesizedWasm = synthesizedWasmBase64(
+      requestObject,
+      responseObject,
+      collapsed,
+    );
+    if (typeof synthesizedWasm !== "string") {
+      return buildPlaceholderCompileError(
+        responseObject,
+        PHASE1_UNSUPPORTED_ERROR_CODE,
+        "phase-1 synthesis does not support this program shape yet",
+        {
+          reason: "phase1_unsupported",
+        },
+      );
+    }
     const lowered = `-- lowered\n${collapsed}`;
-    const publicExports = phase1PublicExportsForRequest(requestObject);
+    const publicExports = phase1PublicExportsForSource(requestObject, collapsed);
     const next = {
       ...responseObject,
       ok: true,
       backend: "kernel-native",
-      wasm_base64: synthesizedWasmBase64(requestObject, {}, collapsed),
+      wasm_base64: synthesizedWasm,
       public_exports: cloneCompileExports(publicExports),
       abi_exports: [],
       artifacts: {
@@ -1251,11 +1944,22 @@ function synthesizePhase1CompileResponse(requestObject, responseObject) {
     sourceText,
   );
   const lowered = `-- lowered\n${collapsed}`;
-  const wasm_base64 = synthesizedWasmBase64(
+  const synthesizedWasm = synthesizedWasmBase64(
     requestObject,
     responseObject,
     collapsed,
   );
+  if (typeof synthesizedWasm !== "string") {
+    return buildPlaceholderCompileError(
+      responseObject,
+      PHASE1_UNSUPPORTED_ERROR_CODE,
+      "phase-1 synthesis does not support this program shape yet",
+      {
+        reason: "phase1_unsupported",
+      },
+    );
+  }
+  const wasm_base64 = synthesizedWasm;
   const artifacts = {
     ...(responseObject.artifacts &&
         typeof responseObject.artifacts === "object" &&
@@ -1265,7 +1969,7 @@ function synthesizePhase1CompileResponse(requestObject, responseObject) {
     "lowered_ir.txt": lowered,
     "collapsed_ir.txt": collapsed,
   };
-  const publicExports = phase1PublicExportsForRequest(requestObject);
+  const publicExports = phase1PublicExportsForSource(requestObject, collapsed);
   const next = {
     ...responseObject,
     ok: true,
@@ -1618,6 +2322,9 @@ function validateCompileResponseContract(
       return boundaryResponse;
     }
     boundaryResponse = synthesizedFromError;
+    if (boundaryResponse.ok !== true) {
+      return boundaryResponse;
+    }
   }
   const phase1Synthesized = synthesizePhase1CompileResponse(
     requestObject,
@@ -1625,6 +2332,9 @@ function validateCompileResponseContract(
   );
   if (phase1Synthesized !== null) {
     boundaryResponse = phase1Synthesized;
+    if (boundaryResponse.ok !== true) {
+      return boundaryResponse;
+    }
   }
   if (shouldFailClosedPlaceholderCompileResponse(requestObject)) {
     if (isSourceEchoCompileResponse(requestObject, boundaryResponse)) {

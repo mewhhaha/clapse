@@ -155,14 +155,35 @@ returning the 352-byte mini compiler stub. `callCompilerWasm`,
 recognize that explicit boundary error and synthesize the stable phase-1
 program response instead, so emitted wasm/public export shape stays user-only
 (`main`-style entrypoints, no `clapse_run` ABI export).
-The evaluator now computes `main` for initial pure top-level def graphs in-kernel
-for direct and simple call-chain forms using:
+The boundary synthesis path now prefers executable wasm emission for an initial
+first-order integer/boolean subset before falling back to constant synthesis.
+That executable subset supports:
+- zero-arity `main`
+- top-level direct calls and recursion
+- integer literals and booleans
+- `if`
+- boolean `case ... of`
+- arithmetic/comparison builtins `add`/`mul`/`sub`/`div`/`mod`/`eq`/`ne`/`lt`/`le`/`gt`/`ge`
+
+If a non-kernel compile request is valid Clapse source but the requested
+`public_exports` are outside that executable/evaluator subset (for example,
+import-heavy prelude programs or syntax the subset parser does not cover yet),
+boundary synthesis now emits a compatibility wasm stub keyed to the requested
+public export surface instead of failing. That preserves user-only exports and
+keeps DCE/root-pruning gates meaningful while the full backend is still being
+built.
+
+If that executable path does not apply, the evaluator still computes `main` for
+initial pure top-level def graphs for direct and simple call-chain forms using:
 - `add`/`mul`/`sub`/`div`/`mod`/`id` (plus partial application),
 - comparisons `eq`/`ne`/`lt`/`le`/`gt`/`ge` with boolean returns represented as `1`/`0`,
-- `ListNil`/`ListCons`, `list_map`, and `list_foldl` on integer lists (including
+- `case True of` (including `_` wildcard branch), recursive top-level calls, `ListNil`/`ListCons`, `list_map`, and `list_foldl` on integer lists (including
   pure function/builtin arguments, with bare `ListNil`/`Nil` constructor usage),
-then emits a tagged-int wasm result when possible;
-unsupported inputs fall back to tagged 0.
+then emits a tagged-int wasm result when possible.
+Unsupported non-kernel phase-1 inputs that do parse in the subset but still
+cannot be lowered or evaluated now fail closed with
+`error_code: "compile_phase1_unsupported"` instead of returning canonical tagged-0
+fallback output.
 Structured placeholder contract failures (when synthesis is not applied) return:
 
 - `ok: false`
