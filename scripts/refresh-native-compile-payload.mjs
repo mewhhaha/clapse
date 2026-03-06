@@ -1,6 +1,7 @@
 #!/usr/bin/env -S deno run -A
 
 import { callCompilerWasm, decodeWasmBase64 } from "./wasm-compiler-abi.mjs";
+import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
 
 const DEFAULT_WASM = "artifacts/latest/clapse_compiler.wasm";
 const DEFAULT_SOURCE_VERSION = "";
@@ -199,22 +200,10 @@ async function probeCompilerContract(compilerWasmPath, sourceVersion) {
     typeof collapsed === "string" && collapsed.length > 0,
     "compile probe missing collapsed_ir.txt",
   );
-  const probeToken = sourceProbe.split("\n").at(-2) ?? "";
-  const markerCheck = probeToken.length > 0 ? probeToken : null;
-  if (markerCheck !== null) {
-    assert(
-      lowered.includes(markerCheck) && collapsed.includes(markerCheck),
-      "compile probe artifacts do not include request source marker",
-    );
-  }
-  assert(
-    !hasSyntheticArtifactMarkers(lowered),
-    "compile probe artifacts contain synthetic marker(s)",
-  );
-  assert(
-    !hasSyntheticArtifactMarkers(collapsed),
-    "compile probe artifacts contain synthetic marker(s)",
-  );
+  assertStructuralArtifacts(lowered, collapsed, {
+    context: "compile probe",
+    requiredDefs: ["main"],
+  });
   const contract = contractMeta(response);
   assert(
     typeof contract.source_version === "string" && contract.source_version.length > 0,

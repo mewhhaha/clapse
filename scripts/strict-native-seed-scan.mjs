@@ -1,6 +1,7 @@
 #!/usr/bin/env -S deno run -A
 
 import { callCompilerWasm } from "./wasm-compiler-abi.mjs";
+import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
 
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 const DEFAULT_MARKER = "strict_native_emit_wat_marker";
@@ -350,22 +351,19 @@ async function probeStrictNative(path, requireNoBoundaryFallback) {
   if (!nonEmptyString(compileArtifacts["collapsed_ir.txt"])) {
     return { ok: false, reason: "compile-artifacts-collapsed_ir-missing" };
   }
-  if (hasSyntheticArtifactMarkers(compileArtifacts["lowered_ir.txt"])) {
-    return { ok: false, reason: "compile-artifacts-lowered_ir-synthetic" };
-  }
-  if (hasSyntheticArtifactMarkers(compileArtifacts["collapsed_ir.txt"])) {
-    return { ok: false, reason: "compile-artifacts-collapsed_ir-synthetic" };
-  }
-  if (!compileArtifacts["lowered_ir.txt"].includes("main x = x")) {
+  try {
+    assertStructuralArtifacts(
+      compileArtifacts["lowered_ir.txt"],
+      compileArtifacts["collapsed_ir.txt"],
+      {
+        context: "strict-native-seed-scan",
+        requiredDefs: ["main"],
+      },
+    );
+  } catch (err) {
     return {
       ok: false,
-      reason: "compile-artifacts-lowered_ir-missing-source-content",
-    };
-  }
-  if (!compileArtifacts["collapsed_ir.txt"].includes("main x = x")) {
-    return {
-      ok: false,
-      reason: "compile-artifacts-collapsed_ir-missing-source-content",
+      reason: `compile-artifacts-structural: ${String(err?.message ?? err)}`,
     };
   }
 

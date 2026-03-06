@@ -1,19 +1,12 @@
 #!/usr/bin/env -S deno run -A
 
 import { runWithArgs } from "./run-clapse-compiler-wasm.mjs";
+import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
 
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
-}
-
-function hasSyntheticArtifactMarkers(value) {
-  if (typeof value !== "string") {
-    return true;
-  }
-  return value.includes("kernel:compile:") ||
-    /seed-stage[0-9]+:[^)\s"]+/u.test(value);
 }
 
 async function readText(path) {
@@ -38,52 +31,24 @@ async function assertWasmFile(path, label) {
   );
 }
 
-async function assertArtifacts(artifactsDir, sourceText, probeToken, label) {
+async function assertArtifacts(artifactsDir, label) {
   const loweredPath = `${artifactsDir}/lowered_ir.txt`;
   const collapsedPath = `${artifactsDir}/collapsed_ir.txt`;
   const lowered = await readText(loweredPath);
   const collapsed = await readText(collapsedPath);
-  assert(
-    lowered.length > 0,
-    `compile-debug-smoke: ${label} lowered_ir.txt should be non-empty`,
-  );
-  assert(
-    collapsed.length > 0,
-    `compile-debug-smoke: ${label} collapsed_ir.txt should be non-empty`,
-  );
-  assert(
-    !hasSyntheticArtifactMarkers(lowered),
-    `compile-debug-smoke: ${label} lowered_ir.txt should not contain synthetic markers`,
-  );
-  assert(
-    !hasSyntheticArtifactMarkers(collapsed),
-    `compile-debug-smoke: ${label} collapsed_ir.txt should not contain synthetic markers`,
-  );
-  assert(
-    lowered.includes(sourceText),
-    `compile-debug-smoke: ${label} lowered_ir.txt should include request source`,
-  );
-  assert(
-    collapsed.includes(sourceText),
-    `compile-debug-smoke: ${label} collapsed_ir.txt should include request source`,
-  );
-  assert(
-    lowered.includes(probeToken),
-    `compile-debug-smoke: ${label} lowered_ir.txt should include probe token`,
-  );
-  assert(
-    collapsed.includes(probeToken),
-    `compile-debug-smoke: ${label} collapsed_ir.txt should include probe token`,
-  );
+  assertStructuralArtifacts(lowered, collapsed, {
+    context: `compile-debug-smoke: ${label}`,
+    requiredDefs: ["main"],
+  });
 }
 
-async function runCase(tmpDir, inputPath, sourceText, probeToken, command) {
+async function runCase(tmpDir, inputPath, command) {
   const stem = command.replaceAll("_", "-");
   const outputPath = `${tmpDir}/${stem}.wasm`;
   const artifactsDir = `${tmpDir}/${stem}-artifacts`;
   await runWithArgs([command, inputPath, outputPath, artifactsDir]);
   await assertWasmFile(outputPath, command);
-  await assertArtifacts(artifactsDir, sourceText, probeToken, command);
+  await assertArtifacts(artifactsDir, command);
 }
 
 async function run() {
@@ -106,7 +71,7 @@ async function run() {
       "compile_native_debug",
     ];
     for (const command of commands) {
-      await runCase(tmpDir, inputPath, sourceText, probeToken, command);
+      await runCase(tmpDir, inputPath, command);
     }
     const dceMarker = `compile-debug-smoke-dead-${crypto.randomUUID()}`;
     const dceInputPath = `${tmpDir}/entrypoint_dce.clapse`;
@@ -129,14 +94,11 @@ async function run() {
     await assertWasmFile(dceOutputPath, "compile-debug dce");
     const dceLowered = await readText(`${dceArtifactsDir}/lowered_ir.txt`);
     const dceCollapsed = await readText(`${dceArtifactsDir}/collapsed_ir.txt`);
-    assert(
-      !dceLowered.includes(dceMarker),
-      "compile-debug-smoke: lowered_ir.txt should not include dead_fn marker after entrypoint reachability pruning",
-    );
-    assert(
-      !dceCollapsed.includes(dceMarker),
-      "compile-debug-smoke: collapsed_ir.txt should not include dead_fn marker after entrypoint reachability pruning",
-    );
+    assertStructuralArtifacts(dceLowered, dceCollapsed, {
+      context: "compile-debug-smoke: compile-debug dce",
+      requiredDefs: ["main", "helper"],
+      forbiddenDefs: ["dead_fn"],
+    });
     const projectDir = `${tmpDir}/entrypoint-dce-project`;
     const srcDir = `${projectDir}/src`;
     const moduleDir = `${srcDir}/smoke`;
@@ -194,30 +156,11 @@ async function run() {
     const moduleGraphCollapsed = await readText(
       `${moduleGraphArtifactsDir}/collapsed_ir.txt`,
     );
-    assert(
-      !moduleGraphLowered.includes(entryDeadMarker),
-      "compile-debug-smoke: lowered_ir.txt should not include unreachable entrypoint dead function",
-    );
-    assert(
-      !moduleGraphCollapsed.includes(entryDeadMarker),
-      "compile-debug-smoke: collapsed_ir.txt should not include unreachable entrypoint dead function",
-    );
-    assert(
-      !moduleGraphLowered.includes(importDeadMarker),
-      "compile-debug-smoke: lowered_ir.txt should not include imported dead helper function",
-    );
-    assert(
-      !moduleGraphCollapsed.includes(importDeadMarker),
-      "compile-debug-smoke: collapsed_ir.txt should not include imported dead helper function",
-    );
-    assert(
-      !moduleGraphLowered.includes(unusedMarker),
-      "compile-debug-smoke: lowered_ir.txt should not include unused module dead function",
-    );
-    assert(
-      !moduleGraphCollapsed.includes(unusedMarker),
-      "compile-debug-smoke: collapsed_ir.txt should not include unused module dead function",
-    );
+    assertStructuralArtifacts(moduleGraphLowered, moduleGraphCollapsed, {
+      context: "compile-debug-smoke: module-graph dce",
+      requiredDefs: ["main"],
+      forbiddenDefs: ["entry_dead", "dead_helper", "dead_chain", "unused"],
+    });
     const internalOnlyMarker =
       `compile-debug-smoke-internal-dce-${crypto.randomUUID()}`;
     const internalOnlyInputPath = `${tmpDir}/internal_only_dce.clapse`;
@@ -249,14 +192,11 @@ async function run() {
     const internalCollapsed = await readText(
       `${internalOnlyArtifactsDir}/collapsed_ir.txt`,
     );
-    assert(
-      !internalLowered.includes(internalOnlyMarker),
-      "compile-debug-smoke: lowered_ir.txt should not include dead marker after native request-shape pruning",
-    );
-    assert(
-      !internalCollapsed.includes(internalOnlyMarker),
-      "compile-debug-smoke: collapsed_ir.txt should not include dead marker after native request-shape pruning",
-    );
+    assertStructuralArtifacts(internalLowered, internalCollapsed, {
+      context: "compile-debug-smoke: internal dce",
+      requiredDefs: ["main", "keep"],
+      forbiddenDefs: ["dead_internal"],
+    });
     console.log("compile-debug-smoke: PASS (4 command forms + entrypoint dce)");
   } finally {
     await Deno.remove(tmpDir, { recursive: true }).catch(() => {});

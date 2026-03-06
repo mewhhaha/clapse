@@ -3,7 +3,9 @@
 import {
   callCompilerWasmRaw,
   decodeWasmBase64,
+  phase1OracleExpectedMainForSource,
 } from "./wasm-compiler-abi.mjs";
+import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
 import {
   decodeInt,
   instantiateWithRuntime,
@@ -140,6 +142,10 @@ function buildCompileRequest(inputPath, source) {
   };
 }
 
+function requestForOracle(inputPath, source) {
+  return buildCompileRequest(inputPath, source);
+}
+
 function normalizeMainResult(rawResult) {
   if (typeof rawResult !== "number") {
     return {
@@ -201,6 +207,23 @@ async function compileProgram(wasmPath, label, source) {
     `native-program-codegen-semantics-gate: ${label} compile failed: ${String(response.error ?? "unknown")}`);
   assert(typeof response.wasm_base64 === "string" && response.wasm_base64.length > 0,
     `native-program-codegen-semantics-gate: ${label} missing wasm_base64`);
+  assert(
+    typeof response.compile_strategy === "string" &&
+      response.compile_strategy.length > 0,
+    `native-program-codegen-semantics-gate: ${label} missing compile_strategy`,
+  );
+  assert(
+    response.compatibility_used !== true,
+    `native-program-codegen-semantics-gate: ${label} unexpectedly used compatibility path (${String(response.compile_strategy)})`,
+  );
+  assertStructuralArtifacts(
+    response?.artifacts?.["lowered_ir.txt"],
+    response?.artifacts?.["collapsed_ir.txt"],
+    {
+      context: `native-program-codegen-semantics-gate: ${label}`,
+      requiredDefs: ["main"],
+    },
+  );
 
   const wasmBytes = decodeWasmBase64(response.wasm_base64);
   assert(
@@ -221,6 +244,15 @@ async function compileProgram(wasmPath, label, source) {
 
 async function assertProgramMainResult(wasmPath, label, source, expected) {
   const program = await compileProgram(wasmPath, label, source);
+  const oracleValue = phase1OracleExpectedMainForSource(
+    source,
+    requestForOracle(`${label}.clapse`, source),
+  );
+  const expectedValue = Number.parseInt(expected.replace("tagged-int:", ""), 10);
+  assert(
+    oracleValue === expectedValue,
+    `native-program-codegen-semantics-gate: ${label} oracle expected ${expectedValue}, got ${String(oracleValue)}`,
+  );
   const runResult = await evaluateMain(program);
   assert(
     runResult.ok,
@@ -340,6 +372,29 @@ async function run() {
       "",
     ].join("\n"),
     "tagged-int:14",
+  );
+  await assertProgramMainResult(
+    wasmPath,
+    "lambda-prelude-fold-map",
+    [
+      'import "prelude"',
+      "export { main }",
+      "numbers = Cons 1 (Cons 2 (Cons 3 Nil))",
+      "main = foldl (+) 0 (fmap (\\x -> x + 1) numbers)",
+      "",
+    ].join("\n"),
+    "tagged-int:9",
+  );
+  await assertProgramMainResult(
+    wasmPath,
+    "qualified-callable-name",
+    [
+      'import "prelude" as prelude',
+      "export { main }",
+      "main = prelude.add 1 2",
+      "",
+    ].join("\n"),
+    "tagged-int:3",
   );
   await assertProgramMainResult(
     wasmPath,

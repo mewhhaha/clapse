@@ -24,9 +24,10 @@ Use consistent indentation for guarded clauses and `let` blocks.
 
 ```clapse
 main x =
-  let selected
-      | eq x 0 = 0
-      | otherwise = x
+  let selected =
+        case eq x 0 of
+          true -> 0
+          _ -> x
   in selected
 ```
 

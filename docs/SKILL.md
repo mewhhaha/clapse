@@ -142,6 +142,12 @@ The command returns a single compile response with:
 `clapse_run` is an ABI export used by host/runtime integration for compiler
 artifacts and should not be treated as a user-visible entrypoint. Use
 `public_exports` to discover user-callable entrypoints.
+Compile/debug artifacts now use a stable header contract instead of raw
+request-source echo:
+- first line is `(lowered_ir)` or `(collapsed_ir)`
+- followed by `phase:` / `kind:` metadata lines
+- body is normalized source/IR text for the current phase, which still carries
+  optimizer markers such as tail-call or temp-pruning signals when present
 
 JS ABI-boundary behavior remains fail-closed for kernel self-host compile
 requests, and now applies phase-1 synthesis for non-kernel compile requests
@@ -155,6 +161,13 @@ returning the 352-byte mini compiler stub. `callCompilerWasm`,
 recognize that explicit boundary error and synthesize the stable phase-1
 program response instead, so emitted wasm/public export shape stays user-only
 (`main`-style entrypoints, no `clapse_run` ABI export).
+Compile responses now also expose:
+- `compile_strategy`: `compiler_raw`, `phase1_passthrough`,
+  `phase1_executable`, `phase1_tagged`, or `phase1_compatibility_stub`
+- `compatibility_used`: boolean marker for whether the temporary compatibility
+  stub path was used
+Treat `phase1_compatibility_stub` as explicit migration debt, not normal
+compiler success.
 The boundary synthesis path now prefers executable wasm emission for an initial
 first-order integer/boolean subset before falling back to constant synthesis.
 That executable subset supports:
@@ -176,8 +189,13 @@ built.
 If that executable path does not apply, the evaluator still computes `main` for
 initial pure top-level def graphs for direct and simple call-chain forms using:
 - `add`/`mul`/`sub`/`div`/`mod`/`id` (plus partial application),
+- symbolic operator refs/infix forms that normalize to those builtins, such as
+  `(+)` and `x + 1`,
+- qualified callable names normalized by final segment for the phase-1 subset,
+  such as `prelude.add`,
+- lambda values used through supported list folds/maps,
 - comparisons `eq`/`ne`/`lt`/`le`/`gt`/`ge` with boolean returns represented as `1`/`0`,
-- `case True of` (including `_` wildcard branch), recursive top-level calls, `ListNil`/`ListCons`, `list_map`, and `list_foldl` on integer lists (including
+- `case True of` (including `_` wildcard branch), recursive top-level calls, `ListNil`/`ListCons`, `Cons`/`Nil`, `list_map`/`fmap`, and `list_foldl`/`foldl` on integer lists (including
   pure function/builtin arguments, with bare `ListNil`/`Nil` constructor usage),
 then emits a tagged-int wasm result when possible.
 Unsupported non-kernel phase-1 inputs that do parse in the subset but still

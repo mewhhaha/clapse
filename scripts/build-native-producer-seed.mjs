@@ -5,6 +5,10 @@ import {
   decodeWasmBase64,
   inspectCompilerWasmAbi,
 } from "./wasm-compiler-abi.mjs";
+import {
+  assertStructuralArtifacts,
+  hasSyntheticArtifactMarkers,
+} from "./compile-artifact-contract.mjs";
 
 const DEFAULT_SEED_WASM = "artifacts/latest/clapse_compiler.wasm";
 const DEFAULT_OUT_WASM = "artifacts/strict-native/native_producer_seed.wasm";
@@ -149,14 +153,6 @@ async function sha256Hex(bytes) {
   return Array.from(new Uint8Array(digest)).map((b) =>
     b.toString(16).padStart(2, "0")
   ).join("");
-}
-
-function hasSyntheticArtifactMarkers(value) {
-  if (typeof value !== "string") {
-    return true;
-  }
-  return value.includes("kernel:compile:") ||
-    /seed-stage[0-9]+:[^)\s"]+/u.test(value);
 }
 
 function ensure(condition, message) {
@@ -309,22 +305,29 @@ async function validateRawProducer(wasmPath, sourceVersion, hops = 2) {
         typeof collapsed === "string" && collapsed.length > 0,
         `hop ${hop}: missing collapsed_ir.txt`,
       );
-      ensure(
-        !hasSyntheticArtifactMarkers(lowered),
-        `hop ${hop}: lowered_ir.txt contains synthetic markers`,
-      );
-      ensure(
-        !hasSyntheticArtifactMarkers(collapsed),
-        `hop ${hop}: collapsed_ir.txt contains synthetic markers`,
-      );
-      ensure(
-        lowered.includes(probeToken),
-        `hop ${hop}: lowered_ir.txt missing source probe token`,
-      );
-      ensure(
-        collapsed.includes(probeToken),
-        `hop ${hop}: collapsed_ir.txt missing source probe token`,
-      );
+      if (lowered.startsWith("(lowered_ir)\n")) {
+        assertStructuralArtifacts(lowered, collapsed, {
+          context: `hop ${hop}`,
+          requiredDefs: ["main"],
+        });
+      } else {
+        ensure(
+          !hasSyntheticArtifactMarkers(lowered),
+          `hop ${hop}: lowered_ir.txt contains synthetic markers`,
+        );
+        ensure(
+          !hasSyntheticArtifactMarkers(collapsed),
+          `hop ${hop}: collapsed_ir.txt contains synthetic markers`,
+        );
+        ensure(
+          lowered.includes(probeToken),
+          `hop ${hop}: lowered_ir.txt missing source probe token`,
+        );
+        ensure(
+          collapsed.includes(probeToken),
+          `hop ${hop}: collapsed_ir.txt missing source probe token`,
+        );
+      }
 
       const contract = response.__clapse_contract;
       ensure(

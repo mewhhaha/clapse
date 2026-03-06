@@ -1,6 +1,7 @@
 #!/usr/bin/env -S deno run -A
 
 import { callCompilerWasmRaw, decodeWasmBase64 } from "./wasm-compiler-abi.mjs";
+import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
 
 function assert(condition, message) {
   if (!condition) {
@@ -127,12 +128,10 @@ async function run() {
       },
     );
     const baseline = readCompileArtifactsOrThrow(baselineResponse, "baseline");
-    const baselineHasDead = baseline.lowered.includes(deadMarker) ||
-      baseline.collapsed.includes(deadMarker);
-    assert(
-      baselineHasDead,
-      "native-entrypoint-exports-dce-gate: baseline artifacts should contain helper/dead marker",
-    );
+    assertStructuralArtifacts(baseline.lowered, baseline.collapsed, {
+      context: "native-entrypoint-exports-dce-gate: baseline",
+      requiredDefs: ["main", "keep", "helper", "dead_fn", "+."],
+    });
 
     const subsetResponse = await callCompilerWasmRaw(
       wasmPath,
@@ -143,18 +142,11 @@ async function run() {
       },
     );
     const subset = readCompileArtifactsOrThrow(subsetResponse, "subset");
-    const subsetHasDead = subset.lowered.includes(deadMarker) ||
-      subset.collapsed.includes(deadMarker);
-    const subsetHasOperator = subset.lowered.includes(operatorMarker) ||
-      subset.collapsed.includes(operatorMarker);
-    assert(
-      !subsetHasDead,
-      "native-entrypoint-exports-dce-gate: subset-root artifacts should prune helper/dead marker",
-    );
-    assert(
-      !subsetHasOperator,
-      "native-entrypoint-exports-dce-gate: subset-root artifacts should prune operator marker",
-    );
+    assertStructuralArtifacts(subset.lowered, subset.collapsed, {
+      context: "native-entrypoint-exports-dce-gate: subset-main",
+      requiredDefs: ["main", "keep"],
+      forbiddenDefs: ["helper", "dead_fn", "+."],
+    });
     assert(
       subset.wasmBytes.length < baseline.wasmBytes.length,
       `native-entrypoint-exports-dce-gate: subset-root wasm bytes should strictly shrink (${subset.wasmBytes.length} >= ${baseline.wasmBytes.length})`,
@@ -172,13 +164,11 @@ async function run() {
       operatorRootResponse,
       "operator-root",
     );
-    const operatorRootHasOperator = operatorRoot.lowered.includes(
-      operatorMarker,
-    ) || operatorRoot.collapsed.includes(operatorMarker);
-    assert(
-      operatorRootHasOperator,
-      "native-entrypoint-exports-dce-gate: operator-root artifacts should keep operator marker",
-    );
+    assertStructuralArtifacts(operatorRoot.lowered, operatorRoot.collapsed, {
+      context: "native-entrypoint-exports-dce-gate: subset-operator",
+      requiredDefs: ["+.", "helper"],
+      forbiddenDefs: ["main", "keep"],
+    });
 
     const preludeInputPath = `${tmpDir}/entrypoint_exports_prelude_gate.clapse`;
     const preludeBoolDeadMarker =
@@ -209,33 +199,10 @@ async function run() {
       preludeBaselineResponse,
       "prelude-baseline",
     );
-    const preludeBaselineHasDead = preludeBaseline.lowered.includes(
-      preludeBoolDeadMarker,
-    ) || preludeBaseline.collapsed.includes(preludeBoolDeadMarker) ||
-      preludeBaseline.lowered.includes(preludeMaybeDeadMarker) ||
-      preludeBaseline.collapsed.includes(preludeMaybeDeadMarker);
-    assert(
-      preludeBaselineHasDead,
-      "native-entrypoint-exports-dce-gate: prelude-baseline artifacts should retain non-list prelude dead markers",
-    );
-    const preludeBaselineHasBoolSymbol = containsToken(
-      preludeBaseline.lowered,
-      "and",
-    ) || containsToken(preludeBaseline.collapsed, "and") ||
-      containsToken(preludeBaseline.lowered, "bool_and") ||
-      containsToken(preludeBaseline.collapsed, "bool_and");
-    assert(
-      preludeBaselineHasBoolSymbol,
-      "native-entrypoint-exports-dce-gate: prelude-baseline artifacts should retain bool/and symbol for dead export",
-    );
-    const preludeBaselineHasMaybeSymbol = containsToken(
-      preludeBaseline.lowered,
-      "maybe_with_default",
-    ) || containsToken(preludeBaseline.collapsed, "maybe_with_default");
-    assert(
-      preludeBaselineHasMaybeSymbol,
-      "native-entrypoint-exports-dce-gate: prelude-baseline artifacts should retain maybe_with_default symbol for dead export",
-    );
+    assertStructuralArtifacts(preludeBaseline.lowered, preludeBaseline.collapsed, {
+      context: "native-entrypoint-exports-dce-gate: prelude-baseline",
+      requiredDefs: ["main", "numbers", "dead_bool", "dead_maybe"],
+    });
 
     const preludeSubsetResponse = await callCompilerWasmRaw(
       wasmPath,
@@ -249,33 +216,11 @@ async function run() {
       preludeSubsetResponse,
       "prelude-subset",
     );
-    const preludeSubsetHasDead = preludeSubset.lowered.includes(
-      preludeBoolDeadMarker,
-    ) || preludeSubset.collapsed.includes(preludeBoolDeadMarker) ||
-      preludeSubset.lowered.includes(preludeMaybeDeadMarker) ||
-      preludeSubset.collapsed.includes(preludeMaybeDeadMarker);
-    assert(
-      !preludeSubsetHasDead,
-      "native-entrypoint-exports-dce-gate: prelude-subset artifacts should prune non-list prelude dead markers",
-    );
-    const preludeSubsetHasBoolSymbol = containsToken(
-      preludeSubset.lowered,
-      "and",
-    ) || containsToken(preludeSubset.collapsed, "and") ||
-      containsToken(preludeSubset.lowered, "bool_and") ||
-      containsToken(preludeSubset.collapsed, "bool_and");
-    assert(
-      !preludeSubsetHasBoolSymbol,
-      "native-entrypoint-exports-dce-gate: prelude-subset artifacts should prune bool/and symbol",
-    );
-    const preludeSubsetHasMaybeSymbol = containsToken(
-      preludeSubset.lowered,
-      "maybe_with_default",
-    ) || containsToken(preludeSubset.collapsed, "maybe_with_default");
-    assert(
-      !preludeSubsetHasMaybeSymbol,
-      "native-entrypoint-exports-dce-gate: prelude-subset artifacts should prune maybe_with_default symbol",
-    );
+    assertStructuralArtifacts(preludeSubset.lowered, preludeSubset.collapsed, {
+      context: "native-entrypoint-exports-dce-gate: prelude-subset",
+      requiredDefs: ["main", "numbers"],
+      forbiddenDefs: ["dead_bool", "dead_maybe"],
+    });
     assert(
       preludeSubset.wasmBytes.length < preludeBaseline.wasmBytes.length,
       `native-entrypoint-exports-dce-gate: prelude subset wasm bytes should strictly shrink (${preludeSubset.wasmBytes.length} >= ${preludeBaseline.wasmBytes.length})`,

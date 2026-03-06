@@ -1,19 +1,12 @@
 #!/usr/bin/env -S deno run -A
 
 import { buildWasmSeedCompileResponse } from "./wasm-bootstrap-seed.mjs";
+import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
 
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
-}
-
-function hasSyntheticArtifactMarkers(value) {
-  if (typeof value !== "string") {
-    return true;
-  }
-  return value.includes("kernel:compile:") ||
-    /seed-stage[0-9]+:[^)\s"]+/u.test(value);
 }
 
 function decodeBase64(raw) {
@@ -104,22 +97,10 @@ async function runRunnerCompileSmoke(wasmPath, sourceText, probeToken) {
 
   const lowered = await Deno.readTextFile(`${artifactsDir}/lowered_ir.txt`);
   const collapsed = await Deno.readTextFile(`${artifactsDir}/collapsed_ir.txt`);
-  assert(
-    !hasSyntheticArtifactMarkers(lowered),
-    "native-bootstrap-seed-smoke: lowered_ir.txt contains synthetic markers",
-  );
-  assert(
-    !hasSyntheticArtifactMarkers(collapsed),
-    "native-bootstrap-seed-smoke: collapsed_ir.txt contains synthetic markers",
-  );
-  assert(
-    lowered.includes("main x = x") && collapsed.includes("main x = x"),
-    "native-bootstrap-seed-smoke: runner artifacts missing source content",
-  );
-  assert(
-    lowered.includes(probeToken) && collapsed.includes(probeToken),
-    "native-bootstrap-seed-smoke: runner artifacts missing probe token",
-  );
+  assertStructuralArtifacts(lowered, collapsed, {
+    context: "native-bootstrap-seed-smoke",
+    requiredDefs: ["main"],
+  });
 }
 
 async function run() {

@@ -80,6 +80,10 @@ deno run -A scripts/clapse.mjs bench [iterations]
     integer/boolean subset (`main`, direct top-level calls/recursion,
     `if`, boolean `case`, and arithmetic/comparison builtins) before falling
     back to constant synthesis for the older pure-evaluator subset.
+    The evaluator subset now also understands symbolic operator references and
+    infix arithmetic/comparison forms, qualified callable names by final
+    segment (for example `prelude.add`), and lambda values flowing through the
+    supported list-map/fold forms.
     If the requested `public_exports` fall outside that subset parser, boundary
     synthesis emits a compatibility wasm stub for the selected public exports so
     root-pruning and DCE flows still get a user-only output surface.
@@ -93,6 +97,11 @@ deno run -A scripts/clapse.mjs bench [iterations]
     reachability-shaped program response:
     `public_exports` follows selected roots, while `abi_exports` is empty for
     user-program outputs (kernel self-host/compiler outputs keep compiler ABI).
+    Compile responses also report whether synthesis stayed on a real subset path
+    or fell back to temporary compatibility:
+    `compile_strategy` is one of `compiler_raw`, `phase1_passthrough`,
+    `phase1_executable`, `phase1_tagged`, or `phase1_compatibility_stub`, and
+    `compatibility_used` is `true` only for the compatibility-stub path.
     Bundle size tracks reachable function count, while kernel self-host compile
     requests still require full compiler ABI output.
     Legacy env
@@ -101,7 +110,10 @@ deno run -A scripts/clapse.mjs bench [iterations]
     `just native-ir-liveness-size-gate` now enforces strict emitted wasm shrink
     for entrypoint-pruned compile requests (`pruned_bytes < baseline_bytes`).
     Native debug artifacts include kernel-owned `lowered_ir.txt` and
-    `collapsed_ir.txt` payloads.
+    `collapsed_ir.txt` payloads. These now use a stable artifact header:
+    `(lowered_ir)` / `(collapsed_ir)` on the first line, followed by
+    `phase:` / `kind:` metadata lines and then normalized source/IR content
+    rather than raw request-source echo.
   - host-bridge compile execution is removed from JS boundary code; compile
     requests must execute on a native clapse compiler artifact.
   - compile response validation is strict/fail-closed at the JS boundary:

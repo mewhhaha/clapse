@@ -1,6 +1,7 @@
 #!/usr/bin/env -S deno run -A
 
 import { callCompilerWasm } from "./wasm-compiler-abi.mjs";
+import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
 
 const PRODUCER_CONTRACT_KEYS = new Set([
   "source_version",
@@ -72,14 +73,6 @@ function decodeBase64(raw) {
     out[i] = binary.charCodeAt(i);
   }
   return out;
-}
-
-function hasSyntheticArtifactMarkers(value) {
-  if (typeof value !== "string") {
-    return true;
-  }
-  return value.includes("kernel:compile:") ||
-    /seed-stage[0-9]+:[^)\s"]+/u.test(value);
 }
 
 async function run() {
@@ -166,40 +159,10 @@ async function run() {
       fallbackKeys.join(",")
     }`,
   );
-  assert(
-    typeof artifacts["lowered_ir.txt"] === "string" &&
-      artifacts["lowered_ir.txt"].length > 0,
-    "compile-native-smoke: lowered_ir.txt should be non-empty",
-  );
-  assert(
-    typeof artifacts["collapsed_ir.txt"] === "string" &&
-      artifacts["collapsed_ir.txt"].length > 0,
-    "compile-native-smoke: collapsed_ir.txt should be non-empty",
-  );
-  assert(
-    !hasSyntheticArtifactMarkers(artifacts["lowered_ir.txt"]),
-    "compile-native-smoke: lowered_ir.txt should not contain synthetic placeholder markers",
-  );
-  assert(
-    !hasSyntheticArtifactMarkers(artifacts["collapsed_ir.txt"]),
-    "compile-native-smoke: collapsed_ir.txt should not contain synthetic placeholder markers",
-  );
-  assert(
-    artifacts["lowered_ir.txt"].includes("main x = x"),
-    "compile-native-smoke: lowered_ir.txt should include request source content",
-  );
-  assert(
-    artifacts["collapsed_ir.txt"].includes("main x = x"),
-    "compile-native-smoke: collapsed_ir.txt should include request source content",
-  );
-  assert(
-    artifacts["lowered_ir.txt"].includes(probeToken),
-    "compile-native-smoke: lowered_ir.txt should include request source probe token",
-  );
-  assert(
-    artifacts["collapsed_ir.txt"].includes(probeToken),
-    "compile-native-smoke: collapsed_ir.txt should include request source probe token",
-  );
+  assertStructuralArtifacts(artifacts["lowered_ir.txt"], artifacts["collapsed_ir.txt"], {
+    context: "compile-native-smoke",
+    requiredDefs: ["main"],
+  });
   console.log("compile-native-smoke: PASS");
 }
 

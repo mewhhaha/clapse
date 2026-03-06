@@ -293,7 +293,7 @@ bootstrap-strict-native-seed out='artifacts/strict-native/seed.wasm' meta='artif
     propagation_check_args+=("$required_source_version")
     producer_seed_args+=("$required_source_version")
   fi
-  if [[ -s "$out_path" ]] && CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 CLAPSE_COMPILER_WASM_PATH="$out_path" just native-strict-producer-check "${strict_check_args[@]}" >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$out_path" just native-source-version-propagation-gate "${propagation_check_args[@]}" >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$out_path" just native-entrypoint-dce-strict-gate >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$out_path" just native-entrypoint-exports-dce-gate >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$out_path" just native-parse-command-gate >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$out_path" just native-raw-boundary-synthesis-gate >/dev/null 2>&1; then
+  if [[ -s "$out_path" ]] && CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 CLAPSE_COMPILER_WASM_PATH="$out_path" just native-strict-producer-check "${strict_check_args[@]}" >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$out_path" just native-source-version-propagation-gate "${propagation_check_args[@]}" >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$out_path" just native-entrypoint-dce-strict-gate >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$out_path" just native-entrypoint-exports-dce-gate >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$out_path" just native-parse-command-gate >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$out_path" just native-raw-boundary-synthesis-gate >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$out_path" just native-temp-pruning-gate >/dev/null 2>&1; then
     echo "bootstrap-strict-native-seed: retaining existing producer-strict seed at $out_path"
     if [[ ! -s "$meta_path" ]]; then
       mkdir -p "$(dirname "$meta_path")"
@@ -311,7 +311,7 @@ bootstrap-strict-native-seed out='artifacts/strict-native/seed.wasm' meta='artif
     if [[ -n "$required_source_version" ]]; then
       native_seed_check_args+=("$required_source_version")
     fi
-    if [[ -s "$native_producer_seed_path" ]] && CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 CLAPSE_COMPILER_WASM_PATH="$native_producer_seed_path" just native-strict-producer-check "${native_seed_check_args[@]}" >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$native_producer_seed_path" just native-source-version-propagation-gate "${native_seed_check_args[@]}" >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$native_producer_seed_path" just native-entrypoint-dce-strict-gate >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$native_producer_seed_path" just native-entrypoint-exports-dce-gate >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$native_producer_seed_path" just native-parse-command-gate >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$native_producer_seed_path" just native-raw-boundary-synthesis-gate >/dev/null 2>&1; then
+    if [[ -s "$native_producer_seed_path" ]] && CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 CLAPSE_COMPILER_WASM_PATH="$native_producer_seed_path" just native-strict-producer-check "${native_seed_check_args[@]}" >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$native_producer_seed_path" just native-source-version-propagation-gate "${native_seed_check_args[@]}" >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$native_producer_seed_path" just native-entrypoint-dce-strict-gate >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$native_producer_seed_path" just native-entrypoint-exports-dce-gate >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$native_producer_seed_path" just native-parse-command-gate >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$native_producer_seed_path" just native-raw-boundary-synthesis-gate >/dev/null 2>&1 && CLAPSE_COMPILER_WASM_PATH="$native_producer_seed_path" just native-temp-pruning-gate >/dev/null 2>&1; then
       mkdir -p "$(dirname "$out_path")"
       if [[ "$native_producer_seed_path" != "$out_path" ]]; then
         cp "$native_producer_seed_path" "$out_path"
@@ -348,6 +348,7 @@ bootstrap-strict-native-seed out='artifacts/strict-native/seed.wasm' meta='artif
   CLAPSE_COMPILER_WASM_PATH="$out_path" just native-raw-boundary-synthesis-gate
   CLAPSE_COMPILER_WASM_PATH="$out_path" just native-entrypoint-dce-strict-gate
   CLAPSE_COMPILER_WASM_PATH="$out_path" just native-entrypoint-exports-dce-gate
+  CLAPSE_COMPILER_WASM_PATH="$out_path" just native-temp-pruning-gate
   fi
 
 bootstrap-compiler out='artifacts/latest/clapse_compiler.wasm':

@@ -1,6 +1,10 @@
 #!/usr/bin/env -S deno run -A
 
 import { callCompilerWasmRaw, decodeWasmBase64 } from "./wasm-compiler-abi.mjs";
+import {
+  assertStructuralArtifacts,
+  hasSyntheticArtifactMarkers,
+} from "./compile-artifact-contract.mjs";
 
 const DEFAULT_COMPILER_WASM_PATH = "artifacts/latest/clapse_compiler.wasm";
 const DEFAULT_INPUT_PATH = "lib/compiler/kernel.clapse";
@@ -16,7 +20,7 @@ function usage() {
     "  deno run -A scripts/native-producer-raw-probe.mjs [--wasm <path>] [--input <path>] [--hops <n>] [--require-source-version <token>]",
     "",
     "Checks (producer-only; no ABI normalization):",
-    "  1) compile artifacts are non-synthetic and include request source",
+    "  1) compile artifacts are non-synthetic and use structural IR shape",
     "  2) kernel compile output emits compiler ABI (memory + clapse_run)",
     "  3) kernel compile output remains compiler-like across N hops",
     "  4) emit-wat source mode echoes request token",
@@ -34,14 +38,6 @@ function fail(msg) {
 
 function nonEmptyString(value) {
   return typeof value === "string" && value.length > 0;
-}
-
-function hasSyntheticArtifactMarkers(value) {
-  if (!nonEmptyString(value)) {
-    return true;
-  }
-  return value.includes("kernel:compile:") ||
-    /seed-stage[0-9]+:[^)\s"]+/u.test(value);
 }
 
 function parseArgs(argv) {
@@ -161,17 +157,24 @@ function assertCompileArtifactsFromSource(
   if (!nonEmptyString(lowered) || !nonEmptyString(collapsed)) {
     fail(`${context}: compile response missing lowered/collapsed artifacts`);
   }
-  if (hasSyntheticArtifactMarkers(lowered)) {
-    fail(`${context}: lowered_ir.txt contains synthetic markers`);
-  }
-  if (hasSyntheticArtifactMarkers(collapsed)) {
-    fail(`${context}: collapsed_ir.txt contains synthetic markers`);
-  }
-  if (!lowered.includes(sourceText)) {
-    fail(`${context}: lowered_ir.txt missing request source content`);
-  }
-  if (!collapsed.includes(sourceText)) {
-    fail(`${context}: collapsed_ir.txt missing request source content`);
+  if (lowered.startsWith("(lowered_ir)\n")) {
+    assertStructuralArtifacts(lowered, collapsed, {
+      context,
+      requiredDefs: ["main"],
+    });
+  } else {
+    if (hasSyntheticArtifactMarkers(lowered)) {
+      fail(`${context}: lowered_ir.txt contains synthetic markers`);
+    }
+    if (hasSyntheticArtifactMarkers(collapsed)) {
+      fail(`${context}: collapsed_ir.txt contains synthetic markers`);
+    }
+    if (!lowered.includes(sourceText)) {
+      fail(`${context}: lowered_ir.txt missing request source content`);
+    }
+    if (!collapsed.includes(sourceText)) {
+      fail(`${context}: collapsed_ir.txt missing request source content`);
+    }
   }
   return parseCompileContract(response, context, requireSourceVersion);
 }

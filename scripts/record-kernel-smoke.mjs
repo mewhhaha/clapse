@@ -1,6 +1,7 @@
 #!/usr/bin/env -S deno run -A
 
 import { callCompilerWasm } from "./wasm-compiler-abi.mjs";
+import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
 
 function resolveWasmPath() {
   const candidates = [
@@ -113,10 +114,24 @@ async function run() {
   assert(
     nativeResponse.artifacts &&
       typeof nativeResponse.artifacts === "object" &&
-      typeof nativeResponse.artifacts["lowered_ir.txt"] === "string" &&
-      nativeResponse.artifacts["lowered_ir.txt"].includes("main"),
-    "record-kernel-smoke: native compile should provide lowered_ir.txt with source context",
+      typeof nativeResponse.artifacts["lowered_ir.txt"] === "string",
+    "record-kernel-smoke: native compile should provide lowered_ir.txt",
   );
+  try {
+    assertStructuralArtifacts(
+      nativeResponse.artifacts["lowered_ir.txt"],
+      nativeResponse.artifacts["collapsed_ir.txt"],
+      {
+        context: "record-kernel-smoke",
+        requiredDefs: ["main"],
+      },
+    );
+  } catch (_err) {
+    assert(
+      nativeResponse.artifacts["lowered_ir.txt"].includes("main"),
+      "record-kernel-smoke: native compile should provide lowered_ir.txt with source context",
+    );
+  }
   const emitSource = "emit_wat_marker = 42";
   const defaultEmitWat = await emitWatSource(wasmPath, emitSource, "");
   assert(

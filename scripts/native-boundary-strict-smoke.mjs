@@ -1,6 +1,7 @@
 #!/usr/bin/env -S deno run -A
 
 import { callCompilerWasm } from "./wasm-compiler-abi.mjs";
+import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
 
 const PRODUCER_CONTRACT_KEYS = new Set([
   "source_version",
@@ -63,14 +64,6 @@ function assert(condition, message) {
   }
 }
 
-function hasSyntheticArtifactMarkers(value) {
-  if (typeof value !== "string") {
-    return true;
-  }
-  return value.includes("kernel:compile:") ||
-    /seed-stage[0-9]+:[^)\s"]+/u.test(value);
-}
-
 async function runCompileSmoke(wasmPath) {
   const probeToken = `native-boundary-strict-smoke-${crypto.randomUUID()}`;
   const inputSource = [
@@ -108,40 +101,10 @@ async function runCompileSmoke(wasmPath) {
     artifacts && typeof artifacts === "object",
     "native-boundary-strict-smoke: compile response missing artifacts object",
   );
-  assert(
-    typeof artifacts["lowered_ir.txt"] === "string" &&
-      artifacts["lowered_ir.txt"].length > 0,
-    "native-boundary-strict-smoke: compile response missing non-empty artifacts.lowered_ir.txt",
-  );
-  assert(
-    typeof artifacts["collapsed_ir.txt"] === "string" &&
-      artifacts["collapsed_ir.txt"].length > 0,
-    "native-boundary-strict-smoke: compile response missing non-empty artifacts.collapsed_ir.txt",
-  );
-  assert(
-    !hasSyntheticArtifactMarkers(artifacts["lowered_ir.txt"]),
-    "native-boundary-strict-smoke: compile response lowered_ir.txt should not contain synthetic markers",
-  );
-  assert(
-    !hasSyntheticArtifactMarkers(artifacts["collapsed_ir.txt"]),
-    "native-boundary-strict-smoke: compile response collapsed_ir.txt should not contain synthetic markers",
-  );
-  assert(
-    artifacts["lowered_ir.txt"].includes("main x = x"),
-    "native-boundary-strict-smoke: compile response lowered_ir.txt should include request source content",
-  );
-  assert(
-    artifacts["collapsed_ir.txt"].includes("main x = x"),
-    "native-boundary-strict-smoke: compile response collapsed_ir.txt should include request source content",
-  );
-  assert(
-    artifacts["lowered_ir.txt"].includes(probeToken),
-    "native-boundary-strict-smoke: compile response lowered_ir.txt should include request source probe token",
-  );
-  assert(
-    artifacts["collapsed_ir.txt"].includes(probeToken),
-    "native-boundary-strict-smoke: compile response collapsed_ir.txt should include request source probe token",
-  );
+  assertStructuralArtifacts(artifacts["lowered_ir.txt"], artifacts["collapsed_ir.txt"], {
+    context: "native-boundary-strict-smoke",
+    requiredDefs: ["main"],
+  });
   const fallbackKeys = boundaryFallbackContractKeys(response);
   assert(
     fallbackKeys.length === 0,
