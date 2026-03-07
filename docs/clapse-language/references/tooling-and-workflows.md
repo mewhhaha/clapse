@@ -92,10 +92,29 @@ deno run -A scripts/clapse.mjs bench [iterations]
     constructor branch (for example `case xs of Cons x _ -> x; _ -> 0` and
     `case xs of Cons x _ -> x; Nil -> 0`), simple custom uppercase constructor
     values/patterns (including constructor refs like `make = Just` and
-    `fmap Just xs`), list literals such as `[1, 2, 3]`, and simple closed
-    record literals plus dot projection (for example
-    `options = { allow = true, include = Nothing }` and `options.allow`) in
-    kernel-native phase1 executable paths.
+    `fmap Just xs` and partial constructor application like `mk = Pair 1`),
+    list literals such as `[1, 2, 3]`, including top-level typed custom
+    `CollectionLiteral` targets, list boolean combinators like
+    `list_filter`/`list_any` when the predicate stays in the evaluator subset,
+    and simple closed
+    record literals plus dot projection/update (for example
+    `options = { allow = true, include = Nothing }`, `options.allow`, and
+    `options { allow = false }`), including multi-root nullary record and
+    parameterized type-alias record exports that reduce through folded field
+    projections, plus transparent `newtype` constructor flows
+    including direct `case`, constructor refs as values, `let` pattern
+    deconstruction, `fmap` mapping, and explicit non-`main` roots such as
+    `unbox x = case x of Box y -> y`, plus builtin boolean operator chains such as
+    `lt 1 2 && not false || false`, plus guarded `case of` boolean forms with
+    chained guards and `otherwise` fallback (for example
+    `case of | eq x 0 -> 0 | eq x 1 -> 1 | otherwise -> 2`), in
+    kernel-native phase1 executable paths. The same lowering now covers
+    guarded `let` bindings and guarded top-level function clauses with
+    `| guard = expr` / `| otherwise = expr` arms, plus simple constructor
+    pattern deconstruction in `let` bindings and simple multi-scrutinee
+    pattern-arm `case`, plus simple literal-pattern `case` arms and char
+    literals parsed as integer codepoints, plus custom symbolic infix
+    operators in the existing phase1 operator-name subset (for example `+.`).
     If the requested `public_exports` still require non-`main` structural
     output outside that subset parser, boundary synthesis emits a compatibility
     wasm stub for the selected public exports so root-pruning and DCE flows
@@ -333,7 +352,7 @@ deno run -A scripts/clapse.mjs bench [iterations]
 
 ## Just Targets
 
-`full-compiler-verify` is a future-facing strict acceptance target for full compiler completion. It runs separately from `pre-tag-verify` and may fail until remaining compatibility and unsupported-language debt is removed.
+`full-compiler-verify` is a future-facing strict acceptance target for full compiler completion. By default it rebuilds and tests `artifacts/latest/clapse_compiler.wasm`, so it measures the current public compile surface rather than the retained strict bootstrap seed.
 
 Current targets in `Justfile`:
 
@@ -436,6 +455,9 @@ Current targets in `Justfile`:
   - keep monadic chain normalization for `>>=`/`>>`
 - LSP currently provides:
   - compile diagnostics from wasm compiler responses
+  - suppress runnable-entrypoint diagnostics like `unknown entrypoint root: main`
+    for editor buffers and plugin library files, so diagnostics stay focused on
+    document issues rather than executable-root policy
   - hover for `--|` doc comments, falling back to declaration line text when docs are missing
   - definitions
   - completion

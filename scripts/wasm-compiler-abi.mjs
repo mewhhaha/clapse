@@ -387,30 +387,100 @@ function toBase64(bytes) {
   return btoa(s);
 }
 
-function buildPhase1TaggedWasmBase64(rawValue) {
+function buildPhase1TaggedWasmBase64(rawValue, exportName = "main") {
   if (!Number.isSafeInteger(rawValue)) {
     return PHASE1_WASM_TAGGED_0;
   }
-  const taggedValue = rawValue * 2 + 1;
-  const taggedBytes = encodeVarS32(taggedValue);
-  const template = Array.from(fromBase64(PHASE1_WASM_TAGGED_0));
-  const marker = template.indexOf(0x41);
-  if (marker < 0) {
-    return PHASE1_WASM_TAGGED_0;
+  if (typeof exportName !== "string" || exportName.length === 0) {
+    exportName = "main";
   }
-  let markerEnd = marker + 1;
-  while ((template[markerEnd] ?? 0) & 0x80) {
-    markerEnd += 1;
-    if (markerEnd >= template.length) {
-      return PHASE1_WASM_TAGGED_0;
-    }
-  }
-  const withRaw = [
-    ...template.slice(0, marker + 1),
-    ...taggedBytes,
-    ...template.slice(markerEnd + 1),
+  const moduleBytes = [
+    0x00,
+    0x61,
+    0x73,
+    0x6d,
+    0x01,
+    0x00,
+    0x00,
+    0x00,
+    ...phase1WrapSection(1, [
+      ...encodeVarU32(1),
+      0x60,
+      ...encodeVarU32(0),
+      ...encodeVarU32(1),
+      0x7f,
+    ]),
+    ...phase1WrapSection(3, [
+      ...encodeVarU32(1),
+      ...encodeVarU32(0),
+    ]),
+    ...phase1WrapSection(5, phase1WasmMemorySection()),
+    ...phase1WrapSection(7, phase1WasmExportSection([
+      { name: "memory", kind: 0x02, index: 0 },
+      { name: exportName, kind: 0x00, index: 0 },
+    ])),
+    ...phase1WrapSection(10, phase1WasmCodeSection([
+      {
+        localCount: 0,
+        code: [0x41, ...encodeVarS32(rawValue * 2 + 1)],
+      },
+    ])),
   ];
-  return toBase64(Uint8Array.from(withRaw));
+  return toBase64(Uint8Array.from(moduleBytes));
+}
+
+function buildPhase1MultiTaggedWasmBase64(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return null;
+  }
+  const sanitized = [];
+  for (const entry of entries) {
+    const name = typeof entry?.name === "string" && entry.name.length > 0
+      ? entry.name
+      : null;
+    const rawValue = entry?.rawValue;
+    if (name === null || !Number.isSafeInteger(rawValue)) {
+      return null;
+    }
+    sanitized.push({ name, rawValue });
+  }
+  const moduleBytes = [
+    0x00,
+    0x61,
+    0x73,
+    0x6d,
+    0x01,
+    0x00,
+    0x00,
+    0x00,
+    ...phase1WrapSection(1, [
+      ...encodeVarU32(1),
+      0x60,
+      ...encodeVarU32(0),
+      ...encodeVarU32(1),
+      0x7f,
+    ]),
+    ...phase1WrapSection(3, [
+      ...encodeVarU32(sanitized.length),
+      ...sanitized.flatMap(() => encodeVarU32(0)),
+    ]),
+    ...phase1WrapSection(5, phase1WasmMemorySection()),
+    ...phase1WrapSection(7, phase1WasmExportSection([
+      { name: "memory", kind: 0x02, index: 0 },
+      ...sanitized.map((entry, index) => ({
+        name: entry.name,
+        kind: 0x00,
+        index,
+      })),
+    ])),
+    ...phase1WrapSection(10, phase1WasmCodeSection(
+      sanitized.map((entry) => ({
+        localCount: 0,
+        code: [0x41, ...encodeVarS32(entry.rawValue * 2 + 1)],
+      })),
+    )),
+  ];
+  return toBase64(Uint8Array.from(moduleBytes));
 }
 
 function phase1FlattenApply(node) {
@@ -446,7 +516,11 @@ function phase1BuiltinArity(name) {
     case "le":
     case "gt":
     case "ge":
+    case "and":
+    case "or":
       return 2;
+    case "not":
+      return 1;
     case "list_map":
     case "list_filter":
     case "list_any":
@@ -491,6 +565,12 @@ function phase1ParsePattern(tokens, start, stopTokens = new Set(["->", "|", ")"]
   if (token === "_") {
     return { pattern: { type: "wildcard" }, next: start + 1 };
   }
+  if (phase1IsNumberToken(token)) {
+    return {
+      pattern: { type: "int", value: Number.parseInt(token, 10) },
+      next: start + 1,
+    };
+  }
   if (!phase1IsIdentToken(token)) {
     return null;
   }
@@ -524,12 +604,55 @@ function phase1ParsePattern(tokens, start, stopTokens = new Set(["->", "|", ")"]
   };
 }
 
+function phase1ParsePatternSequence(tokens, start, stopTokens = new Set(["->", "|", ")"])) {
+  const patterns = [];
+  let cursor = start;
+  while (cursor < tokens.length && !stopTokens.has(tokens[cursor])) {
+    const parsed = phase1ParsePattern(tokens, cursor, stopTokens);
+    if (parsed === null || parsed.next === cursor) {
+      break;
+    }
+    patterns.push(parsed.pattern);
+    cursor = parsed.next;
+  }
+  if (patterns.length === 0) {
+    return null;
+  }
+  return { patterns, next: cursor };
+}
+
+function phase1ParseExprSequence(tokens, start, stopTokens = new Set()) {
+  const exprs = [];
+  let cursor = start;
+  while (cursor < tokens.length && !stopTokens.has(tokens[cursor])) {
+    const parsed = phase1ParsePrimary(tokens, cursor, stopTokens);
+    if (parsed === null || parsed.next === cursor) {
+      break;
+    }
+    exprs.push(parsed.node);
+    cursor = parsed.next;
+  }
+  if (exprs.length === 0) {
+    return null;
+  }
+  return { exprs, next: cursor };
+}
+
 function phase1CollectPatternBinders(pattern, binders) {
+  if (Array.isArray(pattern)) {
+    for (const entry of pattern) {
+      phase1CollectPatternBinders(entry, binders);
+    }
+    return;
+  }
   if (!pattern || typeof pattern !== "object") {
     return;
   }
   if (pattern.type === "binder") {
     binders.push(pattern.name);
+    return;
+  }
+  if (pattern.type === "int") {
     return;
   }
   if (pattern.type !== "ctor" || !Array.isArray(pattern.args)) {
@@ -563,12 +686,34 @@ function phase1FindTrailingPatternArrowStart(tokens, start, stopTokens) {
   return null;
 }
 
+function phase1FindTrailingPatternSequenceArrowStart(tokens, start, stopTokens, arity) {
+  const limit = phase1FirstStopIndex(tokens, start, stopTokens);
+  for (let index = limit - 1; index >= start; index -= 1) {
+    if (tokens[index] === "|") {
+      continue;
+    }
+    const parsed = phase1ParsePatternSequence(tokens, index, new Set(["->"]));
+    if (
+      parsed !== null &&
+      parsed.patterns.length === arity &&
+      parsed.next < limit &&
+      tokens[parsed.next] === "->"
+    ) {
+      return index;
+    }
+  }
+  return null;
+}
+
 function phase1MatchPattern(pattern, value) {
   if (!pattern || typeof pattern !== "object") {
     return null;
   }
   if (pattern.type === "wildcard") {
     return new Map();
+  }
+  if (pattern.type === "int") {
+    return value === pattern.value ? new Map() : null;
   }
   if (pattern.type === "binder") {
     return new Map([[pattern.name, value]]);
@@ -615,6 +760,47 @@ function phase1MatchPattern(pattern, value) {
     }
   }
   return bindings;
+}
+
+function phase1MatchPatternList(patterns, values) {
+  if (!Array.isArray(patterns) || !Array.isArray(values) || patterns.length !== values.length) {
+    return null;
+  }
+  const bindings = new Map();
+  for (let index = 0; index < patterns.length; index += 1) {
+    const patternBindings = phase1MatchPattern(patterns[index], values[index]);
+    if (patternBindings === null) {
+      return null;
+    }
+    for (const [name, bound] of patternBindings) {
+      bindings.set(name, bound);
+    }
+  }
+  return bindings;
+}
+
+function phase1DecodeCharLiteral(token) {
+  if (typeof token !== "string" || token.length < 3 || token[0] !== "'" || token[token.length - 1] !== "'") {
+    return null;
+  }
+  const inner = token.slice(1, -1);
+  if (inner.length === 1) {
+    return inner.codePointAt(0) ?? null;
+  }
+  switch (inner) {
+    case "\\n":
+      return 10;
+    case "\\r":
+      return 13;
+    case "\\t":
+      return 9;
+    case "\\'":
+      return 39;
+    case "\\\\":
+      return 92;
+    default:
+      return null;
+  }
 }
 
 function phase1ConstructValue(name, args) {
@@ -701,8 +887,33 @@ function phase1CollectLetLocals(expr, locals) {
     phase1CollectLetLocals(expr.body, locals);
     return;
   }
+  if (expr.type === "letPattern") {
+    phase1CollectLetLocals(expr.value, locals);
+    const binders = [];
+    phase1CollectPatternBinders(expr.pattern, binders);
+    for (const binder of binders) {
+      if (!locals.has(binder)) {
+        locals.set(binder, locals.size);
+      }
+    }
+    phase1CollectLetLocals(expr.body, locals);
+    return;
+  }
   if (expr.type === "lambda") {
     phase1CollectLetLocals(expr.body, locals);
+    return;
+  }
+  if (expr.type === "record") {
+    for (const field of expr.fields) {
+      phase1CollectLetLocals(field.value, locals);
+    }
+    return;
+  }
+  if (expr.type === "recordUpdate") {
+    phase1CollectLetLocals(expr.base, locals);
+    for (const field of expr.fields) {
+      phase1CollectLetLocals(field.value, locals);
+    }
     return;
   }
   if (expr.type === "if") {
@@ -717,10 +928,50 @@ function phase1CollectLetLocals(expr, locals) {
     phase1CollectLetLocals(expr.whenFalse, locals);
     return;
   }
-  if (expr.type === "caseCtor") {
-    phase1CollectLetLocals(expr.target, locals);
+  if (expr.type === "caseMulti") {
+    for (const target of expr.targets) {
+      phase1CollectLetLocals(target, locals);
+    }
+    const binders = [];
+    phase1CollectPatternBinders(expr.patterns, binders);
+    for (const binder of binders) {
+      if (!locals.has(binder)) {
+        locals.set(binder, locals.size);
+      }
+    }
+    const fallbackBinders = [];
+    phase1CollectPatternBinders(expr.fallbackPatterns, fallbackBinders);
+    for (const binder of fallbackBinders) {
+      if (!locals.has(binder)) {
+        locals.set(binder, locals.size);
+      }
+    }
     phase1CollectLetLocals(expr.whenMatch, locals);
     phase1CollectLetLocals(expr.whenFallback, locals);
+    return;
+  }
+  if (expr.type === "caseCtor") {
+    phase1CollectLetLocals(expr.target, locals);
+    const binders = [];
+    phase1CollectPatternBinders(expr.pattern, binders);
+    for (const binder of binders) {
+      if (!locals.has(binder)) {
+        locals.set(binder, locals.size);
+      }
+    }
+    if (expr.fallbackPattern) {
+      const fallbackBinders = [];
+      phase1CollectPatternBinders(expr.fallbackPattern, fallbackBinders);
+      for (const binder of fallbackBinders) {
+        if (!locals.has(binder)) {
+          locals.set(binder, locals.size);
+        }
+      }
+    }
+    phase1CollectLetLocals(expr.whenMatch, locals);
+    if (expr.whenFallback) {
+      phase1CollectLetLocals(expr.whenFallback, locals);
+    }
     return;
   }
   if (expr.type === "apply") {
@@ -739,6 +990,12 @@ function phase1CallableArityForExpr(expr, defMap, seenDefs = new Set()) {
   if (expr.type === "let") {
     return phase1CallableArityForExpr(expr.body, defMap, seenDefs);
   }
+  if (expr.type === "letPattern") {
+    return phase1CallableArityForExpr(expr.body, defMap, seenDefs);
+  }
+  if (expr.type === "record" || expr.type === "recordUpdate") {
+    return 0;
+  }
   if (expr.type === "if") {
     const thenArity = phase1CallableArityForExpr(expr.thenExpr, defMap, seenDefs);
     const elseArity = phase1CallableArityForExpr(expr.elseExpr, defMap, seenDefs);
@@ -749,8 +1006,16 @@ function phase1CallableArityForExpr(expr, defMap, seenDefs = new Set()) {
     const falseArity = phase1CallableArityForExpr(expr.whenFalse, defMap, seenDefs);
     return trueArity === falseArity ? trueArity : 0;
   }
+  if (expr.type === "caseMulti") {
+    const matchArity = phase1CallableArityForExpr(expr.whenMatch, defMap, seenDefs);
+    const fallbackArity = phase1CallableArityForExpr(expr.whenFallback, defMap, seenDefs);
+    return matchArity === fallbackArity ? matchArity : 0;
+  }
   if (expr.type === "caseCtor") {
     const matchArity = phase1CallableArityForExpr(expr.whenMatch, defMap, seenDefs);
+    if (!expr.whenFallback) {
+      return matchArity;
+    }
     const fallbackArity = phase1CallableArityForExpr(expr.whenFallback, defMap, seenDefs);
     return matchArity === fallbackArity ? matchArity : 0;
   }
@@ -774,6 +1039,9 @@ function phase1CallableArityForExpr(expr, defMap, seenDefs = new Set()) {
     const builtinArity = phase1BuiltinArity(callee.name);
     if (builtinArity !== null) {
       return Math.max(0, builtinArity - flattened.args.length);
+    }
+    if (phase1IsConstructorToken(callee.name)) {
+      return Math.max(0, Number.MAX_SAFE_INTEGER - flattened.args.length);
     }
     if (!defMap) {
       return 0;
@@ -807,6 +1075,7 @@ function phase1CallableArityForDef(def, defMap = null, seenDefs = new Set()) {
 
 function phase1CollectReachableDefs(definitions, rootName) {
   const defMap = new Map(definitions.map((def) => [def.name, def]));
+  const collectionLiteralInstances = definitions.collectionLiteralInstances;
   const reachable = new Set();
   const visiting = new Set();
 
@@ -819,6 +1088,41 @@ function phase1CollectReachableDefs(definitions, rootName) {
     }
     if (expr.type === "record") {
       return expr.fields.every((field) => visitExpr(field.value, locals));
+    }
+    if (expr.type === "recordUpdate") {
+      return visitExpr(expr.base, locals) &&
+        expr.fields.every((field) => visitExpr(field.value, locals));
+    }
+    if (expr.type === "listLiteral") {
+      const elementsReachable = expr.elements.every((element) =>
+        visitExpr(element, locals)
+      );
+      if (!elementsReachable) {
+        return false;
+      }
+      const collectionTargetType = typeof expr.collectionTargetType === "string"
+        ? expr.collectionTargetType
+        : "";
+      if (
+        collectionTargetType.length === 0 ||
+        !(collectionLiteralInstances instanceof Map)
+      ) {
+        return true;
+      }
+      const instanceDef = collectionLiteralInstances.get(collectionTargetType);
+      if (!instanceDef || typeof instanceDef !== "object") {
+        return true;
+      }
+      const emptyLocals = new Set(
+        Array.isArray(instanceDef.empty?.params) ? instanceDef.empty.params : [],
+      );
+      const extendLocals = new Set(
+        Array.isArray(instanceDef.extend?.params)
+          ? instanceDef.extend.params
+          : [],
+      );
+      return visitExpr(instanceDef.empty?.body, emptyLocals) &&
+        visitExpr(instanceDef.extend?.body, extendLocals);
     }
     if (expr.type === "lambda") {
       return visitExpr(expr.body, new Set([...locals, ...expr.params]));
@@ -855,10 +1159,39 @@ function phase1CollectReachableDefs(definitions, rootName) {
       }
       return visitExpr(expr.body, new Set([...locals, expr.name]));
     }
+    if (expr.type === "letPattern") {
+      if (!visitExpr(expr.value, locals)) {
+        return false;
+      }
+      const nextLocals = new Set(locals);
+      const binders = [];
+      phase1CollectPatternBinders(expr.pattern, binders);
+      for (const binder of binders) {
+        nextLocals.add(binder);
+      }
+      return visitExpr(expr.body, nextLocals);
+    }
     if (expr.type === "caseBool") {
       return visitExpr(expr.target, locals) &&
         visitExpr(expr.whenTrue, locals) &&
         visitExpr(expr.whenFalse, locals);
+    }
+    if (expr.type === "caseMulti") {
+      const nextLocals = new Set(locals);
+      const binders = [];
+      phase1CollectPatternBinders(expr.patterns, binders);
+      for (const binder of binders) {
+        nextLocals.add(binder);
+      }
+      const fallbackLocals = new Set(locals);
+      const fallbackBinders = [];
+      phase1CollectPatternBinders(expr.fallbackPatterns, fallbackBinders);
+      for (const binder of fallbackBinders) {
+        fallbackLocals.add(binder);
+      }
+      return expr.targets.every((target) => visitExpr(target, locals)) &&
+        visitExpr(expr.whenMatch, nextLocals) &&
+        visitExpr(expr.whenFallback, fallbackLocals);
     }
     if (expr.type === "caseCtor") {
       const nextLocals = new Set(locals);
@@ -867,15 +1200,21 @@ function phase1CollectReachableDefs(definitions, rootName) {
       for (const binder of binders) {
         nextLocals.add(binder);
       }
-      const fallbackLocals = new Set(locals);
-      const fallbackBinders = [];
-      phase1CollectPatternBinders(expr.fallbackPattern, fallbackBinders);
-      for (const binder of fallbackBinders) {
-        fallbackLocals.add(binder);
+      let fallbackLocals = null;
+      if (expr.fallbackPattern) {
+        fallbackLocals = new Set(locals);
+        const fallbackBinders = [];
+        phase1CollectPatternBinders(expr.fallbackPattern, fallbackBinders);
+        for (const binder of fallbackBinders) {
+          fallbackLocals.add(binder);
+        }
       }
       return visitExpr(expr.target, locals) &&
         visitExpr(expr.whenMatch, nextLocals) &&
-        visitExpr(expr.whenFallback, fallbackLocals);
+        (
+          !expr.whenFallback ||
+          visitExpr(expr.whenFallback, fallbackLocals ?? locals)
+        );
     }
     if (expr.type === "apply") {
       const flattened = phase1FlattenApply(expr);
@@ -903,7 +1242,7 @@ function phase1CollectReachableDefs(definitions, rootName) {
       if (!targetDef) {
         return false;
       }
-      const targetArity = phase1CallableArityForDef(targetDef);
+      const targetArity = phase1CallableArityForDef(targetDef, defMap);
       if (targetArity === null || flattened.args.length > targetArity) {
         return false;
       }
@@ -1047,6 +1386,15 @@ function phase1EmitExprToWasm(expr, ctx) {
     if (ctx.locals.has(expr.name)) {
       return [0x20, ...encodeVarU32(ctx.locals.get(expr.name))];
     }
+    if (ctx.evalEnv instanceof Map) {
+      const resolved = phase1ResolveValueByName(expr.name, ctx.evalEnv, new Map(), 0);
+      if (Number.isInteger(resolved)) {
+        return [0x41, ...encodeVarS32(resolved)];
+      }
+      if (typeof resolved === "boolean") {
+        return [0x41, ...encodeVarS32(resolved ? 1 : 0)];
+      }
+    }
     const targetIndex = ctx.functionIndexByName.get(expr.name);
     const targetDef = ctx.defMap.get(expr.name);
     if (
@@ -1098,6 +1446,46 @@ function phase1EmitExprToWasm(expr, ctx) {
       return null;
     }
     return [...cond, 0x04, 0x7f, ...whenTrue, 0x05, ...whenFalse, 0x0b];
+  }
+  if (expr.type === "caseCtor") {
+    const transparentNewtypeCtors = ctx.transparentNewtypeCtors instanceof Set
+      ? ctx.transparentNewtypeCtors
+      : new Set();
+    if (
+      expr.pattern?.type === "ctor" &&
+      transparentNewtypeCtors.has(expr.pattern.name) &&
+      Array.isArray(expr.pattern.args) &&
+      expr.pattern.args.length === 1 &&
+      !expr.fallbackPattern &&
+      !expr.whenFallback
+    ) {
+      const target = phase1EmitExprToWasm(expr.target, ctx);
+      if (target === null) {
+        return null;
+      }
+      const [innerPattern] = expr.pattern.args;
+      if (!innerPattern || innerPattern.type === "wildcard") {
+        return phase1EmitExprToWasm(expr.whenMatch, ctx);
+      }
+      if (innerPattern.type !== "binder") {
+        return null;
+      }
+      const localIndex = ctx.locals.get(innerPattern.name);
+      if (typeof localIndex !== "number") {
+        return null;
+      }
+      const bodyCtx = {
+        ...ctx,
+        locals: new Map(ctx.locals),
+      };
+      bodyCtx.locals.set(innerPattern.name, localIndex);
+      const whenMatch = phase1EmitExprToWasm(expr.whenMatch, bodyCtx);
+      if (whenMatch === null) {
+        return null;
+      }
+      return [...target, 0x21, ...encodeVarU32(localIndex), ...whenMatch];
+    }
+    return null;
   }
   if (expr.type === "apply") {
     const flattened = phase1FlattenApply(expr);
@@ -1170,6 +1558,9 @@ function phase1IsBoolConditionExpr(expr, ctx, seenDefs) {
     return phase1EmitExprToWasm(expr.value, ctx) !== null &&
       phase1IsBoolConditionExpr(expr.body, ctx, seenDefs);
   }
+  if (expr.type === "letPattern") {
+    return false;
+  }
   if (expr.type === "caseBool") {
     return phase1IsBoolConditionExpr(expr.target, ctx, seenDefs) &&
       phase1IsBoolConditionExpr(expr.whenTrue, ctx, seenDefs) &&
@@ -1183,9 +1574,11 @@ function phase1IsBoolConditionExpr(expr, ctx, seenDefs) {
     }
     if (
       callee.name === "eq" || callee.name === "ne" || callee.name === "lt" ||
-      callee.name === "le" || callee.name === "gt" || callee.name === "ge"
+      callee.name === "le" || callee.name === "gt" || callee.name === "ge" ||
+      callee.name === "and" || callee.name === "or" || callee.name === "not"
     ) {
-      return flattened.args.length === 2;
+      const expectedArity = callee.name === "not" ? 1 : 2;
+      return flattened.args.length === expectedArity;
     }
     const targetDef = ctx.defMap.get(callee.name);
     if (!targetDef || seenDefs.has(targetDef.name)) {
@@ -1197,6 +1590,12 @@ function phase1IsBoolConditionExpr(expr, ctx, seenDefs) {
     return out;
   }
   if (expr.type === "var" && !ctx.locals.has(expr.name)) {
+    if (ctx.evalEnv instanceof Map) {
+      const resolved = phase1ResolveValueByName(expr.name, ctx.evalEnv, new Map(), 0);
+      if (typeof resolved === "boolean") {
+        return true;
+      }
+    }
     const targetDef = ctx.defMap.get(expr.name);
     if (!targetDef || targetDef.params.length !== 0 || seenDefs.has(targetDef.name)) {
       return false;
@@ -1211,6 +1610,7 @@ function phase1IsBoolConditionExpr(expr, ctx, seenDefs) {
 
 function phase1ExecutableWasmBase64ForSource(sourceText, requestObject) {
   const roots = phase1SelectedExportNames(requestObject, sourceText);
+  const rootSet = new Set(roots);
   const definitions = phase1ParseTopLevelDefinitions(sourceText);
   if (definitions === null) {
     return null;
@@ -1234,6 +1634,7 @@ function phase1ExecutableWasmBase64ForSource(sourceText, requestObject) {
 
   const functionIndexByName = new Map();
   graph.orderedDefs.forEach((def, index) => functionIndexByName.set(def.name, index));
+  const evalEnv = phase1BuildEvaluationEnv(graph.orderedDefs);
 
   const bodies = [];
   const typeIndexes = [];
@@ -1249,8 +1650,23 @@ function phase1ExecutableWasmBase64ForSource(sourceText, requestObject) {
       locals,
       functionIndexByName,
       defMap: graph.defMap,
+      evalEnv,
+      transparentNewtypeCtors: definitions.transparentNewtypeCtors instanceof Set
+        ? definitions.transparentNewtypeCtors
+        : new Set(),
     });
     if (emitted === null) {
+      if (def.params.length === 0 && !rootSet.has(def.name)) {
+        const evaluated = phase1Evaluate(def.body, evalEnv, new Map(), 0);
+        if (evaluated !== null) {
+          bodies.push({
+            localCount: letLocals.size,
+            code: [0x41, ...encodeVarS32(0)],
+          });
+          typeIndexes.push(ensureType(def.params.length));
+          continue;
+        }
+      }
       return null;
     }
     bodies.push({
@@ -1341,6 +1757,155 @@ function phase1SelectedExportNames(requestObject, sourceText) {
   return ["main"];
 }
 
+function phase1ConstructorArityFromExpr(expr) {
+  if (!expr || typeof expr !== "object") {
+    return null;
+  }
+  if (expr.type === "var") {
+    return {
+      name: expr.name,
+      arity: 0,
+    };
+  }
+  if (expr.type !== "apply") {
+    return null;
+  }
+  const flattened = phase1FlattenApply(expr);
+  if (!flattened?.callee || flattened.callee.type !== "var") {
+    return null;
+  }
+  return {
+    name: flattened.callee.name,
+    arity: flattened.args.length,
+  };
+}
+
+function phase1ParseSimpleCtorArities(sourceText) {
+  const lines = normalizePlaceholderSourceText(sourceText).split("\n");
+  const arities = new Map();
+  for (const rawLine of lines) {
+    const trimmed = phase1StripLineComment(rawLine).trim();
+    if (
+      !trimmed.startsWith("data ") &&
+      !trimmed.startsWith("newtype ")
+    ) {
+      continue;
+    }
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex < 0) {
+      continue;
+    }
+    const rhs = trimmed.slice(eqIndex + 1).trim();
+    if (rhs.length === 0) {
+      continue;
+    }
+    for (const part of rhs.split("|")) {
+      const tokens = part.trim().split(/\s+/u).filter((entry) => entry.length > 0);
+      if (tokens.length === 0) {
+        continue;
+      }
+      arities.set(tokens[0], Math.max(0, tokens.length - 1));
+    }
+  }
+  return arities;
+}
+
+function phase1ValidateSourceSurface(sourceText) {
+  const lines = normalizePlaceholderSourceText(sourceText).split("\n");
+  const ctorArities = phase1ParseSimpleCtorArities(sourceText);
+  for (let index = 0; index < lines.length; index += 1) {
+    const rawLine = lines[index];
+    const trimmed = phase1StripLineComment(rawLine).trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    if (trimmed.startsWith("newtype ")) {
+      const eqIndex = trimmed.indexOf("=");
+      if (eqIndex < 0) {
+        return "newtype accepts exactly one constructor + one field";
+      }
+      const rhs = trimmed.slice(eqIndex + 1).trim();
+      const constructors = rhs.split("|").map((entry) => entry.trim()).filter((entry) =>
+        entry.length > 0
+      );
+      if (constructors.length !== 1) {
+        return "newtype accepts exactly one constructor + one field";
+      }
+      const ctorTokens = constructors[0].split(/\s+/u).filter((entry) => entry.length > 0);
+      if (ctorTokens.length !== 2) {
+        return "newtype accepts exactly one constructor + one field";
+      }
+    }
+    const caseIndex = trimmed.indexOf("case ");
+    const ofIndex = trimmed.indexOf(" of");
+    if (caseIndex < 0 || ofIndex < 0 || ofIndex <= caseIndex) {
+      continue;
+    }
+    const targetText = trimmed.slice(caseIndex + "case ".length, ofIndex).trim();
+    if (targetText.length === 0) {
+      continue;
+    }
+    const targetTokens = phase1TokenizeExpression(targetText);
+    if (targetTokens === null) {
+      continue;
+    }
+    const targetExpr = phase1ParseExpr(targetTokens, 0, new Set());
+    if (targetExpr === null || targetExpr.next !== targetTokens.length) {
+      continue;
+    }
+    const targetCtor = phase1ConstructorArityFromExpr(targetExpr.node);
+    if (targetCtor === null) {
+      continue;
+    }
+    const expectedArity = ctorArities.get(targetCtor.name);
+    if (!Number.isInteger(expectedArity)) {
+      continue;
+    }
+    let nextIndex = index + 1;
+    while (nextIndex < lines.length) {
+      const armCode = phase1StripLineComment(lines[nextIndex]);
+      const armTrimmed = armCode.trim();
+      if (armTrimmed.length === 0) {
+        nextIndex += 1;
+        continue;
+      }
+      if (phase1LeadingIndent(armCode) <= phase1LeadingIndent(rawLine)) {
+        break;
+      }
+      const arrowIndex = armTrimmed.indexOf("->");
+      if (arrowIndex < 0) {
+        nextIndex += 1;
+        continue;
+      }
+      const patternText = armTrimmed.slice(0, arrowIndex).trim();
+      if (patternText === "_" || patternText.length === 0) {
+        nextIndex += 1;
+        continue;
+      }
+      const patternTokens = phase1TokenizeExpression(patternText);
+      if (patternTokens === null) {
+        nextIndex += 1;
+        continue;
+      }
+      const parsedPattern = phase1ParsePattern(patternTokens, 0, new Set());
+      if (parsedPattern?.next !== patternTokens.length) {
+        nextIndex += 1;
+        continue;
+      }
+      const pattern = parsedPattern.pattern;
+      if (
+        pattern?.type === "ctor" &&
+        pattern.name === targetCtor.name &&
+        pattern.args.length !== expectedArity
+      ) {
+        return "scrutinee/arm arity mismatch";
+      }
+      nextIndex += 1;
+    }
+  }
+  return null;
+}
+
 function phase1DebugArtifactWasmBase64(exportsList) {
   const normalizedExports = Array.isArray(exportsList)
     ? exportsList.filter((entry) =>
@@ -1411,7 +1976,7 @@ function phase1DefinitionsCoverExportNames(definitions, exportEntries) {
 
 function phase1TokenizeExpression(text) {
   const tokens = [];
-  const tokenRe = /\s*(->|>=|<=|==|!=|\\|\(|\)|\[|\]|\{|\}|,|\||=|_|True|False|true|false|[-]?\d+|[+\-*/<>]|[A-Za-z_][A-Za-z0-9_']*(?:\.[A-Za-z_][A-Za-z0-9_']*)*)/gu;
+  const tokenRe = /\s*(->|&&|\|\||>=|<=|==|!=|'(?:\\.|[^'\\])'|[+\-*/<>!][+\-*/<>=!.]*|\\|\(|\)|\[|\]|\{|\}|,|\||=|_|True|False|true|false|[-]?\d+|[+\-*/<>]|[A-Za-z_][A-Za-z0-9_']*(?:\.[A-Za-z_][A-Za-z0-9_']*)*)/gu;
   let cursor = 0;
   while (cursor < text.length) {
     const match = tokenRe.exec(text);
@@ -1442,6 +2007,10 @@ function phase1IsIdentToken(token) {
   return /^[A-Za-z_][A-Za-z0-9_']*(?:\.[A-Za-z_][A-Za-z0-9_']*)*$/u.test(token);
 }
 
+function phase1IsOperatorNameToken(token) {
+  return token !== "->" && /^[+\-*/<>!][+\-*/<>=!.]*$/u.test(token);
+}
+
 function phase1NormalizeCallableName(name) {
   switch (name) {
     case "+":
@@ -1464,27 +2033,282 @@ function phase1NormalizeCallableName(name) {
       return "gt";
     case ">=":
       return "ge";
+    case "&&":
+      return "and";
+    case "||":
+      return "or";
+    case ">>=":
+      return "bind";
+    case ">>":
+      return "then_m";
+    case "<$>":
+      return "fmap";
+    case "<*>":
+      return "ap";
+    case "<$":
+      return "map_replace";
+    case "<*":
+      return "keep_left";
+    case "*>":
+      return "keep_right";
+    case "<>":
+      return "alt";
     default: {
+      if (phase1IsOperatorNameToken(name)) {
+        return name;
+      }
       const parts = String(name).split(".");
       return parts[parts.length - 1] ?? name;
     }
   }
 }
 
-function phase1BuildListLiteralExpr(elements) {
-  let node = { type: "var", name: "Nil" };
-  for (let index = elements.length - 1; index >= 0; index -= 1) {
-    node = {
-      type: "apply",
-      fn: {
-        type: "apply",
-        fn: { type: "var", name: "Cons" },
-        arg: elements[index],
-      },
-      arg: node,
-    };
+function phase1BuildListLiteralExpr(elements, collectionTargetType = null) {
+  return {
+    type: "listLiteral",
+    elements: Array.isArray(elements) ? elements : [],
+    collectionTargetType: typeof collectionTargetType === "string" &&
+        collectionTargetType.length > 0
+      ? collectionTargetType
+      : null,
+  };
+}
+
+function phase1AnnotateCollectionLiteralTargets(
+  expr,
+  collectionTargetType,
+  collectionLiteralInstances,
+) {
+  if (!expr || typeof expr !== "object" || !collectionTargetType ||
+    !(collectionLiteralInstances instanceof Map) ||
+    !collectionLiteralInstances.has(collectionTargetType)) {
+    return expr;
   }
-  return node;
+  switch (expr.type) {
+    case "listLiteral":
+      return {
+        ...expr,
+        collectionTargetType,
+        elements: expr.elements.map((element) =>
+          phase1AnnotateCollectionLiteralTargets(
+            element,
+            collectionTargetType,
+            collectionLiteralInstances,
+          )
+        ),
+      };
+    case "apply":
+      return {
+        ...expr,
+        fn: phase1AnnotateCollectionLiteralTargets(
+          expr.fn,
+          collectionTargetType,
+          collectionLiteralInstances,
+        ),
+        arg: phase1AnnotateCollectionLiteralTargets(
+          expr.arg,
+          collectionTargetType,
+          collectionLiteralInstances,
+        ),
+      };
+    case "if":
+      return {
+        ...expr,
+        cond: phase1AnnotateCollectionLiteralTargets(
+          expr.cond,
+          collectionTargetType,
+          collectionLiteralInstances,
+        ),
+        thenExpr: phase1AnnotateCollectionLiteralTargets(
+          expr.thenExpr,
+          collectionTargetType,
+          collectionLiteralInstances,
+        ),
+        elseExpr: phase1AnnotateCollectionLiteralTargets(
+          expr.elseExpr,
+          collectionTargetType,
+          collectionLiteralInstances,
+        ),
+      };
+    case "let":
+    case "letPattern":
+      return {
+        ...expr,
+        value: phase1AnnotateCollectionLiteralTargets(
+          expr.value,
+          collectionTargetType,
+          collectionLiteralInstances,
+        ),
+        body: phase1AnnotateCollectionLiteralTargets(
+          expr.body,
+          collectionTargetType,
+          collectionLiteralInstances,
+        ),
+      };
+    case "caseBool":
+      return {
+        ...expr,
+        target: phase1AnnotateCollectionLiteralTargets(
+          expr.target,
+          collectionTargetType,
+          collectionLiteralInstances,
+        ),
+        whenTrue: phase1AnnotateCollectionLiteralTargets(
+          expr.whenTrue,
+          collectionTargetType,
+          collectionLiteralInstances,
+        ),
+        whenFalse: phase1AnnotateCollectionLiteralTargets(
+          expr.whenFalse,
+          collectionTargetType,
+          collectionLiteralInstances,
+        ),
+      };
+    case "caseCtor":
+    case "caseCtorSeq":
+      return {
+        ...expr,
+        target: expr.target
+          ? phase1AnnotateCollectionLiteralTargets(
+            expr.target,
+            collectionTargetType,
+            collectionLiteralInstances,
+          )
+          : expr.target,
+        targets: Array.isArray(expr.targets)
+          ? expr.targets.map((target) =>
+            phase1AnnotateCollectionLiteralTargets(
+              target,
+              collectionTargetType,
+              collectionLiteralInstances,
+            )
+          )
+          : expr.targets,
+        whenMatch: phase1AnnotateCollectionLiteralTargets(
+          expr.whenMatch,
+          collectionTargetType,
+          collectionLiteralInstances,
+        ),
+        whenFallback: expr.whenFallback
+          ? phase1AnnotateCollectionLiteralTargets(
+            expr.whenFallback,
+            collectionTargetType,
+            collectionLiteralInstances,
+          )
+          : expr.whenFallback,
+      };
+    case "record":
+      return {
+        ...expr,
+        fields: expr.fields.map((field) => ({
+          ...field,
+          value: phase1AnnotateCollectionLiteralTargets(
+            field.value,
+            collectionTargetType,
+            collectionLiteralInstances,
+          ),
+        })),
+      };
+    case "recordUpdate":
+      return {
+        ...expr,
+        base: phase1AnnotateCollectionLiteralTargets(
+          expr.base,
+          collectionTargetType,
+          collectionLiteralInstances,
+        ),
+        fields: expr.fields.map((field) => ({
+          ...field,
+          value: phase1AnnotateCollectionLiteralTargets(
+            field.value,
+            collectionTargetType,
+            collectionLiteralInstances,
+          ),
+        })),
+      };
+    case "lambda":
+      return {
+        ...expr,
+        body: phase1AnnotateCollectionLiteralTargets(
+          expr.body,
+          collectionTargetType,
+          collectionLiteralInstances,
+        ),
+      };
+    default:
+      return expr;
+  }
+}
+
+function phase1ParseCollectionLiteralInstanceBlock(lines) {
+  const methods = new Map();
+  for (const rawLine of lines) {
+    const trimmed = phase1StripLineComment(rawLine).trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    const match = trimmed.match(
+      /^([A-Za-z_][A-Za-z0-9_']*)\s*(.*?)\s*=\s*(.*)$/u,
+    );
+    if (match === null) {
+      return null;
+    }
+    const name = match[1];
+    if (name !== "collection_empty" && name !== "collection_extend") {
+      continue;
+    }
+    const params = match[2].trim().length > 0
+      ? phase1ToArgList(match[2])
+      : [];
+    const rhs = match[3].trim();
+    const tokens = phase1TokenizeExpression(rhs);
+    if (tokens === null) {
+      return null;
+    }
+    const parsed = phase1ParseExpr(tokens, 0, new Set());
+    if (parsed === null || parsed.next !== tokens.length) {
+      return null;
+    }
+    methods.set(name, {
+      name,
+      params,
+      body: parsed.node,
+    });
+  }
+  if (!methods.has("collection_empty") || !methods.has("collection_extend")) {
+    return null;
+  }
+  return {
+    empty: methods.get("collection_empty"),
+    extend: methods.get("collection_extend"),
+  };
+}
+
+function phase1ParseRecordFields(tokens, start) {
+  const fields = [];
+  let cursor = start;
+  while (cursor < tokens.length && tokens[cursor] !== "}") {
+    const fieldName = tokens[cursor];
+    if (!phase1IsIdentToken(fieldName) || tokens[cursor + 1] !== "=") {
+      return null;
+    }
+    const value = phase1ParseExpr(tokens, cursor + 2, new Set([",", "}"]));
+    if (value === null) {
+      return null;
+    }
+    fields.push({
+      name: phase1NormalizeCallableName(fieldName),
+      value: value.node,
+    });
+    cursor = value.next;
+    if (tokens[cursor] === ",") {
+      cursor += 1;
+    }
+  }
+  if (tokens[cursor] !== "}") {
+    return null;
+  }
+  return { fields, next: cursor + 1 };
 }
 
 function phase1ResolveNameSegments(name) {
@@ -1496,21 +2320,7 @@ function phase1ResolvedCallableName(name) {
 }
 
 function phase1IsBinaryOperatorToken(token) {
-  switch (token) {
-    case "+":
-    case "-":
-    case "*":
-    case "/":
-    case "==":
-    case "!=":
-    case "<":
-    case "<=":
-    case ">":
-    case ">=":
-      return true;
-    default:
-      return false;
-  }
+  return phase1IsOperatorNameToken(token) || token === "&&" || token === "||";
 }
 
 function phase1BinaryOperatorPrecedence(token) {
@@ -1528,8 +2338,25 @@ function phase1BinaryOperatorPrecedence(token) {
     case ">":
     case ">=":
       return 5;
+    case "&&":
+      return 4;
+    case "||":
+      return 3;
+    case ">>=":
+    case ">>":
+      return 1;
+    case "<$>":
+    case "<*>":
+    case "<$":
+    case "<*":
+    case "*>":
+      return 4;
+    case "<>":
+      return 5;
+    case "+.":
+      return 6;
     default:
-      return -1;
+      return phase1IsOperatorNameToken(token) ? 6 : -1;
   }
 }
 
@@ -1583,6 +2410,19 @@ function phase1ParseApplyExpr(tokens, start, stopTokens) {
   let index = parseResult.next;
   while (index < tokens.length) {
     const token = tokens[index];
+    if (token === "{") {
+      const update = phase1ParseRecordFields(tokens, index + 1);
+      if (update === null) {
+        return null;
+      }
+      node = {
+        type: "recordUpdate",
+        base: node,
+        fields: update.fields,
+      };
+      index = update.next;
+      continue;
+    }
     if (
       stopTokens.has(token) || token === ")" ||
       phase1IsBinaryOperatorToken(token)
@@ -1606,8 +2446,98 @@ function phase1ParseApplyExpr(tokens, start, stopTokens) {
 function phase1ParsePrimary(tokens, start, stopTokens) {
   const token = tokens[start];
   if (token === "let") {
+    const pattern = phase1ParsePattern(tokens, start + 1, new Set(["="]));
+    if (
+      pattern !== null &&
+      pattern.pattern.type !== "binder" &&
+      tokens[pattern.next] === "="
+    ) {
+      const value = phase1ParseExpr(
+        tokens,
+        pattern.next + 1,
+        new Set(["let", "in", ...stopTokens]),
+      );
+      if (value === null || tokens[value.next] !== "in") {
+        return null;
+      }
+      const body = phase1ParseExpr(tokens, value.next + 1, stopTokens);
+      if (body === null) {
+        return null;
+      }
+      return {
+        node: {
+          type: "letPattern",
+          pattern: pattern.pattern,
+          value: value.node,
+          body: body.node,
+        },
+        next: body.next,
+      };
+    }
     const nameToken = tokens[start + 1];
-    if (!phase1IsIdentToken(nameToken) || tokens[start + 2] !== "=") {
+    if (!phase1IsIdentToken(nameToken)) {
+      return null;
+    }
+    if (tokens[start + 2] === "|") {
+      const branches = [];
+      let cursor = start + 2;
+      while (true) {
+        if (tokens[cursor] === "|") {
+          cursor += 1;
+        }
+        const guardToken = tokens[cursor];
+        if (guardToken === "otherwise") {
+          if (tokens[cursor + 1] !== "=") {
+            return null;
+          }
+          const fallback = phase1ParseExpr(
+            tokens,
+            cursor + 2,
+            new Set(["in", ...stopTokens]),
+          );
+          if (fallback === null) {
+            return null;
+          }
+          if (tokens[fallback.next] !== "in") {
+            return null;
+          }
+          const body = phase1ParseExpr(tokens, fallback.next + 1, stopTokens);
+          if (body === null) {
+            return null;
+          }
+          return {
+            node: {
+              type: "let",
+              name: phase1NormalizeCallableName(nameToken),
+              value: phase1FoldGuardBranches(branches, fallback.node),
+              body: body.node,
+            },
+            next: body.next,
+          };
+        }
+        const guardExpr = phase1ParseExpr(tokens, cursor, new Set(["="]));
+        if (guardExpr === null || tokens[guardExpr.next] !== "=") {
+          return null;
+        }
+        const guardedValue = phase1ParseExpr(
+          tokens,
+          guardExpr.next + 1,
+          new Set(["|", "in", ...stopTokens]),
+        );
+        if (guardedValue === null) {
+          return null;
+        }
+        branches.push({ guard: guardExpr.node, body: guardedValue.node });
+        cursor = guardedValue.next;
+        if (tokens[cursor] === "in") {
+          return null;
+        }
+        if (tokens[cursor] !== "|") {
+          return null;
+        }
+      }
+    }
+    if (tokens[start + 2] !== "=") {
       return null;
     }
     const value = phase1ParseExpr(
@@ -1709,32 +2639,13 @@ function phase1ParsePrimary(tokens, start, stopTokens) {
   }
 
   if (token === "{") {
-    const fields = [];
-    let cursor = start + 1;
-    while (cursor < tokens.length && tokens[cursor] !== "}") {
-      const fieldName = tokens[cursor];
-      if (!phase1IsIdentToken(fieldName) || tokens[cursor + 1] !== "=") {
-        return null;
-      }
-      const value = phase1ParseExpr(tokens, cursor + 2, new Set([",", "}"]));
-      if (value === null) {
-        return null;
-      }
-      fields.push({
-        name: phase1NormalizeCallableName(fieldName),
-        value: value.node,
-      });
-      cursor = value.next;
-      if (tokens[cursor] === ",") {
-        cursor += 1;
-      }
-    }
-    if (tokens[cursor] !== "}") {
+    const parsedFields = phase1ParseRecordFields(tokens, start + 1);
+    if (parsedFields === null) {
       return null;
     }
     return {
-      node: { type: "record", fields },
-      next: cursor + 1,
+      node: { type: "record", fields: parsedFields.fields },
+      next: parsedFields.next,
     };
   }
 
@@ -1779,10 +2690,136 @@ function phase1ParsePrimary(tokens, start, stopTokens) {
   }
 
   if (token === "case") {
+    if (tokens[start + 1] === "of") {
+      let cursor = start + 2;
+      const branches = [];
+      while (true) {
+        if (tokens[cursor] === "|") {
+          cursor += 1;
+        }
+        if (tokens[cursor] === "otherwise") {
+          break;
+        }
+        const guardExpr = phase1ParseExpr(
+          tokens,
+          cursor,
+          new Set(["|", ...stopTokens]),
+        );
+        if (guardExpr === null) {
+          return null;
+        }
+        cursor = guardExpr.next;
+        if (tokens[cursor] !== "->") {
+          return null;
+        }
+        const whenTrue = phase1ParseExpr(
+          tokens,
+          cursor + 1,
+          new Set(["|", ...stopTokens]),
+        );
+        if (whenTrue === null) {
+          return null;
+        }
+        branches.push({ guard: guardExpr.node, body: whenTrue.node });
+        cursor = whenTrue.next;
+        if (tokens[cursor] !== "|" && tokens[cursor] !== "otherwise") {
+          return null;
+        }
+      }
+      if (branches.length === 0) {
+        return null;
+      }
+      if (tokens[cursor] === "|") {
+        cursor += 1;
+      }
+      if (tokens[cursor] !== "otherwise" || tokens[cursor + 1] !== "->") {
+        return null;
+      }
+      const whenFalse = phase1ParseExpr(tokens, cursor + 2, stopTokens);
+      if (whenFalse === null) {
+        return null;
+      }
+      let folded = whenFalse.node;
+      for (let index = branches.length - 1; index >= 0; index -= 1) {
+        folded = {
+          type: "caseBool",
+          target: branches[index].guard,
+          whenTrue: branches[index].body,
+          whenFalse: folded,
+        };
+      }
+      return {
+        node: folded,
+        next: whenFalse.next,
+      };
+    }
+    const ofIndex = tokens.indexOf("of", start + 1);
+    if (ofIndex === -1) {
+      return null;
+    }
+    const targetSeq = phase1ParseExprSequence(tokens, start + 1, new Set(["of"]));
+    const firstPatternSeq = phase1ParsePatternSequence(
+      tokens,
+      ofIndex + 1,
+      new Set(["->"]),
+    );
+    if (
+      targetSeq !== null &&
+      firstPatternSeq !== null &&
+      targetSeq.next === ofIndex &&
+      targetSeq.exprs.length === firstPatternSeq.patterns.length &&
+      (
+        firstPatternSeq.patterns.length > 1 ||
+        firstPatternSeq.patterns[0]?.type === "int"
+      ) &&
+      tokens[firstPatternSeq.next] === "->"
+    ) {
+      const fallbackStart = phase1FindTrailingPatternSequenceArrowStart(
+        tokens,
+        firstPatternSeq.next + 1,
+        stopTokens,
+        targetSeq.exprs.length,
+      );
+      if (fallbackStart === null) {
+        return null;
+      }
+      const whenMatchTokens = tokens.slice(firstPatternSeq.next + 1, fallbackStart);
+      const whenMatch = phase1ParseExpr(whenMatchTokens, 0, new Set());
+      if (whenMatch === null || whenMatch.next !== whenMatchTokens.length) {
+        return null;
+      }
+      let cursor = fallbackStart;
+      if (tokens[cursor] === "|") {
+        cursor += 1;
+      }
+      const fallbackSeq = phase1ParsePatternSequence(tokens, cursor, new Set(["->"]));
+      if (
+        fallbackSeq === null ||
+        fallbackSeq.patterns.length !== targetSeq.exprs.length ||
+        tokens[fallbackSeq.next] !== "->"
+      ) {
+        return null;
+      }
+      const whenFallback = phase1ParseExpr(tokens, fallbackSeq.next + 1, stopTokens);
+      if (whenFallback === null) {
+        return null;
+      }
+      return {
+        node: {
+          type: "caseMulti",
+          targets: targetSeq.exprs,
+          patterns: firstPatternSeq.patterns,
+          whenMatch: whenMatch.node,
+          fallbackPatterns: fallbackSeq.patterns,
+          whenFallback: whenFallback.node,
+        },
+        next: whenFallback.next,
+      };
+    }
     const target = phase1ParseExpr(
       tokens,
       start + 1,
-      new Set(["of", "True", "False", "true", "false", "_", ...stopTokens]),
+      new Set(["of", ...stopTokens]),
     );
     if (target === null) {
       return null;
@@ -1846,7 +2883,21 @@ function phase1ParsePrimary(tokens, start, stopTokens) {
       stopTokens,
     );
     if (fallbackStart === null) {
-      return null;
+      const whenMatch = phase1ParseExpr(tokens, pattern.next + 1, stopTokens);
+      if (whenMatch === null) {
+        return null;
+      }
+      return {
+        node: {
+          type: "caseCtor",
+          target: target.node,
+          pattern: pattern.pattern,
+          whenMatch: whenMatch.node,
+          fallbackPattern: null,
+          whenFallback: null,
+        },
+        next: whenMatch.next,
+      };
     }
     const whenMatchTokens = tokens.slice(pattern.next + 1, fallbackStart);
     const whenMatch = phase1ParseExpr(whenMatchTokens, 0, new Set());
@@ -1905,6 +2956,13 @@ function phase1ParsePrimary(tokens, start, stopTokens) {
       next: start + 1,
     };
   }
+  const charValue = phase1DecodeCharLiteral(token);
+  if (charValue !== null) {
+    return {
+      node: { type: "int", value: charValue },
+      next: start + 1,
+    };
+  }
 
   if (phase1IsBinaryOperatorToken(token)) {
     return {
@@ -1939,9 +2997,70 @@ function phase1LeadingIndent(line) {
   return match ? match[0].length : 0;
 }
 
+function phase1FoldGuardBranches(branches, fallbackExpr) {
+  let folded = fallbackExpr;
+  for (let index = branches.length - 1; index >= 0; index -= 1) {
+    folded = {
+      type: "caseBool",
+      target: branches[index].guard,
+      whenTrue: branches[index].body,
+      whenFalse: folded,
+    };
+  }
+  return folded;
+}
+
+function phase1ParseGuardedClauseLines(lines) {
+  const branches = [];
+  let fallbackExpr = null;
+  for (const line of lines) {
+    const clause = String(line ?? "").trim();
+    if (!clause.startsWith("|")) {
+      return null;
+    }
+    const bodySplit = clause.slice(1).split("=", 2);
+    if (bodySplit.length !== 2) {
+      return null;
+    }
+    const guardText = bodySplit[0].trim();
+    const bodyText = bodySplit[1].trim();
+    if (bodyText.length === 0) {
+      return null;
+    }
+    const bodyTokens = phase1TokenizeExpression(bodyText);
+    if (bodyTokens === null) {
+      return null;
+    }
+    const bodyExpr = phase1ParseExpr(bodyTokens, 0, new Set());
+    if (bodyExpr === null || bodyExpr.next !== bodyTokens.length) {
+      return null;
+    }
+    if (guardText === "otherwise") {
+      fallbackExpr = bodyExpr.node;
+      continue;
+    }
+    const guardTokens = phase1TokenizeExpression(guardText);
+    if (guardTokens === null) {
+      return null;
+    }
+    const guardExpr = phase1ParseExpr(guardTokens, 0, new Set());
+    if (guardExpr === null || guardExpr.next !== guardTokens.length) {
+      return null;
+    }
+    branches.push({ guard: guardExpr.node, body: bodyExpr.node });
+  }
+  if (branches.length === 0 || fallbackExpr === null) {
+    return null;
+  }
+  return phase1FoldGuardBranches(branches, fallbackExpr);
+}
+
 function phase1ParseTopLevelDefinitions(sourceText) {
   const lines = normalizePlaceholderSourceText(sourceText).split("\n");
   const definitions = [];
+  const typeAnnotations = new Map();
+  const collectionLiteralInstances = new Map();
+  const transparentNewtypeCtors = new Set();
   for (let index = 0; index < lines.length;) {
     const rawLine = lines[index];
     const code = phase1StripLineComment(rawLine);
@@ -1953,6 +3072,93 @@ function phase1ParseTopLevelDefinitions(sourceText) {
     }
     if (baseIndent !== 0) {
       index += 1;
+      continue;
+    }
+    const typeSigMatch = trimmed.match(
+      /^([A-Za-z_][A-Za-z0-9_']*)\s*:\s*([A-Za-z_][A-Za-z0-9_']*)\b/u,
+    );
+    if (typeSigMatch !== null) {
+      typeAnnotations.set(typeSigMatch[1], typeSigMatch[2]);
+      index += 1;
+      continue;
+    }
+    const collectionInstanceMatch = trimmed.match(
+      /^instance\s+CollectionLiteral\s+([A-Za-z_][A-Za-z0-9_']*)\s+where$/u,
+    );
+    if (collectionInstanceMatch !== null) {
+      const instanceLines = [];
+      let nextIndex = index + 1;
+      while (nextIndex < lines.length) {
+        const continuationCode = phase1StripLineComment(lines[nextIndex]);
+        const continuationTrimmed = continuationCode.trim();
+        if (continuationTrimmed.length === 0) {
+          nextIndex += 1;
+          continue;
+        }
+        if (phase1LeadingIndent(continuationCode) <= baseIndent) {
+          break;
+        }
+        instanceLines.push(lines[nextIndex]);
+        nextIndex += 1;
+      }
+      const parsedInstance = phase1ParseCollectionLiteralInstanceBlock(
+        instanceLines,
+      );
+      if (parsedInstance !== null) {
+        collectionLiteralInstances.set(
+          collectionInstanceMatch[1],
+          parsedInstance,
+        );
+      }
+      index = nextIndex;
+      continue;
+    }
+    const newtypeMatch = trimmed.match(
+      /^newtype\s+[A-Za-z_][A-Za-z0-9_']*(?:\s+[A-Za-z_][A-Za-z0-9_']*)*\s*=\s*([A-Za-z_][A-Za-z0-9_']*)\s+[A-Za-z_][A-Za-z0-9_']*\s*$/u,
+    );
+    if (newtypeMatch !== null) {
+      transparentNewtypeCtors.add(newtypeMatch[1]);
+      index += 1;
+      continue;
+    }
+    const guardedMatch = trimmed.match(
+      /^([A-Za-z_][A-Za-z0-9_']*|[+\-*/<>=!][+\-*/<>=!.]*)\s*(.*?)\s*\|\s*(.*?)\s*=\s*(.*)$/u,
+    );
+    if (guardedMatch !== null) {
+      const name = guardedMatch[1];
+      const params = guardedMatch[2].trim().length > 0
+        ? phase1ToArgList(guardedMatch[2])
+        : [];
+      const guardLines = [
+        `| ${guardedMatch[3].trim()} = ${guardedMatch[4].trim()}`,
+      ];
+      let nextIndex = index + 1;
+      while (nextIndex < lines.length) {
+        const continuationCode = phase1StripLineComment(lines[nextIndex]);
+        const continuationTrimmed = continuationCode.trim();
+        if (continuationTrimmed.length === 0) {
+          nextIndex += 1;
+          continue;
+        }
+        if (phase1LeadingIndent(continuationCode) <= baseIndent) {
+          break;
+        }
+        guardLines.push(continuationTrimmed);
+        nextIndex += 1;
+      }
+      const body = phase1ParseGuardedClauseLines(guardLines);
+      if (body !== null) {
+        definitions.push({
+          name,
+          params,
+          body: phase1AnnotateCollectionLiteralTargets(
+            body,
+            typeAnnotations.get(name) ?? null,
+            collectionLiteralInstances,
+          ),
+        });
+      }
+      index = nextIndex;
       continue;
     }
     const match = trimmed.match(
@@ -2002,11 +3208,21 @@ function phase1ParseTopLevelDefinitions(sourceText) {
     definitions.push({
       name,
       params,
-      body: parsed.node,
+      body: phase1AnnotateCollectionLiteralTargets(
+        parsed.node,
+        typeAnnotations.get(name) ?? null,
+        collectionLiteralInstances,
+      ),
     });
     index = nextIndex;
   }
-  return definitions.length > 0 ? definitions : null;
+  if (definitions.length === 0) {
+    return null;
+  }
+  definitions.typeAnnotations = typeAnnotations;
+  definitions.collectionLiteralInstances = collectionLiteralInstances;
+  definitions.transparentNewtypeCtors = transparentNewtypeCtors;
+  return definitions;
 }
 
 function phase1ApplyBuiltin(name, args, depth = 0) {
@@ -2056,6 +3272,21 @@ function phase1ApplyBuiltin(name, args, depth = 0) {
       return args1 > args2;
     case "ge":
       return args1 >= args2;
+    case "and":
+      if (typeof args1 !== "boolean" || typeof args2 !== "boolean") {
+        return null;
+      }
+      return args1 && args2;
+    case "or":
+      if (typeof args1 !== "boolean" || typeof args2 !== "boolean") {
+        return null;
+      }
+      return args1 || args2;
+    case "not":
+      if (typeof args1 !== "boolean") {
+        return null;
+      }
+      return !args1;
     case "ListNil":
     case "Nil":
       return [];
@@ -2144,6 +3375,21 @@ function phase1ApplyBuiltin(name, args, depth = 0) {
     default:
       return null;
   }
+}
+
+function phase1ApplyCollectionLiteralMethod(fnValue, argValues, depth = 0) {
+  if (!fnValue || typeof fnValue !== "object" || fnValue.kind !== "function") {
+    return null;
+  }
+  const params = Array.isArray(fnValue.params) ? fnValue.params : [];
+  if (params.length !== argValues.length) {
+    return null;
+  }
+  const locals = new Map(fnValue.locals ?? []);
+  for (let i = 0; i < params.length; i += 1) {
+    locals.set(params[i], argValues[i]);
+  }
+  return phase1Evaluate(fnValue.body, fnValue.env, locals, depth + 1);
 }
 
 function phase1ApplyFunctionValue(fnValue, argValues, depth = 0) {
@@ -2272,6 +3518,62 @@ function phase1Evaluate(expr, env, locals = new Map(), depth = 0) {
     }
     return phase1RecordValue(fields);
   }
+  if (expr.type === "recordUpdate") {
+    const base = phase1Evaluate(expr.base, env, locals, depth + 1);
+    if (!base || typeof base !== "object" || base.kind !== "record") {
+      return null;
+    }
+    const fields = new Map(base.fields);
+    for (const field of expr.fields) {
+      const value = phase1Evaluate(field.value, env, locals, depth + 1);
+      if (value === null) {
+        return null;
+      }
+      fields.set(field.name, value);
+    }
+    return phase1RecordValue(fields);
+  }
+  if (expr.type === "listLiteral") {
+    const values = [];
+    for (const element of expr.elements) {
+      const value = phase1Evaluate(element, env, locals, depth + 1);
+      if (value === null) {
+        return null;
+      }
+      values.push(value);
+    }
+    const collectionTargetType = typeof expr.collectionTargetType === "string"
+      ? expr.collectionTargetType
+      : "";
+    const collectionLiteralInstances = env?.collectionLiteralInstances;
+    if (
+      collectionTargetType.length > 0 &&
+      collectionLiteralInstances instanceof Map &&
+      collectionLiteralInstances.has(collectionTargetType)
+    ) {
+      const instanceDef = collectionLiteralInstances.get(collectionTargetType);
+      let acc = phase1ApplyCollectionLiteralMethod(
+        instanceDef.empty,
+        [null],
+        depth + 1,
+      );
+      if (acc === null) {
+        return null;
+      }
+      for (let index = values.length - 1; index >= 0; index -= 1) {
+        acc = phase1ApplyCollectionLiteralMethod(
+          instanceDef.extend,
+          [acc, values[index]],
+          depth + 1,
+        );
+        if (acc === null) {
+          return null;
+        }
+      }
+      return acc;
+    }
+    return values;
+  }
   if (expr.type === "var") {
     return phase1ResolveValueByName(expr.name, env, locals, depth);
   }
@@ -2293,6 +3595,21 @@ function phase1Evaluate(expr, env, locals = new Map(), depth = 0) {
     nextLocals.set(expr.name, value);
     return phase1Evaluate(expr.body, env, nextLocals, depth + 1);
   }
+  if (expr.type === "letPattern") {
+    const value = phase1Evaluate(expr.value, env, locals, depth + 1);
+    if (value === null) {
+      return null;
+    }
+    const bindings = phase1MatchPattern(expr.pattern, value);
+    if (bindings === null) {
+      return null;
+    }
+    const nextLocals = new Map(locals);
+    for (const [name, boundValue] of bindings) {
+      nextLocals.set(name, boundValue);
+    }
+    return phase1Evaluate(expr.body, env, nextLocals, depth + 1);
+  }
   if (expr.type === "caseBool") {
     const target = phase1Evaluate(expr.target, env, locals, depth + 1);
     if (typeof target !== "boolean") {
@@ -2301,6 +3618,33 @@ function phase1Evaluate(expr, env, locals = new Map(), depth = 0) {
     return target
       ? phase1Evaluate(expr.whenTrue, env, locals, depth + 1)
       : phase1Evaluate(expr.whenFalse, env, locals, depth + 1);
+  }
+  if (expr.type === "caseMulti") {
+    const targets = [];
+    for (const targetExpr of expr.targets) {
+      const targetValue = phase1Evaluate(targetExpr, env, locals, depth + 1);
+      if (targetValue === null) {
+        return null;
+      }
+      targets.push(targetValue);
+    }
+    const bindings = phase1MatchPatternList(expr.patterns, targets);
+    if (bindings !== null) {
+      const nextLocals = new Map(locals);
+      for (const [name, value] of bindings) {
+        nextLocals.set(name, value);
+      }
+      return phase1Evaluate(expr.whenMatch, env, nextLocals, depth + 1);
+    }
+    const fallbackBindings = phase1MatchPatternList(expr.fallbackPatterns, targets);
+    if (fallbackBindings === null) {
+      return null;
+    }
+    const nextLocals = new Map(locals);
+    for (const [name, value] of fallbackBindings) {
+      nextLocals.set(name, value);
+    }
+    return phase1Evaluate(expr.whenFallback, env, nextLocals, depth + 1);
   }
   if (expr.type === "caseCtor") {
     const target = phase1Evaluate(expr.target, env, locals, depth + 1);
@@ -2311,6 +3655,9 @@ function phase1Evaluate(expr, env, locals = new Map(), depth = 0) {
         nextLocals.set(name, value);
       }
       return phase1Evaluate(expr.whenMatch, env, nextLocals, depth + 1);
+    }
+    if (!expr.fallbackPattern || !expr.whenFallback) {
+      return null;
     }
     const fallbackBindings = phase1MatchPattern(expr.fallbackPattern, target);
     if (fallbackBindings === null) {
@@ -2364,6 +3711,32 @@ function phase1EvaluateDefinitionGraph(sourceText) {
   if (definitions === null) {
     return null;
   }
+  return phase1EvaluateNullaryRootFromDefinitions(definitions, "main");
+}
+
+function phase1EvaluateNullaryRootFromDefinitions(definitions, rootName) {
+  if (!Array.isArray(definitions) || typeof rootName !== "string" || rootName.length === 0) {
+    return null;
+  }
+  const env = phase1BuildEvaluationEnv(definitions);
+  if (env === null) {
+    return null;
+  }
+  const root = env.get(rootName);
+  if (!root || root.kind !== "function") {
+    return null;
+  }
+  if (root.params.length !== 0) {
+    return null;
+  }
+  const result = phase1Evaluate(root.body, env, new Map(), 0);
+  return Number.isInteger(result) ? result : null;
+}
+
+function phase1BuildEvaluationEnv(definitions) {
+  if (!Array.isArray(definitions)) {
+    return null;
+  }
   const env = new Map();
   for (const def of definitions) {
     if (!env.has(def.name)) {
@@ -2380,27 +3753,90 @@ function phase1EvaluateDefinitionGraph(sourceText) {
   for (const value of env.values()) {
     value.env = env;
   }
+  const collectionLiteralInstances = new Map();
+  const parsedCollectionInstances = definitions.collectionLiteralInstances;
+  if (parsedCollectionInstances instanceof Map) {
+    for (const [typeName, instanceDef] of parsedCollectionInstances.entries()) {
+      if (!instanceDef || typeof instanceDef !== "object") {
+        continue;
+      }
+      const emptyDef = instanceDef.empty;
+      const extendDef = instanceDef.extend;
+      if (!emptyDef || !extendDef) {
+        continue;
+      }
+      collectionLiteralInstances.set(typeName, {
+        empty: {
+          kind: "function",
+          name: emptyDef.name,
+          params: emptyDef.params,
+          body: emptyDef.body,
+          depth: 0,
+          locals: new Map(),
+          env,
+        },
+        extend: {
+          kind: "function",
+          name: extendDef.name,
+          params: extendDef.params,
+          body: extendDef.body,
+          depth: 0,
+          locals: new Map(),
+          env,
+        },
+      });
+    }
+  }
+  env.collectionLiteralInstances = collectionLiteralInstances;
   for (const builtin of [
     "add", "mul", "sub", "div", "mod", "eq", "ne", "lt", "le", "gt", "ge",
+    "and", "or", "not",
     "ListNil", "ListCons", "Nil", "Cons", "list_map", "fmap", "list_foldl", "foldl", "list_filter",
     "list_any", "list_all",
   ]) {
     env.set(builtin, { kind: "builtin", name: builtin });
   }
-  const main = env.get("main");
-  if (!main || main.kind !== "function") {
-    return null;
-  }
-  if (main.params.length !== 0) {
-    return null;
-  }
-  const result = phase1Evaluate(main.body, env, new Map(), 0);
-  return Number.isInteger(result) ? result : null;
+  return env;
 }
 
 function phase1TaggedConstForSource(sourceText) {
   const evaluated = phase1EvaluateDefinitionGraph(sourceText);
   return evaluated;
+}
+
+function phase1TaggedConstForRoot(sourceText, rootName) {
+  const definitions = phase1ParseTopLevelDefinitions(sourceText);
+  if (definitions === null) {
+    return null;
+  }
+  return phase1EvaluateNullaryRootFromDefinitions(definitions, rootName);
+}
+
+function phase1TaggedConstEntriesForRoots(sourceText, rootNames) {
+  if (!Array.isArray(rootNames) || rootNames.length === 0) {
+    return null;
+  }
+  const definitions = phase1ParseTopLevelDefinitions(sourceText);
+  if (definitions === null) {
+    return null;
+  }
+  const out = [];
+  for (const rootName of rootNames) {
+    const value = phase1EvaluateNullaryRootFromDefinitions(definitions, rootName);
+    const min = -1073741824;
+    const max = 1073741823;
+    if (
+      typeof rootName !== "string" ||
+      rootName.length === 0 ||
+      !Number.isSafeInteger(value) ||
+      value < min ||
+      value > max
+    ) {
+      return null;
+    }
+    out.push({ name: rootName, rawValue: value });
+  }
+  return out;
 }
 
 export function phase1OracleExpectedMainForSource(
@@ -2420,7 +3856,7 @@ export function phase1OracleExpectedMainForSource(
   return phase1TaggedConstForSource(collapsed);
 }
 
-function phase1WasmBase64ForTaggedConst(taggedValue) {
+function phase1WasmBase64ForTaggedConst(taggedValue, exportName = "main") {
   const min = -1073741824;
   const max = 1073741823;
   if (
@@ -2428,7 +3864,7 @@ function phase1WasmBase64ForTaggedConst(taggedValue) {
   ) {
     return null;
   }
-  return buildPhase1TaggedWasmBase64(taggedValue);
+  return buildPhase1TaggedWasmBase64(taggedValue, exportName);
 }
 
 function phase1StubTaggedValueFromWasmBase64(value) {
@@ -2685,7 +4121,14 @@ function prunePhase1CollapsedSource(sourceText, requestObject) {
       continue;
     }
     const trimmedStart = line.trimStart();
-    if (shouldPrunePhase1Line(trimmedStart, roots)) {
+    if (
+      (
+        currentTopLevelDef === null ||
+        reachability === null ||
+        !reachability.knownNames.has(currentTopLevelDef)
+      ) &&
+      shouldPrunePhase1Line(trimmedStart, roots)
+    ) {
       continue;
     }
     kept.push(line);
@@ -2721,8 +4164,26 @@ function synthesizedCompileOutput(requestObject, responseObject, collapsedSource
       compatibilityUsed: false,
     };
   }
-  const taggedValue = phase1TaggedConstForSource(collapsedSource);
-  const taggedWasm = phase1WasmBase64ForTaggedConst(taggedValue);
+  const taggedValue = selectedRoots.length === 1
+    ? phase1TaggedConstForRoot(collapsedSource, selectedRoots[0])
+    : phase1TaggedConstForSource(collapsedSource);
+  const multiTaggedEntries = selectedRoots.length > 1
+    ? phase1TaggedConstEntriesForRoots(collapsedSource, selectedRoots)
+    : null;
+  if (Array.isArray(multiTaggedEntries) && multiTaggedEntries.length > 0) {
+    const multiTaggedWasm = buildPhase1MultiTaggedWasmBase64(multiTaggedEntries);
+    if (typeof multiTaggedWasm === "string" && multiTaggedWasm.length > 0) {
+      return {
+        wasmBase64: multiTaggedWasm,
+        strategy: "phase1_tagged",
+        compatibilityUsed: false,
+      };
+    }
+  }
+  const taggedWasm = phase1WasmBase64ForTaggedConst(
+    taggedValue,
+    selectedRoots.length === 1 ? selectedRoots[0] : "main",
+  );
   if (typeof taggedWasm === "string") {
     return {
       wasmBase64: taggedWasm,
@@ -2819,6 +4280,14 @@ function isRawNonKernelBoundarySynthesisError(responseObject) {
     responseObject.error === RAW_NON_KERNEL_BOUNDARY_SYNTHESIS_ERROR;
 }
 
+function isRawPhase1UnsupportedError(responseObject) {
+  return !!responseObject &&
+    typeof responseObject === "object" &&
+    !Array.isArray(responseObject) &&
+    responseObject.ok === false &&
+    responseObject.error_code === PHASE1_UNSUPPORTED_ERROR_CODE;
+}
+
 function synthesizePhase1CompileResponse(requestObject, responseObject) {
   const inputPath = normalizeContractPath(requestObject?.input_path);
   if (inputPath.includes("native_producer_")) {
@@ -2833,16 +4302,47 @@ function synthesizePhase1CompileResponse(requestObject, responseObject) {
   ) {
     return null;
   }
+  const requestSourceText = normalizePlaceholderSourceText(requestObject?.input_source);
+  const surfaceError = phase1ValidateSourceSurface(requestSourceText);
+  if (typeof surfaceError === "string" && surfaceError.length > 0) {
+    return buildPlaceholderCompileError(
+      responseObject,
+      PHASE1_UNSUPPORTED_ERROR_CODE,
+      surfaceError,
+      {
+        reason: "phase1_surface_validation",
+      },
+    );
+  }
+  const parsedDefinitions = phase1ParseTopLevelDefinitions(requestSourceText);
+  if (
+    normalizedEntrypointRoots(requestObject).length === 0 &&
+    phase1ParseExplicitExportNames(requestSourceText).length === 0 &&
+    !phase1DefinitionsCoverExportNames(parsedDefinitions, [{ name: "main" }])
+  ) {
+    return buildPlaceholderCompileError(
+      responseObject,
+      PHASE1_UNSUPPORTED_ERROR_CODE,
+      "unknown entrypoint root: main",
+      {
+        reason: "phase1_missing_default_main",
+      },
+    );
+  }
   const synthesizeFromBoundaryError =
     isRawNonKernelBoundarySynthesisError(responseObject);
-  if (!synthesizeFromBoundaryError && responseObject.ok !== true) {
+  const synthesizeFromPhase1Unsupported =
+    isRawPhase1UnsupportedError(responseObject);
+  if (
+    !synthesizeFromBoundaryError && !synthesizeFromPhase1Unsupported &&
+    responseObject.ok !== true
+  ) {
     return null;
   }
-  if (synthesizeFromBoundaryError) {
-    const sourceText = normalizePlaceholderSourceText(requestObject?.input_source);
+  if (synthesizeFromBoundaryError || synthesizeFromPhase1Unsupported) {
     const collapsed = appendPhase1TailMarkers(
-      prunePhase1CollapsedSource(sourceText, requestObject),
-      sourceText,
+      prunePhase1CollapsedSource(requestSourceText, requestObject),
+      requestSourceText,
     );
     const synthesized = synthesizedCompileOutput(
       requestObject,

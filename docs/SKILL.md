@@ -124,7 +124,7 @@ Or directly:
 CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scripts/validate-docs.mjs
 ```
 
-`full-compiler-verify` is a future-facing strict acceptance target for full compiler completion and is tracked separately from `pre-tag-verify`; it may remain failing until remaining compatibility and unsupported-language debt is removed.
+`full-compiler-verify` is a future-facing strict acceptance target for full compiler completion. By default it rebuilds and tests `artifacts/latest/clapse_compiler.wasm`, not the retained strict seed, so it reflects the current public compile surface rather than the bootstrap artifact.
 
 ## Unified compile-debug flow
 
@@ -199,12 +199,41 @@ That subset includes:
 - simple custom uppercase constructors in constant/evaluable paths, including
   direct construction, pattern matching, constructor refs as values, and list
   maps such as `make = Just; main = case make 1 of Just x -> x; Nothing -> 0`
-  and `ys = fmap Just xs`
+  and `ys = fmap Just xs`, plus constructor partial application such as
+  `mk = Pair 1; main = case mk 2 of Pair x y -> add x y; _ -> 0`
+- transparent `newtype` constructors in executable paths, including direct
+  `case`, constructor refs as values, `let` pattern deconstruction, mapping
+  through `fmap`, and explicit non-`main` roots such as
+  `unbox x = case x of Box y -> y`
 - list literals desugared in phase1 executable paths, such as
-  `main = foldl (+) 0 [1, 2, 3]`
-- simple closed record literals and dot projection in phase1 executable paths,
-  such as `options = { allow = true, include = Nothing }` and
-  `main = case options.allow of true -> 1; _ -> 0`
+  `main = foldl (+) 0 [1, 2, 3]`, including top-level typed custom
+  `CollectionLiteral` targets with parsed instance methods
+- simple closed record literals, dot projection, and one-level record update in
+  phase1 executable paths, such as
+  `options = { allow = true, include = Nothing }`,
+  `main = case options.allow of true -> 1; _ -> 0`, and
+  `updated = options { allow = false }`, including multi-root nullary record and
+  parameterized type-alias record exports that reduce through folded field
+  projections
+- boolean operator chains through builtin boolean methods in phase1 executable
+  paths, such as `main = case lt 1 2 && not false || false of true -> 1; _ -> 0`
+- guarded `case of` in phase1 executable paths for boolean guard chains with
+  `otherwise` fallback, such as
+  `main = case of | eq x 0 -> 0 | eq x 1 -> 1 | otherwise -> 2`
+- guarded `let` bindings and guarded top-level function clauses lowered through
+  nested boolean cases in phase1 executable paths, such as
+  `let selected | eq x 0 = 0 | otherwise = x in selected` and
+  `add_or_zero x y | eq x 0 = 0 | otherwise = add x y`
+- simple constructor-pattern deconstruction in `let`, such as
+  `let Pair left right = p in add left right`
+- simple multi-scrutinee pattern-arm `case`, such as
+  `case a b of 0 0 -> 0; x y -> add x y`
+- simple literal-pattern `case` arms, such as
+  `case n of 0 -> 0; x -> add x 1`
+- char literals parsed as integer codepoints in phase1 executable paths, such
+  as `'a'` and `'\n'`
+- custom symbolic infix operators in the existing operator-name subset, such as
+  `+. x y = add x y` used as `1 +. 2 +. 3`
 
 If a non-kernel compile request is valid Clapse source but the requested
 `public_exports` are outside that executable/evaluator subset (currently this is
@@ -232,9 +261,14 @@ initial pure top-level def graphs for direct and simple call-chain forms using:
   or a second list constructor alternative,
 - simple custom uppercase constructor values/patterns, including constructor
   refs flowing through supported higher-order list calls,
-- list literals `[ ... ]` lowered through `Cons`/`Nil` in phase1,
-- simple closed record literal evaluation and dot projection from reachable
-  top-level or local values,
+- list literals `[ ... ]` lowered through `Cons`/`Nil` in phase1 by default,
+  and through top-level typed custom `CollectionLiteral` instances when the
+  target definition carries a matching type signature,
+- simple closed record literal evaluation, dot projection, and one-level record
+  update from reachable top-level or local values,
+- boolean builtin-method chains using `and`/`or`/`not` and infix `&&`/`||`,
+- list boolean combinators like `list_filter`, `list_any`, and `list_all`
+  when their predicate stays inside the phase1 evaluator subset,
 then emits a tagged-int wasm result when possible.
 Unsupported non-kernel phase-1 inputs that do parse in the subset but still
 cannot be lowered or evaluated now fail closed with
@@ -842,6 +876,9 @@ program-dependent native wasm output shape before release verification.
 
 - LSP reads plugin directories from `clapse.json` and passes discovered plugin
   `.wasm` artifacts to the compiler in `plugin_wasm_paths`.
+- LSP suppresses runnable-entrypoint diagnostics like `unknown entrypoint root:
+  main` for editor buffers and plugin library files, so non-executable sources
+  do not surface spurious compile diagnostics.
 - `clapse.json` may include `"plugins"` as an array of directories.
 - `scripts/run-clapse-compiler-wasm.mjs` now walks upward from the input
   directory (or cwd), compiles discovered plugin `.clapse` files to `.wasm`, and
