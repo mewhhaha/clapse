@@ -202,7 +202,7 @@ async function probeCompilerContract(compilerWasmPath, sourceVersion) {
   );
   assertStructuralArtifacts(lowered, collapsed, {
     context: "compile probe",
-    requiredDefs: ["main"],
+    requiredDefs: [],
   });
   const contract = contractMeta(response);
   assert(

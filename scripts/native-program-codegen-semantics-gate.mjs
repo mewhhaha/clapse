@@ -156,6 +156,15 @@ function requestForOracle(inputPath, source, entrypointExports = ["main"]) {
   );
 }
 
+function buildKernelPathCompileRequest(source, entrypointExports = ["main"]) {
+  return buildCompileRequest(
+    "lib/compiler/kernel.clapse",
+    source,
+    "kernel-native",
+    entrypointExports,
+  );
+}
+
 function normalizeMainResult(rawResult) {
   if (typeof rawResult !== "number") {
     return {
@@ -207,15 +216,11 @@ async function compileProgram(
   label,
   source,
   entrypointExports = ["main"],
+  inputPath = `${label}.clapse`,
 ) {
   const response = await callCompilerWasmRaw(
     wasmPath,
-    buildCompileRequest(
-      `${label}.clapse`,
-      source,
-      "kernel-native",
-      entrypointExports,
-    ),
+    buildCompileRequest(inputPath, source, "kernel-native", entrypointExports),
     {
       validateCompileContract: true,
       withContractMetadata: true,
@@ -290,17 +295,47 @@ async function assertProgramCompileExports(
   source,
   entrypointExports,
   expectedPublicExports,
+  inputPath = `${label}.clapse`,
 ) {
   const program = await compileProgram(
     wasmPath,
     label,
     source,
     entrypointExports,
+    inputPath,
   );
   assert(
     JSON.stringify(program.response.public_exports) ===
       JSON.stringify(expectedPublicExports),
     `native-program-codegen-semantics-gate: ${label} expected public exports ${JSON.stringify(expectedPublicExports)}, got ${JSON.stringify(program.response.public_exports)}`,
+  );
+}
+
+async function assertKernelPathRawCompileExports(
+  wasmPath,
+  label,
+  source,
+  entrypointExports,
+  expectedPublicExports,
+) {
+  const response = await callCompilerWasmRaw(
+    wasmPath,
+    buildKernelPathCompileRequest(source, entrypointExports),
+    {
+      withContractMetadata: true,
+    },
+  );
+  assert(
+    response && typeof response === "object" && response.ok === true,
+    `native-program-codegen-semantics-gate: ${label} raw kernel-path compile failed: ${String(response?.error ?? "unknown")}`,
+  );
+  assert(
+    typeof response.wasm_base64 === "string" && response.wasm_base64.length > 0,
+    `native-program-codegen-semantics-gate: ${label} missing raw wasm_base64`,
+  );
+  assert(
+    JSON.stringify(response.public_exports) === JSON.stringify(expectedPublicExports),
+    `native-program-codegen-semantics-gate: ${label} expected raw public exports ${JSON.stringify(expectedPublicExports)}, got ${JSON.stringify(response.public_exports)}`,
   );
 }
 
@@ -461,6 +496,17 @@ async function run() {
     ].join("\n"),
     ["helper"],
     [{ name: "helper", arity: 1 }],
+  );
+  await assertKernelPathRawCompileExports(
+    wasmPath,
+    "kernel-path-explicit-helper-root-export-metadata",
+    [
+      "helper x = x",
+      "",
+    ].join("\n"),
+    ["helper"],
+    [{ name: "helper", arity: 1 }],
+    "lib/compiler/kernel.clapse",
   );
   await assertProgramMainResult(
     wasmPath,

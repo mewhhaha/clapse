@@ -110,6 +110,11 @@ deno run -A scripts/clapse.mjs bench [iterations]
     When a compile response omits explicit export metadata, the ABI layer now
     derives function arities from wasm type/function sections instead of
     assuming every function export takes one argument.
+    The bootstrap seed raw backend can emit structural tiny wasm for explicit
+    non-`main` roots, with matching `public_exports`/`dts`. The self-hosted
+    compiler-owned phase-1 path is still `main`-only and fails closed with
+    `compile phase1 only supports main entrypoint exports today` until it grows
+    equivalent byte-level wasm export assembly.
     Bundle size tracks reachable function count, while kernel self-host compile
     requests still require full compiler ABI output.
     Legacy env
@@ -162,6 +167,11 @@ deno run -A scripts/clapse.mjs bench [iterations]
     `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1`) and raw
     source-version propagation checks (`native-source-version-propagation-gate`),
     preventing bootstrap regressions from seed churn.
+    Retention is also invalidated when
+    `scripts/native-producer-seed-template.c`,
+    `lib/compiler/native_compile.clapse`, or
+    `lib/compiler/native_compile_reachability.clapse` are newer than the
+    retained seed, so compiler/raw-backend source changes force a rebuild.
     If retention fails, it first promotes a validated
     `artifacts/strict-native/native_producer_seed.wasm`; if that is unavailable
     or invalid, it rebuilds through

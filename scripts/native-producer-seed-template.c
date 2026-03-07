@@ -34,16 +34,21 @@ static const char ENTRYPOINT_ROOT_INVALID_ERROR[] =
 static const char ENTRYPOINT_ROOT_UNKNOWN_ERROR[] = "unknown entrypoint root";
 static const char NON_KERNEL_BOUNDARY_SYNTHESIS_ERROR[] =
   "non-kernel raw compile requires boundary synthesis";
+static const char BASE64_ALPHABET[] =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 static const char COMPILE_PREFIX[] = "{\"ok\":true,\"backend\":\"kernel-native\",\"wasm_base64\":\"";
-static const char COMPILE_MID_A[] = "\",\"public_exports\":[{\"name\":\"main\",\"arity\":1}],\"abi_exports\":[{\"name\":\"clapse_run\",\"arity\":1}],\"dts\":\"export declare function clapse_run(request_handle: number): number;\\nexport declare function main(arg0: number): number;\\n\",\"artifacts\":{\"lowered_ir.txt\":\"(lowered_ir) ";
-static const char COMPILE_MID_B[] = "\",\"collapsed_ir.txt\":\"(collapsed_ir) ";
+static const char COMPILE_MID_A[] = "\",\"public_exports\":[{\"name\":\"main\",\"arity\":1}],\"abi_exports\":[{\"name\":\"clapse_run\",\"arity\":1}],\"dts\":\"export declare function clapse_run(request_handle: number): number;\\nexport declare function main(arg0: number): number;\\n\",\"artifacts\":{\"lowered_ir.txt\":\"(lowered_ir)\\nphase: kernel-native-phase1\\nkind: normalized-source\\n";
+static const char COMPILE_MID_B[] = "\",\"collapsed_ir.txt\":\"(collapsed_ir)\\nphase: kernel-native-phase1\\nkind: normalized-source\\n";
 static const char COMPILE_SUFFIX_A[] = "\"},\"__clapse_contract\":{\"source_version\":\"";
 static const char COMPILE_SUFFIX_B[] = "\",\"compile_contract_version\":\"native-v1\"}}";
+static const char COMPILE_DYNAMIC_MID_A[] = "\",\"public_exports\":";
+static const char COMPILE_DYNAMIC_MID_B[] = ",\"abi_exports\":[],\"dts\":\"";
+static const char COMPILE_DYNAMIC_MID_C[] = "\",\"artifacts\":{\"lowered_ir.txt\":\"(lowered_ir)\\nphase: kernel-native-phase1\\nkind: normalized-source\\n";
 
 static const char SELFHOST_PREFIX[] = "{\"ok\":true,\"backend\":\"kernel-native\",\"wasm_base64\":\"";
-static const char SELFHOST_MID_A[] = "\",\"artifacts\":{\"lowered_ir.txt\":\"(lowered_ir) ";
-static const char SELFHOST_MID_B[] = "\",\"collapsed_ir.txt\":\"(collapsed_ir) ";
+static const char SELFHOST_MID_A[] = "\",\"artifacts\":{\"lowered_ir.txt\":\"(lowered_ir)\\nphase: kernel-native-phase1\\nkind: normalized-source\\n";
+static const char SELFHOST_MID_B[] = "\",\"collapsed_ir.txt\":\"(collapsed_ir)\\nphase: kernel-native-phase1\\nkind: normalized-source\\n";
 static const char SELFHOST_SUFFIX[] = "\"}}";
 static const char TAIL_SELF_PREFIX[] = "\\n-- VSelfTailCall ";
 static const char TAIL_MUTUAL_PREFIX[] = "\\n-- VMutualTailCall ";
@@ -323,6 +328,109 @@ static void write_name_span(uint8_t *dst, uint32_t *cursor, NameSpan name) {
     dst[*cursor + i] = src[i];
   }
   *cursor += name.len;
+}
+
+static uint32_t name_span_json_escaped_len(NameSpan name) {
+  if (!name.ok || name.len == 0u) {
+    return 0u;
+  }
+  uint8_t *src = (uint8_t *) (uintptr_t) name.ptr;
+  uint32_t out = 0u;
+  for (uint32_t i = 0; i < name.len; i += 1u) {
+    if (src[i] == '"' || src[i] == '\\') {
+      out += 2u;
+    } else {
+      out += 1u;
+    }
+  }
+  return out;
+}
+
+static void write_json_escaped_name_span(uint8_t *dst, uint32_t *cursor, NameSpan name) {
+  if (!name.ok || name.len == 0u) {
+    return;
+  }
+  uint8_t *src = (uint8_t *) (uintptr_t) name.ptr;
+  for (uint32_t i = 0; i < name.len; i += 1u) {
+    if (src[i] == '"' || src[i] == '\\') {
+      dst[*cursor] = '\\';
+      *cursor += 1u;
+    }
+    dst[*cursor] = src[i];
+    *cursor += 1u;
+  }
+}
+
+static uint32_t encode_var_u32_bytes(uint32_t value, uint8_t *out) {
+  uint32_t cursor = 0u;
+  uint32_t n = value;
+  while (1) {
+    uint8_t byte = (uint8_t) (n & 0x7fu);
+    n >>= 7u;
+    if (n == 0u) {
+      out[cursor++] = byte;
+      return cursor;
+    }
+    out[cursor++] = (uint8_t) (byte | 0x80u);
+  }
+}
+
+static uint32_t append_var_u32(uint8_t *dst, uint32_t cursor, uint32_t value) {
+  uint8_t bytes[5];
+  uint32_t len = encode_var_u32_bytes(value, bytes);
+  for (uint32_t i = 0; i < len; i += 1u) {
+    dst[cursor + i] = bytes[i];
+  }
+  return cursor + len;
+}
+
+static uint32_t base64_encoded_len(uint32_t raw_len) {
+  return ((raw_len + 2u) / 3u) * 4u;
+}
+
+static Segment encode_base64_segment(Segment raw) {
+  if (!raw.ok) {
+    return missing_segment();
+  }
+  uint32_t out_len = base64_encoded_len(raw.len);
+  uint32_t out_ptr = alloc_bytes(out_len, 1u);
+  if (out_ptr == 0u) {
+    return missing_segment();
+  }
+  uint8_t *src = (uint8_t *) (uintptr_t) raw.ptr;
+  uint8_t *dst = (uint8_t *) (uintptr_t) out_ptr;
+  uint32_t src_at = 0u;
+  uint32_t dst_at = 0u;
+  while (src_at + 3u <= raw.len) {
+    uint32_t block = ((uint32_t) src[src_at] << 16u) |
+      ((uint32_t) src[src_at + 1u] << 8u) |
+      (uint32_t) src[src_at + 2u];
+    dst[dst_at + 0u] = (uint8_t) BASE64_ALPHABET[(block >> 18u) & 63u];
+    dst[dst_at + 1u] = (uint8_t) BASE64_ALPHABET[(block >> 12u) & 63u];
+    dst[dst_at + 2u] = (uint8_t) BASE64_ALPHABET[(block >> 6u) & 63u];
+    dst[dst_at + 3u] = (uint8_t) BASE64_ALPHABET[block & 63u];
+    src_at += 3u;
+    dst_at += 4u;
+  }
+  if (src_at < raw.len) {
+    uint32_t block = (uint32_t) src[src_at] << 16u;
+    dst[dst_at + 0u] = (uint8_t) BASE64_ALPHABET[(block >> 18u) & 63u];
+    if (src_at + 1u < raw.len) {
+      block |= (uint32_t) src[src_at + 1u] << 8u;
+      dst[dst_at + 1u] = (uint8_t) BASE64_ALPHABET[(block >> 12u) & 63u];
+      dst[dst_at + 2u] = (uint8_t) BASE64_ALPHABET[(block >> 6u) & 63u];
+      dst[dst_at + 3u] = '=';
+    } else {
+      dst[dst_at + 1u] = (uint8_t) BASE64_ALPHABET[(block >> 12u) & 63u];
+      dst[dst_at + 2u] = '=';
+      dst[dst_at + 3u] = '=';
+    }
+  }
+  Segment out;
+  out.ptr = out_ptr;
+  out.len = out_len;
+  out.ok = 1;
+  return out;
 }
 
 static Segment clone_segment(Segment seg) {
@@ -1067,6 +1175,35 @@ static int find_decl_index_by_name(FnDecl *decls, uint32_t decl_count, NameSpan 
   return -1;
 }
 
+static uint32_t decl_param_count(Segment source, FnDecl decl) {
+  uint8_t *mem = (uint8_t *) (uintptr_t) source.ptr;
+  uint32_t cursor = (decl.name.ptr - source.ptr) + decl.name.len;
+  uint32_t count = 0u;
+  while (cursor < decl.line_end) {
+    while (cursor < decl.line_end &&
+           (mem[cursor] == ' ' || mem[cursor] == '\t')) {
+      cursor += 1u;
+    }
+    if (cursor >= decl.line_end || mem[cursor] == '=') {
+      break;
+    }
+    uint32_t end = cursor;
+    if (is_ident_start(mem[cursor])) {
+      end = source_parse_ident_end(source, cursor, decl.line_end);
+    } else if (is_operator_start(mem[cursor])) {
+      end = source_parse_operator_end(source, cursor, decl.line_end);
+    } else {
+      cursor += 1u;
+      continue;
+    }
+    if (end > cursor) {
+      count += 1u;
+    }
+    cursor = end;
+  }
+  return count;
+}
+
 static uint32_t collect_export_roots_from_source(Segment source, NameSpan *roots, uint32_t roots_count) {
   uint8_t *mem = (uint8_t *) (uintptr_t) source.ptr;
   uint32_t line_start = 0u;
@@ -1551,6 +1688,291 @@ static Segment prune_compile_source(
   return temp_pruned_source;
 }
 
+static uint32_t collect_effective_compile_roots(
+  uint32_t req_ptr,
+  uint32_t req_len,
+  Segment source_seg,
+  NameSpan *roots
+) {
+  uint32_t roots_count = 0u;
+  int saw_invalid_root = 0;
+  int has_override = collect_entrypoint_roots_from_request(
+    req_ptr,
+    req_len,
+    roots,
+    &roots_count,
+    &saw_invalid_root
+  );
+  if (has_override && !saw_invalid_root && roots_count > 0u) {
+    return roots_count;
+  }
+  if (roots_count == 0u) {
+    roots_count = collect_export_roots_from_source(source_seg, roots, roots_count);
+  }
+  if (roots_count == 0u) {
+    NameSpan fallback_root;
+    fallback_root.ptr = (uint32_t) (uintptr_t) "main";
+    fallback_root.len = 4u;
+    fallback_root.ok = 1;
+    roots_count = roots_push_unique(fallback_root, roots, roots_count);
+  }
+  return roots_count;
+}
+
+static Segment build_compile_public_exports_json(
+  Segment source_seg,
+  NameSpan *roots,
+  uint32_t roots_count
+) {
+  FnDecl *decls = fn_decls_workspace;
+  uint32_t decl_count = collect_fn_decls(source_seg, decls, MAX_FN_DECLS);
+  uint32_t out_len = 2u;
+  for (uint32_t i = 0; i < roots_count; i += 1u) {
+    uint32_t arity = 0u;
+    int decl_index = find_decl_index_by_name(decls, decl_count, roots[i]);
+    if (decl_index >= 0) {
+      arity = decl_param_count(source_seg, decls[(uint32_t) decl_index]);
+    }
+    if (i > 0u) {
+      out_len += 1u;
+    }
+    out_len += cstr_len("{\"name\":\"");
+    out_len += name_span_json_escaped_len(roots[i]);
+    out_len += cstr_len("\",\"arity\":");
+    if (arity >= 10u) {
+      out_len += 1u;
+    }
+    if (arity >= 100u) {
+      out_len += 1u;
+    }
+    out_len += 2u;
+  }
+  uint32_t out_ptr = alloc_bytes(out_len, 1u);
+  if (out_ptr == 0u) {
+    return missing_segment();
+  }
+  uint8_t *dst = (uint8_t *) (uintptr_t) out_ptr;
+  uint32_t cursor = 0u;
+  dst[cursor++] = '[';
+  for (uint32_t i = 0; i < roots_count; i += 1u) {
+    uint32_t arity = 0u;
+    int decl_index = find_decl_index_by_name(decls, decl_count, roots[i]);
+    if (decl_index >= 0) {
+      arity = decl_param_count(source_seg, decls[(uint32_t) decl_index]);
+    }
+    if (i > 0u) {
+      dst[cursor++] = ',';
+    }
+    write_literal(dst, &cursor, "{\"name\":\"");
+    write_json_escaped_name_span(dst, &cursor, roots[i]);
+    write_literal(dst, &cursor, "\",\"arity\":");
+    if (arity >= 100u) {
+      dst[cursor++] = (uint8_t) ('0' + ((arity / 100u) % 10u));
+    }
+    if (arity >= 10u) {
+      dst[cursor++] = (uint8_t) ('0' + ((arity / 10u) % 10u));
+    }
+    dst[cursor++] = (uint8_t) ('0' + (arity % 10u));
+    dst[cursor++] = '}';
+  }
+  dst[cursor++] = ']';
+  Segment out;
+  out.ptr = out_ptr;
+  out.len = cursor;
+  out.ok = 1;
+  return out;
+}
+
+static Segment build_compile_dts(
+  Segment source_seg,
+  NameSpan *roots,
+  uint32_t roots_count
+) {
+  FnDecl *decls = fn_decls_workspace;
+  uint32_t decl_count = collect_fn_decls(source_seg, decls, MAX_FN_DECLS);
+  uint32_t out_len = 0u;
+  for (uint32_t i = 0; i < roots_count; i += 1u) {
+    uint32_t arity = 0u;
+    int decl_index = find_decl_index_by_name(decls, decl_count, roots[i]);
+    if (decl_index >= 0) {
+      arity = decl_param_count(source_seg, decls[(uint32_t) decl_index]);
+    }
+    out_len += cstr_len("export declare function ");
+    out_len += name_span_json_escaped_len(roots[i]);
+    out_len += cstr_len("(): number;\\n");
+    for (uint32_t arg = 0u; arg < arity; arg += 1u) {
+      if (arg > 0u) {
+        out_len += cstr_len(", ");
+      }
+      out_len += cstr_len("arg0: number");
+      if (arg >= 10u) {
+        out_len += 1u;
+      }
+      if (arg >= 100u) {
+        out_len += 1u;
+      }
+    }
+  }
+  uint32_t out_ptr = alloc_bytes(out_len == 0u ? 1u : out_len, 1u);
+  if (out_ptr == 0u) {
+    return missing_segment();
+  }
+  uint8_t *dst = (uint8_t *) (uintptr_t) out_ptr;
+  uint32_t cursor = 0u;
+  for (uint32_t i = 0; i < roots_count; i += 1u) {
+    uint32_t arity = 0u;
+    int decl_index = find_decl_index_by_name(decls, decl_count, roots[i]);
+    if (decl_index >= 0) {
+      arity = decl_param_count(source_seg, decls[(uint32_t) decl_index]);
+    }
+    write_literal(dst, &cursor, "export declare function ");
+    write_json_escaped_name_span(dst, &cursor, roots[i]);
+    dst[cursor++] = '(';
+    for (uint32_t arg = 0u; arg < arity; arg += 1u) {
+      if (arg > 0u) {
+        write_literal(dst, &cursor, ", ");
+      }
+      write_literal(dst, &cursor, "arg");
+      if (arg >= 100u) {
+        dst[cursor++] = (uint8_t) ('0' + ((arg / 100u) % 10u));
+      }
+      if (arg >= 10u) {
+        dst[cursor++] = (uint8_t) ('0' + ((arg / 10u) % 10u));
+      }
+      dst[cursor++] = (uint8_t) ('0' + (arg % 10u));
+      write_literal(dst, &cursor, ": number");
+    }
+    write_literal(dst, &cursor, "): number;\\n");
+  }
+  Segment out;
+  out.ptr = out_ptr;
+  out.len = cursor;
+  out.ok = 1;
+  return out;
+}
+
+static Segment build_phase1_dynamic_stub_wasm_base64(
+  Segment source_seg,
+  NameSpan *roots,
+  uint32_t roots_count
+) {
+  FnDecl *decls = fn_decls_workspace;
+  uint32_t decl_count = collect_fn_decls(source_seg, decls, MAX_FN_DECLS);
+  uint32_t raw_ptr = alloc_bytes(256u + (roots_count * 96u), 1u);
+  if (raw_ptr == 0u) {
+    return missing_segment();
+  }
+  uint8_t *out = (uint8_t *) (uintptr_t) raw_ptr;
+  uint32_t cursor = 0u;
+  out[cursor++] = 0x00u;
+  out[cursor++] = 0x61u;
+  out[cursor++] = 0x73u;
+  out[cursor++] = 0x6du;
+  out[cursor++] = 0x01u;
+  out[cursor++] = 0x00u;
+  out[cursor++] = 0x00u;
+  out[cursor++] = 0x00u;
+
+  uint8_t type_payload[1024];
+  uint32_t type_at = 0u;
+  type_at = append_var_u32(type_payload, type_at, roots_count);
+  for (uint32_t i = 0u; i < roots_count; i += 1u) {
+    uint32_t arity = 0u;
+    int decl_index = find_decl_index_by_name(decls, decl_count, roots[i]);
+    if (decl_index >= 0) {
+      arity = decl_param_count(source_seg, decls[(uint32_t) decl_index]);
+    }
+    type_payload[type_at++] = 0x60u;
+    type_at = append_var_u32(type_payload, type_at, arity);
+    for (uint32_t arg = 0u; arg < arity; arg += 1u) {
+      type_payload[type_at++] = 0x7fu;
+    }
+    type_payload[type_at++] = 0x01u;
+    type_payload[type_at++] = 0x7fu;
+  }
+  out[cursor++] = 0x01u;
+  cursor = append_var_u32(out, cursor, type_at);
+  for (uint32_t i = 0u; i < type_at; i += 1u) {
+    out[cursor++] = type_payload[i];
+  }
+
+  uint8_t function_payload[512];
+  uint32_t function_at = 0u;
+  function_at = append_var_u32(function_payload, function_at, roots_count);
+  for (uint32_t i = 0u; i < roots_count; i += 1u) {
+    function_at = append_var_u32(function_payload, function_at, i);
+  }
+  out[cursor++] = 0x03u;
+  cursor = append_var_u32(out, cursor, function_at);
+  for (uint32_t i = 0u; i < function_at; i += 1u) {
+    out[cursor++] = function_payload[i];
+  }
+
+  uint8_t memory_payload[8];
+  uint32_t memory_at = 0u;
+  memory_at = append_var_u32(memory_payload, memory_at, 1u);
+  memory_payload[memory_at++] = 0x00u;
+  memory_at = append_var_u32(memory_payload, memory_at, 1u);
+  out[cursor++] = 0x05u;
+  cursor = append_var_u32(out, cursor, memory_at);
+  for (uint32_t i = 0u; i < memory_at; i += 1u) {
+    out[cursor++] = memory_payload[i];
+  }
+
+  uint32_t export_ptr = alloc_bytes(64u + (roots_count * 64u), 1u);
+  if (export_ptr == 0u) {
+    return missing_segment();
+  }
+  uint8_t *export_payload = (uint8_t *) (uintptr_t) export_ptr;
+  uint32_t export_at = 0u;
+  export_at = append_var_u32(export_payload, export_at, roots_count + 1u);
+  export_at = append_var_u32(export_payload, export_at, 6u);
+  export_payload[export_at++] = 'm';
+  export_payload[export_at++] = 'e';
+  export_payload[export_at++] = 'm';
+  export_payload[export_at++] = 'o';
+  export_payload[export_at++] = 'r';
+  export_payload[export_at++] = 'y';
+  export_payload[export_at++] = 0x02u;
+  export_payload[export_at++] = 0x00u;
+  for (uint32_t i = 0u; i < roots_count; i += 1u) {
+    export_at = append_var_u32(export_payload, export_at, roots[i].len);
+    uint8_t *name_bytes = (uint8_t *) (uintptr_t) roots[i].ptr;
+    for (uint32_t j = 0u; j < roots[i].len; j += 1u) {
+      export_payload[export_at++] = name_bytes[j];
+    }
+    export_payload[export_at++] = 0x00u;
+    export_at = append_var_u32(export_payload, export_at, i);
+  }
+  out[cursor++] = 0x07u;
+  cursor = append_var_u32(out, cursor, export_at);
+  for (uint32_t i = 0u; i < export_at; i += 1u) {
+    out[cursor++] = export_payload[i];
+  }
+
+  uint8_t code_payload[512];
+  uint32_t code_at = 0u;
+  code_at = append_var_u32(code_payload, code_at, roots_count);
+  for (uint32_t i = 0u; i < roots_count; i += 1u) {
+    code_at = append_var_u32(code_payload, code_at, 4u);
+    code_payload[code_at++] = 0x00u;
+    code_payload[code_at++] = 0x41u;
+    code_payload[code_at++] = 0x01u;
+    code_payload[code_at++] = 0x0bu;
+  }
+  out[cursor++] = 0x0au;
+  cursor = append_var_u32(out, cursor, code_at);
+  for (uint32_t i = 0u; i < code_at; i += 1u) {
+    out[cursor++] = code_payload[i];
+  }
+
+  Segment raw;
+  raw.ptr = raw_ptr;
+  raw.len = cursor;
+  raw.ok = 1;
+  return encode_base64_segment(raw);
+}
+
 static uint32_t build_error_response(const char *message) {
   uint32_t total_len = cstr_len(JSON_ERROR_PREFIX) + cstr_len(message) + cstr_len(JSON_ERROR_SUFFIX);
   uint32_t payload_ptr = 0u;
@@ -1619,6 +2041,63 @@ static uint32_t build_compile_response(Segment source_seg, int use_mini_wasm) {
   write_literal(dst, &cursor, SOURCE_VERSION);
   write_literal(dst, &cursor, COMPILE_SUFFIX_B);
 
+  return handle;
+}
+
+static uint32_t build_dynamic_compile_response(
+  uint32_t req_ptr,
+  uint32_t req_len,
+  Segment source_seg
+) {
+  NameSpan roots[MAX_ROOTS];
+  uint32_t roots_count = collect_effective_compile_roots(req_ptr, req_len, source_seg, roots);
+  Segment wasm_base64 = build_phase1_dynamic_stub_wasm_base64(source_seg, roots, roots_count);
+  Segment public_exports = build_compile_public_exports_json(source_seg, roots, roots_count);
+  Segment dts = build_compile_dts(source_seg, roots, roots_count);
+  if (!wasm_base64.ok || !public_exports.ok || !dts.ok) {
+    return 0u;
+  }
+  FnDecl *decls = fn_decls_workspace;
+  uint32_t decl_count = collect_fn_decls(source_seg, decls, MAX_FN_DECLS);
+  Segment collapsed_seg = build_collapsed_segment(source_seg, decls, decl_count);
+  if (!collapsed_seg.ok) {
+    collapsed_seg = source_seg;
+  }
+  uint32_t total_len = 0u;
+  total_len += cstr_len(COMPILE_PREFIX);
+  total_len += wasm_base64.len;
+  total_len += cstr_len(COMPILE_DYNAMIC_MID_A);
+  total_len += public_exports.len;
+  total_len += cstr_len(COMPILE_DYNAMIC_MID_B);
+  total_len += dts.len;
+  total_len += cstr_len(COMPILE_DYNAMIC_MID_C);
+  total_len += source_seg.len;
+  total_len += cstr_len(COMPILE_MID_B);
+  total_len += collapsed_seg.len;
+  total_len += cstr_len(COMPILE_SUFFIX_A);
+  total_len += cstr_len(SOURCE_VERSION);
+  total_len += cstr_len(COMPILE_SUFFIX_B);
+
+  uint32_t payload_ptr = 0u;
+  uint32_t handle = make_slice_response(total_len, &payload_ptr);
+  if (handle == 0u) {
+    return 0u;
+  }
+  uint8_t *dst = (uint8_t *) (uintptr_t) payload_ptr;
+  uint32_t cursor = 0u;
+  write_literal(dst, &cursor, COMPILE_PREFIX);
+  write_segment(dst, &cursor, wasm_base64);
+  write_literal(dst, &cursor, COMPILE_DYNAMIC_MID_A);
+  write_segment(dst, &cursor, public_exports);
+  write_literal(dst, &cursor, COMPILE_DYNAMIC_MID_B);
+  write_segment(dst, &cursor, dts);
+  write_literal(dst, &cursor, COMPILE_DYNAMIC_MID_C);
+  write_segment(dst, &cursor, source_seg);
+  write_literal(dst, &cursor, COMPILE_MID_B);
+  write_segment(dst, &cursor, collapsed_seg);
+  write_literal(dst, &cursor, COMPILE_SUFFIX_A);
+  write_literal(dst, &cursor, SOURCE_VERSION);
+  write_literal(dst, &cursor, COMPILE_SUFFIX_B);
   return handle;
 }
 
@@ -1778,6 +2257,17 @@ int32_t clapse_run(int32_t request_handle) {
     }
     if (has_entrypoint_override && !segment_is_kernel_compiler_input_path(path_seg)) {
       return (int32_t) build_error_response(NON_KERNEL_BOUNDARY_SYNTHESIS_ERROR);
+    }
+    if (has_entrypoint_override) {
+      NameSpan roots[MAX_ROOTS];
+      uint32_t roots_count = collect_effective_compile_roots(req_ptr, req_len, pruned_source, roots);
+      if (!(roots_count == 1u && namespan_equals_literal(roots[0], "main"))) {
+        uint32_t dynamic_handle = build_dynamic_compile_response(req_ptr, req_len, pruned_source);
+        if (dynamic_handle == 0u) {
+          return (int32_t) build_error_response("compile request dynamic root response failed");
+        }
+        return (int32_t) dynamic_handle;
+      }
     }
     return (int32_t) build_compile_response(pruned_source, has_entrypoint_override);
   }

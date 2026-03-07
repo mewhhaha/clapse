@@ -77,6 +77,12 @@ the GitHub release from it. `release-verify` keeps
 `artifacts/strict-native/seed.wasm` as the bootstrap seed for
 `just bootstrap-compiler` (after `just bootstrap-strict-native-seed`) so stale
 `artifacts/latest/clapse_compiler.wasm` does not block native DCE gates.
+`just bootstrap-strict-native-seed` now also invalidates retention when
+`scripts/native-producer-seed-template.c`,
+`lib/compiler/native_compile.clapse`, or
+`lib/compiler/native_compile_reachability.clapse` are newer than the retained
+seed, so raw-backend changes actually rebuild the strict seed instead of
+silently keeping stale wasm.
 `release-verify` also keeps
 `artifacts/latest/seed-lock.json` vs `artifacts/latest/release-manifest.json`
 release-id consistency as a hard check; compiler checksum drift is logged as
@@ -848,3 +854,8 @@ static/dynamic dispatch gates.
 - And/Or sub-dispatch now also caches per-child root-shape flags once
   (`has_and/has_or` inputs) and reuses them across rule-group checks, which is
   execution-cost-only and does not change guard policy or rewrite outcomes.
+The bootstrap seed raw backend can now emit structural tiny wasm for explicit
+non-`main` root requests, with matching `public_exports` and `dts`. The
+self-hosted compiler-owned phase-1 path is still `main`-only and continues to
+fail closed with `compile phase1 only supports main entrypoint exports today`
+until it learns the same byte-level wasm export assembly.
