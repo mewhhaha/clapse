@@ -124,6 +124,8 @@ Or directly:
 CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scripts/validate-docs.mjs
 ```
 
+`full-compiler-verify` is a future-facing strict acceptance target for full compiler completion and is tracked separately from `pre-tag-verify`; it may remain failing until remaining compatibility and unsupported-language debt is removed.
+
 ## Unified compile-debug flow
 
 Use:
@@ -177,15 +179,32 @@ compiler success.
 When a compile response omits explicit export metadata, the ABI layer now
 derives exported function arities from wasm type/function sections instead of
 defaulting every function export to arity `1`.
-The boundary synthesis path now prefers executable wasm emission for an initial
-first-order integer/boolean subset before falling back to constant synthesis.
-That executable subset supports:
-- zero-arity `main`
-- top-level direct calls and recursion
-- integer literals and booleans
-- `if`
-- boolean `case ... of`
-- arithmetic/comparison builtins `add`/`mul`/`sub`/`div`/`mod`/`eq`/`ne`/`lt`/`le`/`gt`/`ge`
+The boundary synthesis path now prefers executable wasm emission for a
+native compiler-owned subset before falling back to constant synthesis.
+That subset includes:
+- zero-arity/nullary-root `main`
+- integer/boolean literals
+- arithmetic/comparison builtins
+- `if ... then ... else ...`
+- `let ... in ...`
+- boolean `case`
+- direct top-level calls and recursion
+- partial application of builtins/top-level defs
+- closure application for simple lambdas and captured closures (for example
+  `inc = \x -> add x 1; main = inc 2` and
+  `make_adder x = \y -> add x y; main = (make_adder 2) 3`) in kernel-native phase1
+- simple list-constructor `case` forms with `_` fallback or a second list
+  constructor branch (for example `case xs of Cons x _ -> x; _ -> 0` and
+  `case xs of Cons x _ -> x; Nil -> 0`) in kernel-native phase1
+- simple custom uppercase constructors in constant/evaluable paths, including
+  direct construction, pattern matching, constructor refs as values, and list
+  maps such as `make = Just; main = case make 1 of Just x -> x; Nothing -> 0`
+  and `ys = fmap Just xs`
+- list literals desugared in phase1 executable paths, such as
+  `main = foldl (+) 0 [1, 2, 3]`
+- simple closed record literals and dot projection in phase1 executable paths,
+  such as `options = { allow = true, include = Nothing }` and
+  `main = case options.allow of true -> 1; _ -> 0`
 
 If a non-kernel compile request is valid Clapse source but the requested
 `public_exports` are outside that executable/evaluator subset (currently this is
@@ -204,9 +223,18 @@ initial pure top-level def graphs for direct and simple call-chain forms using:
 - qualified callable names normalized by final segment for the phase-1 subset,
   such as `prelude.add`,
 - lambda values used through supported list folds/maps,
+- partial application of builtins/top-level defs that still reduce to the
+  evaluator subset,
 - comparisons `eq`/`ne`/`lt`/`le`/`gt`/`ge` with boolean returns represented as `1`/`0`,
 - `case True of` (including `_` wildcard branch), recursive top-level calls, `ListNil`/`ListCons`, `Cons`/`Nil`, `list_map`/`fmap`, and `list_foldl`/`foldl` on integer lists (including
   pure function/builtin arguments, with bare `ListNil`/`Nil` constructor usage),
+- simple list constructor pattern matches over `Cons`/`Nil` with `_` fallback
+  or a second list constructor alternative,
+- simple custom uppercase constructor values/patterns, including constructor
+  refs flowing through supported higher-order list calls,
+- list literals `[ ... ]` lowered through `Cons`/`Nil` in phase1,
+- simple closed record literal evaluation and dot projection from reachable
+  top-level or local values,
 then emits a tagged-int wasm result when possible.
 Unsupported non-kernel phase-1 inputs that do parse in the subset but still
 cannot be lowered or evaluated now fail closed with

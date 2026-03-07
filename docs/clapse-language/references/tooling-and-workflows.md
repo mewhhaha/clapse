@@ -76,14 +76,26 @@ deno run -A scripts/clapse.mjs bench [iterations]
     Direct raw `clapse_run` non-kernel compile requests now fail closed with
     `non-kernel raw compile requires boundary synthesis` instead of returning
     the 352-byte mini compiler stub.
-    Boundary synthesis now prefers executable wasm emission for a first-order
-    integer/boolean subset (`main`, direct top-level calls/recursion,
-    `if`, boolean `case`, and arithmetic/comparison builtins) before falling
-    back to constant synthesis for the older pure-evaluator subset.
+    Boundary synthesis now prefers executable wasm emission for the compiler-owned
+    subset (`main`, arithmetic/comparison builtins, constant literals, `if ... then
+    ... else ...`, `let ... in ...`, boolean `case`, and direct top-level calls/
+    recursion) before falling back to constant synthesis for the older
+    pure-evaluator subset.
     The evaluator subset now also understands symbolic operator references and
     infix arithmetic/comparison forms, qualified callable names by final
     segment (for example `prelude.add`), and lambda values flowing through the
-    supported list-map/fold forms.
+    supported list-map/fold forms, plus captured-free single-argument closures through
+    direct application, captured closures, and partial application of builtins/top-level
+    defs (for example `inc = \x -> add x 1; main = inc 2` and
+    `make_adder x = \y -> add x y; main = (make_adder 2) 3`) and
+    simple list-constructor `case` forms with `_` fallback or a second list
+    constructor branch (for example `case xs of Cons x _ -> x; _ -> 0` and
+    `case xs of Cons x _ -> x; Nil -> 0`), simple custom uppercase constructor
+    values/patterns (including constructor refs like `make = Just` and
+    `fmap Just xs`), list literals such as `[1, 2, 3]`, and simple closed
+    record literals plus dot projection (for example
+    `options = { allow = true, include = Nothing }` and `options.allow`) in
+    kernel-native phase1 executable paths.
     If the requested `public_exports` still require non-`main` structural
     output outside that subset parser, boundary synthesis emits a compatibility
     wasm stub for the selected public exports so root-pruning and DCE flows
@@ -320,6 +332,8 @@ deno run -A scripts/clapse.mjs bench [iterations]
 - `bench` is currently invoked via the same deno command surface through the wasm runner.
 
 ## Just Targets
+
+`full-compiler-verify` is a future-facing strict acceptance target for full compiler completion. It runs separately from `pre-tag-verify` and may fail until remaining compatibility and unsupported-language debt is removed.
 
 Current targets in `Justfile`:
 
