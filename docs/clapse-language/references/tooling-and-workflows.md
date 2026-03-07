@@ -112,9 +112,10 @@ deno run -A scripts/clapse.mjs bench [iterations]
     assuming every function export takes one argument.
     The bootstrap seed raw backend can emit structural tiny wasm for explicit
     non-`main` roots, with matching `public_exports`/`dts`. The self-hosted
-    compiler-owned phase-1 path is still `main`-only and fails closed with
-    `compile phase1 only supports main entrypoint exports today` until it grows
-    equivalent byte-level wasm export assembly.
+    compiler-owned phase-1 path now also accepts explicit non-`main` roots:
+    when a single selected root is a nullary definition the phase-1 evaluator
+    can execute, it emits a real tagged-result wasm export for that root;
+    otherwise it falls back to the structural tiny-wasm root stub path.
     Bundle size tracks reachable function count, while kernel self-host compile
     requests still require full compiler ABI output.
     Legacy env

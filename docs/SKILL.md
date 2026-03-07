@@ -854,8 +854,9 @@ static/dynamic dispatch gates.
 - And/Or sub-dispatch now also caches per-child root-shape flags once
   (`has_and/has_or` inputs) and reuses them across rule-group checks, which is
   execution-cost-only and does not change guard policy or rewrite outcomes.
-The bootstrap seed raw backend can now emit structural tiny wasm for explicit
+The bootstrap seed raw backend can emit structural tiny wasm for explicit
 non-`main` root requests, with matching `public_exports` and `dts`. The
-self-hosted compiler-owned phase-1 path is still `main`-only and continues to
-fail closed with `compile phase1 only supports main entrypoint exports today`
-until it learns the same byte-level wasm export assembly.
+self-hosted compiler-owned phase-1 path now also accepts explicit non-`main`
+roots: when the selected root is a single nullary definition that the phase-1
+evaluator can execute, it returns a real tagged-result wasm export for that
+root; otherwise it falls back to the structural tiny-wasm root stub path.

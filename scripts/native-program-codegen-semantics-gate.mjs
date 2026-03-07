@@ -211,6 +211,29 @@ async function evaluateMain(program) {
   }
 }
 
+async function evaluateExport(program, exportName, args = []) {
+  try {
+    const { instance } = await instantiateWithRuntime(program.wasmBytes);
+    const exported = instance.exports[exportName];
+    if (typeof exported !== "function") {
+      return {
+        ok: false,
+        reason: `missing ${exportName} export`,
+      };
+    }
+    const raw = exported(...args);
+    return {
+      ok: true,
+      result: normalizeMainResult(raw),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: String(error?.message ?? `runtime invocation failed for ${exportName}`),
+    };
+  }
+}
+
 async function compileProgram(
   wasmPath,
   label,
@@ -308,6 +331,33 @@ async function assertProgramCompileExports(
     JSON.stringify(program.response.public_exports) ===
       JSON.stringify(expectedPublicExports),
     `native-program-codegen-semantics-gate: ${label} expected public exports ${JSON.stringify(expectedPublicExports)}, got ${JSON.stringify(program.response.public_exports)}`,
+  );
+}
+
+async function assertProgramExportResult(
+  wasmPath,
+  label,
+  source,
+  entrypointExports,
+  exportName,
+  expected,
+  inputPath = `${label}.clapse`,
+) {
+  const program = await compileProgram(
+    wasmPath,
+    label,
+    source,
+    entrypointExports,
+    inputPath,
+  );
+  const runResult = await evaluateExport(program, exportName);
+  assert(
+    runResult.ok,
+    `native-program-codegen-semantics-gate: ${label} runtime failed (${runResult.reason ?? "unknown"})`,
+  );
+  assert(
+    runResult.result.text === expected,
+    `native-program-codegen-semantics-gate: ${label} expected ${expected}, got ${runResult.result.text}`,
   );
 }
 
@@ -496,6 +546,17 @@ async function run() {
     ].join("\n"),
     ["helper"],
     [{ name: "helper", arity: 1 }],
+  );
+  await assertProgramExportResult(
+    wasmPath,
+    "explicit-answer-root-runtime",
+    [
+      "answer = add 20 22",
+      "",
+    ].join("\n"),
+    ["answer"],
+    "answer",
+    "tagged-int:42",
   );
   await assertKernelPathRawCompileExports(
     wasmPath,
