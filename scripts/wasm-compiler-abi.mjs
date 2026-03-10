@@ -8306,11 +8306,7 @@ function synthesizedCompileOutput(requestObject, responseObject, collapsedSource
     };
   }
   if (selectedRoots.length > 1) {
-    return {
-      wasmBase64: phase1DebugArtifactWasmBase64(publicExports),
-      strategy: "phase1_compatibility_stub",
-      compatibilityUsed: true,
-    };
+    return null;
   }
   if (typeof taggedWasm === "string") {
     return {
@@ -8320,18 +8316,10 @@ function synthesizedCompileOutput(requestObject, responseObject, collapsedSource
     };
   }
   if (selectedRoots.some((name) => name !== "main") && hasParsedExports) {
-    return {
-      wasmBase64: phase1DebugArtifactWasmBase64(publicExports),
-      strategy: "phase1_compatibility_stub",
-      compatibilityUsed: true,
-    };
+    return null;
   }
   if (compileRequestNeedsDebugArtifacts(requestObject) && hasParsedExports) {
-    return {
-      wasmBase64: phase1DebugArtifactWasmBase64(publicExports),
-      strategy: "phase1_compatibility_stub",
-      compatibilityUsed: true,
-    };
+    return null;
   }
   return null;
 }
@@ -8743,30 +8731,6 @@ function synthesizePhase1CompileResponse(requestObject, responseObject) {
     !synthesized ||
     typeof synthesized.wasmBase64 !== "string"
   ) {
-    const publicExports = phase1PublicExportsForSource(requestObject, collapsed);
-    if (publicExports.length > 0) {
-      const compatWasm = phase1DebugArtifactWasmBase64(publicExports);
-      const compatArtifacts = {
-        ...(responseObject.artifacts &&
-            typeof responseObject.artifacts === "object" &&
-            !Array.isArray(responseObject.artifacts)
-          ? responseObject.artifacts
-          : {}),
-        "lowered_ir.txt": lowered,
-        "collapsed_ir.txt": collapsedArtifact,
-      };
-      return {
-        ...responseObject,
-        ok: true,
-        backend: "kernel-native",
-        wasm_base64: compatWasm,
-        compile_strategy: "phase1_compatibility_stub",
-        compatibility_used: true,
-        public_exports: cloneCompileExports(publicExports),
-        abi_exports: [],
-        artifacts: compatArtifacts,
-      };
-    }
     return buildPlaceholderCompileError(
       responseObject,
       PHASE1_UNSUPPORTED_ERROR_CODE,

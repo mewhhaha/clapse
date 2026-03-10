@@ -145,8 +145,9 @@ deno run -A scripts/clapse.mjs bench [iterations]
     still get a user-only output surface. Debug artifact requests can also use
     that structural fallback when the executable subset does not yet cover the
     requested program shape. Demand-driven debug module graphs now elide
-    stitched local imports before the request crosses the wasm boundary, but
-    unsupported debug shapes still use the compatibility stub today.
+    stitched local imports before the request crosses the wasm boundary, and
+    unsupported debug shapes now fail closed instead of using a compatibility
+    stub.
     If the source does parse in the subset but still cannot be lowered or
     evaluated, the boundary returns
     `error_code: "compile_phase1_unsupported"` instead of synthetic tagged
@@ -160,8 +161,8 @@ deno run -A scripts/clapse.mjs bench [iterations]
     Compile responses also report whether synthesis stayed on a real subset path
     or fell back to temporary compatibility:
     `compile_strategy` is one of `compiler_raw`, `phase1_passthrough`,
-    `phase1_executable`, `phase1_tagged`, or `phase1_compatibility_stub`, and
-    `compatibility_used` is `true` only for the compatibility-stub path.
+    `phase1_executable`, or `phase1_tagged`, and `compatibility_used` must stay
+    `false` on the current fail-closed boundary.
     Compile requests also fail closed at the JS boundary when `compile_mode` is
     not one of `kernel-native`, `debug`, `kernel-debug`, `native-debug`, or
     `debug-funcmap`.
@@ -171,10 +172,11 @@ deno run -A scripts/clapse.mjs bench [iterations]
     are executable and nullary roots are evaluable constants, including
     quoted-module alias cycles such as mutually recursive `even`/`odd`
     definitions compiled with both `main` and the callable helper exported.
-    For remaining multi-root non-kernel compile requests that the current
-    executable/tagged subset still cannot represent as real wasm exports, the
-    boundary preserves the selected export surface via
-    `phase1_compatibility_stub` instead of collapsing to a single tagged export.
+    For remaining multi-root or other non-kernel compile requests that the
+    current executable/tagged subset still cannot represent as real wasm
+    exports, the boundary now returns
+    `error_code: "compile_phase1_unsupported"` instead of emitting a
+    compatibility wasm stub.
     Compiler-owned bootstrap seed inputs are external artifacts, not embedded
     payloads under `lib/compiler/native_compile*.clapse`, so this exception is
     about the selected seed/runtime path rather than rewriting compiler source.

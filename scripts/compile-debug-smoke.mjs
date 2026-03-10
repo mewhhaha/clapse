@@ -197,6 +197,46 @@ async function run() {
       requiredDefs: ["main", "keep"],
       forbiddenDefs: ["dead_internal"],
     });
+    const unsupportedInputPath = `${tmpDir}/unsupported_prelude_map.clapse`;
+    await Deno.writeTextFile(
+      unsupportedInputPath,
+      [
+        'import "prelude" { Pair, eq, map_from_list_by, map_lookup_by, maybe_with_default }',
+        "",
+        "export { main }",
+        "",
+        "status_codes =",
+        "  map_from_list_by eq",
+        '    [ Pair "GET" 200',
+        '    , Pair "POST" 201',
+        '    , Pair "DELETE" 204',
+        "    ]",
+        "",
+        "lookup_code method =",
+        "  maybe_with_default 500 (map_lookup_by eq method status_codes)",
+        "",
+        'main = lookup_code "POST"',
+        "",
+      ].join("\n"),
+    );
+    let unsupportedMessage = "";
+    try {
+      await runWithArgs([
+        "compile-debug",
+        unsupportedInputPath,
+        `${tmpDir}/unsupported_prelude_map.wasm`,
+        `${tmpDir}/unsupported-prelude-map-artifacts`,
+      ]);
+      throw new Error(
+        "compile-debug-smoke: expected unsupported prelude-map case to fail closed",
+      );
+    } catch (err) {
+      unsupportedMessage = err instanceof Error ? err.message : String(err);
+    }
+    assert(
+      unsupportedMessage.includes("compile_phase1_unsupported"),
+      `compile-debug-smoke: expected compile_phase1_unsupported, got ${unsupportedMessage}`,
+    );
     console.log("compile-debug-smoke: PASS (4 command forms + entrypoint dce)");
   } finally {
     await Deno.remove(tmpDir, { recursive: true }).catch(() => {});

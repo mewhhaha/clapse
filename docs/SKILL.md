@@ -149,20 +149,18 @@ and the runner CLI preserve those truthful raw responses as `compiler_raw`;
 synthesis remains only for older placeholder or legacy producer outputs.
 Compile responses now also expose:
 - `compile_strategy`: `compiler_raw`, `phase1_passthrough`,
-  `phase1_executable`, `phase1_tagged`, or `phase1_compatibility_stub`
-- `compatibility_used`: boolean marker for whether the temporary compatibility
-  stub path was used
-Treat `phase1_compatibility_stub` as explicit migration debt, not normal
-compiler success.
+  `phase1_executable`, or `phase1_tagged`
+- `compatibility_used`: boolean marker; it must stay `false` on the current
+  fail-closed compiler boundary
 Compile requests now also fail closed at the JS boundary when `compile_mode`
 is not one of `kernel-native`, `debug`, `kernel-debug`, `native-debug`, or
 `debug-funcmap`.
 Compile requests with `plugin_wasm_paths` now also fail closed at the JS
 boundary when any referenced plugin wasm file is missing or is not a file.
-For multi-root non-kernel compile requests, if the current executable/tagged
-subset cannot represent every selected root as real wasm exports, the boundary
-now preserves the selected export surface via `phase1_compatibility_stub`
-instead of collapsing to a single tagged export.
+For multi-root or other unsupported non-kernel compile requests that the
+current executable/tagged subset cannot represent truthfully, the boundary now
+fails with `error_code: "compile_phase1_unsupported"` instead of emitting a
+compatibility wasm stub.
 Compiler-owned bootstrap seed artifacts are external inputs, not embedded
 compiler-source payloads, so this phase1 synthesis exception is only about the
 selected external seed/runtime path and not about mutating
@@ -253,13 +251,11 @@ That subset includes:
   `+. x y = add x y` used as `1 +. 2 +. 3`
 
 If a non-kernel compile request is valid Clapse source but the requested
-`public_exports` are outside that executable/evaluator subset (currently this is
-primarily non-`main` rooted export surfaces that still need temporary
-structural output), boundary synthesis emits a compatibility wasm stub keyed to
-the requested public export surface instead of failing. Demand-driven module
-graph merges now drop inlined local imports before the wasm boundary, but debug
-requests still use the compatibility stub when the executable/tagged subset
-does not apply.
+`public_exports` are outside the executable/evaluator subset, boundary
+synthesis now fails with `compile_phase1_unsupported` instead of emitting a
+compatibility wasm stub. Demand-driven module graph merges still drop inlined
+local imports before the wasm boundary, but unsupported debug requests are now
+explicit failures rather than fake-success outputs.
 
 Mixed selected-root export sets can stay on a real path when callable roots are
 executable and nullary roots are evaluable constants, including quoted-module
