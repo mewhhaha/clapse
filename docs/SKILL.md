@@ -814,6 +814,20 @@ program-dependent native wasm output shape before release verification.
   `backend: "clapse"` in `scripts/lsp-wasm.mjs` (`hover`, `definition`,
   `completion`, `signatureHelp`, `semanticTokens`, `workspaceSymbol`, `references`,
   and `rename` paths); document symbols and code actions remain local for now.
+  Local quick-fix actions now include:
+  - rename
+  - add doc comment
+  - add missing signature scaffold (`name : _ -> ... -> _`) based on compiler-reported arity
+  Local hover now also fills a truthful value-level gap the kernel does not yet expose:
+  - function parameter hover types derived from an existing top-level source signature
+  - simple local `let` alias/literal hover types propagated from that local environment
+  - simple local `let` call-result hover types when the callee already has a
+    source signature and the arguments are locally-known literals/aliases/params,
+    including parenthesized and nested signed calls
+  - signed nullary top-level defs used as local values
+  - shallow structured substitutions in signed calls like `Maybe a -> Maybe a`
+  - local aliases to signed top-level functions, including subsequent `f x`
+    result hover through that alias
 - Initialize now advertises kernel-owned completion/signature/semantic/workspace symbol
   capabilities to keep protocol parity with kernel routing.
 - Fixture coverage for migrated methods is now present in
@@ -824,8 +838,9 @@ program-dependent native wasm output shape before release verification.
 - Fixture checkpoint: `definition_rename_and_code_action` in
   `examples/lsp_wasm_fixtures.json` now asserts core backend usage for hover and
   definition when `CLAPSE_EXPECT_CORE_LSP_BACKENDS=1` is set.
-- Next steps: add core entrypoints for `documentSymbol` and code action payload
-  generation, then remove remaining local fallbacks after parity tests pass.
+- Next steps: add core entrypoints for `documentSymbol` and truthful inferred
+  signature/code-action payload generation, then remove remaining local fallbacks
+  after parity tests pass.
 
 ## Memory model checkpoint
 

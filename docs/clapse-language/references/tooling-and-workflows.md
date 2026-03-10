@@ -498,6 +498,14 @@ Current targets in `Justfile`:
     for editor buffers and plugin library files, so diagnostics stay focused on
     document issues rather than executable-root policy
   - hover for `--|` doc comments, falling back to declaration line text when docs are missing
+  - local value hover fallback for truthful gaps the kernel does not yet expose:
+    function parameter hover types from an existing top-level signature, plus
+    simple local `let` alias/literal hover types propagated from the local env,
+    plus simple `let` call-result hover types when the callee already has a
+    source signature and the arguments are locally-known values, plus signed
+    nullary top-level defs used as local values, plus shallow structured
+    substitutions like `Maybe a -> Maybe a`, plus local aliases to signed
+    top-level functions and `f x` results through those aliases
   - definitions
   - completion
   - signature help
@@ -506,7 +514,7 @@ Current targets in `Justfile`:
   - references
   - document symbols
   - prepare rename + rename edits
-  - quick-fix code actions (rename/doc-comment suggestions)
+  - quick-fix code actions (rename/doc-comment suggestions plus missing-signature scaffolds)
 - LSP reads `plugins` from `clapse.json` and adds compiled plugin artifacts to
   compiler compile requests via `plugin_wasm_paths`.
 - Formatter is conservative and source-preserving:

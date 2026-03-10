@@ -289,13 +289,32 @@ function codeActionExpectationPass(actual, expectation) {
   ) {
     return false;
   }
-  if (typeof expectation.titleContains === "string") {
-    return actual.some((action) =>
-      String(action?.title ?? "").includes(expectation.titleContains)
-    );
+  const matched = (() => {
+    if (typeof expectation.title === "string") {
+      return actual.find((action) => String(action?.title ?? "") === expectation.title) ?? null;
+    }
+    if (typeof expectation.titleContains === "string") {
+      return actual.find((action) =>
+        String(action?.title ?? "").includes(expectation.titleContains)
+      ) ?? null;
+    }
+    return actual[0] ?? null;
+  })();
+  if (
+    (typeof expectation.titleContains === "string" || typeof expectation.title === "string") &&
+    matched === null
+  ) {
+    return false;
   }
-  if (typeof expectation.title === "string") {
-    return actual.some((action) => String(action?.title ?? "") === expectation.title);
+  if (typeof expectation.editNewTextContains === "string") {
+    const edits = matched?.edit?.changes && typeof matched.edit.changes === "object"
+      ? Object.values(matched.edit.changes).flatMap((entry) =>
+        Array.isArray(entry) ? entry : []
+      )
+      : [];
+    return edits.some((edit) =>
+      String(edit?.newText ?? "").includes(expectation.editNewTextContains)
+    );
   }
   return true;
 }

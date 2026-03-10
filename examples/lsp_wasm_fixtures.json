@@ -115,6 +115,21 @@
         "character": 0
       },
       "codeActionExpectation": {
+        "minCount": 3,
+        "titleContains": "Add signature scaffold for 'inc'",
+        "editNewTextContains": "inc : _ -> _\n"
+      }
+    },
+    {
+      "name": "signature_code_action_absent_when_present",
+      "source": "--| Increment.\ninc : i64 -> i64\ninc x = x\nmain x = inc x\n",
+      "expectedDiagnostics": 0,
+      "codeAction": {
+        "line": 2,
+        "character": 0
+      },
+      "codeActionExpectation": {
+        "exactCount": 1,
         "titleContains": "Rename 'inc'"
       }
     },
@@ -128,6 +143,156 @@
       "expectedDiagnostics": 0,
       "hoverExpectation": {
         "contains": "Map over a functor value."
+      }
+    },
+    {
+      "name": "value_hover_parameter_type_from_signature",
+      "source": "id : a -> a\nid x = x\nmain = id 1\n",
+      "hover": {
+        "line": 1,
+        "character": 3
+      },
+      "expectedDiagnostics": 0,
+      "expectedBackends": {
+        "hover": "js"
+      },
+      "hoverExpectation": {
+        "contains": "x : a"
+      }
+    },
+    {
+      "name": "value_hover_let_alias_type_from_env",
+      "source": "main : i64 -> i64\nmain x = let y = x in y\n",
+      "hover": {
+        "line": 1,
+        "character": 22
+      },
+      "expectedDiagnostics": 0,
+      "expectedBackends": {
+        "hover": "js"
+      },
+      "hoverExpectation": {
+        "contains": "y : i64"
+      }
+    },
+    {
+      "name": "value_hover_let_call_type_from_signature",
+      "source": "inc : i64 -> i64\ninc x = x\nmain x = let y = inc x in y\n",
+      "hover": {
+        "line": 2,
+        "character": 26
+      },
+      "expectedDiagnostics": 0,
+      "expectedBackends": {
+        "hover": "js"
+      },
+      "hoverExpectation": {
+        "contains": "y : i64"
+      }
+    },
+    {
+      "name": "value_hover_let_polymorphic_call_type_from_signature",
+      "source": "id : a -> a\nid x = x\nmain : string -> string\nmain x = let y = id x in y\n",
+      "hover": {
+        "line": 3,
+        "character": 25
+      },
+      "expectedDiagnostics": 0,
+      "expectedBackends": {
+        "hover": "js"
+      },
+      "hoverExpectation": {
+        "contains": "y : string"
+      }
+    },
+    {
+      "name": "value_hover_let_parenthesized_call_type_from_signature",
+      "source": "inc : i64 -> i64\ninc x = x\nmain x = let y = (inc x) in y\n",
+      "hover": {
+        "line": 2,
+        "character": 28
+      },
+      "expectedDiagnostics": 0,
+      "expectedBackends": {
+        "hover": "js"
+      },
+      "hoverExpectation": {
+        "contains": "y : i64"
+      }
+    },
+    {
+      "name": "value_hover_let_nested_call_type_from_signature",
+      "source": "inc : i64 -> i64\ninc x = x\nmain x = let y = inc (inc x) in y\n",
+      "hover": {
+        "line": 2,
+        "character": 32
+      },
+      "expectedDiagnostics": 0,
+      "expectedBackends": {
+        "hover": "js"
+      },
+      "hoverExpectation": {
+        "contains": "y : i64"
+      }
+    },
+    {
+      "name": "value_hover_let_nullary_value_from_signature",
+      "source": "answer : i64\nanswer = 1\nmain = let y = answer in y\n",
+      "hover": {
+        "line": 2,
+        "character": 25
+      },
+      "expectedDiagnostics": 0,
+      "expectedBackends": {
+        "hover": "js"
+      },
+      "hoverExpectation": {
+        "contains": "y : i64"
+      }
+    },
+    {
+      "name": "value_hover_let_structured_call_type_from_signature",
+      "source": "data Maybe a = Nothing | Just a\nwrap : Maybe a -> Maybe a\nwrap x = x\nmain : Maybe i64 -> Maybe i64\nmain x = let y = wrap x in y\n",
+      "hover": {
+        "line": 4,
+        "character": 27
+      },
+      "expectedDiagnostics": 0,
+      "expectedBackends": {
+        "hover": "js"
+      },
+      "hoverExpectation": {
+        "contains": "y : Maybe i64"
+      }
+    },
+    {
+      "name": "value_hover_let_callable_alias_type_from_signature",
+      "source": "inc : i64 -> i64\ninc x = x\nmain : i64 -> i64\nmain x =\n  let\n    f = inc\n    y = f x\n  in y\n",
+      "hover": {
+        "line": 5,
+        "character": 4
+      },
+      "expectedDiagnostics": 0,
+      "expectedBackends": {
+        "hover": "js"
+      },
+      "hoverExpectation": {
+        "contains": "f : i64 -> i64"
+      }
+    },
+    {
+      "name": "value_hover_let_callable_alias_result_type_from_signature",
+      "source": "inc : i64 -> i64\ninc x = x\nmain : i64 -> i64\nmain x =\n  let\n    f = inc\n    y = f x\n  in y\n",
+      "hover": {
+        "line": 6,
+        "character": 4
+      },
+      "expectedDiagnostics": 0,
+      "expectedBackends": {
+        "hover": "js"
+      },
+      "hoverExpectation": {
+        "contains": "y : i64"
       }
     },
     {

@@ -467,8 +467,8 @@ function isKeywordToken(token) {
   );
 }
 
-function isFunctionDeclLine(rawLine) {
-  const line = rawLine.trim();
+function classifyFunctionDeclLine(rawLine) {
+  const line = String(rawLine ?? "").trim();
   if (line.length === 0) return null;
   if (line.startsWith("--")) return null;
   if (line.startsWith("#[")) return null;
@@ -480,11 +480,7 @@ function isFunctionDeclLine(rawLine) {
     line.startsWith("class ") ||
     line.startsWith("instance ") ||
     line.startsWith("law ") ||
-    line.startsWith("infix ")
-  ) {
-    return null;
-  }
-  if (
+    line.startsWith("infix ") ||
     line.startsWith("infixl ") ||
     line.startsWith("infixr ")
   ) {
@@ -502,7 +498,10 @@ function isFunctionDeclLine(rawLine) {
   if (toks.length === 0) return null;
   const name = toks[0];
   if (!/^[A-Za-z_][A-Za-z0-9_$.']*$/u.test(name)) return null;
-  return name;
+  const kind = colonAt > 0 && (eqAt <= 0 || colonAt < eqAt)
+    ? "signature"
+    : "definition";
+  return { name, kind };
 }
 
 function buildFunctionDocIndex(text) {
@@ -542,15 +541,41 @@ function buildFunctionDocIndex(text) {
     if (trimmed.startsWith("--") || trimmed.startsWith("#[")) {
       continue;
     }
-    const fnName = isFunctionDeclLine(raw);
-    if (fnName !== null) {
-      const start = raw.indexOf(fnName);
-      out.set(fnName, {
-        doc: pending.length > 0 ? pending.join("\n").trim() : "",
+    const decl = classifyFunctionDeclLine(raw);
+    if (leadingIndentCount(raw) > 0 && decl?.kind === "definition") {
+      pending = [];
+      continue;
+    }
+    if (decl !== null) {
+      const start = raw.indexOf(decl.name);
+      const existing = out.get(decl.name) ?? null;
+      const next = existing ?? {
+        doc: "",
         line: i,
         start: Math.max(0, start),
-        end: Math.max(0, start) + fnName.length,
-      });
+        end: Math.max(0, start) + decl.name.length,
+        hasSignature: false,
+        signatureLine: null,
+        definitionLine: null,
+      };
+      if (pending.length > 0 && next.doc.length === 0) {
+        next.doc = pending.join("\n").trim();
+      }
+      if (decl.kind === "signature") {
+        next.hasSignature = true;
+        next.signatureLine = i;
+        next.line = i;
+        next.start = Math.max(0, start);
+        next.end = Math.max(0, start) + decl.name.length;
+      } else if (next.definitionLine === null) {
+        next.definitionLine = i;
+        if (!next.hasSignature) {
+          next.line = i;
+          next.start = Math.max(0, start);
+          next.end = Math.max(0, start) + decl.name.length;
+        }
+      }
+      out.set(decl.name, next);
       pending = [];
       continue;
     }
@@ -586,6 +611,491 @@ function declarationRangeFromSignature(sourceText, symbol, signature) {
     };
   }
   return null;
+}
+
+function leadingIndentCount(lineText) {
+  const match = String(lineText ?? "").match(/^\s*/u);
+  return match ? match[0].length : 0;
+}
+
+function topLevelTypeSuffix(signatureLine) {
+  const text = String(signatureLine ?? "");
+  const colon = text.indexOf(":");
+  if (colon < 0) {
+    return "";
+  }
+  let depthParen = 0;
+  let depthBracket = 0;
+  let depthBrace = 0;
+  for (let i = colon + 1; i + 1 < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === "(") depthParen += 1;
+    else if (ch === ")") depthParen = Math.max(0, depthParen - 1);
+    else if (ch === "[") depthBracket += 1;
+    else if (ch === "]") depthBracket = Math.max(0, depthBracket - 1);
+    else if (ch === "{") depthBrace += 1;
+    else if (ch === "}") depthBrace = Math.max(0, depthBrace - 1);
+    else if (
+      ch === "=" &&
+      text[i + 1] === ">" &&
+      depthParen === 0 &&
+      depthBracket === 0 &&
+      depthBrace === 0
+    ) {
+      return text.slice(i + 2).trim();
+    }
+  }
+  return text.slice(colon + 1).trim();
+}
+
+function splitTopLevelFunctionType(typeText) {
+  const text = String(typeText ?? "").trim();
+  if (text.length === 0) {
+    return [];
+  }
+  const parts = [];
+  let depthParen = 0;
+  let depthBracket = 0;
+  let depthBrace = 0;
+  let start = 0;
+  for (let i = 0; i + 1 < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === "(") depthParen += 1;
+    else if (ch === ")") depthParen = Math.max(0, depthParen - 1);
+    else if (ch === "[") depthBracket += 1;
+    else if (ch === "]") depthBracket = Math.max(0, depthBracket - 1);
+    else if (ch === "{") depthBrace += 1;
+    else if (ch === "}") depthBrace = Math.max(0, depthBrace - 1);
+    if (
+      ch === "-" &&
+      text[i + 1] === ">" &&
+      depthParen === 0 &&
+      depthBracket === 0 &&
+      depthBrace === 0
+    ) {
+      parts.push(text.slice(start, i).trim());
+      start = i + 2;
+      i += 1;
+    }
+  }
+  parts.push(text.slice(start).trim());
+  return parts.filter((part) => part.length > 0);
+}
+
+function parseDefinitionParams(rawLine, symbol) {
+  const text = String(rawLine ?? "");
+  const eqAt = text.indexOf("=");
+  const pipeAt = text.indexOf("|");
+  const stop = eqAt > 0 && pipeAt > 0
+    ? Math.min(eqAt, pipeAt)
+    : (eqAt > 0 ? eqAt : pipeAt);
+  if (stop <= 0) {
+    return [];
+  }
+  const lhs = text.slice(0, stop).trim();
+  const tokens = lhs.split(/\s+/u).filter((token) => token.length > 0);
+  if (tokens.length === 0 || tokens[0] !== symbol) {
+    return [];
+  }
+  return tokens.slice(1);
+}
+
+function declarationEntries(index) {
+  const entries = Array.from(index?.declarations?.entries?.() ?? [])
+    .map(([name, decl]) => {
+      const signatureLine = Number.isFinite(Number(decl?.signatureLine))
+        ? Number(decl.signatureLine)
+        : null;
+      const definitionLine = Number.isFinite(Number(decl?.definitionLine))
+        ? Number(decl.definitionLine)
+        : null;
+      const startLine = signatureLine ?? definitionLine ?? Number(decl?.line ?? 0);
+      return { name, decl, signatureLine, definitionLine, startLine };
+    })
+    .filter((entry) => Number.isFinite(entry.startLine))
+    .sort((a, b) => a.startLine - b.startLine);
+  return entries;
+}
+
+function findEnclosingFunctionContext(index, line) {
+  const entries = declarationEntries(index);
+  for (let i = 0; i < entries.length; i += 1) {
+    const entry = entries[i];
+    if (!Number.isFinite(entry.definitionLine)) {
+      continue;
+    }
+    const nextStartLine = i + 1 < entries.length ? entries[i + 1].startLine : Infinity;
+    if (line >= entry.definitionLine && line < nextStartLine) {
+      return {
+        ...entry,
+        endLineExclusive: nextStartLine,
+      };
+    }
+  }
+  return null;
+}
+
+function splitTopLevelApplyTerms(exprText) {
+  const text = String(exprText ?? "").trim();
+  if (text.length === 0) {
+    return [];
+  }
+  const terms = [];
+  let depthParen = 0;
+  let depthBracket = 0;
+  let depthBrace = 0;
+  let start = 0;
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === "(") depthParen += 1;
+    else if (ch === ")") depthParen = Math.max(0, depthParen - 1);
+    else if (ch === "[") depthBracket += 1;
+    else if (ch === "]") depthBracket = Math.max(0, depthBracket - 1);
+    else if (ch === "{") depthBrace += 1;
+    else if (ch === "}") depthBrace = Math.max(0, depthBrace - 1);
+    else if (
+      /\s/u.test(ch) &&
+      depthParen === 0 &&
+      depthBracket === 0 &&
+      depthBrace === 0
+    ) {
+      const part = text.slice(start, i).trim();
+      if (part.length > 0) {
+        terms.push(part);
+      }
+      while (i < text.length && /\s/u.test(text[i])) {
+        i += 1;
+      }
+      start = i;
+      continue;
+    }
+    i += 1;
+  }
+  const finalPart = text.slice(start).trim();
+  if (finalPart.length > 0) {
+    terms.push(finalPart);
+  }
+  return terms;
+}
+
+function stripBalancedOuterParens(exprText) {
+  let text = String(exprText ?? "").trim();
+  while (text.startsWith("(") && text.endsWith(")")) {
+    let depth = 0;
+    let balanced = true;
+    let closesAtEnd = false;
+    for (let i = 0; i < text.length; i += 1) {
+      const ch = text[i];
+      if (ch === "(") depth += 1;
+      else if (ch === ")") {
+        depth -= 1;
+        if (depth < 0) {
+          balanced = false;
+          break;
+        }
+        if (depth === 0) {
+          closesAtEnd = i === text.length - 1;
+          if (!closesAtEnd) {
+            balanced = false;
+            break;
+          }
+        }
+      }
+    }
+    if (!balanced || depth !== 0 || !closesAtEnd) {
+      break;
+    }
+    text = text.slice(1, -1).trim();
+  }
+  return text;
+}
+
+function sourceSignaturePartsForSymbol(index, symbol) {
+  if (typeof symbol !== "string" || symbol.length === 0) {
+    return null;
+  }
+  const declaration = index?.declarations?.get?.(symbol) ?? null;
+  const signatureLine = Number.isFinite(Number(declaration?.signatureLine))
+    ? Number(declaration.signatureLine)
+    : null;
+  if (signatureLine === null) {
+    return null;
+  }
+  const sourceLines = String(index?.sourceText ?? "").split("\n");
+  const signatureText = safeTextForLine(sourceLines[signatureLine]);
+  const parts = splitTopLevelFunctionType(topLevelTypeSuffix(signatureText));
+  return parts.length > 0 ? parts : null;
+}
+
+function sourceSignatureTypeForSymbol(index, symbol) {
+  const parts = sourceSignaturePartsForSymbol(index, symbol);
+  if (!Array.isArray(parts) || parts.length === 0) {
+    return null;
+  }
+  return parts.join(" -> ");
+}
+
+function sourceNullaryValueTypeForSymbol(index, symbol) {
+  const parts = sourceSignaturePartsForSymbol(index, symbol);
+  if (!Array.isArray(parts) || parts.length !== 1) {
+    return null;
+  }
+  return parts[0];
+}
+
+function isSimpleTypeVariable(typeText) {
+  return /^[a-z][A-Za-z0-9_']*$/u.test(String(typeText ?? "").trim());
+}
+
+function substituteSimpleTypeVars(typeText, bindings) {
+  const text = String(typeText ?? "").trim();
+  if (text.length === 0) {
+    return "";
+  }
+  return text.replace(/\b([a-z][A-Za-z0-9_']*)\b/gu, (match, name) =>
+    bindings.get(name) ?? match
+  );
+}
+
+function unifySimpleTypePattern(patternText, actualType, bindings) {
+  const pattern = stripBalancedOuterParens(patternText);
+  const actual = stripBalancedOuterParens(actualType);
+  if (pattern.length === 0 || actual.length === 0) {
+    return false;
+  }
+  if (pattern === actual) {
+    return true;
+  }
+  if (!isSimpleTypeVariable(pattern)) {
+    const patternTerms = splitTopLevelApplyTerms(pattern);
+    const actualTerms = splitTopLevelApplyTerms(actual);
+    if (patternTerms.length <= 1 || actualTerms.length <= 1) {
+      return false;
+    }
+    if (patternTerms.length !== actualTerms.length) {
+      return false;
+    }
+    for (let i = 0; i < patternTerms.length; i += 1) {
+      if (!unifySimpleTypePattern(patternTerms[i], actualTerms[i], bindings)) {
+        return false;
+      }
+    }
+    return true;
+  }
+  const existing = bindings.get(pattern);
+  if (typeof existing === "string") {
+    return existing === actual;
+  }
+  bindings.set(pattern, actual);
+  return true;
+}
+
+function inferSimpleExprType(exprText, env, index) {
+  const text = stripBalancedOuterParens(exprText);
+  if (/^-?\d+$/u.test(text)) {
+    return "i64";
+  }
+  if (/^"(?:[^"\\]|\\.)*"$/u.test(text)) {
+    return "string";
+  }
+  if (text === "true" || text === "false") {
+    return "bool";
+  }
+  if (/^[A-Za-z_][A-Za-z0-9_$.']*$/u.test(text)) {
+    return env.get(text) ?? sourceNullaryValueTypeForSymbol(index, text) ??
+      sourceSignatureTypeForSymbol(index, text) ?? null;
+  }
+  const terms = splitTopLevelApplyTerms(text);
+  if (terms.length > 1) {
+    const [head, ...args] = terms;
+    const envHeadType = env.get(head) ?? null;
+    const signatureParts = sourceSignaturePartsForSymbol(index, head) ??
+      (typeof envHeadType === "string"
+        ? splitTopLevelFunctionType(envHeadType)
+        : null);
+    if (Array.isArray(signatureParts) && signatureParts.length === args.length + 1) {
+      const bindings = new Map();
+      for (let i = 0; i < args.length; i += 1) {
+        const argType = inferSimpleExprType(args[i], env, index);
+        if (typeof argType !== "string" || argType.length === 0) {
+          return null;
+        }
+        if (!unifySimpleTypePattern(signatureParts[i], argType, bindings)) {
+          return null;
+        }
+      }
+      const resultType = substituteSimpleTypeVars(
+        signatureParts[signatureParts.length - 1],
+        bindings,
+      );
+      return resultType.length > 0 ? resultType : null;
+    }
+  }
+  return null;
+}
+
+function buildLocalTypeEnv(index, context, uptoLine) {
+  const env = new Map();
+  const sourceLines = String(index?.sourceText ?? "").split("\n");
+  const declaration = context?.decl ?? null;
+  const signatureLine = Number.isFinite(context?.signatureLine)
+    ? Number(context.signatureLine)
+    : null;
+  const definitionLine = Number.isFinite(context?.definitionLine)
+    ? Number(context.definitionLine)
+    : null;
+  if (declaration && signatureLine !== null && definitionLine !== null) {
+    const signatureText = safeTextForLine(sourceLines[signatureLine]);
+    const params = parseDefinitionParams(
+      safeTextForLine(sourceLines[definitionLine]),
+      context.name,
+    );
+    const typeParts = splitTopLevelFunctionType(topLevelTypeSuffix(signatureText));
+    if (params.length > 0 && typeParts.length === params.length + 1) {
+      for (let i = 0; i < params.length; i += 1) {
+        env.set(params[i], typeParts[i]);
+      }
+    }
+  }
+  if (definitionLine === null) {
+    return env;
+  }
+  const baseIndent = leadingIndentCount(safeTextForLine(sourceLines[definitionLine]));
+  for (
+    let line = definitionLine;
+    line <= Math.min(uptoLine, context.endLineExclusive - 1, sourceLines.length - 1);
+    line += 1
+  ) {
+    const raw = safeTextForLine(sourceLines[line]);
+    const trimmed = raw.trim();
+    if (trimmed.length === 0 || trimmed.startsWith("--")) {
+      continue;
+    }
+    const sameLineLet = raw.match(/\blet\s+([A-Za-z_][A-Za-z0-9_$.']*)\s*=\s*(.+?)(?:\s+in\b|$)/u);
+    if (sameLineLet) {
+      const [, name, rhs] = sameLineLet;
+      const inferred = inferSimpleExprType(rhs, env, index);
+      if (inferred) {
+        env.set(name, inferred);
+      }
+    }
+    if (line === definitionLine) {
+      continue;
+    }
+    if (leadingIndentCount(raw) <= baseIndent) {
+      continue;
+    }
+    const localBind = raw.match(/^\s*([A-Za-z_][A-Za-z0-9_$.']*)\s*=\s*(.+)$/u);
+    if (!localBind) {
+      continue;
+    }
+    const [, name, rhs] = localBind;
+    const inferred = inferSimpleExprType(rhs, env, index);
+    if (inferred) {
+      env.set(name, inferred);
+    }
+  }
+  return env;
+}
+
+function inferParamTypeFromContext(index, context, symbol) {
+  if (typeof symbol !== "string" || symbol.length === 0) {
+    return null;
+  }
+  const sourceLines = String(index?.sourceText ?? "").split("\n");
+  const signatureLine = Number.isFinite(context?.signatureLine)
+    ? Number(context.signatureLine)
+    : null;
+  const definitionLine = Number.isFinite(context?.definitionLine)
+    ? Number(context.definitionLine)
+    : null;
+  if (signatureLine === null || definitionLine === null) {
+    return null;
+  }
+  const params = parseDefinitionParams(
+    safeTextForLine(sourceLines[definitionLine]),
+    context.name,
+  );
+  const typeParts = splitTopLevelFunctionType(
+    topLevelTypeSuffix(safeTextForLine(sourceLines[signatureLine])),
+  );
+  if (params.length === 0 || typeParts.length !== params.length + 1) {
+    return null;
+  }
+  const indexOfParam = params.indexOf(symbol);
+  if (indexOfParam < 0) {
+    return null;
+  }
+  return typeParts[indexOfParam] ?? null;
+}
+
+function inferParamTypeFromCurrentLine(index, line, symbol) {
+  if (!Number.isFinite(line) || typeof symbol !== "string" || symbol.length === 0) {
+    return null;
+  }
+  const sourceLines = String(index?.sourceText ?? "").split("\n");
+  const rawLine = safeTextForLine(sourceLines[line]);
+  const decl = classifyFunctionDeclLine(rawLine);
+  if (decl === null || decl.kind !== "definition") {
+    return null;
+  }
+  const params = parseDefinitionParams(rawLine, decl.name);
+  const indexOfParam = params.indexOf(symbol);
+  if (indexOfParam < 0) {
+    return null;
+  }
+  for (let i = line - 1; i >= 0; i -= 1) {
+    const candidate = classifyFunctionDeclLine(safeTextForLine(sourceLines[i]));
+    if (candidate === null) {
+      continue;
+    }
+    if (candidate.name !== decl.name) {
+      break;
+    }
+    if (candidate.kind !== "signature") {
+      continue;
+    }
+    const typeParts = splitTopLevelFunctionType(
+      topLevelTypeSuffix(safeTextForLine(sourceLines[i])),
+    );
+    if (typeParts.length === params.length + 1) {
+      return typeParts[indexOfParam] ?? null;
+    }
+    return null;
+  }
+  return null;
+}
+
+function buildLocalHover(index, line, character) {
+  const token = symbolAtPosition(index, line, character);
+  if (token.symbol.length === 0) {
+    return null;
+  }
+  const context = findEnclosingFunctionContext(index, line);
+  const env = context === null ? new Map() : buildLocalTypeEnv(index, context, line);
+  const inferredType = env.get(token.symbol) ??
+    (context === null ? null : inferParamTypeFromContext(index, context, token.symbol)) ??
+    inferParamTypeFromCurrentLine(index, line, token.symbol);
+  if (typeof inferredType !== "string" || inferredType.length === 0) {
+    return null;
+  }
+  const fallbackRange = wordRangeAtPosition(
+    safeTextForLine(String(index?.sourceText ?? "").split("\n")[line]),
+    character,
+  );
+  return {
+    contents: {
+      kind: "markdown",
+      value: `### ${token.symbol}\n\n\`\`\`clapse\n${token.symbol} : ${inferredType}\n\`\`\``,
+    },
+    range: buildRange(
+      token.occurrence?.line ?? line,
+      token.occurrence?.start ?? fallbackRange?.start ?? 0,
+      token.occurrence?.end ?? fallbackRange?.end ?? 0,
+    ),
+    backend: "js",
+  };
 }
 
 async function requestKernelSymbolIndex(wasmPath, source) {
@@ -692,6 +1202,74 @@ async function requestKernelRename(wasmPath, source, symbol, newName) {
   return null;
 }
 
+function parseAritiesFromDts(dts, symbol) {
+  if (typeof dts !== "string" || dts.length === 0 || typeof symbol !== "string" || symbol.length === 0) {
+    return null;
+  }
+  const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const match = dts.match(new RegExp(
+    `export\\s+declare\\s+function\\s+${escaped}\\s*\\(([^)]*)\\)\\s*:\\s*[^;]+;`,
+    "u",
+  ));
+  if (!match) {
+    return null;
+  }
+  const params = String(match[1] ?? "").trim();
+  if (params.length === 0) {
+    return 0;
+  }
+  return params.split(",").map((part) => part.trim()).filter((part) => part.length > 0).length;
+}
+
+function renderMissingSignatureScaffold(symbol, arity) {
+  const safeArity = Math.max(0, Number(arity) || 0);
+  const parts = new Array(safeArity + 1).fill("_");
+  return `${symbol} : ${parts.join(" -> ")}\n`;
+}
+
+async function buildMissingSignatureCodeAction(wasmPath, uri, source, declaration, symbol, pluginWasmPaths) {
+  if (
+    !declaration ||
+    declaration.hasSignature === true ||
+    typeof declaration.definitionLine !== "number"
+  ) {
+    return null;
+  }
+  let response = null;
+  try {
+    response = await callCompilerWasm(wasmPath, {
+      command: "compile",
+      input_path: uri,
+      input_source: source,
+      entrypoint_exports: [symbol],
+      plugin_wasm_paths: pluginWasmPaths,
+    });
+  } catch {
+    return null;
+  }
+  if (!response || response.ok !== true) {
+    return null;
+  }
+  const arity = parseAritiesFromDts(response.dts, symbol) ??
+    Number(response?.public_exports?.find?.((entry) => String(entry?.name ?? "") === symbol)?.arity ?? NaN);
+  if (!Number.isFinite(arity) || arity < 0) {
+    return null;
+  }
+  const insertionRange = buildRange(declaration.definitionLine, 0, 0);
+  return {
+    title: `Add signature scaffold for '${symbol}'`,
+    kind: "quickfix",
+    edit: {
+      changes: {
+        [uri]: [{
+          range: insertionRange,
+          newText: renderMissingSignatureScaffold(symbol, arity),
+        }],
+      },
+    },
+  };
+}
+
 function isIdentChar(ch) {
   return /[A-Za-z0-9_$.']/u.test(ch);
 }
@@ -708,6 +1286,23 @@ function wordAtPosition(lineText, character) {
   while (left > 0 && isIdentChar(lineText[left - 1])) left -= 1;
   while (right < lineText.length && isIdentChar(lineText[right])) right += 1;
   return lineText.slice(left, right);
+}
+
+function wordRangeAtPosition(lineText, character) {
+  if (typeof lineText !== "string" || lineText.length === 0) return null;
+  const pos = Math.max(0, Math.min(character, lineText.length));
+  let left = pos;
+  let right = pos;
+  if (left > 0 && !isIdentChar(lineText[left]) && isIdentChar(lineText[left - 1])) {
+    left -= 1;
+    right = left + 1;
+  }
+  while (left > 0 && isIdentChar(lineText[left - 1])) left -= 1;
+  while (right < lineText.length && isIdentChar(lineText[right])) right += 1;
+  if (right <= left) {
+    return null;
+  }
+  return { start: left, end: right };
 }
 
 async function formatSource(wasmPath, uri, source) {
@@ -1611,7 +2206,8 @@ export async function runLspServer() {
         }
         const entry = index.declarations.get(symbol);
         if (!entry || typeof symbol !== "string") {
-          await sendResponse(id, null);
+          const localHover = buildLocalHover(index, line, character);
+          await sendResponse(id, localHover);
           return;
         }
         const signatureLine = safeTextForLine(index.sourceText?.split("\n")[entry.line]);
@@ -1814,6 +2410,7 @@ export async function runLspServer() {
           await sendResponse(id, []);
           return;
         }
+        const source = docs.get(uri) ?? "";
         const declaration = index.declarations.get(symbol);
         const actions = [];
         actions.push({
@@ -1825,6 +2422,26 @@ export async function runLspServer() {
             arguments: [uri, { line, character }],
           },
         });
+        if (declaration) {
+          const config = docConfigs.get(uri) ?? await resolveProjectConfig(uri, workspaceRootPath);
+          let pluginWasmPaths = [];
+          try {
+            pluginWasmPaths = await resolveProjectPluginWasmPaths(config, wasmPath);
+          } catch {
+            pluginWasmPaths = [];
+          }
+          const signatureAction = await buildMissingSignatureCodeAction(
+            wasmPath,
+            uri,
+            source,
+            declaration,
+            symbol,
+            pluginWasmPaths,
+          );
+          if (signatureAction !== null) {
+            actions.push(signatureAction);
+          }
+        }
         if (declaration && declaration.doc.length === 0) {
           const insertionRange = buildRange(declaration.line, 0, 0);
           actions.push({
