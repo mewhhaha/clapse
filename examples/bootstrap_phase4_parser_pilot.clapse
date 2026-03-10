@@ -1,0 +1,12 @@
+is_digit d = and (ge d 48) (le d 57)
+
+parse_assignment bytes =
+  let len_ok = eq (slice_len bytes) 4
+      name_is_x = slice_get_u8 bytes 0 == 120
+      equals_ok = slice_get_u8 bytes 1 == 61
+      value_is_digit = is_digit (slice_get_u8 bytes 2)
+      terminator_ok = slice_get_u8 bytes 3 == 59
+      ok = and len_ok (and name_is_x (and equals_ok (and value_is_digit terminator_ok)))
+  in if ok (\_ -> 1) (\_ -> 0)
+
+main bytes = parse_assignment bytes

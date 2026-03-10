@@ -1,0 +1,5 @@
+import "bootstrap6/router"
+export { main }
+
+main method_code route_code =
+  dispatch (parse_method method_code) (parse_route route_code)

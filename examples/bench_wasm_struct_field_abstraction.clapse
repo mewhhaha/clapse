@@ -1,0 +1,5 @@
+data Pair a b = Pair a b
+
+build_pair x y = Pair x y
+sum_pair pair = let Pair left right = pair in left + right
+main x = sum_pair (build_pair x (x + 1))

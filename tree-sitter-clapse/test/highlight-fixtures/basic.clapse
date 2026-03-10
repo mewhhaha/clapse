@@ -1,0 +1,6 @@
+data Token method path = Tok method path
+import "Parser"
+export { main, Token }
+main t = case t of
+  "GET" -> 1
+  _ -> 0

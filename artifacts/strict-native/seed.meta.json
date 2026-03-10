@@ -1,0 +1,32 @@
+{
+  "tool": "build-native-producer-seed",
+  "created_at": "2026-03-10T07:58:39.693Z",
+  "seed": {
+    "input_path": "artifacts/strict-native/native_producer_seed.wasm",
+    "input_sha256": "a2b28af651084ec13fd7c006f02c39f251c1cfda53eb3d2fe9338c1313bcb78e"
+  },
+  "output": {
+    "wasm_path": "/home/mewhhaha/src/clapse/.tmp/clapse-promoted-strict-seed.nw7BhA.wasm",
+    "dts_path": "/home/mewhhaha/src/clapse/.tmp/clapse-promoted-strict-seed.nw7BhA.d.ts",
+    "sha256": "21ffed4e31cb1fe66b8e9b80c55b6ad770953cda5e29a23989eba07d171b000e",
+    "bytes": 26580259
+  },
+  "contract": {
+    "source_version": "native-source-2026-03-01-r2",
+    "compile_contract_version": "native-v1"
+  },
+  "chain_depth": 1,
+  "stages": [
+    {
+      "stage": 1,
+      "bytes": 26580259,
+      "sha256": "21ffed4e31cb1fe66b8e9b80c55b6ad770953cda5e29a23989eba07d171b000e"
+    }
+  ],
+  "verification": {
+    "raw_producer_probe": {
+      "hops": 2,
+      "output_bytes": 14861734
+    }
+  }
+}

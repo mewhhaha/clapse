@@ -1,0 +1,4 @@
+export { memo_fib_probe }
+
+#[memo 64]
+memo_fib_probe x = x

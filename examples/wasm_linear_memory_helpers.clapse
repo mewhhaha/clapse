@@ -1,0 +1,14 @@
+main in_bytes idx =
+  let out = slice_new_u8 (slice_len in_bytes)
+      src = slice_data_ptr in_bytes
+      dst = slice_data_ptr out
+      len = slice_len_raw in_bytes
+      copied_ptr = memcpy_u8 dst src len
+      filled_ptr = memset_u8 copied_ptr 0 1
+      mark = region_mark 0
+      tmp = region_alloc len 1
+      reset = region_reset mark
+      mem_ok = eq filled_ptr filled_ptr
+      region_ok = eq reset mark
+      ok = and mem_ok region_ok
+  in if ok (\_ -> slice_get_u8 out idx) (\_ -> 0)

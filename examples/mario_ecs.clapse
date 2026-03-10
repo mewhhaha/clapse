@@ -1,0 +1,154 @@
+world_width token = 48
+world_height token = 15
+entity_capacity token = 12
+
+player_start_x token = 6
+player_start_lives token = 3
+
+mod a b = a - (a / b) * b
+
+fill_slice cells start span value = case (span == 0) (span == 1) of
+  1 _ -> cells
+  _ 1 -> slice_set_u8 cells start value
+  _ _ ->
+    let half = span / 2
+        left = fill_slice cells start half value
+        right_start = start + half
+        right_span = span - half
+    in fill_slice left right_start right_span value
+
+lose_life lives = case (lives == 0) of
+  1 -> 0
+  _ -> lives - 1
+
+next_jump_timer jump_timer jump = case (jump_timer == 0) (jump == 1) of
+  1 1 -> 2
+  1 _ -> 0
+  _ _ -> jump_timer - 1
+
+lane_from_jump_timer jump_timer = case (jump_timer == 0) of
+  1 -> 0
+  _ -> 1
+
+move_player_x player_x left right world_w = mod (player_x + right - left + world_w) world_w
+
+spawn_kind frame = case (mod frame 24) of
+  0 -> 1
+  6 -> 2
+  12 -> 1
+  18 -> 2
+  _ -> 0
+
+spawn_lane kind = case (kind == 2) of
+  1 -> 1
+  _ -> 0
+
+data MarioState = MarioState kinds xs lanes active player_x jump_timer lives frame
+
+data MarioEvent = Tick left right jump | Reset token
+
+data UpdateAcc = UpdateAcc kinds xs lanes active lives
+
+data SpawnAcc = SpawnAcc kinds xs lanes active
+
+init_state kinds xs lanes active = MarioState kinds xs lanes active (player_start_x 0) 0 (player_start_lives 0) 0
+
+state_kinds state = let MarioState kinds xs_ignored lanes_ignored active_ignored player_x_ignored jump_timer_ignored lives_ignored frame_ignored = state in kinds
+state_xs state = let MarioState kinds_ignored xs lanes_ignored active_ignored player_x_ignored jump_timer_ignored lives_ignored frame_ignored = state in xs
+state_lanes state = let MarioState kinds_ignored xs_ignored lanes active_ignored player_x_ignored jump_timer_ignored lives_ignored frame_ignored = state in lanes
+state_active state = let MarioState kinds_ignored xs_ignored lanes_ignored active player_x_ignored jump_timer_ignored lives_ignored frame_ignored = state in active
+state_player_x state = let MarioState kinds_ignored xs_ignored lanes_ignored active_ignored player_x jump_timer_ignored lives_ignored frame_ignored = state in player_x
+state_jump_timer state = let MarioState kinds_ignored xs_ignored lanes_ignored active_ignored player_x_ignored jump_timer lives_ignored frame_ignored = state in jump_timer
+state_score state = 0
+state_lives state = let MarioState kinds_ignored xs_ignored lanes_ignored active_ignored player_x_ignored jump_timer_ignored lives frame_ignored = state in lives
+state_frame state = let MarioState kinds_ignored xs_ignored lanes_ignored active_ignored player_x_ignored jump_timer_ignored lives_ignored frame = state in frame
+state_player_lane state = lane_from_jump_timer (state_jump_timer state)
+
+event_tick left right jump = Tick left right jump
+event_reset token = Reset token
+
+lives_after_hit lives enemy_hit = case (enemy_hit == 0) of
+  1 -> lives
+  _ -> lose_life lives
+
+update_slot kinds xs lanes active player_x player_lane lives slot world_w =
+  let kind = slice_get_u8 kinds slot
+      active_flag = slice_get_u8 active slot
+      kind_is_zero = kind == 0
+      kind_is_coin = kind == 2
+      process = active_flag * (1 - kind_is_zero)
+      x0 = slice_get_u8 xs slot
+      moved_x = mod (x0 + world_w - 1) world_w
+      new_x = x0 + process * (moved_x - x0)
+      xs1 = slice_set_u8 xs slot new_x
+      lane = slice_get_u8 lanes slot
+      hit = process * (moved_x == player_x) * (lane == player_lane)
+      enemy_hit = hit * (1 - kind_is_coin)
+      despawn = process * (1 - hit) * (moved_x == 0)
+      clear_mask = hit + despawn
+      new_kind = kind * (1 - clear_mask)
+      new_active = active_flag * (1 - clear_mask)
+      kinds1 = slice_set_u8 kinds slot new_kind
+      active1 = slice_set_u8 active slot new_active
+      lives1 = lives_after_hit lives enemy_hit
+  in UpdateAcc kinds1 xs1 lanes active1 lives1
+
+apply_spawn kinds xs lanes active slot kind world_w = case (kind == 0) of
+  1 -> SpawnAcc kinds xs lanes active
+  _ ->
+    let already_active = slice_get_u8 active slot
+    in case (already_active == 1) of
+      1 -> SpawnAcc kinds xs lanes active
+      _ ->
+        let kinds1 = slice_set_u8 kinds slot kind
+            xs1 = slice_set_u8 xs slot (world_w - 1)
+            lanes1 = slice_set_u8 lanes slot (spawn_lane kind)
+            active1 = slice_set_u8 active slot 1
+        in SpawnAcc kinds1 xs1 lanes1 active1
+
+reset_state state =
+  let MarioState kinds xs lanes active player_x_ignored jump_timer_ignored lives_ignored frame_ignored = state
+      count = entity_capacity 0
+      kinds1 = fill_slice kinds 0 count 0
+      xs1 = fill_slice xs 0 count 0
+      lanes1 = fill_slice lanes 0 count 0
+      active1 = fill_slice active 0 count 0
+  in MarioState kinds1 xs1 lanes1 active1 (player_start_x 0) 0 (player_start_lives 0) 0
+
+tick_state left right jump state = tick_state_guard left right jump state (state_lives state)
+
+tick_state_guard left right jump state lives = case (lives == 0) of
+  1 -> state
+  _ -> tick_state_live left right jump state
+
+tick_state_live left right jump state =
+  let MarioState kinds xs lanes active player_x jump_timer lives frame = state
+      world_w = world_width 0
+      count = entity_capacity 0
+      jump_timer1 = next_jump_timer jump_timer jump
+      player_lane1 = lane_from_jump_timer jump_timer1
+      player_x1 = move_player_x player_x left right world_w
+      slot = mod frame count
+      UpdateAcc kinds1 xs1 lanes1 active1 lives1 = update_slot kinds xs lanes active player_x1 player_lane1 lives slot world_w
+      kind = spawn_kind frame
+      SpawnAcc kinds2 xs2 lanes2 active2 = apply_spawn kinds1 xs1 lanes1 active1 slot kind world_w
+  in MarioState kinds2 xs2 lanes2 active2 player_x1 jump_timer1 lives1 (frame + 1)
+
+apply_event event state = case event of
+  Tick left right jump -> tick_state left right jump state
+  Reset _ -> reset_state state
+
+sum_slice cells start span = case (span == 0) (span == 1) of
+  1 _ -> 0
+  _ 1 -> slice_get_u8 cells start
+  _ _ ->
+    let half = span / 2
+        left_sum = sum_slice cells start half
+        right_start = start + half
+        right_span = span - half
+        right_sum = sum_slice cells right_start right_span
+    in left_sum + right_sum
+
+state_active_count state = let active = state_active state in sum_slice active 0 (entity_capacity 0)
+
+main left right jump = left + right + jump

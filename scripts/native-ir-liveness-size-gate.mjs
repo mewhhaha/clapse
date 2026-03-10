@@ -1,0 +1,134 @@
+#!/usr/bin/env -S deno run -A
+
+import { callCompilerWasmRaw, decodeWasmBase64 } from "./wasm-compiler-abi.mjs";
+
+function assert(condition, message) {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+function resolveCompilerWasmPath() {
+  const fromEnv = String(Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "")
+    .trim();
+  if (fromEnv.length > 0) {
+    return fromEnv;
+  }
+  return "artifacts/latest/clapse_compiler.wasm";
+}
+
+function isObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function readCompileArtifactsOrThrow(response, label) {
+  assert(
+    isObject(response),
+    `native-ir-liveness-size-gate: ${label} response must be an object`,
+  );
+  assert(
+    response.ok === true,
+    `native-ir-liveness-size-gate: ${label} response must be ok=true`,
+  );
+  assert(
+    typeof response.wasm_base64 === "string" && response.wasm_base64.length > 0,
+    `native-ir-liveness-size-gate: ${label} response missing wasm_base64`,
+  );
+  const artifacts = response.artifacts;
+  assert(
+    isObject(artifacts),
+    `native-ir-liveness-size-gate: ${label} response missing artifacts`,
+  );
+  const lowered = artifacts["lowered_ir.txt"];
+  const collapsed = artifacts["collapsed_ir.txt"];
+  assert(
+    typeof lowered === "string" && lowered.length > 0,
+    `native-ir-liveness-size-gate: ${label} lowered_ir.txt missing`,
+  );
+  assert(
+    typeof collapsed === "string" && collapsed.length > 0,
+    `native-ir-liveness-size-gate: ${label} collapsed_ir.txt missing`,
+  );
+  return {
+    wasmBytes: decodeWasmBase64(response.wasm_base64),
+    lowered,
+    collapsed,
+  };
+}
+
+function buildCompileRequest(inputPath, source, extra = {}) {
+  return {
+    command: "compile",
+    compile_mode: "kernel-native",
+    input_path: inputPath,
+    input_source: source,
+    plugin_wasm_paths: [],
+    ...extra,
+  };
+}
+
+async function run() {
+  const wasmPath = resolveCompilerWasmPath();
+  const tmpDir = await Deno.makeTempDir({
+    prefix: "clapse-native-ir-liveness-size-gate-",
+  });
+  try {
+    const inputPath = `${tmpDir}/gate.clapse`;
+    const deadMarker = `native-ir-liveness-dead-${crypto.randomUUID()}`;
+    const source = [
+      "export { main, helper }",
+      "main x = keep x",
+      "keep x = x",
+      `helper x = dead_fn x -- ${deadMarker}`,
+      "dead_fn x = x",
+      "",
+    ].join("\n");
+    await Deno.writeTextFile(inputPath, source);
+
+    const baselineRequest = buildCompileRequest(inputPath, source);
+    const baselineResponse = await callCompilerWasmRaw(
+      wasmPath,
+      baselineRequest,
+      {
+        validateCompileContract: true,
+        withContractMetadata: true,
+      },
+    );
+    const baseline = readCompileArtifactsOrThrow(baselineResponse, "baseline");
+
+    const prunedResponse = await callCompilerWasmRaw(
+      wasmPath,
+      buildCompileRequest(inputPath, source, { entrypoint_exports: ["main"] }),
+      {
+        validateCompileContract: true,
+        withContractMetadata: true,
+      },
+    );
+    const pruned = readCompileArtifactsOrThrow(prunedResponse, "pruned");
+
+    const prunedHasDead = pruned.lowered.includes(deadMarker) ||
+      pruned.collapsed.includes(deadMarker);
+    assert(
+      !prunedHasDead,
+      "native-ir-liveness-size-gate: pruned artifacts still contain dead marker",
+    );
+
+    assert(
+      pruned.wasmBytes.length < baseline.wasmBytes.length,
+      `native-ir-liveness-size-gate: pruned wasm bytes should strictly shrink (${pruned.wasmBytes.length} >= ${baseline.wasmBytes.length})`,
+    );
+    const baselineHasDead = baseline.lowered.includes(deadMarker) ||
+      baseline.collapsed.includes(deadMarker);
+    assert(
+      baselineHasDead,
+      "native-ir-liveness-size-gate: baseline artifacts should retain helper/dead marker",
+    );
+    console.log(
+      `native-ir-liveness-size-gate: PASS (baseline=${baseline.wasmBytes.length}; pruned=${pruned.wasmBytes.length}; baseline_has_dead=${baselineHasDead})`,
+    );
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true }).catch(() => {});
+  }
+}
+
+await run();

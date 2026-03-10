@@ -1,0 +1,5 @@
+import "host/time"
+export { main }
+
+main seed =
+  (unix_time_ms seed) + 1

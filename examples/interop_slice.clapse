@@ -1,0 +1,2 @@
+is_get bytes = slice_get_u8 bytes 0 == 71 && slice_get_u8 bytes 1 == 69 && slice_get_u8 bytes 2 == 84
+main bytes = is_get bytes

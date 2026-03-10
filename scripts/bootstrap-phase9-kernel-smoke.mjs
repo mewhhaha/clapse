@@ -1,0 +1,202 @@
+#!/usr/bin/env -S deno run -A
+
+import { callCompilerWasm } from "./wasm-compiler-abi.mjs";
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg);
+}
+
+async function formatViaCliWasm(wasmPath, source) {
+  const proc = new Deno.Command("deno", {
+    args: ["run", "-A", "scripts/run-clapse-compiler-wasm.mjs", "format", "--stdin"],
+    env: { ...Deno.env.toObject(), CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    stdin: "piped",
+    stdout: "piped",
+    stderr: "piped",
+  }).spawn();
+  if (proc.stdin === null) {
+    throw new Error("formatter child stdin unavailable");
+  }
+  const writer = proc.stdin.getWriter();
+  await writer.write(new TextEncoder().encode(source));
+  await writer.close();
+  const output = await proc.output();
+  if (!output.success) {
+    const err = new TextDecoder().decode(output.stderr);
+    throw new Error(`formatter child failed: ${err}`);
+  }
+  return new TextDecoder().decode(output.stdout);
+}
+
+async function main() {
+  const wasmPath = Deno.args[0] ?? "out/clapse_compiler.wasm";
+
+  const compileResp = await callCompilerWasm(wasmPath, {
+    command: "compile",
+    input_path: "examples/wasm_main.clapse",
+    input_source: "main x = x",
+  });
+  assert(compileResp && compileResp.ok === true, "inline compile response must succeed");
+  assert(
+    typeof compileResp.wasm_base64 === "string" &&
+      compileResp.wasm_base64.length > 0,
+    "inline compile response must include non-empty wasm_base64",
+  );
+
+  const compileMissingPathResp = await callCompilerWasm(wasmPath, {
+    command: "compile",
+    input_source: "main x = x",
+  });
+  assert(
+    compileMissingPathResp && compileMissingPathResp.ok === false,
+    "compile response without input_path must fail",
+  );
+  assert(
+    typeof compileMissingPathResp.error === "string" &&
+      compileMissingPathResp.error.includes("missing input_path"),
+    "compile response without input_path must report missing input_path",
+  );
+
+  const compileEmptyPathResp = await callCompilerWasm(wasmPath, {
+    command: "compile",
+    input_path: "",
+    input_source: "main x = x",
+  });
+  assert(
+    compileEmptyPathResp && compileEmptyPathResp.ok === false,
+    "compile response with empty input_path must fail",
+  );
+  assert(
+    typeof compileEmptyPathResp.error === "string" &&
+      compileEmptyPathResp.error.includes("missing input_path"),
+    "compile response with empty input_path must report missing input_path",
+  );
+
+  const compileMissingSourceResp = await callCompilerWasm(wasmPath, {
+    command: "compile",
+    input_path: "examples/wasm_main.clapse",
+  });
+  assert(
+    compileMissingSourceResp && compileMissingSourceResp.ok === false,
+    "compile response without input_source must fail",
+  );
+  assert(
+    typeof compileMissingSourceResp.error === "string" &&
+      compileMissingSourceResp.error.includes("missing input_source"),
+    "compile response without input_source must report missing input_source",
+  );
+
+  const compileSourceFallbackResp = await callCompilerWasm(wasmPath, {
+    command: "compile",
+    input_path: "examples/wasm_main.clapse",
+    source: "main x = x",
+  });
+  assert(
+    compileSourceFallbackResp && compileSourceFallbackResp.ok === false,
+    "compile response with legacy source field must fail",
+  );
+  assert(
+    typeof compileSourceFallbackResp.error === "string" &&
+      compileSourceFallbackResp.error.includes("missing input_source"),
+    "compile response with legacy source field must report missing input_source",
+  );
+
+  const formatResp = await callCompilerWasm(wasmPath, {
+    command: "format",
+    mode: "stdout",
+    input_path: "examples/wasm_main.clapse",
+    source: "main x = x\n",
+  });
+  assert(formatResp && formatResp.ok === true, "format response must succeed");
+  assert(
+    typeof formatResp.formatted === "string",
+    "format response must include formatted string",
+  );
+  assert(
+    formatResp.formatted === "main x = x\n",
+    "format response must preserve source payload",
+  );
+
+  // Regression guard: command routing must not depend on command key byte offset.
+  const formatRespReordered = await callCompilerWasm(wasmPath, {
+    mode: "stdout",
+    input_path: "examples/wasm_main.clapse",
+    source: "main x = x\n",
+    command: "format",
+  });
+  assert(
+    formatRespReordered && formatRespReordered.ok === true,
+    "format response must succeed with reordered request keys",
+  );
+  assert(
+    formatRespReordered.formatted === "main x = x\n",
+    "format response must preserve source payload with reordered request keys",
+  );
+
+  const escapedSource = "main x = x\nlabel x = \"a\\\\\\\"b\"\n";
+  const formatRespEscaped = await callCompilerWasm(wasmPath, {
+    command: "format",
+    mode: "stdout",
+    input_path: "examples/wasm_main.clapse",
+    source: escapedSource,
+  });
+  assert(
+    formatRespEscaped && formatRespEscaped.ok === true,
+    "format response must succeed for escaped source payload",
+  );
+  assert(
+    formatRespEscaped.formatted === escapedSource,
+    "format response must preserve escaped source payload",
+  );
+
+  const longSource = "a".repeat(20000);
+  const formatLongCli = await formatViaCliWasm(wasmPath, longSource);
+  assert(formatLongCli === longSource, "formatter CLI should preserve long source payload");
+
+  const unknownSamePrefixResp = await callCompilerWasm(wasmPath, {
+    command: "compress",
+    input_path: "examples/wasm_main.clapse",
+    input_source: "main x = x",
+  });
+  assert(
+    unknownSamePrefixResp &&
+      unknownSamePrefixResp.ok === false &&
+      typeof unknownSamePrefixResp.error === "string" &&
+      unknownSamePrefixResp.error.includes("unsupported command"),
+    "commands sharing compile prefix must not misroute to compile handler",
+  );
+
+  const selfhostResp = await callCompilerWasm(wasmPath, {
+    command: "selfhost-artifacts",
+    compile_mode: "kernel-native",
+    input_path: "examples/wasm_main.clapse",
+    input_source: "main x = x",
+    plugin_wasm_paths: [],
+  });
+  assert(
+    selfhostResp && selfhostResp.ok === true,
+    "selfhost-artifacts response must succeed",
+  );
+  assert(
+    selfhostResp.backend === "kernel-native",
+    "selfhost-artifacts response must include kernel-native backend",
+  );
+  assert(
+    typeof selfhostResp.wasm_base64 === "string" && selfhostResp.wasm_base64.length > 0,
+    "selfhost-artifacts response must include non-empty wasm_base64",
+  );
+  for (
+    const key of [
+      "lowered_ir.txt",
+      "collapsed_ir.txt",
+    ]
+  ) {
+    assert(
+      typeof selfhostResp.artifacts[key] === "string",
+      `selfhost-artifacts must include string key: ${key}`,
+    );
+  }
+  console.log("bootstrap phase9 kernel smoke: PASS");
+}
+
+await main();

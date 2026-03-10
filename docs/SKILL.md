@@ -1,0 +1,929 @@
+---
+name: docs
+description: Author and maintain the Clapse documentation set with executable examples. Use this for docs structure, reference edits, tutorial snippets, and docs validation workflows.
+---
+
+# Clapse Docs Skill
+
+## Purpose
+
+Maintain docs as executable specs. Every Clapse code fence should compile with
+the current wasm compiler unless explicitly marked `skip`.
+
+## Rules
+
+1. Prefer `clapse` code fences in markdown for language examples.
+2. Keep snippets minimal but complete enough to compile.
+3. Use `--|` doc comments above public functions in examples where intent
+   matters.
+4. Mark non-compilable examples as `` ```clapse skip ``.
+5. Keep `clapse.json` examples in sync with LSP behavior when module-scope rules
+   change.
+6. Keep `clapse.json` plugin fields in sync with plugin directory conventions
+   and LSP/CLI behavior.
+7. Keep bootstrap seed artifacts explicit and fail-closed. Build/bootstrap
+   scripts may depend on external seed wasm + metadata, but compiler source
+   files must not silently snapshot generated wasm payloads back into source.
+8. Canonical module export syntax is `export { ... }`.
+   Unbraced export declarations are no longer supported (`export main`, `export x, y`).
+9. `module` declarations are deprecated and removed. Module identity is derived
+   from source resolution (`clapse.json` include/specifier/path), not by
+   in-source `module` declarations.
+10. Use
+   `deno run -A scripts/run-clapse-compiler-wasm.mjs compile-debug <input.clapse> [output.wasm] [artifacts-dir]`
+   for unified wasm+IR debug flows.
+11. Treat `tree-sitter-clapse/queries/highlights.scm` generated marker region as
+    grammar-managed: update `docs/clapse-language/references/grammar.ebnf`
+    first, regenerate with `just gen-ts-highlights`, and do not hand-edit lines
+    between `; BEGIN GENERATED-HIGHLIGHTS FROM_EBNF` and
+    `; END GENERATED-HIGHLIGHTS FROM_EBNF`.
+12. Keep native parse wired through `compiler/syntax_parser_entry` as the
+    generated-parser migration seam; grammar-backed parser data should enter via
+    that entry module rather than direct `compiler/syntax_parser` calls.
+
+## Validation
+
+Run:
+
+```bash
+just verify-compiler-fixpoint
+just native-strict-producer-check
+just browser-compiler-wasm-check
+just pass-manifest-check
+just semantics-check
+just selfhost-compile-strategy-report
+just clapse-bin
+just docs-validate
+deno run -A scripts/lsp-wasm-fixtures.mjs
+just lsp-wasm-fixtures
+just gen-syntax-check
+just gen-ts-highlights
+just gen-ts-highlights-check
+just ebnf-tree-sitter-drift-check
+just highlights
+just highlights-expect
+just highlights-real
+just highlights-helix
+just formatter-golden-fixtures
+```
+
+Main CI is now a single workflow, [main.yml](/home/mewhhaha/src/clapse/.github/workflows/main.yml), which runs `just verify-compiler-fixpoint`. Release/tag publishing workflows have been removed. The fixpoint check now rebuilds the committed compiler artifact at `artifacts/latest/clapse_compiler.wasm` through the bounded strict-seed rebuild path (`scripts/build-strict-native-seed.mjs`) and requires byte-identical wasm plus identical `.d.ts`. `bootstrap-compiler` also rejects oversized compiler candidates by default via `CLAPSE_MAX_COMPILER_WASM_BYTES` (default `67108864` bytes), so CI and local bootstrap paths do not silently regenerate giant latest-compiler artifacts.
+
+`pre-tag-verify` now executes strict native checks by default by delegating to
+`CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-strict-producer-check`
+with `CLAPSE_NATIVE_SELFHOST_PROBE_HOPS` defaulting to `2`. It also runs
+`just native-source-version-propagation-gate` in raw producer mode
+(`CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1`) to enforce source-version
+transitivity. `pre-tag-verify` now runs `scripts/record-kernel-smoke.mjs`
+without template fallback overrides; strict seed retention/rebuild checks
+require native template-mode emit-wat shape parity before a seed can be reused.
+`native-strict-producer-check` runs the strict producer gate while setting
+strict native compile contracts directly at the ABI boundary (no JS
+compile-output fallback shaping). Use `CLAPSE_USE_WASM_BOOTSTRAP_SEED=1`
+explicitly when you want bootstrap-seed shaping for compile flows.
+`native-strict-producer-check [wasm] [hops] [source_version]` now also supports
+producer contract gating through `__clapse_contract.source_version`; env
+fallback is `CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED=<token>`. For ad-hoc
+bootstrap seed work, set `CLAPSE_USE_WASM_BOOTSTRAP_SEED=1` and run
+`just native-bootstrap-seed-smoke [wasm=...]` to exercise
+`scripts/wasm-bootstrap-seed.mjs` through the runner path. To run strict
+producer gates in bootstrap-seed mode, use
+`just native-strict-producer-check-wasm-seed [wasm] [hops] [source_version]`. To
+enforce source-version transitivity on raw producer output, use
+`just native-source-version-propagation-gate [wasm] [hops] [source_version]`.
+When strict-seed metadata is unavailable, source-version propagation gate falls
+back to the observed `kernel compile __clapse_contract.source_version`.
+Override the metadata path with `CLAPSE_NATIVE_SEED_META_PATH` or force the
+token with `CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED`.
+
+Or directly:
+
+```bash
+CLAPSE_COMPILER_WASM_PATH=artifacts/latest/clapse_compiler.wasm deno run -A scripts/validate-docs.mjs
+```
+
+`full-compiler-verify` is now a real green acceptance gate for the current full-compiler surface. By default it verifies the existing `artifacts/latest/clapse_compiler.wasm`; it no longer rebuilds that public compiler artifact as part of the verification wrapper. It also runs `just selfhost-compile-strategy-report-success`, which compiles the deduplicated `(entry, export)` pairs from `examples/selfhost_behavior_corpus.json` through the public `compile_mode: "debug"` surface and writes `out/selfhost-compile-strategy-report.json` with current `compile_strategy` counts. The current public floor on `artifacts/latest` is `39/39` successful cases with `0` `phase1_compatibility_stub`, `39` `compiler_raw`, `0` `phase1_executable`, and `0` `phase1_tagged`; `require_success=1`, `require_no_compatibility=1`, and `require_raw_only=1` are green. The final step to `100% compiler_raw` was closed at the JS boundary: once sampled export comparison or the source-oracle sampler proves the producer-returned module already matches the requested public ABI and runtime behavior, `synthesizePhase1CompileResponse` now preserves that module as `compiler_raw` instead of carrying forward a stale `phase1_executable` marker. Strict two-hop `native-selfhost-probe` still passes, and `just full-compiler-verify` remains the acceptance gate for the current `artifacts/latest/clapse_compiler.wasm`.
+
+`just full-compiler-last-mile-raw-verify` is the focused raw-only verifier for the final compiler-raw ratchet. It exercises reduced last-mile repros that used to block `100%`, and it now passes alongside `full-compiler-verify`. It still requires each reduced case to compile as truthful `compiler_raw` with the expected runtime result, not merely as a green public-debug compile.
+
+## Unified compile-debug flow
+
+Use:
+
+```bash
+deno run -A scripts/run-clapse-compiler-wasm.mjs compile-debug <input.clapse> [output.wasm] [artifacts-dir] [--entrypoint-export <name>] [--entrypoint-exports <csv>]
+deno run -A scripts/run-clapse-compiler-wasm.mjs compile_debug <input.clapse> [output.wasm] [artifacts-dir] [--entrypoint-export <name>] [--entrypoint-exports <csv>]
+```
+
+The command returns a single compile response with:
+
+- `lowered_ir.txt` (IR before collapse)
+- `collapsed_ir.txt` (post-collapse IR)
+- `ok` (true/false)
+- `error_code` (machine-readable error id; present on `ok: false`)
+- `error` (human-readable error message)
+- `public_exports` (user-facing exported function names in the emitted module)
+- `abi_exports` (ABI/runtime exports; compiler-kernel artifacts include `clapse_run` and memory)
+- compile responses no longer carry legacy top-level `exports`; use `public_exports`
+  for user-callable entrypoints and `abi_exports` for runtime/compiler ABI
+
+`clapse_run` is an ABI export used by host/runtime integration for compiler
+artifacts and should not be treated as a user-visible entrypoint. Use
+`public_exports` to discover user-callable entrypoints.
+Compile/debug artifacts now use a stable header contract instead of raw
+request-source echo:
+- first line is `(lowered_ir)` or `(collapsed_ir)`
+- followed by `phase:` / `kind:` metadata lines
+- body is normalized source/IR text for the current phase, which still carries
+  optimizer markers such as tail-call or temp-pruning signals when present
+
+JS ABI-boundary behavior remains fail-closed for kernel self-host compile
+requests, and still applies phase-1 synthesis for non-kernel compile requests
+when known stub/placeholder payloads are observed (known phase-1 stub wasm,
+tiny placeholder wasm shape, or source-echo marker responses). Fresh native
+producer outputs now return direct raw non-kernel compile success with
+user-only metadata (`public_exports` for the requested roots, `abi_exports: []`,
+truthful `.d.ts`, and debug artifacts) instead of the old boundary-error /
+mini-stub path. `callCompilerWasm`, `callCompilerWasmRaw({ validateCompileContract: true })`,
+and the runner CLI preserve those truthful raw responses as `compiler_raw`;
+synthesis remains only for older placeholder or legacy producer outputs.
+Compile responses now also expose:
+- `compile_strategy`: `compiler_raw`, `phase1_passthrough`,
+  `phase1_executable`, `phase1_tagged`, or `phase1_compatibility_stub`
+- `compatibility_used`: boolean marker for whether the temporary compatibility
+  stub path was used
+Treat `phase1_compatibility_stub` as explicit migration debt, not normal
+compiler success.
+Compile requests now also fail closed at the JS boundary when `compile_mode`
+is not one of `kernel-native`, `debug`, `kernel-debug`, `native-debug`, or
+`debug-funcmap`.
+Compile requests with `plugin_wasm_paths` now also fail closed at the JS
+boundary when any referenced plugin wasm file is missing or is not a file.
+For multi-root non-kernel compile requests, if the current executable/tagged
+subset cannot represent every selected root as real wasm exports, the boundary
+now preserves the selected export surface via `phase1_compatibility_stub`
+instead of collapsing to a single tagged export.
+Compiler-owned bootstrap seed artifacts are external inputs, not embedded
+compiler-source payloads, so this phase1 synthesis exception is only about the
+selected external seed/runtime path and not about mutating
+`lib/compiler/native_compile*.clapse`.
+When a compile response omits explicit export metadata, the ABI layer now
+derives exported function arities from wasm type/function sections instead of
+defaulting every function export to arity `1`.
+The boundary synthesis path now prefers executable wasm emission for a
+native compiler-owned subset before falling back to constant synthesis.
+That subset includes:
+- zero-arity/nullary-root `main`
+- integer/boolean literals
+- arithmetic/comparison builtins
+- `if ... then ... else ...`
+- `let ... in ...`
+- boolean `case`
+- direct top-level calls and recursion
+- partial application of builtins/top-level defs
+- closure application for simple lambdas and captured closures (for example
+  `inc = \x -> add x 1; main = inc 2` and
+  `make_adder x = \y -> add x y; main = (make_adder 2) 3`) in kernel-native phase1
+- simple list-constructor `case` forms with `_` fallback or a second list
+  constructor branch (for example `case xs of Cons x _ -> x; _ -> 0` and
+  `case xs of Cons x _ -> x; Nil -> 0`) in kernel-native phase1
+- simple custom uppercase constructors in constant/evaluable paths, including
+  direct construction, pattern matching, constructor refs as values, and list
+  maps such as `make = Just; main = case make 1 of Just x -> x; Nothing -> 0`
+  and `ys = fmap Just xs`, plus constructor partial application such as
+  `mk = Pair 1; main = case mk 2 of Pair x y -> add x y; _ -> 0`
+- transparent `newtype` constructors in executable paths, including direct
+  `case`, constructor refs as values, `let` pattern deconstruction, mapping
+  through `fmap`, and explicit non-`main` roots such as
+  `unbox x = case x of Box y -> y`
+- simple closed record literals plus dot projection/update from both top-level
+  and local values, including grouped projections such as
+  `(options { allow = false }).allow` and nested grouped projections such as
+  `({ nested = { allow = true } }).nested.allow`, plus captured local-record
+  field/update flows in non-nullary functions such as
+  `let base = { value = x } in case eq (base { value = 7 }).value 7 of ...`,
+  plus record-pattern `case` on closed records for exact-field and open-rest
+  matches such as `case mk of { x = 1, y = 2 } -> 10; _ -> 0` and
+  `case mk of { x = 1, _ } -> 20; _ -> 0`
+- bare record literals in argument position, such as
+  `allow_flag { allow = true }`, with brace syntax after an expression
+  resolved semantically as record update when the base evaluates to a record
+  and as function application otherwise
+- list literals desugared in phase1 executable paths, such as
+  `main = foldl (+) 0 [1, 2, 3]`, including top-level typed custom
+  `CollectionLiteral` targets with parsed instance methods
+- simple closed record literals, dot projection, and one-level record update in
+  phase1 executable paths, such as
+  `options = { allow = true, include = Nothing }`,
+  `main = case options.allow of true -> 1; _ -> 0`, and
+  `updated = options { allow = false }`, including multi-root nullary record and
+  parameterized type-alias record exports that reduce through folded field
+  projections
+- boolean operator chains through builtin boolean methods in phase1 executable
+  paths, such as `main = case lt 1 2 && not false || false of true -> 1; _ -> 0`
+- guarded `case of` in phase1 executable paths for boolean guard chains with
+  `otherwise` fallback, such as
+  `main = case of | eq x 0 -> 0 | eq x 1 -> 1 | otherwise -> 2`
+- guarded `let` bindings and guarded top-level function clauses lowered through
+  nested boolean cases in phase1 executable paths, such as
+  `let selected | eq x 0 = 0 | otherwise = x in selected` and
+  `add_or_zero x y | eq x 0 = 0 | otherwise = add x y`
+- function-level `where` local defs in phase1 executable paths for direct local
+  calls, including guarded local defs, such as
+  `main x = inc x where inc y = add y 1` and
+  `main x = choose x where choose y | eq y 0 = 0 | otherwise = add y 1`
+- ambiguous user-defined instance method resolution, including class-default and
+  cross-class-default dispatch that reaches ambiguous instance methods, now
+  fails closed in the validated compile contract instead of silently succeeding
+  through `phase1_passthrough`
+- user-defined class default methods now participate in the same unambiguous
+  instance-method slice when a single parsed instance supplies the remaining
+  method bodies, for example `incLike x = sumLike x 1` with an instance
+  override for `sumLike`, and cross-class default chains such as
+  `lift1 x = plus x 1` when the referenced method also resolves uniquely
+- simple constructor-pattern deconstruction in `let`, such as
+  `let Pair left right = p in add left right`
+- simple multi-scrutinee pattern-arm `case`, such as
+  `case a b of 0 0 -> 0; x y -> add x y`
+- simple literal-pattern `case` arms, such as
+  `case n of 0 -> 0; x -> add x 1`
+- char literals parsed as integer codepoints in phase1 executable paths, such
+  as `'a'` and `'\n'`
+- custom symbolic infix operators in the existing operator-name subset, such as
+  `+. x y = add x y` used as `1 +. 2 +. 3`
+
+If a non-kernel compile request is valid Clapse source but the requested
+`public_exports` are outside that executable/evaluator subset (currently this is
+primarily non-`main` rooted export surfaces that still need temporary
+structural output), boundary synthesis emits a compatibility wasm stub keyed to
+the requested public export surface instead of failing. Demand-driven module
+graph merges now drop inlined local imports before the wasm boundary, but debug
+requests still use the compatibility stub when the executable/tagged subset
+does not apply.
+
+Mixed selected-root export sets can stay on a real path when callable roots are
+executable and nullary roots are evaluable constants, including quoted-module
+alias cycles such as mutually recursive `even`/`odd` definitions exported
+together with `main`.
+
+If that executable path does not apply, the evaluator still computes `main` for
+initial pure top-level def graphs for direct and simple call-chain forms using:
+- `add`/`mul`/`sub`/`div`/`mod`/`id` (plus partial application),
+- symbolic operator refs/infix forms that normalize to those builtins, such as
+  `(+)` and `x + 1`,
+- qualified callable names normalized by final segment for the phase-1 subset,
+  such as `prelude.add`,
+- lambda values used through supported list folds/maps,
+- partial application of builtins/top-level defs that still reduce to the
+  evaluator subset,
+- comparisons `eq`/`ne`/`lt`/`le`/`gt`/`ge` with boolean returns represented as `1`/`0`,
+- `case True of` (including `_` wildcard branch), recursive top-level calls, `ListNil`/`ListCons`, `Cons`/`Nil`, `list_map`/`fmap`, and `list_foldl`/`foldl` on integer lists (including
+  pure function/builtin arguments, with bare `ListNil`/`Nil` constructor usage),
+- simple list constructor pattern matches over `Cons`/`Nil` with `_` fallback
+  or a second list constructor alternative,
+- simple custom uppercase constructor values/patterns, including constructor
+  refs flowing through supported higher-order list calls,
+- list literals `[ ... ]` lowered through `Cons`/`Nil` in phase1 by default,
+  and through top-level typed custom `CollectionLiteral` instances when the
+  target definition carries a matching type signature,
+- simple closed record literal evaluation, dot projection, and one-level record
+  update from reachable top-level or local values,
+- boolean builtin-method chains using `and`/`or`/`not` and infix `&&`/`||`,
+- list boolean/prelude combinators like `list_filter`, `filter`, `list_any`,
+  `list_all`, `any`, `all`, `foldr`, `build`, `xor`, and `implies` when the surrounding
+  program stays inside the phase1 evaluator subset,
+- unambiguous user-defined instance methods when exactly one parsed instance
+  method implementation owns the callable name,
+then emits a tagged-int wasm result when possible.
+Unsupported non-kernel phase-1 inputs that do parse in the subset but still
+cannot be lowered or evaluated now fail closed with
+`error_code: "compile_phase1_unsupported"` instead of returning canonical tagged-0
+fallback output.
+Structured placeholder contract failures (when synthesis is not applied) return:
+
+- `ok: false`
+- `error_code` (for example `compile_placeholder_response`)
+- `error` describing the placeholder contract violation
+
+Compile debug modes also use the same non-kernel phase-1 synthesis path for
+placeholder payloads. The same boundary synthesis path also handles the explicit
+raw non-kernel boundary error above.
+Legacy export-declaration rejection now matches only real `export` keyword
+declarations, so identifiers like `export_syntax_*` do not false-positive.
+For strict raw compile probes, `callCompilerWasmRaw` now supports
+`{ validateCompileContract: true }` (plus optional `withContractMetadata`)
+to run the same compile contract checks used by `callCompilerWasm`.
+
+Entrypoint reachability pruning now runs in the runner before compile request:
+
+- roots are explicit `entrypoint_exports` (when provided), otherwise source
+  `export { ... }` declarations and `main` fallback
+- compile commands now build a module import graph from entry module imports, using
+  preferred quoted import syntax:
+  - `import "mod/path" { symbol, type TypeName }`
+  - `import "mod/path" as alias`
+  plus `clapse.json` `include` search paths for bare specifiers and relative
+  resolution for `./`, `../`, `/`
+- prelude aliases (`"prelude"`, `"compiler/prelude"`)
+  resolve to `lib/compiler/prelude.clapse` without extra include configuration
+
+- prelude list constructors (`ListNil`/`ListCons`) are rewritten to
+  `Nil`/`Cons` in runner demand-driven compile input with deprecation warnings
+- if include paths are configured and a module import cannot be resolved, compilation
+  fails immediately with an unresolved-import error; unresolved relative/absolute
+  quoted imports always fail. Missing/invalid `clapse.json` still falls back to
+  import resolution behavior for non-relative imports
+- per-module reachability is propagated through both local calls and qualified
+  `Module.symbol` references, plus explicit imported binding usage, so imported
+  module roots are computed transitively until a fixed point
+- imported module debug source shaping now prunes non-runtime declaration noise
+  (`class`/`instance`/`law`/`infix`/`type`) to keep collapsed IR focused on
+  reachable runtime paths
+- only required modules, required imports, and required function definitions are
+  included in `inputSourceOverride` sent to `compileViaWasm`
+- `entrypoint_exports` is passed through to native compiler requests; when unset,
+  fallback roots remain source exports then `main`
+- explicit roots now accept identifiers and symbolic operator names; unknown
+  explicit roots fail compile (`unknown entrypoint root`)
+- source-pruned `collapsed_ir.txt` now appends tail-recursion markers for
+  `VSelfTailCall` and `VMutualTailCall`, keeping source-built native artifacts
+  aligned with producer marker output
+- `kernel-native` compile response now emits `collapsed_ir.txt` from
+  compiler-side request-shape pruning (`native_pruned_source_segment_checked`);
+  if pruning reports an entrypoint error, response falls back to the raw source
+  segment for compatibility
+- simple function-body `let` temp chains (including multi-digit labels like
+  `t10`) are pruned for dead bindings and surviving temporaries are
+  renumbered densely from `t0` when request-shape pruning is active
+  (`entrypoint_exports` set, or `compile_mode` set to `kernel-native`,
+  `debug`, `native-debug`, `kernel-debug`, or `kernel-native-debug`)
+- temp liveness no longer treats `tN`-looking tokens in comments or string
+  literals as live references during native temp-chain pruning, so dead
+  temporaries hidden behind those regions are removed correctly.
+- `CLAPSE_ENTRYPOINT_DCE` and `CLAPSE_INTERNAL_ENTRYPOINT_DCE` remain as
+  legacy toggles but no longer control request shaping behavior
+- compiler prelude list surface is class-first:
+  `data List a = Nil | Cons a (List a)`, with default collection literal hooks
+  implemented through `CollectionLiteral` class methods
+  (`CollectionLiteral List` via `build` + `foldr`)
+- non-kernel compile responses now emit a reachability-shaped wasm bundle in the
+  compile producer path (shared by raw and validated ABI calls). `public_exports`
+  follows selected `entrypoint_exports` / entrypoint exports, and `abi_exports`
+  is empty for user-program outputs (compiler-kernel artifacts keep ABI/runtime
+  exports like `clapse_run`). Export metadata is canonicalized from actual wasm
+  function exports when missing from response fields. For
+  placeholder/stub payloads at the ABI boundary, non-kernel compile requests now
+  synthesize a deterministic phase-1 compile response (non-placeholder wasm +
+  pruned IR artifacts); kernel self-host compile requests continue to require
+  compiler-ABI output
+- `just native-temp-pruning-gate` is now part of `pre-tag-verify` to enforce
+  native dead-temp pruning and temp renumbering behavior in the temp-chain path.
+  Keep this gate conservative in CI-facing change plans until compiler outputs
+  match expected pruning proofs.
+- `kernel-native` compile requests for `lib/compiler/kernel.clapse` now bypass
+  entrypoint request-shaping in the wasm runner so bootstrap/self-host preserves
+  full compiler ABI output (and avoids tiny DCE fallback artifacts).
+- `just native-parse-command-gate` enforces true raw parse-command availability
+  by calling `callCompilerWasmRaw` with `{"command":"parse"}` and requiring
+  `ok: true` plus `artifacts["parsed_cst.txt"]` (a structured, JSON-like
+  parsed-CST string).
+
+Smoke gate:
+
+```bash
+just compile-debug-smoke
+just native-list-fold-fusion-gate
+just native-fold-laws-gate
+just native-parse-command-gate
+just native-entrypoint-dce-strict-gate
+just native-entrypoint-exports-dce-gate
+just native-program-codegen-semantics-gate
+just native-ir-liveness-size-gate
+```
+
+`native-entrypoint-exports-dce-gate` also guards prelude-import list-only
+entrypoint pruning: non-list prelude paths (for example bool/Maybe helper paths)
+must disappear when compiling with `entrypoint_exports=["main"]`.
+`native-program-codegen-semantics-gate` now requires runtime execution of the
+produced wasm (`main`) and no longer falls back to structural code-shape checks.
+Current phase-1 coverage includes evaluator-supported `main` forms with pure
+top-level defs and arithmetic primitives (`add`/`mul`/`sub`/`div`/`mod` with `id`
+and partial application), plus fallback to canonical tagged-0 wasm on unsupported
+inputs.
+`just semantics-check` now includes `compile-debug-smoke`, `wildcard-demand-check`,
+and `native-program-codegen-semantics-gate` so `pre-tag-verify` enforces
+program-dependent native wasm output shape before release verification.
+
+## Ongoing sync rule
+
+- Keep `docs/clapse-language/references/tooling-and-workflows.md` updated when
+  `clapse.json` configuration shape changes.
+- Keep `scripts/lsp-wasm.mjs` and `scripts/lsp-wasm-fixtures.mjs` synchronized
+  with declaration-based completion/workspace-symbol behavior and deterministic
+  `references`/`rename` normalization so declaration indexes are used as
+  non-stub baselines for those paths.
+- When `docs/clapse-language/references/grammar.ebnf` changes, regenerate the
+  managed highlights region in `tree-sitter-clapse/queries/highlights.scm` via
+  `just gen-ts-highlights`, keep generated CST in sync via
+  `just gen-syntax-check`, and run `just ebnf-tree-sitter-drift-check`; then
+  re-run highlight validation (`just highlights`, `just highlights-real`, and
+  `just highlights-helix` for editor/runtime paths).
+- When compiler behavior around dispatch, class-method resolution, or rewrite
+  simplification changes, update
+  `docs/clapse-language/references/syntax-reference.md` and
+  `docs/clapse-language/references/optimization-and-collapse-ir.md` together
+  with any `SKILL.md` workflow updates in this folder.
+- When nested complement-chain boolean rewrites change, update
+  `docs/clapse-language/references/optimization-and-collapse-ir.md` and
+  `RESEARCH.md` to match the active `ClassLawRule` fixed-point registry
+  behavior: bool-only subject/type, pure-effect guard, and one-way size-reducing
+  orientation.
+- Keep class/instance docs aligned with the compiler target syntax:
+  Haskell-style `where` blocks are canonical for new docs and examples.
+- Keep prelude operator mapping docs aligned with code (`<$`, `<$>`, `<*>`,
+  `<*`, `*>`, `>>=`, `>>`, `<|>`) and reflect any helper-default changes in the
+  syntax reference.
+- Keep Boolean class docs aligned with prelude method surface (`not`, `and`,
+  `or`, `xor`, `implies`, `&&`, `||`), including eager boolean-method signatures
+  (`&&`, `|| : b -> b -> b`) and updated default-instance semantics in
+  `docs/clapse-language/references/syntax-reference.md`.
+- Keep class-first prelude alignment as a docs contract:
+  update `compiler.prelude` abstractions, class-method surfaces, and exported
+  rewrite roots together, and keep `Foldable`/`Filterable`/`Buildable`
+  (`foldr`/`foldl`/`filter`/`build`) aligned in the same cycle.
+- Keep prelude abstraction docs aligned with code for: `Pair`/`Maybe`/`List`,
+  `reader`/`state` combinators, `Foldable`/`Filterable`/`Buildable`
+  (`foldr`/`foldl`/`filter`/`build`) law surfaces, and the list-backed `map`/`set` baseline APIs (`*_by`
+  equality-driven operations).
+- Keep declaration-kind naming rules synchronized across docs/examples: `data`
+  declarations are Capitalized-only, and lowercase primitive-backed declarations
+  use `primitive` (for example `primitive bool = true<1> | false<0>`). `data`
+  declarations must include explicit constructors (`data X = X`), and bare
+  `data X` is invalid.
+- Keep wildcard-demand matching docs aligned with compiler behavior: `_` remains
+  a wildcard binder and may reduce argument demand during clause matching via
+  deterministic demand ordering; keep this rule synchronized between syntax
+  reference, compiler lowering notes, and boolean/prelude examples.
+- Keep guard syntax docs aligned with parser behavior: guarded function clauses,
+  guarded `let` bindings, and guarded `case of` (`| guard -> expr` with
+  zero-scrutinee `case`) must stay synchronized between
+  `examples/bootstrap_phase11_parser_combinator_pilot.clapse` and
+  `docs/clapse-language/references/syntax-reference.md`.
+- Keep wildcard-demand regression coverage current in
+  `examples/wildcard_demand_behavior_regressions.clapse` and
+  `examples/selfhost_behavior_corpus.json` when clause-demand semantics or
+  declaration-order tie-break behavior changes.
+- Record class-law signature caching where applied: class-law pass signatures
+  are cached as before-cost values once per expression state during each rewrite
+  pass and reused across guard checks; this is a performance optimization with
+  no rewrite-policy or semantics changes.
+- Record class-law scheduler micro-optimizations where applied: per-rule
+  candidate rewrite now reuses the already-computed guard result (no duplicate
+  guard pass on the same `(rule, expr, signature)`), and redispatch no longer
+  branches on a dispatch-key equality check when both paths are identical;
+  rewrite policy and semantics remain unchanged.
+- Keep strictness-mode derivation documented as
+  dispatch-state/signature-family-driven: boolean class-law rewrites still
+  require strict cost decrease, while compose/map rewrites continue to use
+  bounded-growth policy only (`0`, `+1` only for map-fusion candidates); rewrite
+  semantics unchanged.
+- Record dispatch-state-key refinement for scheduler redispatch: class-law
+  in-pass keying now uses `(root-kind, signature-family)` and improves
+  signature-aware selection correctness/performance. Guard predicates, cost
+  policy, `ClassDispatch*` eligibility, and rewrite semantics are unchanged.
+- Keep boolean rewrites aligned with the class-law registry contract:
+  constant-negation laws (`not true`, `not false`) are admitted through
+  `ClassLawRule` only when the bool+pure guard discipline holds.
+- Keep nested complement-chain annihilation boolean rewrites aligned with the
+  same contract (`ClassLawRule` fixed-point, `ClassDispatchStatic`, bool-only
+  and pure-effect guards, one-way size-reducing orientation).
+- Keep `scripts/wildcard-demand-check.mjs` aligned with
+  `scripts/wasm-behavior-fixture-map.json`: the check now validates the
+  wildcard-demand fixture via precomputed wasm, fails on source-hash drift, and
+  asserts deterministic repeated evaluation for each scenario export.
+- Keep `docs/clapse-language/references/syntax-reference.md` semantic contract
+  section aligned with kernel behavior whenever strictness, wildcard-demand, or
+  explicit-laziness semantics change.
+- Keep parser hardline invariants synchronized between kernel and docs: case
+  scrutinee/arm arity mismatch is a hard parse error, `newtype` accepts exactly
+  one constructor + one field (no `|` alternatives), and class fundep tails
+  reject trailing commas. The validated compile boundary and runner-side
+  module-graph parser both fail closed on fundep tails like
+  `class map_like f a | f -> a, where`.
+- Parser surface recognizes closed records in `tree-sitter-clapse`:
+  parameterized type aliases (`type Name a = { ... }`), record literals, dot
+  projection (`record.field`), and record update (`record { field = ... }`).
+- Keep compile semantics lockstep in syntax docs and compiler notes: closed
+  records are now handled in native kernel compile paths (no JS pre-lowering in
+  runtime compile/LSP request builders).
+- Keep compile-debug behavior aligned across native and host modes: native
+  compile modes must emit `artifacts.lowered_ir.txt` and
+  `artifacts.collapsed_ir.txt`, and host-bridged compile mode must preserve the
+  same response contract when explicitly selected.
+- Keep kernel record coverage active in `scripts/record-kernel-smoke.mjs` and in
+  `examples/lsp_wasm_fixtures.json` scenario `records_with_plugin_compile_path`
+  so compile + LSP/plugin wiring stay guarded.
+- Keep local verification centered on the bounded committed compiler: use
+  `just verify-compiler-fixpoint` for the committed compiler identity check and
+  `just full-compiler-verify` / `just pre-tag-verify` when you want the broader
+  compiler suite.
+- Keep native record-lowering migration notes synchronized between
+  `docs/clapse-language/references/syntax-reference.md` and
+  `docs/clapse-language/references/optimization-and-collapse-ir.md`.
+- Record memory-model pass changes in
+  `docs/clapse-language/references/optimization-and-collapse-ir.md` when kernel
+  collapse pipeline stages change (escape/lifetime annotations, ownership/COW
+  rewrite ordering), and mirror behavior notes in `docs/SKILL.md` with concise
+  pass-level comments.
+- Record allocation/reuse/COW scope contract updates in both
+  `docs/clapse-language/references/optimization-and-collapse-ir.md` and
+  `docs/clapse-language/references/wasm-runtime-and-interop.md` when kernel
+  rewrite policy changes.
+- Keep `docs/clapse-language/references/optimization-and-collapse-ir.md` and
+  `docs/clapse-language/references/wasm-runtime-and-interop.md` aligned on
+  memory-model semantics whenever allocation, reclaim, alias/freeze, or
+  scope/lifetime behavior changes.
+- Keep `docs/clapse-language/references/pass-manifest.json` synchronized with
+  `docs/clapse-language/references/optimization-and-collapse-ir.md`; status
+  labels are machine-checked by `scripts/check-pass-manifest.mjs`.
+- Keep `docs/clapse-language/references/optimization-and-collapse-ir.md` and
+  `RESEARCH.md` synchronized when registry-driven boolean rewrites change
+  (fixed-point mode, strict purity/type guards, or size-reducing orientation).
+- Keep `RESEARCH.md` current as the optimization-theory ledger: every new
+  optimization family must include invariant statements, typed/effect guard
+  conditions, and at least one primary research citation with direct quote.
+- Keep CLI packaging docs aligned with runtime behavior: `just clapse-bin` and
+  `just install` bundle `artifacts/latest/clapse_compiler.wasm` (and
+  `artifacts/latest/clapse_compiler.d.ts` when present) into
+  `artifacts/bin/clapse` when available. `just install` must rebuild
+  `artifacts/latest/clapse_compiler.wasm` from `lib/compiler/kernel.clapse`
+  first (via `just bootstrap-strict-native-seed` and `just bootstrap-compiler`)
+  before bundling. `just bootstrap-compiler` still prefers kernel self-compile
+  output when it passes browser ABI checks plus strict producer checks
+  (`CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-strict-producer-check [wasm] [hops]`)
+  plus raw source-version propagation checks
+  (`just native-source-version-propagation-gate [wasm] [hops]`), and only
+  retains a bootstrap seed artifact when that seed already passes the same
+  checks. It now also requires native temp-chain pruning/renumbering to pass
+  (`native-temp-pruning-gate`) before accepting a freshly compiled artifact.
+  If `deno compile` cannot run (for example offline `denort` download
+  failures), `just install` now reuses an existing `artifacts/bin/clapse` when
+  present, otherwise emits a `deno run` shim at `artifacts/bin/clapse`.
+  `just clapse-bin` and `just install` now remove
+  pre-existing CLI output files before invoking `deno compile`, so reruns do not
+  fail on existing binaries. `just install` also falls back to a temporary
+  writable `XDG_CONFIG_HOME` when the default config path is not writable.
+- Keep compiler artifact docs aligned with `just verify-compiler-fixpoint`,
+  `.github/workflows/main.yml`, and `scripts/check-browser-compiler-wasm.mjs`
+  when compiler bootstrap or artifact membership changes.
+- Keep `just pre-tag-verify` aligned with strict-native bootstrap defaults: it
+  now generates `artifacts/strict-native/seed.wasm` before verification and uses
+  that seed path when `CLAPSE_COMPILER_WASM_PATH` is unset, including the native
+  self-host probe gate.
+- Keep strict-native seed bootstrap resolution aligned with runtime behavior:
+  `scripts/build-strict-native-seed.mjs` now resolves bootstrap wasm from
+  `CLAPSE_BOOTSTRAP_COMPILER_WASM_PATH`, then `CLAPSE_COMPILER_WASM_PATH`, then
+  `CLAPSE_BOOTSTRAP_STRICT_NATIVE_SEED_PATH` or
+  `artifacts/strict-native/seed.wasm`. It no longer falls back to
+  `artifacts/latest/clapse_compiler.wasm` implicitly. Strict seed probing also supports
+  configurable transitive depth via `--probe-hops <n>` (or
+  `CLAPSE_STRICT_NATIVE_SEED_PROBE_HOPS`), default `1`.
+- Keep formatter behavior aligned with runtime behavior: canonical formatter
+  normalization (string/comment-preserving inline whitespace collapse, strict
+  parenthesized application spacing normalization, 100-character max-width
+  wrapping at `=>`, `=`, `->`, `>>=`, `>>`, `&&`, `||`, and monadic
+  chain normalization for `>>=`/`>>`) now runs in the Clapse kernel and is
+  returned by the `format` command response already normalized.
+- Keep formatter resilience docs aligned with runtime behavior: CLI/LSP
+  formatter stack overflows are hard formatter errors with a stderr hint
+  (including wasm stack offsets + map command).
+- Add formatter non-progress recursion guard telemetry in the kernel: recursive
+  chain walkers now emit `ok:false` with a function-specific message when the
+  formatter recursion budget is exhausted, helping isolate exact recursion
+  loops.
+- Keep debug-trace docs aligned with runtime behavior: `CLAPSE_DEBUG_STACK=1`
+  prints full JS/Wasm stack traces from CLI errors, and
+  `scripts/wasm-stack-map.mjs` maps wasm stack offsets to function indices for
+  native compiler artifacts by parsing Deno-style `wasm://...:line:offset`
+  frames. Formatter stack-overflow errors now emit offsets and a ready-to-run
+  `wasm-stack-map` command directly in CLI output for quick triage.
+  Function-name mapping prefers the standard WASM `name` section and falls back
+  to `clapse.funcmap` only when missing; output includes `function_name_source`
+  provenance (`name-section`, `clapse.funcmap`, or `unresolved`).
+- Add `CLAPSE_DEBUG_FUNC_MAP=1` (or set `compile_mode` to `funcmap`,
+  `emit-funcmap`, `debug-funcmap`, or `debug`) on a `compile` request to append
+  a custom `clapse.funcmap` section in compiler output. This section maps
+  function indices to function names before falling back to `func_<index>`.
+- This section is emitted for debug-mode outputs; `name`-section names (if
+  present) still take precedence in downstream stack-map lookup.
+  `run-clapse-compiler-wasm.mjs` now applies debug-mode function map injection
+  to emitted native compile artifacts so function-name lookup remains available
+  for stack-mapping.
+- Keep compile boundary docs aligned with runtime behavior: JS compile no longer
+  accepts host-bridge or legacy-shaped compile responses. Native compile success
+  requires `backend: "kernel-native"` plus non-empty `wasm_base64`; debug
+  compile modes also require `artifacts.lowered_ir.txt` and
+  `artifacts.collapsed_ir.txt`.
+- Keep wasm opcode emission docs aligned with runtime behavior: compile artifact
+  emission now rewrites tail-position call suffixes and explicit
+  `call`/`call_indirect` + `return` pairs from `call`/`call_indirect` to
+  `return_call`/`return_call_indirect` (`CLAPSE_EMIT_WASM_TAIL_CALLS=1` by
+  default; set to `0` to disable).
+- Keep selfhost artifact docs aligned with runtime behavior: JS no longer
+  patches placeholder selfhost payloads. If the kernel returns a
+  placeholder/incomplete `selfhost-artifacts` response, the command now fails
+  explicitly. Kernel `selfhost-artifacts` now uses its dedicated source-side
+  response path and writes `lowered_ir.txt` / `collapsed_ir.txt` plus
+  `compile_response.json` / `backend.txt` at the runner boundary.
+- Smoke expectations are native-only:
+  `scripts/bootstrap-phase9-kernel-smoke.mjs` and
+  `scripts/fib-memo-plugin-smoke.mjs` now require successful native compile
+  output and no longer accept stub compile artifacts as pass conditions.
+- JS/TS is the host I/O boundary and does not own language semantics: it
+  marshals CLI/path/env/file I/O and invokes kernel requests; compile,
+  formatter, and LSP semantic behavior remain in the Clapse kernel.
+- Compile migration mode: `compile_mode: "native"` / `"kernel-native"` now
+  executes a kernel-native compile response path (migration scaffold). Default
+  compile mode is now kernel-native. CLI surface:
+  `clapse compile-native <input.clapse> [output.wasm]` and
+    `clapse compile-native-debug <input.clapse> [output.wasm] [artifacts-dir]`.
+  Debug compile command aliases are accepted at the runner boundary:
+    `compile-debug` / `compile_debug`, and `compile-native-debug` /
+    `compile_native_debug`. Runner compile requests now resolve module imports from
+    `clapse.json` `include`, compute demand-driven per-module DCE roots from
+    explicit `entrypoint_exports` (or source exports, then `main`), and send
+    a pruned `inputSourceOverride` with only required modules/functions/imports.
+    Preferred import forms are quoted specifiers with explicit symbols or alias;
+    import specifiers and qualified aliases are preferred as canonical forms.
+    Unknown explicit roots still fail compile (`unknown entrypoint root`).
+  Runtime toggle: `CLAPSE_COMPILE_ENGINE=native|kernel-native` pins plain
+  `compile` to kernel-native mode. Host-bridge compile execution is removed from
+  JS boundary code; compile requests must execute on native clapse compiler
+  artifacts. `compile_mode: "debug"` and `"native-debug"` are treated as
+  kernel-native debug modes for `compile` / `compile-debug` flows
+  (`"kernel-debug"` remains a kernel alias). Unsupported explicit `compile_mode`
+  values now return a hard compile error instead of silently falling through to
+  kernel-native. Kernel-native mode enforces a `main` function presence check
+  and returns an explicit compile error when absent. Kernel-native compile
+  responses that decode to tiny placeholder wasm are treated as hard errors in
+  native compile/debug flows. Kernel-native debug artifacts now populate both
+  `lowered_ir.txt` and `collapsed_ir.txt` from kernel-owned compile markers in
+  this migration path from the same request-shape-pruned segment for DCE and
+  entrypoint pruning checks (no source-echo payloads). JS no longer synthesizes
+  debug artifacts via `selfhost-artifacts` fallback: `compile-debug` /
+  `compile-native-debug` now require compile response `artifacts` directly from
+  the native kernel response. `just bootstrap-compiler` now enforces
+  `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-strict-producer-check`
+  and `just native-source-version-propagation-gate` on produced artifacts; if
+  kernel self-compile output fails, it retains a bootstrap seed only when that
+  seed already passes the same checks.
+- Kernel-owned emitter surface (`emit-wat`) is now available through
+  `clapse_run` as a pure text-emission command. Host scripts only route
+  request/response and perform filesystem/stdout I/O. Default mode is
+  `emit_wat_mode: "source-data"` (or `"source"`): emit-wat now includes
+  `input_source` in a WAT data segment. Set `emit_wat_mode` to `"template"` for
+  kernel template output.
+- Strict native progress gate: `just native-boundary-strict-smoke` fails unless
+  compile responses provide kernel-native contract fields directly and
+  `emit-wat` succeeds natively. `just native-boundary-strict-seed-scan` runs the
+  same strict contract checks across local compiler wasm candidates and reports
+  the first failing reasons for each candidate set. These strict checks now
+  reject synthetic compile artifact markers (`kernel:compile:*`, `seed-stage*`)
+  and require request-source content in `lowered_ir.txt` / `collapsed_ir.txt`.
+  Source-content checks now include a per-run probe token, so static payload
+  constants cannot satisfy source-ownership gates.
+  `just native-boundary-strict-seed-scan-kernel [hops=...]` adds kernel
+  selfhost-hop closure checks during the scan.
+  `just native-boundary-strict-smoke-no-fallback`,
+  `just native-selfhost-probe-strict`, and
+  `just native-strict-no-fallback-check` are strict aliases for the default
+  fail-closed boundary contract. `scripts/wasm-compiler-abi.mjs` now enforces
+  kernel compiler ABI for `lib/compiler/kernel.clapse` (`memory` or `__memory`,
+  plus `clapse_run`). Compile artifacts are expected directly from kernel-native
+  responses and no longer rewritten at the JS boundary. For producer-only
+  diagnostics (no response normalization and no compile contract patching), use
+  `just native-producer-raw-probe [wasm] [hops] [source_version]` /
+  `deno run -A scripts/native-producer-raw-probe.mjs --wasm <path> --hops <n> [--require-source-version <token>]`.
+  This probe now requires both emit-wat source mode (request token echoed) and
+  emit-wat template mode (`(memory (export "__memory") 1)`) to pass.
+  `just native-source-version-propagation-gate [wasm] [hops] [source_version]`
+  compiles `lib/compiler/kernel.clapse` once with the selected compiler wasm,
+  then runs the same raw probe on the produced compiler artifact to enforce
+  transitive `__clapse_contract.source_version` behavior. Use
+  `just native-producer-payload-scan [wasm] [samples] [source_version]` to group
+  compile payload variants by stage marker/size/export/contract shape when
+  debugging producer transitivity. Strict probes still run with
+  `--fail-on-boundary-fallback`; this requires boundary fallback markers to be
+  absent from kernel contracts. `scripts/native-selfhost-probe.mjs` supports
+  `--hops <n>` (default `1`) for transitive closure probes;
+  `--fail-on-boundary-fallback` /
+  `CLAPSE_NATIVE_SELFHOST_FAIL_ON_BOUNDARY_FALLBACK=1` enforces that boundary
+  fallback markers remain absent during probe verification.
+  `just native-selfhost-probe` forwards this. Release/bootstrap gates now use
+  two-hop defaults (`CLAPSE_NATIVE_SELFHOST_PROBE_HOPS`,
+  `CLAPSE_BOOTSTRAP_NATIVE_SELFHOST_PROBE_HOPS`,
+  `CLAPSE_STRICT_NATIVE_SEED_PROBE_HOPS`) unless explicitly overridden.
+  Bootstrap seed mode is opt-in for explicit ad-hoc commands:
+  `CLAPSE_USE_WASM_BOOTSTRAP_SEED=1` routes compile commands in
+  `scripts/run-clapse-compiler-wasm.mjs` through
+  `scripts/wasm-bootstrap-seed.mjs` using a trusted compiler wasm payload. The
+  same env flag now also routes non-`kernel-native` compile requests through
+  the bootstrap seed adapter in `scripts/wasm-compiler-abi.mjs`
+  (`callCompilerWasm` and `callCompilerWasmRaw`) so producer diagnostics can be
+  run against the temporary seed path. `kernel-native` compile requests fail
+  closed when `CLAPSE_USE_WASM_BOOTSTRAP_SEED=1` is set. Compile-request
+  auto-fallback has been removed; use `CLAPSE_USE_WASM_BOOTSTRAP_SEED=1`
+  explicitly only for non-`kernel-native` bootstrap-seed shaping. Bootstrap and
+  pre-tag targets set
+  `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1` explicitly while running strict
+  producer checks, and run source-version propagation gates in raw mode without
+  bootstrap fallback. Verify this path with
+  `just native-bootstrap-seed-smoke [wasm=...]`.
+  `just bootstrap-strict-native-seed` is the canonical local generator for a
+  strict-native bootstrap seed artifact (`artifacts/strict-native/seed.wasm`).
+  It now retains a pre-existing seed only when
+  `native-strict-producer-check`, `native-source-version-propagation-gate`,
+  `native-entrypoint-dce-strict-gate`, `native-entrypoint-exports-dce-gate`,
+  and `native-parse-command-gate` all pass. When retention fails, it first
+  tries promoting a validated
+  `artifacts/strict-native/native_producer_seed.wasm`, and only then falls back
+  to rebuilding via `just bootstrap-native-producer-seed`.
+  `just bootstrap-native-producer-seed [seed] [out] [meta] [depth] [source_version]`
+  builds a wasm-native producer seed artifact from
+  `scripts/native-producer-seed-template.c` via
+  `scripts/build-native-producer-seed.mjs`. This path emits compile responses
+  with source-derived artifacts + producer contract metadata directly from wasm
+  (no JS fallback in the hot path), and validates raw producer behavior plus
+  raw parse-command contract (`ok: true`, non-empty `artifacts["parsed_cst.txt"]`
+  as a structured, JSON-like CST text payload) with
+  `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1` before writing output. The seed
+  template now uses static scratch workspaces plus widened temp-rewrite output
+  buffers to avoid stack/data overlap and response corruption when embedded seed
+  payloads are large.
+  The default artifact path is
+  `artifacts/strict-native/native_producer_seed.wasm` with metadata at
+  `artifacts/strict-native/native_producer_seed.meta.json`.
+  `lib/compiler/native_compile.clapse` no longer embeds bootstrap wasm payloads.
+  Bootstrap state now lives in explicit external artifacts such as
+  `artifacts/strict-native/seed.wasm` plus
+  `artifacts/strict-native/seed.meta.json`, and `bootstrap-compiler` consumes
+  those artifacts directly instead of rewriting compiler source.
+  `just native-strict-producer-check-no-fallback [wasm] [hops] [source_version]`
+  wraps `native-strict-producer-check` with
+  `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1` for fail-closed producer probes.
+- Canonical kernel module map (current):
+  - `bootstrap_phase9_compiler_kernel`: command routing and bridge
+    orchestration.
+  - `compiler.native_compile`: compile command request validation/dispatch.
+    source migration scaffold currently embeds a bounded producer-seed wasm
+    payload, echoes request source into compile artifacts, and now emits
+    `__clapse_contract.source_version` + `compile_contract_version`. Use
+    `just native-producer-raw-probe [wasm] [hops] [source_version]` to verify
+    live artifacts are actually transitive (source edits can still be
+    non-transitive in the active bootstrap chain).
+  - `scripts/native-producer-seed-template.c`: wasm-native producer-seed
+    template used to mint strict producer artifacts outside the synthetic
+    `compiler.native_compile` chain while native source transitivity is still
+    converging.
+  - `compiler.json_response`: shared JSON helpers plus non-compile responses.
+  - `compiler.formatter`: formatter behavior.
+  - `compiler.lsp_kernel`: LSP request handling and response shaping.
+- Host bridge compile execution remains removed. Compiler path resolution is
+  `CLAPSE_COMPILER_WASM_PATH`, then `artifacts/latest|out/clapse_compiler.wasm`
+  searched from `cwd`/ancestor directories, then the same paths relative to
+  script repo root, then embedded compiler wasm when bundled.
+
+## LSP migration status
+
+- In this step, `clapse`-core now owns semantic extraction and transport for:
+  - declaration symbol index (`lsp-symbol-index`)
+  - hover payload lookup (`lsp-hover`)
+  - definition lookup (`lsp-definition`)
+  - completion (`lsp-completion`)
+  - signature help (`lsp-signature-help`)
+  - semantic tokens (`lsp-semantic-tokens`)
+  - workspace symbols (`lsp-workspace-symbol`)
+  - references (`lsp-references`)
+  - rename (`lsp-rename`)
+- JS now sends `lsp-symbol-index` on open/change for `coreSymbolIndex`, and
+  migrated entrypoints now route through kernel responses marked
+  `backend: "clapse"` in `scripts/lsp-wasm.mjs` (`hover`, `definition`,
+  `completion`, `signatureHelp`, `semanticTokens`, `workspaceSymbol`, `references`,
+  and `rename` paths); document symbols and code actions remain local for now.
+- Initialize now advertises kernel-owned completion/signature/semantic/workspace symbol
+  capabilities to keep protocol parity with kernel routing.
+- Fixture coverage for migrated methods is now present in
+  `examples/lsp_wasm_fixtures.json` and validated by
+  `scripts/lsp-wasm-fixtures.mjs` (`definition_rename_and_code_action` verifies
+  backend usage and end-to-end shape for completion/signature/semantic/workspace
+  symbol/reference/rename flows).
+- Fixture checkpoint: `definition_rename_and_code_action` in
+  `examples/lsp_wasm_fixtures.json` now asserts core backend usage for hover and
+  definition when `CLAPSE_EXPECT_CORE_LSP_BACKENDS=1` is set.
+- Next steps: add core entrypoints for `documentSymbol` and code action payload
+  generation, then remove remaining local fallbacks after parity tests pass.
+
+## Memory model checkpoint
+
+- `clapse_run` now uses the staged request from `collapse_pipeline_run` as a
+  passthrough value, derives `OwnershipRewriteMode` through a dedicated helper
+  (`collapse_pipeline_slice_write_policy`), and threads that mode through
+  request-scoped response builders.
+- `slice_set_u8` rewrite now uses explicit linear writes on the copied
+  descriptor in the COW path (`slice_set_u8_cow`) so copy-on-write remains
+  descriptor-local and does not accidentally recurse into COW policy.
+- `apply_class_law_rewrites` now applies boolean class-law rewrites through a
+  bounded structural fixed-point driver (4 iterations or until stabilization)
+  for static dispatch, with a strict class-level cost policy: boolean rewrites
+  must strictly decrease `class_method_expr_cost`; compose/map remain bounded
+  (`+0`, with `+1` only for map-fusion candidates).
+- Boolean associative-idempotence chain reductions now execute in the same
+  class-law fixed-point registry (`ClassLawRule`) and are constrained by
+  bool-typed, pure-effect guards plus non-increasing-cost rewrite orientation.
+- Chain reductions are strictly one-way and one-step: `x && (x && y) -> x && y`,
+  `x && (y && x) -> x && y`, `(x && y) && x -> x && y`,
+  `(y && x) && x -> y && x` plus the four analogous `||` variants.
+- Compose associativity canonicalization is one-way in the registry:
+  `compose f (compose g h) -> compose (compose f g) h` under compose-shape,
+  pure, and compatibility guards; there is no inverse rule to avoid oscillation.
+- Boolean rewrites are now registry-driven consensus fixed-point rewrites in
+  `ClassLawRule` (not a dedicated bool-collapse helper path).
+- The bool simplification set now includes idempotence (`x && x`, `x || x`) and
+  remains gated by bool-type and pure-effect checks in class-law dispatch.
+- Boolean absorption and complement families are also in the same consensus
+  registry-driven fixed-point set (for example `x && (x || y) -> x`,
+  `x || (x && y) -> x`, `x && not x -> false`, `x || not x -> true`) with the
+  same deterministic rule ordering and guard discipline.
+- One-way consensus rewrites were added as dedicated registry laws with strict
+  boolean+pure guards and exact structural matches:
+  `x && (not x || y) -> x && y`, `x && (y || not x) -> x && y`,
+  `x || (not x && y) -> x || y`, `x || (y && not x) -> x || y`, plus the
+  outer-operand-swapped equivalents.
+- These complement/absorption rewrites are applied only through `ClassLawRule`
+  registry dispatch; existing guard checks (`class_law_rule_guard`) are still
+  enforced.
+- Class-law fixed-point rewriting is structural-cost guarded
+  (`class_method_expr_cost`) with a bounded growth budget: default zero-growth,
+  with a `+1` budget only when map-fusion candidates are present.
+- Class-law rewriting now uses an explicit rule registry (`ClassLawRule`) with
+  deterministic ordering, and adds lightweight local expression metadata
+  (`ClassMethodExprType`, `ClassMethodExprEffect`) plus per-rule guarded
+  dispatch checks before rewriting (`class_law_rule_guard`): compose laws
+  require a pure `CCompose` shape with non-boolean compatible inputs; map laws
+  require a pure `CMap` shape with non-boolean compatible inputs; fold laws
+  require pure `CFoldr` roots for `foldr/map` and `foldr/build` fusion shape
+  matches.
+
+### plugin precompile contract
+
+- LSP reads plugin directories from `clapse.json` and passes discovered plugin
+  `.wasm` artifacts to the compiler in `plugin_wasm_paths`.
+- LSP suppresses runnable-entrypoint diagnostics like `unknown entrypoint root:
+  main` for editor buffers and plugin library files, so non-executable sources
+  do not surface spurious compile diagnostics.
+- `clapse.json` may include `"plugins"` as an array of directories.
+- `scripts/run-clapse-compiler-wasm.mjs` now walks upward from the input
+  directory (or cwd), compiles discovered plugin `.clapse` files to `.wasm`, and
+  sends their paths as `plugin_wasm_paths` in the compile request.
+- Canonical plugin + memo fixture smoke path:
+  `scripts/fib-memo-plugin-smoke.mjs` with
+  `examples/plugins/memo_fib_plugin.clapse` and `examples/fib_memo.clapse`.
+- Factoring rewrites are now represented in the `ClassLawRule` registry with
+  bool+pure guards and size-reducing orientation (`x && (x && y) -> x && y`,
+  `x || (x || y) -> x || y`) under static-mode fixed-point scheduling.
+
+### Root-shape class-law selection (deterministic)
+
+Root-shape class-law dispatch now uses deterministic rule grouping by expression
+root (`CCompose`, `CMap`, `CFoldr`, boolean root forms) before fixed-point
+application.
+After each successful rewrite, `rewrite_class_law_rules_once_list` re-dispatches
+immediately to the new root rule set before continuing within the same pass;
+this does not alter any cost/guard policy, strict-decrease check, or
+static/dynamic dispatch gates.
+
+- Root-kind dispatch is now table-driven: precomputed subset lookups for
+  root-kinds (`compose/map/foldr/bool`) provide constant-time dispatch and avoid
+  per-step allocation churn while preserving all rewrite guards, policies,
+  semantics, and dispatcher gates.
+- Dispatch now also applies root-kind + signature-family pruning before member
+  checks: Not/And/Or roots route only on `ClassMethodExprTypeBool` + pure
+  effect, compose roots only on compose-pure, map roots only on functor-pure,
+  foldr roots only on foldable-pure, while Bool/Var/Build remain empty and
+  `Other` is now empty.
+- `Other` is empty by construction because all current class-law families are
+  root-specific (`CCompose`, `CMap`, `CFoldr`, boolean roots); this change is a
+  scheduling/refinement swap only and does not alter rewrite semantics.
+- And/Or sub-dispatch now applies conservative-superset child-shape pruning
+  before per-rule checks; it only shrinks impossible candidate families and
+  leaves `class_law_rule_guard`, strictness cost policy, `ClassDispatch*`
+  eligibility, and rewrite semantics unchanged.
+- And/Or sub-dispatch now also caches per-child root-shape flags once
+  (`has_and/has_or` inputs) and reuses them across rule-group checks, which is
+  execution-cost-only and does not change guard policy or rewrite outcomes.
+The bootstrap seed raw backend can emit structural tiny wasm for explicit
+non-`main` root requests, with matching `public_exports` and `dts`. The
+self-hosted compiler-owned phase-1 path now also accepts explicit non-`main`
+roots: when the selected root is a single nullary definition that the phase-1
+evaluator can execute, it returns a real tagged-result wasm export for that
+root; otherwise it falls back to the structural tiny-wasm root stub path.

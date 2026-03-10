@@ -1,0 +1,6 @@
+main =
+  let s0 = slice_new_u8 64
+      s1 = slice_set_u8 s0 0 1
+      seen = slice_get_u8 s1 0
+      s2 = slice_set_u8 s1 0 2
+  in add seen (slice_get_u8 s2 0)

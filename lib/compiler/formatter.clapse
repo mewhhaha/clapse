@@ -1,0 +1,33 @@
+import "compiler/prelude"
+import "compiler/scan"
+import "compiler/formatter_monadic"
+import "compiler/json_response"
+export { format_ok_response }
+
+format_empty_response request_handle ownership_mode =
+  json_response_with_literal_prefix_suffix request_handle ownership_mode json_format_prefix json_format_suffix
+
+format_source_response request_handle ownership_mode source_start req_len =
+  let source_end = json_slice_end request_handle source_start req_len
+      source_len = source_end - source_start
+      formatted = slice_new_u8 (source_len * 2 + format_default_line_width * 8)
+      format_result = format_normalize_source request_handle source_start source_len formatted 0
+  in case format_result of
+    FormatNormalizeError err ->
+      error_response_from_message request_handle ownership_mode (format_nonprogress_error_message err)
+    FormatNormalizeOk formatted_len ->
+      json_response_with_escaped_slice_segment
+        request_handle
+        ownership_mode
+        json_format_prefix
+        json_format_suffix
+        formatted
+        0
+        formatted_len
+
+format_ok_response request_handle ownership_mode =
+  let req_len = slice_len request_handle
+      source_start = find_source_start request_handle 0 req_len
+  in case (source_start == req_len) of
+    true -> format_empty_response request_handle ownership_mode
+    _ -> format_source_response request_handle ownership_mode source_start req_len

@@ -1,0 +1,2053 @@
+import "compiler/prelude"
+import "compiler/scan"
+import "compiler/json_response"
+import "compiler/json_response_helpers"
+import "compiler/syntax_parser_entry"
+import "compiler/syntax_show"
+import "compiler/native_compile_reachability"
+export { compile_native_response, parse_native_response }
+
+data Symbol = Symbol Int Int
+data ParsedExpr = ParsedExprInt Int | ParsedExprBool Int | ParsedExprVar Symbol | ParsedExprCall Symbol (List ParsedExpr) | ParsedExprCaseBool ParsedExpr ParsedExpr ParsedExpr | ParsedExprIf ParsedExpr ParsedExpr ParsedExpr | ParsedExprLet Symbol ParsedExpr ParsedExpr | ParsedExprLambda Symbol ParsedExpr
+data ParsedDef = ParsedDef Symbol (List Symbol) ParsedExpr
+data ParseExprResult = ParseExprMissing | ParseExprOk ParsedExpr Int
+data ParseArgsResult = ParseArgsMissing | ParseArgsOk List Int
+data KeywordBoundaryResult = BoundaryMissing | BoundaryOk Int Int
+data ParseDefResult = ParseDefMissing | ParseDefOk ParsedDef
+data SymbolParseResult = SymbolMissing | SymbolOk Symbol Int
+data NumberParseResult = NumberMissing | NumberOk Int Int
+data SkipCharResult = SkipCharMissing | SkipCharOk Int
+data ArrowResult = ArrowMissing | ArrowOk Int
+data LetBindingBoundary = LetBindingFinal Int Int | LetBindingNext Int Int
+data EvalResult = EvalFail | EvalValueInt Int | EvalValueBool Int | EvalValueList (List Int) | EvalValueExpr ParsedExpr | EvalValueClosure (List (Pair Symbol EvalResult)) Symbol ParsedExpr
+data EvalDefResult = EvalDefMissing | EvalDefOk ParsedDef
+data EnvLookup = EnvMissing | EnvFound EvalResult
+data IntListResult = IntListMissing | IntListOk (List Int)
+data CompileRequestTag = CompileRequestMissingPath | CompileRequestMissingSource | CompileRequestReady
+data ParseRequestTag = ParseRequestMissingSource | ParseRequestReady
+data WritePair = WritePair a b
+
+json_compile_prefix = str_to_slice "{\"ok\":true,\"backend\":\"kernel-native\",\"wasm_base64\":\""
+json_compile_middle = str_to_slice "\",\"public_exports\":[{\"name\":\"main\",\"arity\":1}],\"abi_exports\":[{\"name\":\"clapse_run\",\"arity\":1}],\"dts\":\"export declare function main(arg0: number): number;\nexport declare function clapse_run(request_handle: number): number;\n\",\"artifacts\":{\"lowered_ir.txt\":\""
+json_compile_middle_lowered_to_collapsed = str_to_slice "\",\"collapsed_ir.txt\":\""
+json_compile_suffix = str_to_slice "\",\"__clapse_contract\":{\"source_version\":\"native-source-2026-03-01-r2\",\"compile_contract_version\":\"native-v1\"}}"
+compile_phase1_non_main_root_error = "compile phase1 unsupported for requested entrypoint exports"
+json_compile_dynamic_middle_a = str_to_slice "\",\"public_exports\":"
+json_compile_dynamic_middle_b = str_to_slice ",\"abi_exports\":[],\"dts\":\""
+json_compile_dynamic_middle_c = str_to_slice "\",\"artifacts\":{\"lowered_ir.txt\":\""
+base64_alphabet = str_to_slice "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+
+literal_add = str_to_slice "add"
+literal_mul = str_to_slice "mul"
+literal_sub = str_to_slice "sub"
+literal_div = str_to_slice "div"
+literal_mod = str_to_slice "mod"
+literal_id = str_to_slice "id"
+literal_slice_new_u8 = str_to_slice "slice_new_u8"
+literal_slice_get_u8 = str_to_slice "slice_get_u8"
+literal_slice_set_u8 = str_to_slice "slice_set_u8"
+literal_true = str_to_slice "true"
+literal_false = str_to_slice "false"
+literal_case = str_to_slice "case"
+literal_if = str_to_slice "if"
+literal_then = str_to_slice "then"
+literal_else = str_to_slice "else"
+literal_let = str_to_slice "let"
+literal_in = str_to_slice "in"
+literal_of = str_to_slice "of"
+literal_list_nil = str_to_slice "ListNil"
+literal_list_cons = str_to_slice "ListCons"
+literal_list_map = str_to_slice "list_map"
+literal_list_foldl = str_to_slice "list_foldl"
+literal_eq = str_to_slice "eq"
+literal_ne = str_to_slice "ne"
+literal_lt = str_to_slice "lt"
+literal_le = str_to_slice "le"
+literal_gt = str_to_slice "gt"
+literal_ge = str_to_slice "ge"
+literal_main = str_to_slice "main"
+
+compile_lowered_prefix = str_to_slice "(lowered_ir)\nphase: kernel-native-phase1\nkind: normalized-source\n"
+compile_collapsed_prefix = str_to_slice "(collapsed_ir)\nphase: kernel-native-phase1\nkind: normalized-source\n"
+
+is_space = scan_is_space_byte
+is_ascii_lower b = (b >= 97) && (b <= 122)
+is_ascii_upper b = (b >= 65) && (b <= 90)
+is_ascii_digit b = (b >= 48) && (b <= 57)
+is_identifier_start_byte b =
+  is_ascii_lower b || is_ascii_upper b || (b == 95)
+is_identifier_continue_byte b =
+  is_identifier_start_byte b || is_ascii_digit b || (b == 39)
+
+compile_missing_input_path_response request_handle ownership_mode _ =
+  error_response_from_message request_handle ownership_mode "compile request missing input_path"
+
+compile_missing_input_source_response request_handle ownership_mode _ =
+  error_response_from_message request_handle ownership_mode "compile request missing input_source"
+
+compile_input_path_start request_handle req_len =
+  scan_find_json_key_value_start request_handle 0 req_len "\"input_path\""
+
+compile_source_start request_handle req_len =
+  find_input_source_start request_handle 0 req_len
+
+compile_input_path_end_for_request request_handle input_path_start req_len =
+  case (input_path_start == req_len) of
+    true -> req_len
+    _ -> scan_find_source_end request_handle input_path_start req_len 0
+
+compile_source_end_for_request request_handle source_start req_len =
+  case (source_start == req_len) of
+    true -> req_len
+    _ -> scan_find_source_end request_handle source_start req_len 0
+
+compile_request_tag request_handle req_len =
+  let input_path_start = compile_input_path_start request_handle req_len
+      source_start = compile_source_start request_handle req_len
+      input_path_end = compile_input_path_end_for_request request_handle input_path_start req_len
+      source_end = compile_source_end_for_request request_handle source_start req_len
+      input_path_missing = (input_path_start == req_len)
+      input_path_end_missing = (input_path_end == req_len)
+      input_path_empty = (input_path_end == input_path_start)
+      source_missing = (source_start == req_len)
+      source_end_missing = (source_end == req_len)
+      source_empty = (source_end == source_start)
+      has_path = not (input_path_missing || (input_path_end_missing || input_path_empty))
+      has_source = not (source_missing || (source_end_missing || source_empty))
+  in case (has_path && has_source) of
+    true -> CompileRequestReady
+    _ -> case has_path of
+      true -> CompileRequestMissingSource
+      _ -> CompileRequestMissingPath
+
+compile_source_len_for_request request_handle source_start req_len =
+  let source_end = compile_source_end_for_request request_handle source_start req_len
+  in source_end - source_start
+
+compile_success_response request_handle ownership_mode req_len =
+  let source_start = compile_source_start request_handle req_len
+      source_len = compile_source_len_for_request request_handle source_start req_len
+      pruned_segment = compile_collapsed_source_segment request_handle ownership_mode req_len source_start source_len
+      pruned_source_handle = case pruned_segment of
+        SourceSegment x _ _ -> x
+      pruned_source_start = case pruned_segment of
+        SourceSegment _ x _ -> x
+      pruned_source_len = case pruned_segment of
+        SourceSegment _ _ x -> x
+      lowered_segment = compile_lowered_source_segment request_handle ownership_mode pruned_source_handle pruned_source_start pruned_source_len
+      collapsed_segment = compile_collapsed_artifact_segment request_handle ownership_mode pruned_source_handle pruned_source_start pruned_source_len
+      lowered_source_handle = case lowered_segment of
+        SourceSegment x _ _ -> x
+      lowered_source_start = case lowered_segment of
+        SourceSegment _ x _ -> x
+      lowered_source_len = case lowered_segment of
+        SourceSegment _ _ x -> x
+      collapsed_source_handle = case collapsed_segment of
+        SourceSegment x _ _ -> x
+      collapsed_source_start = case collapsed_segment of
+        SourceSegment _ x _ -> x
+      collapsed_source_len = case collapsed_segment of
+        SourceSegment _ _ x -> x
+      pruned_source_end = pruned_source_start + pruned_source_len
+      roots = resolve_root_names request_handle req_len pruned_source_start pruned_source_end
+  in case compile_wasm_b64_for_source request_handle ownership_mode pruned_source_handle pruned_source_start pruned_source_len roots of
+    Just wasm_b64 ->
+      case build_dynamic_compile_response_with_wasm_b64
+        request_handle
+        ownership_mode
+        pruned_source_handle
+        pruned_source_start
+        pruned_source_len
+        (SourceSegment wasm_b64 0 (slice_len wasm_b64))
+        roots
+        lowered_source_handle
+        lowered_source_start
+        lowered_source_len
+        collapsed_source_handle
+        collapsed_source_start
+        collapsed_source_len of
+        SourceSegment out_handle _ _ ->
+          out_handle
+    Nothing ->
+      case phase1_dynamic_stub_supports_roots roots of
+        true ->
+          case build_dynamic_compile_response
+            request_handle
+            ownership_mode
+            pruned_source_handle
+            pruned_source_start
+            pruned_source_len
+            roots
+            lowered_source_handle
+            lowered_source_start
+            lowered_source_len
+            collapsed_source_handle
+            collapsed_source_start
+            collapsed_source_len of
+            SourceSegment out_handle _ _ ->
+              out_handle
+        _ -> error_response_from_message request_handle ownership_mode compile_phase1_non_main_root_error
+
+compile_collapsed_source_segment request_handle ownership_mode req_len source_start source_len =
+  case native_pruned_source_segment_checked request_handle ownership_mode req_len source_start source_len of
+    PrunedSourceOk segment -> segment
+    PrunedSourceErr _ -> SourceSegment request_handle source_start source_len
+
+compile_native_response request_handle ownership_mode =
+  let req_len = slice_len request_handle
+  in case compile_request_tag request_handle req_len of
+    CompileRequestMissingPath -> compile_missing_input_path_response request_handle ownership_mode req_len
+    CompileRequestMissingSource -> compile_missing_input_source_response request_handle ownership_mode req_len
+    CompileRequestReady -> compile_ready_response request_handle ownership_mode req_len
+
+parse_request_tag request_handle req_len =
+  let source_start = compile_source_start request_handle req_len
+      source_end = compile_source_end_for_request request_handle source_start req_len
+      source_missing = (source_start == req_len) || (source_end == req_len) || (source_end == source_start)
+  in case source_missing of
+    true -> ParseRequestMissingSource
+    _ -> ParseRequestReady
+
+parse_native_response request_handle ownership_mode =
+  let req_len = slice_len request_handle
+      source_start = compile_source_start request_handle req_len
+      source_end = compile_source_end_for_request request_handle source_start req_len
+  in case parse_request_tag request_handle req_len of
+    ParseRequestMissingSource -> parse_missing_input_source_response request_handle ownership_mode req_len
+    ParseRequestReady ->
+      let parse_result = syntax_parse_entry request_handle source_start source_end
+          parsed_cst = syntax_render_cst request_handle ownership_mode source_start source_end
+      in case syntax_parse_is_ok parse_result of
+        true -> parse_ok_response
+          request_handle
+          ownership_mode
+          (syntax_cst_handle parsed_cst)
+          (syntax_cst_start parsed_cst)
+          (syntax_cst_len parsed_cst)
+        _ -> parse_error_response request_handle ownership_mode "parse error"
+
+compile_ready_response request_handle ownership_mode req_len =
+  let source_start = compile_source_start request_handle req_len
+      source_end = compile_source_end_for_request request_handle source_start req_len
+      parse_result = syntax_parse_entry request_handle source_start source_end
+  in case syntax_parse_is_ok parse_result of
+    true -> compile_success_response request_handle ownership_mode req_len
+    _ -> parse_error_response request_handle ownership_mode "parse error"
+
+compile_lowered_source_segment request_handle ownership_mode source_handle source_start source_len =
+  let prefix_len = slice_len compile_lowered_prefix
+      out_len = prefix_len + source_len
+      out = slice_new_u8 out_len
+      out1 = copy_slice_literal request_handle ownership_mode out 0 compile_lowered_prefix
+      out2 = copy_slice_segment request_handle ownership_mode source_handle source_start out1 prefix_len source_len 0
+  in SourceSegment out2 0 out_len
+
+compile_collapsed_artifact_segment request_handle ownership_mode source_handle source_start source_len =
+  let prefix_len = slice_len compile_collapsed_prefix
+      out_len = prefix_len + source_len
+      out = slice_new_u8 out_len
+      out1 = copy_slice_literal request_handle ownership_mode out 0 compile_collapsed_prefix
+      out2 = copy_slice_segment request_handle ownership_mode source_handle source_start out1 prefix_len source_len 0
+  in SourceSegment out2 0 out_len
+
+compile_wasm_b64_for_source request_handle ownership_mode source_handle source_start source_len roots =
+  let source_end = source_start + source_len
+      defs = parse_top_defs source_handle source_start source_end Nil
+      resolved_roots = case roots of
+        Nil ->
+          case find_main_def source_handle defs of
+            EvalDefMissing -> Nil
+            EvalDefOk (ParsedDef name _ _) -> Cons (name_ref_from_symbol source_handle name) Nil
+        _ -> roots
+  in case collect_nullary_root_results source_handle defs resolved_roots of
+    Nothing -> Nothing
+    Just tagged_results ->
+      let wasm_segment = build_phase1_dynamic_const_wasm_b64_segment request_handle ownership_mode source_handle defs resolved_roots tagged_results
+          wasm_handle = case wasm_segment of
+            SourceSegment x _ _ -> x
+      in Just wasm_handle
+
+collect_nullary_root_results source_handle defs roots =
+  case roots of
+    Nil -> Just Nil
+    Cons root rest ->
+      case find_def_for_root source_handle defs root of
+        EvalDefMissing -> Nothing
+        EvalDefOk (ParsedDef _ params body) ->
+          case list_len params of
+            0 ->
+              case eval_expr source_handle defs Nil body of
+                EvalValueInt result ->
+                  collect_nullary_root_results_cons source_handle defs rest ((result * 2) + 1)
+                EvalValueBool result ->
+                  collect_nullary_root_results_cons source_handle defs rest ((result * 2) + 1)
+                _ -> Nothing
+            _ -> Nothing
+
+collect_nullary_root_results_cons source_handle defs rest tagged_value =
+  case collect_nullary_root_results source_handle defs rest of
+    Just rest_values -> Just (Cons tagged_value rest_values)
+    Nothing -> Nothing
+
+name_ref_from_symbol source_handle symbol =
+  case symbol of
+    Symbol start len -> NameRef source_handle start len
+
+build_phase1_dynamic_const_wasm_b64_segment request_handle ownership_mode source_handle defs roots tagged_results =
+  let root_count = list_len roots
+      raw_cap = (root_count * 128) + 512
+      raw = slice_new_u8 raw_cap
+      raw1 = write_module_header request_handle ownership_mode raw
+      type_pair = write_type_section request_handle ownership_mode source_handle defs roots raw1 8
+      raw2 = case type_pair of
+        WritePair x _ -> x
+      cursor2 = case type_pair of
+        WritePair _ x -> x
+      function_pair = write_function_section request_handle ownership_mode roots raw2 cursor2 0
+      raw3 = case function_pair of
+        WritePair x _ -> x
+      cursor3 = case function_pair of
+        WritePair _ x -> x
+      memory_pair = write_memory_section request_handle ownership_mode raw3 cursor3
+      raw4 = case memory_pair of
+        WritePair x _ -> x
+      cursor4 = case memory_pair of
+        WritePair _ x -> x
+      export_pair = write_export_section request_handle ownership_mode roots raw4 cursor4
+      raw5 = case export_pair of
+        WritePair x _ -> x
+      cursor5 = case export_pair of
+        WritePair _ x -> x
+      code_pair = write_const_code_section request_handle ownership_mode tagged_results raw5 cursor5
+      raw6 = case code_pair of
+        WritePair x _ -> x
+      raw_len = case code_pair of
+        WritePair _ x -> x
+  in encode_base64_segment request_handle ownership_mode raw6 raw_len
+
+build_dynamic_compile_response
+  request_handle
+  ownership_mode
+  source_handle
+  source_start
+  source_len
+  roots
+  lowered_source_handle
+  lowered_source_start
+  lowered_source_len
+  collapsed_source_handle
+  collapsed_source_start
+  collapsed_source_len =
+  let source_end = source_start + source_len
+      defs = parse_top_defs source_handle source_start source_end Nil
+      wasm_b64_segment = build_phase1_dynamic_stub_wasm_b64_segment request_handle ownership_mode source_handle source_start source_len defs roots
+  in build_dynamic_compile_response_with_wasm_b64
+    request_handle
+    ownership_mode
+    source_handle
+    source_start
+    source_len
+    wasm_b64_segment
+    roots
+    lowered_source_handle
+    lowered_source_start
+    lowered_source_len
+    collapsed_source_handle
+    collapsed_source_start
+    collapsed_source_len
+
+build_dynamic_compile_response_with_wasm_b64
+  request_handle
+  ownership_mode
+  source_handle
+  source_start
+  source_len
+  wasm_b64_segment
+  roots
+  lowered_source_handle
+  lowered_source_start
+  lowered_source_len
+  collapsed_source_handle
+  collapsed_source_start
+  collapsed_source_len =
+  let source_end = source_start + source_len
+      defs = parse_top_defs source_handle source_start source_end Nil
+      public_exports_segment = build_public_exports_json_segment request_handle ownership_mode source_handle source_start source_len defs roots
+      dts_segment = build_dts_segment request_handle ownership_mode source_handle source_start source_len defs roots
+      wasm_b64_handle = case wasm_b64_segment of
+        SourceSegment x _ _ -> x
+      wasm_b64_start = case wasm_b64_segment of
+        SourceSegment _ x _ -> x
+      wasm_b64_len = case wasm_b64_segment of
+        SourceSegment _ _ x -> x
+      public_exports_handle = case public_exports_segment of
+        SourceSegment x _ _ -> x
+      public_exports_start = case public_exports_segment of
+        SourceSegment _ x _ -> x
+      public_exports_len = case public_exports_segment of
+        SourceSegment _ _ x -> x
+      dts_handle = case dts_segment of
+        SourceSegment x _ _ -> x
+      dts_start = case dts_segment of
+        SourceSegment _ x _ -> x
+      dts_len = case dts_segment of
+        SourceSegment _ _ x -> x
+      prefix_len = slice_len json_compile_prefix
+      middle_a_len = slice_len json_compile_dynamic_middle_a
+      middle_b_len = slice_len json_compile_dynamic_middle_b
+      middle_c_len = slice_len json_compile_dynamic_middle_c
+      middle_d_len = slice_len json_compile_middle_lowered_to_collapsed
+      suffix_len = slice_len json_compile_suffix
+      dts_extra = json_escape_extra_len dts_handle dts_start dts_len 0 0
+      lowered_extra = json_escape_extra_len lowered_source_handle lowered_source_start lowered_source_len 0 0
+      collapsed_extra = json_escape_extra_len collapsed_source_handle collapsed_source_start collapsed_source_len 0 0
+      total_len =
+        prefix_len + wasm_b64_len + middle_a_len + public_exports_len + middle_b_len + dts_len + dts_extra +
+        middle_c_len + lowered_source_len + lowered_extra + middle_d_len + collapsed_source_len + collapsed_extra +
+        suffix_len
+      out = slice_new_u8 total_len
+      out1 = copy_slice_literal request_handle ownership_mode out 0 json_compile_prefix
+      out2 = copy_slice_segment request_handle ownership_mode wasm_b64_handle wasm_b64_start out1 prefix_len wasm_b64_len 0
+      public_at = prefix_len + wasm_b64_len
+      out3 = copy_slice_literal request_handle ownership_mode out2 public_at json_compile_dynamic_middle_a
+      public_json_at = public_at + middle_a_len
+      out4 = copy_slice_segment request_handle ownership_mode public_exports_handle public_exports_start out3 public_json_at public_exports_len 0
+      dts_at = public_json_at + public_exports_len
+      out5 = copy_slice_literal request_handle ownership_mode out4 dts_at json_compile_dynamic_middle_b
+      dts_json_at = dts_at + middle_b_len
+      out6 = json_copy_escaped_segment request_handle ownership_mode dts_handle dts_start dts_len 0 out5 dts_json_at
+      lowered_at = dts_json_at + dts_len + dts_extra
+      out7 = copy_slice_literal request_handle ownership_mode out6 lowered_at json_compile_dynamic_middle_c
+      lowered_json_at = lowered_at + middle_c_len
+      out8 = json_copy_escaped_segment request_handle ownership_mode lowered_source_handle lowered_source_start lowered_source_len 0 out7 lowered_json_at
+      collapsed_at = lowered_json_at + lowered_source_len + lowered_extra
+      out9 = copy_slice_literal request_handle ownership_mode out8 collapsed_at json_compile_middle_lowered_to_collapsed
+      collapsed_json_at = collapsed_at + middle_d_len
+      out10 = json_copy_escaped_segment request_handle ownership_mode collapsed_source_handle collapsed_source_start collapsed_source_len 0 out9 collapsed_json_at
+      suffix_at = collapsed_json_at + collapsed_source_len + collapsed_extra
+      out11 = copy_slice_literal request_handle ownership_mode out10 suffix_at json_compile_suffix
+  in SourceSegment out11 0 total_len
+
+phase1_dynamic_stub_supports_roots roots =
+  case roots of
+    Nil -> false
+    Cons root rest ->
+      case name_ref_is_identifier root of
+        true -> phase1_dynamic_stub_supports_roots_rest rest
+        _ -> false
+
+phase1_dynamic_stub_supports_roots_rest roots =
+  case roots of
+    Nil -> true
+    Cons root rest ->
+      case name_ref_is_identifier root of
+        true -> phase1_dynamic_stub_supports_roots_rest rest
+        _ -> false
+
+name_ref_is_identifier root =
+  case root of
+    NameRef root_handle root_start root_len ->
+      case root_len > 0 of
+        true ->
+          let b0 = slice_get_u8 root_handle root_start
+          in case is_identifier_start_byte b0 of
+            true -> name_ref_is_identifier_rest root_handle (root_start + 1) (root_start + root_len)
+            _ -> false
+        _ -> false
+
+name_ref_is_identifier_rest root_handle cursor end =
+  case cursor == end of
+    true -> true
+    _ ->
+      let b = slice_get_u8 root_handle cursor
+      in case is_identifier_continue_byte b of
+        true -> name_ref_is_identifier_rest root_handle (cursor + 1) end
+        _ -> false
+
+build_public_exports_json_segment request_handle ownership_mode source_handle source_start source_len defs roots =
+  let root_count = list_len roots
+      cap = (source_len * 8) + (root_count * 48) + 64
+      out = slice_new_u8 cap
+      out1 = slice_set_u8 out 0 91
+  in build_public_exports_json_segment_impl request_handle ownership_mode source_handle defs roots out1 1 false
+
+build_public_exports_json_segment_impl request_handle ownership_mode source_handle defs roots out cursor wrote_any =
+  case roots of
+    Nil ->
+      let out1 = slice_set_u8 out cursor 93
+      in SourceSegment out1 0 (cursor + 1)
+    Cons root rest ->
+      let cursor1 = case wrote_any of
+            true ->
+              let outc = slice_set_u8 out cursor 44
+              in cursor + 1
+            _ -> cursor
+          out1 = case wrote_any of
+            true -> slice_set_u8 out cursor 44
+            _ -> out
+          out2 = write_literal_bytes request_handle ownership_mode out1 cursor1 "{\"name\":\""
+          cursor2 = cursor1 + 10
+          pair_name = write_name_ref_json_escaped request_handle ownership_mode out2 cursor2 root
+          out3 = case pair_name of
+            WritePair x _ -> x
+          cursor3 = case pair_name of
+            WritePair _ x -> x
+          out4 = write_literal_bytes request_handle ownership_mode out3 cursor3 "\",\"arity\":"
+          cursor4 = cursor3 + 10
+          arity = root_def_arity source_handle defs root
+          pair_arity = write_nonnegative_int_ascii request_handle ownership_mode out4 cursor4 arity
+          out5 = case pair_arity of
+            WritePair x _ -> x
+          cursor5 = case pair_arity of
+            WritePair _ x -> x
+          out6 = slice_set_u8 out5 cursor5 125
+      in build_public_exports_json_segment_impl request_handle ownership_mode source_handle defs rest out6 (cursor5 + 1) true
+
+build_dts_segment request_handle ownership_mode source_handle source_start source_len defs roots =
+  let root_count = list_len roots
+      cap = (source_len * 10) + (root_count * 64) + 128
+      out = slice_new_u8 cap
+  in build_dts_segment_impl request_handle ownership_mode source_handle defs roots out 0
+
+build_dts_segment_impl request_handle ownership_mode source_handle defs roots out cursor =
+  case roots of
+    Nil -> SourceSegment out 0 cursor
+    Cons root rest ->
+      let out1 = write_literal_bytes request_handle ownership_mode out cursor "export declare function "
+          cursor1 = cursor + 24
+          pair_name = write_name_ref_bytes request_handle ownership_mode out1 cursor1 root
+          out2 = case pair_name of
+            WritePair x _ -> x
+          cursor2 = case pair_name of
+            WritePair _ x -> x
+          out3 = slice_set_u8 out2 cursor2 40
+          cursor3 = cursor2 + 1
+          arity = root_def_arity source_handle defs root
+          pair_args = write_dts_args request_handle ownership_mode out3 cursor3 0 arity
+          out4 = case pair_args of
+            WritePair x _ -> x
+          cursor4 = case pair_args of
+            WritePair _ x -> x
+          out5 = write_literal_bytes request_handle ownership_mode out4 cursor4 "): number;\n"
+      in build_dts_segment_impl request_handle ownership_mode source_handle defs rest out5 (cursor4 + 11)
+
+write_dts_args request_handle ownership_mode out cursor arg_index arity =
+  case arg_index == arity of
+    true -> WritePair out cursor
+    _ ->
+      let out1 = case arg_index == 0 of
+            true -> out
+            _ -> write_literal_bytes request_handle ownership_mode out cursor ", "
+          cursor1 = case arg_index == 0 of
+            true -> cursor
+            _ -> cursor + 2
+          out2 = write_literal_bytes request_handle ownership_mode out1 cursor1 "arg"
+          cursor2 = cursor1 + 3
+          pair_idx = write_nonnegative_int_ascii request_handle ownership_mode out2 cursor2 arg_index
+          out3 = case pair_idx of
+            WritePair x _ -> x
+          cursor3 = case pair_idx of
+            WritePair _ x -> x
+          out4 = write_literal_bytes request_handle ownership_mode out3 cursor3 ": number"
+      in write_dts_args request_handle ownership_mode out4 (cursor3 + 8) (arg_index + 1) arity
+
+root_def_arity source_handle defs root =
+  case find_def_for_root source_handle defs root of
+    EvalDefMissing -> 0
+    EvalDefOk (ParsedDef _ params _) -> list_len params
+
+find_def_for_root source_handle defs root =
+  case defs of
+    Nil -> EvalDefMissing
+    Cons def rest ->
+      case def of
+        ParsedDef def_name _ _ ->
+          case symbol_eq_name_ref source_handle def_name root of
+            true -> EvalDefOk def
+            _ -> find_def_for_root source_handle rest root
+
+symbol_eq_name_ref source_handle symbol root =
+  case symbol of
+    Symbol start len ->
+      case root of
+        NameRef root_handle root_start root_len ->
+          case len == root_len of
+            true -> segment_eq_at source_handle start root_handle root_start len 0
+            _ -> false
+
+build_phase1_dynamic_stub_wasm_b64_segment request_handle ownership_mode source_handle source_start source_len defs roots =
+  let root_count = list_len roots
+      raw_cap = (source_len * 12) + (root_count * 128) + 512
+      raw = slice_new_u8 raw_cap
+      raw1 = write_module_header request_handle ownership_mode raw
+      type_pair = write_type_section request_handle ownership_mode source_handle defs roots raw1 8
+      raw2 = case type_pair of
+        WritePair x _ -> x
+      cursor2 = case type_pair of
+        WritePair _ x -> x
+      function_pair = write_function_section request_handle ownership_mode roots raw2 cursor2 0
+      raw3 = case function_pair of
+        WritePair x _ -> x
+      cursor3 = case function_pair of
+        WritePair _ x -> x
+      memory_pair = write_memory_section request_handle ownership_mode raw3 cursor3
+      raw4 = case memory_pair of
+        WritePair x _ -> x
+      cursor4 = case memory_pair of
+        WritePair _ x -> x
+      export_pair = write_export_section request_handle ownership_mode roots raw4 cursor4
+      raw5 = case export_pair of
+        WritePair x _ -> x
+      cursor5 = case export_pair of
+        WritePair _ x -> x
+      code_pair = write_code_section request_handle ownership_mode roots raw5 cursor5
+      raw6 = case code_pair of
+        WritePair x _ -> x
+      raw_len = case code_pair of
+        WritePair _ x -> x
+  in encode_base64_segment request_handle ownership_mode raw6 raw_len
+
+write_module_header request_handle ownership_mode out =
+  let out1 = slice_set_u8 out 0 0
+      out2 = slice_set_u8 out1 1 97
+      out3 = slice_set_u8 out2 2 115
+      out4 = slice_set_u8 out3 3 109
+      out5 = slice_set_u8 out4 4 1
+      out6 = slice_set_u8 out5 5 0
+      out7 = slice_set_u8 out6 6 0
+  in slice_set_u8 out7 7 0
+
+write_type_section request_handle ownership_mode source_handle defs roots out cursor =
+  let count = list_len roots
+      section_cap = (count * 24) + 32
+      section = slice_new_u8 section_cap
+      pair_count = append_var_u32_bytes request_handle ownership_mode section 0 count
+      section1 = case pair_count of
+        WritePair x _ -> x
+      section_cursor1 = case pair_count of
+        WritePair _ x -> x
+      pair_body = write_type_entries request_handle ownership_mode source_handle defs roots section1 section_cursor1
+      section2 = case pair_body of
+        WritePair x _ -> x
+      section_len = case pair_body of
+        WritePair _ x -> x
+      out1 = slice_set_u8 out cursor 1
+      pair_size = append_var_u32_bytes request_handle ownership_mode out1 (cursor + 1) section_len
+      out2 = case pair_size of
+        WritePair x _ -> x
+      cursor2 = case pair_size of
+        WritePair _ x -> x
+      out3 = copy_slice_segment request_handle ownership_mode section2 0 out2 cursor2 section_len 0
+  in WritePair out3 (cursor2 + section_len)
+
+write_type_entries request_handle ownership_mode source_handle defs roots out cursor =
+  case roots of
+    Nil -> WritePair out cursor
+    Cons root rest ->
+      let arity = root_def_arity source_handle defs root
+          out1 = slice_set_u8 out cursor 96
+          pair_arity = append_var_u32_bytes request_handle ownership_mode out1 (cursor + 1) arity
+          out2 = case pair_arity of
+            WritePair x _ -> x
+          cursor2 = case pair_arity of
+            WritePair _ x -> x
+          pair_params = write_repeated_u8 request_handle ownership_mode out2 cursor2 127 arity
+          out3 = case pair_params of
+            WritePair x _ -> x
+          cursor3 = case pair_params of
+            WritePair _ x -> x
+          out4 = slice_set_u8 out3 cursor3 1
+          out5 = slice_set_u8 out4 (cursor3 + 1) 127
+      in write_type_entries request_handle ownership_mode source_handle defs rest out5 (cursor3 + 2)
+
+write_function_section request_handle ownership_mode roots out cursor type_index =
+  let count = list_len roots
+      section_cap = (count * 8) + 32
+      section = slice_new_u8 section_cap
+      pair_count = append_var_u32_bytes request_handle ownership_mode section 0 count
+      section1 = case pair_count of
+        WritePair x _ -> x
+      section_cursor1 = case pair_count of
+        WritePair _ x -> x
+      pair_body = write_function_type_indexes request_handle ownership_mode roots section1 section_cursor1 type_index
+      section2 = case pair_body of
+        WritePair x _ -> x
+      section_len = case pair_body of
+        WritePair _ x -> x
+      out1 = slice_set_u8 out cursor 3
+      pair_size = append_var_u32_bytes request_handle ownership_mode out1 (cursor + 1) section_len
+      out2 = case pair_size of
+        WritePair x _ -> x
+      cursor2 = case pair_size of
+        WritePair _ x -> x
+      out3 = copy_slice_segment request_handle ownership_mode section2 0 out2 cursor2 section_len 0
+  in WritePair out3 (cursor2 + section_len)
+
+write_function_type_indexes request_handle ownership_mode roots out cursor type_index =
+  case roots of
+    Nil -> WritePair out cursor
+    Cons _ rest ->
+      let pair_idx = append_var_u32_bytes request_handle ownership_mode out cursor type_index
+          out1 = case pair_idx of
+            WritePair x _ -> x
+          cursor1 = case pair_idx of
+            WritePair _ x -> x
+      in write_function_type_indexes request_handle ownership_mode rest out1 cursor1 (type_index + 1)
+
+write_memory_section request_handle ownership_mode out cursor =
+  let section = slice_new_u8 16
+      out1 = slice_set_u8 section 0 1
+      out2 = slice_set_u8 out1 1 0
+      out3 = slice_set_u8 out2 2 1
+      section_len = 3
+      out4 = slice_set_u8 out cursor 5
+      pair_size = append_var_u32_bytes request_handle ownership_mode out4 (cursor + 1) section_len
+      out5 = case pair_size of
+        WritePair x _ -> x
+      cursor1 = case pair_size of
+        WritePair _ x -> x
+      out6 = copy_slice_segment request_handle ownership_mode out3 0 out5 cursor1 section_len 0
+  in WritePair out6 (cursor1 + section_len)
+
+write_export_section request_handle ownership_mode roots out cursor =
+  let root_count = list_len roots
+      section_cap = (root_count * 32) + 64
+      section = slice_new_u8 section_cap
+      count = root_count + 1
+      pair_count = append_var_u32_bytes request_handle ownership_mode section 0 count
+      section1 = case pair_count of
+        WritePair x _ -> x
+      section_cursor1 = case pair_count of
+        WritePair _ x -> x
+      out_mem = write_memory_export_entry request_handle ownership_mode section1 section_cursor1
+      section2 = case out_mem of
+        WritePair x _ -> x
+      section_cursor2 = case out_mem of
+        WritePair _ x -> x
+      pair_body = write_root_export_entries request_handle ownership_mode roots section2 section_cursor2 0
+      section3 = case pair_body of
+        WritePair x _ -> x
+      section_len = case pair_body of
+        WritePair _ x -> x
+      out1 = slice_set_u8 out cursor 7
+      pair_size = append_var_u32_bytes request_handle ownership_mode out1 (cursor + 1) section_len
+      out2 = case pair_size of
+        WritePair x _ -> x
+      cursor2 = case pair_size of
+        WritePair _ x -> x
+      out3 = copy_slice_segment request_handle ownership_mode section3 0 out2 cursor2 section_len 0
+  in WritePair out3 (cursor2 + section_len)
+
+write_memory_export_entry request_handle ownership_mode out cursor =
+  let pair_len = append_var_u32_bytes request_handle ownership_mode out cursor 6
+      out1 = case pair_len of
+        WritePair x _ -> x
+      cursor1 = case pair_len of
+        WritePair _ x -> x
+      out2 = write_literal_bytes request_handle ownership_mode out1 cursor1 "memory"
+      cursor2 = cursor1 + 6
+      out3 = slice_set_u8 out2 cursor2 2
+      out4 = slice_set_u8 out3 (cursor2 + 1) 0
+  in WritePair out4 (cursor2 + 2)
+
+write_root_export_entries request_handle ownership_mode roots out cursor export_index =
+  case roots of
+    Nil -> WritePair out cursor
+    Cons root rest ->
+      let pair_name = write_name_ref_with_len request_handle ownership_mode out cursor root
+          out1 = case pair_name of
+            WritePair x _ -> x
+          cursor1 = case pair_name of
+            WritePair _ x -> x
+          out2 = slice_set_u8 out1 cursor1 0
+          pair_idx = append_var_u32_bytes request_handle ownership_mode out2 (cursor1 + 1) export_index
+          out3 = case pair_idx of
+            WritePair x _ -> x
+          cursor2 = case pair_idx of
+            WritePair _ x -> x
+      in write_root_export_entries request_handle ownership_mode rest out3 cursor2 (export_index + 1)
+
+write_code_section request_handle ownership_mode roots out cursor =
+  let count = list_len roots
+      section_cap = (count * 8) + 32
+      section = slice_new_u8 section_cap
+      pair_count = append_var_u32_bytes request_handle ownership_mode section 0 count
+      section1 = case pair_count of
+        WritePair x _ -> x
+      section_cursor1 = case pair_count of
+        WritePair _ x -> x
+      pair_body = write_code_bodies request_handle ownership_mode roots section1 section_cursor1
+      section2 = case pair_body of
+        WritePair x _ -> x
+      section_len = case pair_body of
+        WritePair _ x -> x
+      out1 = slice_set_u8 out cursor 10
+      pair_size = append_var_u32_bytes request_handle ownership_mode out1 (cursor + 1) section_len
+      out2 = case pair_size of
+        WritePair x _ -> x
+      cursor2 = case pair_size of
+        WritePair _ x -> x
+      out3 = copy_slice_segment request_handle ownership_mode section2 0 out2 cursor2 section_len 0
+  in WritePair out3 (cursor2 + section_len)
+
+write_const_code_section request_handle ownership_mode tagged_results out cursor =
+  let count = list_len tagged_results
+      section_cap = (count * 16) + 32
+      section = slice_new_u8 section_cap
+      pair_count = append_var_u32_bytes request_handle ownership_mode section 0 count
+      section1 = case pair_count of
+        WritePair x _ -> x
+      section_cursor1 = case pair_count of
+        WritePair _ x -> x
+      pair_body = write_const_code_bodies request_handle ownership_mode tagged_results section1 section_cursor1
+      section2 = case pair_body of
+        WritePair x _ -> x
+      section_len = case pair_body of
+        WritePair _ x -> x
+      out1 = slice_set_u8 out cursor 10
+      pair_size = append_var_u32_bytes request_handle ownership_mode out1 (cursor + 1) section_len
+      out2 = case pair_size of
+        WritePair x _ -> x
+      cursor2 = case pair_size of
+        WritePair _ x -> x
+      out3 = copy_slice_segment request_handle ownership_mode section2 0 out2 cursor2 section_len 0
+  in WritePair out3 (cursor2 + section_len)
+
+write_code_bodies request_handle ownership_mode roots out cursor =
+  case roots of
+    Nil -> WritePair out cursor
+    Cons _ rest ->
+      let pair_len = append_var_u32_bytes request_handle ownership_mode out cursor 4
+          out1 = case pair_len of
+            WritePair x _ -> x
+          cursor1 = case pair_len of
+            WritePair _ x -> x
+          out2 = slice_set_u8 out1 cursor1 0
+          out3 = slice_set_u8 out2 (cursor1 + 1) 65
+          out4 = slice_set_u8 out3 (cursor1 + 2) 1
+          out5 = slice_set_u8 out4 (cursor1 + 3) 11
+      in write_code_bodies request_handle ownership_mode rest out5 (cursor1 + 4)
+
+write_const_code_bodies request_handle ownership_mode tagged_results out cursor =
+  case tagged_results of
+    Nil -> WritePair out cursor
+    Cons tagged_value rest ->
+      let imm_pair = append_var_nonnegative_s32_bytes request_handle ownership_mode out (cursor + 3) tagged_value
+          out1 = case imm_pair of
+            WritePair x _ -> x
+          imm_cursor = case imm_pair of
+            WritePair _ x -> x
+          body_len = imm_cursor - cursor
+          pair_len = append_var_u32_bytes request_handle ownership_mode out1 cursor body_len
+          out2 = case pair_len of
+            WritePair x _ -> x
+          cursor1 = case pair_len of
+            WritePair _ x -> x
+          out3 = slice_set_u8 out2 cursor1 0
+          out4 = slice_set_u8 out3 (cursor1 + 1) 65
+          body_end = imm_cursor + 1
+          out5 = slice_set_u8 out4 (body_end - 1) 11
+      in write_const_code_bodies request_handle ownership_mode rest out5 body_end
+
+encode_base64_segment request_handle ownership_mode raw raw_len =
+  let out_len = (((raw_len + 2) / 3) * 4)
+      out = slice_new_u8 out_len
+      pair_out = encode_base64_segment_impl request_handle ownership_mode raw out raw_len 0 0
+      out1 = case pair_out of
+        WritePair x _ -> x
+  in SourceSegment out1 0 out_len
+
+encode_base64_segment_impl request_handle ownership_mode raw out raw_len src_at dst_at =
+  case (src_at + 3) <= raw_len of
+    true ->
+      let b0 = slice_get_u8 raw src_at
+          b1 = slice_get_u8 raw (src_at + 1)
+          b2 = slice_get_u8 raw (src_at + 2)
+          block = (b0 * 65536) + (b1 * 256) + b2
+          out1 = write_base64_quad request_handle ownership_mode out dst_at
+            ((block / 262144) % 64)
+            ((block / 4096) % 64)
+            ((block / 64) % 64)
+            (block % 64)
+      in encode_base64_segment_impl request_handle ownership_mode raw out1 raw_len (src_at + 3) (dst_at + 4)
+    _ ->
+      case src_at < raw_len of
+        true ->
+          let b0 = slice_get_u8 raw src_at
+          in case (src_at + 1) < raw_len of
+            true ->
+              let b1 = slice_get_u8 raw (src_at + 1)
+                  block = (b0 * 65536) + (b1 * 256)
+                  out1 = slice_set_u8 out dst_at (slice_get_u8 base64_alphabet ((block / 262144) % 64))
+                  out2 = slice_set_u8 out1 (dst_at + 1) (slice_get_u8 base64_alphabet ((block / 4096) % 64))
+                  out3 = slice_set_u8 out2 (dst_at + 2) (slice_get_u8 base64_alphabet ((block / 64) % 64))
+                  out4 = slice_set_u8 out3 (dst_at + 3) 61
+              in WritePair out4 (dst_at + 4)
+            _ ->
+              let block = b0 * 65536
+                  out1 = slice_set_u8 out dst_at (slice_get_u8 base64_alphabet ((block / 262144) % 64))
+                  out2 = slice_set_u8 out1 (dst_at + 1) (slice_get_u8 base64_alphabet ((block / 4096) % 64))
+                  out3 = slice_set_u8 out2 (dst_at + 2) 61
+                  out4 = slice_set_u8 out3 (dst_at + 3) 61
+              in WritePair out4 (dst_at + 4)
+        _ -> WritePair out dst_at
+
+write_base64_quad request_handle ownership_mode out dst_at a b c d =
+  let out1 = slice_set_u8 out dst_at (slice_get_u8 base64_alphabet a)
+      out2 = slice_set_u8 out1 (dst_at + 1) (slice_get_u8 base64_alphabet b)
+      out3 = slice_set_u8 out2 (dst_at + 2) (slice_get_u8 base64_alphabet c)
+  in slice_set_u8 out3 (dst_at + 3) (slice_get_u8 base64_alphabet d)
+
+write_literal_bytes request_handle ownership_mode out cursor txt =
+  copy_slice_literal request_handle ownership_mode out cursor (str_to_slice txt)
+
+write_name_ref_bytes request_handle ownership_mode out cursor root =
+  case root of
+    NameRef root_handle root_start root_len ->
+      let out1 = copy_slice_segment request_handle ownership_mode root_handle root_start out cursor root_len 0
+      in WritePair out1 (cursor + root_len)
+
+write_name_ref_with_len request_handle ownership_mode out cursor root =
+  case root of
+    NameRef _ _ root_len ->
+      let pair_len = append_var_u32_bytes request_handle ownership_mode out cursor root_len
+          out1 = case pair_len of
+            WritePair x _ -> x
+          cursor1 = case pair_len of
+            WritePair _ x -> x
+      in write_name_ref_bytes request_handle ownership_mode out1 cursor1 root
+
+write_name_ref_json_escaped request_handle ownership_mode out cursor root =
+  case root of
+    NameRef root_handle root_start root_len ->
+      write_name_ref_json_escaped_impl request_handle ownership_mode root_handle root_start root_len 0 out cursor
+
+write_name_ref_json_escaped_impl request_handle ownership_mode root_handle root_start root_len i out cursor =
+  case i == root_len of
+    true -> WritePair out cursor
+    _ ->
+      let b = slice_get_u8 root_handle (root_start + i)
+      in case (b == 34) || (b == 92) of
+        true ->
+          let out1 = slice_set_u8 out cursor 92
+              out2 = slice_set_u8 out1 (cursor + 1) b
+          in write_name_ref_json_escaped_impl request_handle ownership_mode root_handle root_start root_len (i + 1) out2 (cursor + 2)
+        _ ->
+          let out1 = slice_set_u8 out cursor b
+          in write_name_ref_json_escaped_impl request_handle ownership_mode root_handle root_start root_len (i + 1) out1 (cursor + 1)
+
+write_nonnegative_int_ascii request_handle ownership_mode out cursor value =
+  case value >= 10 of
+    true ->
+      let pair_prefix = write_nonnegative_int_ascii request_handle ownership_mode out cursor (value / 10)
+          out1 = case pair_prefix of
+            WritePair x _ -> x
+          cursor1 = case pair_prefix of
+            WritePair _ x -> x
+          digit = 48 + (value % 10)
+          out2 = slice_set_u8 out1 cursor1 digit
+      in WritePair out2 (cursor1 + 1)
+    _ ->
+      let out1 = slice_set_u8 out cursor (48 + value)
+      in WritePair out1 (cursor + 1)
+
+append_var_u32_bytes request_handle ownership_mode out cursor value =
+  let byte = value % 128
+      rest = value / 128
+  in case rest == 0 of
+    true ->
+      let out1 = slice_set_u8 out cursor byte
+      in WritePair out1 (cursor + 1)
+    _ ->
+      let out1 = slice_set_u8 out cursor (byte + 128)
+      in append_var_u32_bytes request_handle ownership_mode out1 (cursor + 1) rest
+
+append_var_nonnegative_s32_bytes request_handle ownership_mode out cursor value =
+  let byte = value % 128
+      rest = value / 128
+  in case (rest == 0) && (byte < 64) of
+    true ->
+      let out1 = slice_set_u8 out cursor byte
+      in WritePair out1 (cursor + 1)
+    _ ->
+      let out1 = slice_set_u8 out cursor (byte + 128)
+      in case rest == 0 of
+        true ->
+          let out2 = slice_set_u8 out1 (cursor + 1) 0
+          in WritePair out2 (cursor + 2)
+        _ -> append_var_nonnegative_s32_bytes request_handle ownership_mode out1 (cursor + 1) rest
+
+phase1_compile_supports_roots source_handle roots =
+  case roots of
+    Nil -> true
+    Cons root rest ->
+      case root of
+        NameRef root_handle root_start root_len ->
+          let root_is_main =
+                case root_len == slice_len literal_main of
+                  true -> segment_eq_at root_handle root_start literal_main 0 root_len 0
+                  _ -> false
+          in case root_is_main of
+            true -> phase1_compile_supports_roots source_handle rest
+            _ -> false
+
+find_main_def source_handle defs =
+  case defs of
+    Nil -> EvalDefMissing
+    Cons def rest ->
+      case def of
+        ParsedDef name _ _ ->
+          case symbol_eq_literal source_handle name literal_main of
+            true -> EvalDefOk def
+            _ -> find_main_def source_handle rest
+
+parse_top_defs source_handle cursor source_end defs =
+  case (cursor >= source_end) of
+    true -> defs
+    _ ->
+      let line_end = find_line_end source_handle cursor source_end
+          line_indent = line_leading_indent source_handle cursor line_end
+          block_end = find_def_block_end source_handle (next_line_start source_handle line_end source_end) source_end line_indent line_end
+          next_line = next_line_start source_handle block_end source_end
+          parsed_def = parse_top_level_def source_handle cursor block_end
+          defs1 = case parsed_def of
+            ParseDefMissing -> defs
+            ParseDefOk def -> Cons def defs
+      in parse_top_defs source_handle next_line source_end defs1
+
+parse_top_level_def source_handle line_start line_end =
+  let comment_end = find_comment_start source_handle line_start line_end
+      ws = scan_skip_ws source_handle line_start comment_end
+  in case ws >= comment_end of
+    true -> ParseDefMissing
+    _ ->
+      case comment_is_line_start source_handle ws comment_end of
+        true -> ParseDefMissing
+        _ ->
+          case parse_symbol_token source_handle ws comment_end of
+            SymbolMissing -> ParseDefMissing
+            SymbolOk name next ->
+              let cursor0 = scan_skip_ws source_handle next comment_end
+              in case (cursor0 < comment_end && slice_get_u8 source_handle cursor0 == 61) of
+                true -> parse_rhs source_handle name Nil (cursor0 + 1) comment_end
+                _ -> parse_top_level_def_with_params source_handle name cursor0 comment_end Nil
+
+comment_is_line_start source_handle cursor line_end =
+  case (cursor + 1 < line_end) of
+    true ->
+      let b0 = slice_get_u8 source_handle cursor
+          b1 = slice_get_u8 source_handle (cursor + 1)
+      in (b0 == 45) && (b1 == 45)
+    _ -> false
+
+parse_top_level_def_with_params source_handle name cursor comment_end params_rev =
+  let cursor0 = scan_skip_ws source_handle cursor comment_end
+  in case cursor0 >= comment_end of
+    true -> ParseDefMissing
+    _ ->
+      case slice_get_u8 source_handle cursor0 of
+        61 ->
+          parse_rhs source_handle name (reverse_list params_rev) (cursor0 + 1) comment_end
+        _ ->
+          case parse_symbol_token source_handle cursor0 comment_end of
+            SymbolMissing -> ParseDefMissing
+            SymbolOk param next ->
+              parse_top_level_def_with_params source_handle name next comment_end (Cons param params_rev)
+
+parse_rhs source_handle name params rhs_start comment_end =
+  let rhs_start1 = scan_skip_ws source_handle rhs_start comment_end
+  in case rhs_start1 >= comment_end of
+    true -> ParseDefMissing
+    _ ->
+      case parse_expr source_handle comment_end rhs_start1 of
+        ParseExprMissing -> ParseDefMissing
+        ParseExprOk expr next ->
+          let next1 = scan_skip_ws source_handle next comment_end
+          in case next1 == comment_end of
+            true -> ParseDefOk (ParsedDef name params expr)
+            _ -> ParseDefMissing
+
+parse_expr source_handle end cursor =
+  let cursor1 = scan_skip_ws source_handle cursor end
+  in case cursor1 >= end of
+    true -> ParseExprMissing
+    _ ->
+      let b0 = slice_get_u8 source_handle cursor1
+      in case b0 of
+        40 ->
+          case parse_expr source_handle end (cursor1 + 1) of
+            ParseExprMissing -> ParseExprMissing
+            ParseExprOk expr next ->
+              case next < end of
+                true ->
+                  case slice_get_u8 source_handle next == 41 of
+                    true -> ParseExprOk expr (next + 1)
+                    _ -> ParseExprMissing
+                _ -> ParseExprMissing
+        _ ->
+          case is_ascii_digit b0 of
+            true ->
+              case parse_number_token source_handle cursor1 end of
+                NumberMissing -> ParseExprMissing
+                NumberOk value next -> ParseExprOk (ParsedExprInt value) next
+            _ ->
+              case is_identifier_start_byte b0 of
+                true ->
+                  case parse_symbol_token source_handle cursor1 end of
+                    SymbolMissing -> ParseExprMissing
+                    SymbolOk name next ->
+                      case symbol_eq_literal source_handle name literal_case of
+                        true -> parse_case_bool_expr source_handle end next
+                        _ ->
+                          case symbol_eq_literal source_handle name literal_if of
+                            true -> parse_if_expr source_handle end next
+                            _ ->
+                              case symbol_eq_literal source_handle name literal_let of
+                                true -> parse_let_expr source_handle end next
+                                _ -> parse_expr_after_symbol source_handle end next name
+                _ ->
+                  case b0 == 92 of
+                    true -> parse_lambda_expr source_handle end (cursor1 + 1)
+                    _ -> ParseExprMissing
+
+parse_lambda_expr source_handle end cursor =
+  let cursor0 = scan_skip_ws source_handle cursor end
+  in case parse_symbol_token source_handle cursor0 end of
+    SymbolMissing -> ParseExprMissing
+    SymbolOk param next ->
+      case skip_required_arrow source_handle next end of
+        ArrowMissing -> ParseExprMissing
+        ArrowOk body_start ->
+          case parse_expr source_handle end body_start of
+            ParseExprMissing -> ParseExprMissing
+            ParseExprOk body next -> ParseExprOk (ParsedExprLambda param body) next
+
+parse_if_expr source_handle end cursor =
+  case find_keyword_boundary source_handle cursor end literal_then of
+    BoundaryMissing -> ParseExprMissing
+    BoundaryOk cond_end then_start ->
+      case parse_expr source_handle cond_end cursor of
+        ParseExprMissing -> ParseExprMissing
+        ParseExprOk cond _ ->
+          case find_keyword_boundary source_handle then_start end literal_else of
+            BoundaryMissing -> ParseExprMissing
+            BoundaryOk true_end else_start ->
+              case parse_expr source_handle true_end then_start of
+                ParseExprMissing -> ParseExprMissing
+                ParseExprOk when_true _ ->
+                  case parse_expr source_handle end else_start of
+                    ParseExprMissing -> ParseExprMissing
+                    ParseExprOk when_false _ -> ParseExprOk (ParsedExprIf cond when_true when_false) end
+
+parse_let_expr source_handle end cursor =
+  parse_let_bindings source_handle end (scan_skip_ws source_handle cursor end)
+
+parse_let_bindings source_handle end cursor =
+  case parse_symbol_token source_handle cursor end of
+    SymbolMissing -> ParseExprMissing
+    SymbolOk name after_name ->
+      case skip_exact_char source_handle after_name end 61 of
+        SkipCharMissing -> ParseExprMissing
+        SkipCharOk value_start ->
+          case find_keyword_boundary source_handle value_start end literal_in of
+            BoundaryMissing -> ParseExprMissing
+            BoundaryOk in_start body_start ->
+              case find_let_binding_boundary source_handle value_start in_start of
+                LetBindingFinal value_end _ ->
+                  case parse_expr source_handle value_end value_start of
+                    ParseExprMissing -> ParseExprMissing
+                    ParseExprOk bound_value _ ->
+                      case parse_expr source_handle end body_start of
+                        ParseExprMissing -> ParseExprMissing
+                        ParseExprOk body _ -> ParseExprOk (ParsedExprLet name bound_value body) end
+                LetBindingNext value_end next_binding_start ->
+                  case parse_expr source_handle value_end value_start of
+                    ParseExprMissing -> ParseExprMissing
+                    ParseExprOk bound_value _ ->
+                      case parse_let_bindings source_handle end next_binding_start of
+                        ParseExprMissing -> ParseExprMissing
+                        ParseExprOk body _ -> ParseExprOk (ParsedExprLet name bound_value body) end
+
+find_let_binding_boundary source_handle cursor end =
+  find_let_binding_boundary_impl source_handle cursor end 0
+
+find_let_binding_boundary_impl source_handle cursor end depth =
+  case cursor >= end of
+    true -> LetBindingFinal end end
+    _ ->
+      let b0 = slice_get_u8 source_handle cursor
+      in case b0 == 40 of
+        true -> find_let_binding_boundary_impl source_handle (cursor + 1) end (depth + 1)
+        _ ->
+          case b0 == 41 of
+            true ->
+              case depth > 0 of
+                true -> find_let_binding_boundary_impl source_handle (cursor + 1) end (depth - 1)
+                _ -> find_let_binding_boundary_impl source_handle (cursor + 1) end depth
+            _ ->
+              case depth == 0 of
+                true ->
+                  case b0 == 59 of
+                    true -> LetBindingNext cursor (scan_skip_ws source_handle (cursor + 1) end)
+                    _ ->
+                      case b0 == 10 of
+                        true ->
+                          let next_binding_start = scan_skip_ws source_handle (cursor + 1) end
+                          in case is_let_binding_head source_handle next_binding_start end of
+                            true -> LetBindingNext cursor next_binding_start
+                            _ -> find_let_binding_boundary_impl source_handle (cursor + 1) end depth
+                        _ -> find_let_binding_boundary_impl source_handle (cursor + 1) end depth
+                _ -> find_let_binding_boundary_impl source_handle (cursor + 1) end depth
+
+is_let_binding_head source_handle cursor end =
+  case parse_symbol_token source_handle cursor end of
+    SymbolMissing -> false
+    SymbolOk _ after_name ->
+      case skip_exact_char source_handle after_name end 61 of
+        SkipCharOk _ -> true
+        _ -> false
+
+parse_case_bool_expr source_handle end cursor =
+  case parse_expr source_handle end cursor of
+    ParseExprMissing -> ParseExprMissing
+    ParseExprOk target next ->
+      let cursor0 = scan_skip_ws source_handle next end
+      in case parse_symbol_token source_handle cursor0 end of
+        SymbolOk keyword after_of ->
+          case symbol_eq_literal source_handle keyword literal_of of
+            true -> parse_case_true_arm source_handle end target after_of
+            _ -> parse_case_true_arm source_handle end target cursor0
+        SymbolMissing -> parse_case_true_arm source_handle end target cursor0
+
+parse_case_true_arm source_handle end target cursor =
+  let line_end = find_line_end source_handle cursor end
+      cursor0 = scan_skip_ws source_handle cursor line_end
+  in case parse_symbol_token source_handle cursor0 line_end of
+    SymbolOk arm next ->
+      case symbol_eq_literal source_handle arm literal_true of
+        true ->
+          let body_start = skip_case_arrow source_handle next line_end
+          in case parse_expr source_handle line_end body_start of
+            ParseExprMissing -> ParseExprMissing
+            ParseExprOk when_true _ ->
+              parse_case_false_arm source_handle end target when_true (next_line_start source_handle line_end end)
+        _ -> ParseExprMissing
+    SymbolMissing -> ParseExprMissing
+
+parse_case_false_arm source_handle end target when_true cursor =
+  let line_end = find_line_end source_handle cursor end
+      cursor0 = scan_skip_ws source_handle cursor line_end
+  in case cursor0 >= line_end of
+    true -> ParseExprMissing
+    _ ->
+      let b0 = slice_get_u8 source_handle cursor0
+      in case b0 == 95 of
+        true ->
+          let body_start = skip_case_arrow source_handle (cursor0 + 1) line_end
+          in case parse_expr source_handle end body_start of
+            ParseExprMissing -> ParseExprMissing
+            ParseExprOk when_false _ -> ParseExprOk (ParsedExprCaseBool target when_true when_false) end
+        _ ->
+          case parse_symbol_token source_handle cursor0 line_end of
+            SymbolOk arm next ->
+              case symbol_eq_literal source_handle arm literal_false of
+                true ->
+                  let body_start = skip_case_arrow source_handle next line_end
+                  in case parse_expr source_handle end body_start of
+                    ParseExprMissing -> ParseExprMissing
+                    ParseExprOk when_false _ -> ParseExprOk (ParsedExprCaseBool target when_true when_false) end
+                _ -> ParseExprMissing
+            SymbolMissing -> ParseExprMissing
+
+skip_case_arrow source_handle cursor end =
+  let cursor0 = scan_skip_ws source_handle cursor end
+  in case (cursor0 + 1 < end) of
+    true ->
+      let b0 = slice_get_u8 source_handle cursor0
+          b1 = slice_get_u8 source_handle (cursor0 + 1)
+      in case (b0 == 45 && b1 == 62) of
+        true -> scan_skip_ws source_handle (cursor0 + 2) end
+        _ -> cursor0
+    _ -> cursor0
+
+skip_exact_char source_handle cursor end expected =
+  let cursor0 = scan_skip_ws source_handle cursor end
+  in case cursor0 < end of
+    true ->
+      case slice_get_u8 source_handle cursor0 == expected of
+        true -> SkipCharOk (scan_skip_ws source_handle (cursor0 + 1) end)
+        _ -> SkipCharMissing
+    _ -> SkipCharMissing
+
+skip_required_arrow source_handle cursor end =
+  let cursor0 = scan_skip_ws source_handle cursor end
+  in case cursor0 + 1 < end of
+    true ->
+      let b0 = slice_get_u8 source_handle cursor0
+          b1 = slice_get_u8 source_handle (cursor0 + 1)
+      in case (b0 == 45 && b1 == 62) of
+        true -> ArrowOk (scan_skip_ws source_handle (cursor0 + 2) end)
+        _ -> ArrowMissing
+    _ -> ArrowMissing
+
+find_keyword_boundary source_handle cursor end keyword =
+  find_keyword_boundary_loop source_handle (scan_skip_ws source_handle cursor end) end keyword 0
+
+find_keyword_boundary_loop source_handle cursor end keyword depth =
+  case cursor >= end of
+    true -> BoundaryMissing
+    _ ->
+      let b0 = slice_get_u8 source_handle cursor
+      in case b0 == 40 of
+        true -> find_keyword_boundary_loop source_handle (cursor + 1) end keyword (depth + 1)
+        _ ->
+          case b0 == 41 of
+            true ->
+              case depth > 0 of
+                true -> find_keyword_boundary_loop source_handle (cursor + 1) end keyword (depth - 1)
+                _ -> find_keyword_boundary_loop source_handle (cursor + 1) end keyword depth
+            _ ->
+              case depth == 0 of
+                true ->
+                  case token_matches_at source_handle cursor end keyword of
+                    true -> BoundaryOk cursor (scan_skip_ws source_handle (cursor + slice_len keyword) end)
+                    _ -> find_keyword_boundary_loop source_handle (cursor + 1) end keyword depth
+                _ -> find_keyword_boundary_loop source_handle (cursor + 1) end keyword depth
+
+token_matches_at source_handle cursor end keyword =
+  let klen = slice_len keyword
+  in case cursor + klen <= end of
+    true ->
+      case segment_equals_literal source_handle cursor klen keyword of
+        true ->
+          let prev_ok = case cursor == 0 of
+            true -> true
+            _ ->
+              let prev = slice_get_u8 source_handle (cursor - 1)
+              in not (is_identifier_continue_byte prev)
+              next_ok = case cursor + klen >= end of
+                true -> true
+                _ ->
+                  let next = slice_get_u8 source_handle (cursor + klen)
+                  in not (is_identifier_continue_byte next)
+          in prev_ok && next_ok
+        _ -> false
+    _ -> false
+
+parse_expr_after_symbol source_handle end cursor name =
+  let args = parse_call_args source_handle end cursor Nil
+  in case args of
+    ParseArgsMissing -> ParseExprMissing
+    ParseArgsOk arg_exprs next ->
+      case symbol_eq_literal source_handle name literal_true of
+        true ->
+          case arg_exprs of
+            Nil -> ParseExprOk (ParsedExprBool 1) next
+            _ -> ParseExprMissing
+        _ ->
+          case symbol_eq_literal source_handle name literal_false of
+            true ->
+              case arg_exprs of
+                Nil -> ParseExprOk (ParsedExprBool 0) next
+                _ -> ParseExprMissing
+            _ ->
+              case arg_exprs of
+                Nil -> ParseExprOk (ParsedExprVar name) next
+                _ -> ParseExprOk (ParsedExprCall name (reverse_list arg_exprs)) next
+
+parse_call_args source_handle end cursor acc =
+  let cursor1 = scan_skip_ws source_handle cursor end
+  in case cursor1 >= end of
+    true -> ParseArgsOk acc cursor1
+    _ ->
+      case slice_get_u8 source_handle cursor1 of
+        41 -> ParseArgsOk acc cursor1
+        _ ->
+          case parse_expr source_handle end cursor1 of
+            ParseExprMissing -> ParseArgsMissing
+            ParseExprOk arg next -> parse_call_args source_handle end next (Cons arg acc)
+
+parse_symbol_token source_handle start end =
+  case (start < end) of
+    true ->
+      let b0 = slice_get_u8 source_handle start
+      in case is_identifier_start_byte b0 of
+        true ->
+          let symbol_end = parse_identifier_end source_handle start end
+          in SymbolOk (Symbol start (symbol_end - start)) symbol_end
+        _ -> SymbolMissing
+    _ -> SymbolMissing
+
+parse_identifier_end source_handle i end =
+  case (i >= end) of
+    true -> end
+    _ ->
+      let b = slice_get_u8 source_handle i
+      in case is_identifier_continue_byte b of
+        true -> parse_identifier_end source_handle (i + 1) end
+        _ -> i
+
+parse_number_token source_handle start end =
+  case (start < end) of
+    true ->
+      let b0 = slice_get_u8 source_handle start
+      in case is_ascii_digit b0 of
+        true ->
+          let number_end = parse_number_end source_handle (start + 1) end
+              value = parse_number_value source_handle start number_end 0
+          in NumberOk value number_end
+        _ -> NumberMissing
+    _ -> NumberMissing
+
+parse_number_end source_handle i end =
+  case (i >= end) of
+    true -> end
+    _ ->
+      let b = slice_get_u8 source_handle i
+      in case is_ascii_digit b of
+        true -> parse_number_end source_handle (i + 1) end
+        _ -> i
+
+parse_number_value source_handle i end acc =
+  case (i == end) of
+    true -> acc
+    _ ->
+      let d = slice_get_u8 source_handle i
+          acc1 = (acc * 10) + (d - 48)
+      in parse_number_value source_handle (i + 1) end acc1
+
+eval_expr source_handle defs env expr =
+  case expr of
+    ParsedExprInt value -> EvalValueInt value
+    ParsedExprBool value -> EvalValueBool value
+    ParsedExprLambda param body -> EvalValueClosure env param body
+    ParsedExprIf cond when_true when_false ->
+      case eval_expr source_handle defs env cond of
+        EvalValueBool value ->
+          case value == 1 of
+            true -> eval_expr source_handle defs env when_true
+            _ -> eval_expr source_handle defs env when_false
+        EvalValueInt value ->
+          case value /= 0 of
+            true -> eval_expr source_handle defs env when_true
+            _ -> eval_expr source_handle defs env when_false
+        _ -> EvalFail
+    ParsedExprLet name bound_expr body ->
+      let bound_value = eval_expr source_handle defs env bound_expr
+      in case bound_value of
+        EvalFail -> EvalFail
+        _ ->
+          let body_env = Cons (Pair name bound_value) env
+          in eval_expr source_handle defs body_env body
+    ParsedExprCaseBool target when_true when_false ->
+      case eval_expr source_handle defs env target of
+        EvalValueBool value ->
+          case value == 1 of
+            true -> eval_expr source_handle defs env when_true
+            _ -> eval_expr source_handle defs env when_false
+        EvalValueInt value ->
+          case value /= 0 of
+            true -> eval_expr source_handle defs env when_true
+            _ -> eval_expr source_handle defs env when_false
+        _ -> EvalFail
+    ParsedExprVar name ->
+      case lookup_binding source_handle env name of
+        EnvFound value -> value
+        EnvMissing -> eval_var_expr source_handle defs env name
+    ParsedExprCall callee args ->
+      apply_callable_or_expr source_handle defs env callee args
+
+eval_var_expr source_handle defs env name =
+  case is_list_nil_symbol source_handle name of
+    true -> EvalValueList Nil
+    _ ->
+      case find_def source_handle defs name of
+        EvalDefMissing -> EvalFail
+        EvalDefOk (ParsedDef _ params body) ->
+          case list_len params of
+            0 -> eval_expr source_handle defs env body
+            _ -> EvalValueExpr (ParsedExprCall name Nil)
+
+apply_callable source_handle defs env callee args =
+  case primitive_case source_handle callee of
+    0 -> EvalFail
+    1 -> apply_primitive_1 source_handle defs env callee args
+    2 -> apply_primitive_2 source_handle defs env callee args
+    _ -> apply_user_def source_handle defs env callee args
+
+apply_callable_or_expr source_handle defs env callee args =
+  case lookup_binding source_handle env callee of
+    EnvFound value -> apply_args_to_value source_handle defs env value args
+    EnvMissing ->
+      case is_list_nil_symbol source_handle callee of
+        true -> apply_list_nil source_handle defs env args
+        _ ->
+          case is_list_cons_symbol source_handle callee of
+            true -> apply_list_cons source_handle defs env args
+            _ ->
+              case is_list_map_symbol source_handle callee of
+                true -> apply_list_map source_handle defs env callee args
+                _ ->
+                  case is_list_foldl_symbol source_handle callee of
+                    true -> apply_list_foldl source_handle defs env callee args
+                    _ ->
+                      case is_slice_new_u8_symbol source_handle callee of
+                        true -> apply_slice_new_u8 source_handle defs env callee args
+                        _ ->
+                          case is_slice_get_u8_symbol source_handle callee of
+                            true -> apply_slice_get_u8 source_handle defs env callee args
+                            _ ->
+                              case is_slice_set_u8_symbol source_handle callee of
+                                true -> apply_slice_set_u8 source_handle defs env callee args
+                                _ ->
+                                  case parse_int_args source_handle defs env args of
+                                    IntListMissing -> EvalFail
+                                    IntListOk arg_values -> apply_callable source_handle defs env callee arg_values
+
+apply_user_def source_handle defs env callee args =
+  case find_def source_handle defs callee of
+    EvalDefMissing -> EvalFail
+    EvalDefOk (ParsedDef _ params body) ->
+      let arity = list_len params
+          arg_len = list_len args
+      in case (arg_len < arity) of
+        true -> EvalValueExpr (ParsedExprCall callee (ints_to_expr_list args))
+        _ ->
+          let bound = bind_params params args
+              body_env = append_lists bound env
+              body_value = eval_expr source_handle defs body_env body
+          in case (arg_len == arity) of
+            true -> body_value
+            _ ->
+              let remaining = drop_ints arity args
+              in apply_args_to_value source_handle defs body_env body_value remaining
+
+apply_args_to_value source_handle defs env value extra_args =
+  case extra_args of
+    Nil -> value
+    _ ->
+      case value of
+        EvalFail -> EvalFail
+        EvalValueInt _ -> EvalFail
+        EvalValueBool _ -> EvalFail
+        EvalValueList _ -> EvalFail
+        EvalValueClosure closure_env param body ->
+          case extra_args of
+            Nil -> value
+            Cons arg remaining ->
+              let body_env = Cons (Pair param (EvalValueInt arg)) closure_env
+                  body_value = eval_expr source_handle defs body_env body
+              in apply_args_to_value source_handle defs body_env body_value remaining
+        EvalValueExpr expr -> apply_expr_with_args source_handle defs env expr extra_args
+
+apply_expr_with_args source_handle defs env expr extra_args =
+  case expr of
+    ParsedExprInt value ->
+      case extra_args of
+        Nil -> EvalValueInt value
+        _ -> EvalFail
+    ParsedExprBool value ->
+      case extra_args of
+        Nil -> EvalValueBool value
+        _ -> EvalFail
+    ParsedExprLambda param body ->
+      case extra_args of
+        Nil -> EvalValueClosure env param body
+        Cons arg remaining ->
+          let body_env = Cons (Pair param (EvalValueInt arg)) env
+              body_value = eval_expr source_handle defs body_env body
+          in apply_args_to_value source_handle defs body_env body_value remaining
+    ParsedExprIf _ _ _ ->
+      case extra_args of
+        Nil -> eval_expr source_handle defs env expr
+        _ -> EvalFail
+    ParsedExprLet _ _ _ ->
+      case extra_args of
+        Nil -> eval_expr source_handle defs env expr
+        _ -> EvalFail
+    ParsedExprCaseBool _ _ _ ->
+      case extra_args of
+        Nil -> eval_expr source_handle defs env expr
+        _ -> EvalFail
+    ParsedExprVar name -> apply_callable source_handle defs env name extra_args
+    ParsedExprCall callee args ->
+      case expr_list_to_ints args of
+        IntListMissing -> EvalFail
+        IntListOk partial_args ->
+          let combined = append_lists partial_args extra_args
+          in apply_callable source_handle defs env callee combined
+
+apply_primitive_1 source_handle defs env callee args =
+  case list_len args of
+    0 -> EvalValueExpr (ParsedExprCall callee Nil)
+    1 ->
+      case is_id_symbol source_handle callee of
+        true ->
+          let value = list_head args
+          in EvalValueInt value
+        _ -> EvalFail
+    _ -> EvalFail
+
+apply_primitive_2 source_handle defs env callee args =
+  case list_len args of
+    0 -> EvalValueExpr (ParsedExprCall callee Nil)
+    1 -> EvalValueExpr (ParsedExprCall callee (ints_to_expr_list args))
+    2 ->
+      let a = list_head args
+          b = list_head (list_tail args)
+      in case is_eq_symbol source_handle callee of
+        true -> EvalValueBool (case a == b of
+          true -> 1
+          _ -> 0)
+        _ ->
+          case is_ne_symbol source_handle callee of
+            true -> EvalValueBool (case a == b of
+              true -> 0
+              _ -> 1)
+            _ ->
+              case is_lt_symbol source_handle callee of
+                true -> EvalValueBool (case a < b of
+                  true -> 1
+                  _ -> 0)
+                _ ->
+                  case is_le_symbol source_handle callee of
+                    true -> EvalValueBool (case a <= b of
+                      true -> 1
+                      _ -> 0)
+                    _ ->
+                      case is_gt_symbol source_handle callee of
+                        true -> EvalValueBool (case a > b of
+                          true -> 1
+                          _ -> 0)
+                        _ ->
+                          case is_ge_symbol source_handle callee of
+                            true -> EvalValueBool (case a >= b of
+                              true -> 1
+                              _ -> 0)
+                            _ ->
+                              case is_add_symbol source_handle callee of
+                                true -> EvalValueInt (a + b)
+                                _ ->
+                                  case is_mul_symbol source_handle callee of
+                                    true -> EvalValueInt (a * b)
+                                    _ ->
+                                      case is_sub_symbol source_handle callee of
+                                        true -> EvalValueInt (a - b)
+                                        _ ->
+                                          case is_div_symbol source_handle callee of
+                                            true ->
+                                              case b == 0 of
+                                                true -> EvalFail
+                                                _ -> EvalValueInt (a / b)
+                                            _ ->
+                                              case is_mod_symbol source_handle callee of
+                                                true ->
+                                                  case b == 0 of
+                                                    true -> EvalFail
+                                                    _ -> EvalValueInt (a % b)
+                                                _ -> EvalFail
+    _ -> EvalFail
+
+apply_list_nil source_handle defs env args =
+  case list_len args of
+    0 -> EvalValueList Nil
+    _ -> EvalFail
+
+apply_list_cons source_handle defs env args =
+  case list_len args of
+    2 ->
+      let head_expr = list_head args
+          tail_expr = list_head (list_tail args)
+          head_value = eval_expr source_handle defs env head_expr
+          tail_value = eval_expr source_handle defs env tail_expr
+      in case head_value of
+        EvalValueInt head ->
+          case tail_value of
+            EvalValueList tail -> EvalValueList (Cons head tail)
+            _ -> EvalFail
+        _ -> EvalFail
+    _ -> EvalFail
+
+apply_list_map source_handle defs env callee args =
+  case list_len args of
+    0 -> EvalValueExpr (ParsedExprCall callee Nil)
+    1 -> EvalValueExpr (ParsedExprCall callee args)
+    2 ->
+      let map_fn = list_head args
+          list_expr = list_head (list_tail args)
+      in case eval_expr source_handle defs env list_expr of
+        EvalValueList list_values -> eval_list_map source_handle defs env map_fn list_values
+        _ -> EvalFail
+    _ -> EvalFail
+
+eval_list_map source_handle defs env map_fn items =
+  case items of
+    Nil -> EvalValueList Nil
+    Cons head rest ->
+      case apply_expr_with_int_arg source_handle defs env map_fn head of
+        EvalValueInt mapped -> 
+          case eval_list_map source_handle defs env map_fn rest of
+            EvalValueList mapped_rest -> EvalValueList (Cons mapped mapped_rest)
+            _ -> EvalFail
+        _ -> EvalFail
+
+apply_list_foldl source_handle defs env callee args =
+  case list_len args of
+    0 -> EvalValueExpr (ParsedExprCall callee Nil)
+    1 -> EvalValueExpr (ParsedExprCall callee args)
+    2 -> EvalValueExpr (ParsedExprCall callee args)
+    3 ->
+      let fold_fn = list_head args
+          acc_expr = list_head (list_tail args)
+          list_expr = list_head (list_tail (list_tail args))
+      in case eval_expr source_handle defs env acc_expr of
+        EvalValueInt acc ->
+          case eval_expr source_handle defs env list_expr of
+            EvalValueList list_values -> eval_list_foldl source_handle defs env fold_fn acc list_values
+            _ -> EvalFail
+        _ -> EvalFail
+    _ -> EvalFail
+
+eval_list_foldl source_handle defs env fold_fn acc items =
+  case items of
+    Nil -> EvalValueInt acc
+    Cons head rest ->
+      case apply_expr_with_int_pair source_handle defs env fold_fn acc head of
+        EvalValueInt next_acc -> eval_list_foldl source_handle defs env fold_fn next_acc rest
+        _ -> EvalFail
+
+apply_slice_new_u8 source_handle defs env callee args =
+  case list_len args of
+    0 -> EvalValueExpr (ParsedExprCall callee Nil)
+    1 ->
+      case eval_expr source_handle defs env (list_head args) of
+        EvalValueInt size ->
+          case size < 0 of
+            true -> EvalFail
+            _ -> EvalValueList (replicate_zeroes size)
+        _ -> EvalFail
+    _ -> EvalFail
+
+apply_slice_get_u8 source_handle defs env callee args =
+  case list_len args of
+    0 -> EvalValueExpr (ParsedExprCall callee Nil)
+    1 -> EvalValueExpr (ParsedExprCall callee args)
+    2 ->
+      let list_expr = list_head args
+          index_expr = list_head (list_tail args)
+      in case eval_expr source_handle defs env list_expr of
+        EvalValueList items ->
+          case eval_expr source_handle defs env index_expr of
+            EvalValueInt index -> list_get_at items index
+            EvalValueBool index -> list_get_at items index
+            _ -> EvalFail
+        _ -> EvalFail
+    _ -> EvalFail
+
+apply_slice_set_u8 source_handle defs env callee args =
+  case list_len args of
+    0 -> EvalValueExpr (ParsedExprCall callee Nil)
+    1 -> EvalValueExpr (ParsedExprCall callee args)
+    2 -> EvalValueExpr (ParsedExprCall callee args)
+    3 ->
+      let list_expr = list_head args
+          index_expr = list_head (list_tail args)
+          value_expr = list_head (list_tail (list_tail args))
+      in case eval_expr source_handle defs env list_expr of
+        EvalValueList items ->
+          case eval_expr source_handle defs env index_expr of
+            EvalValueInt index ->
+              case eval_expr source_handle defs env value_expr of
+                EvalValueInt value -> list_set_at items index value
+                EvalValueBool value -> list_set_at items index value
+                _ -> EvalFail
+            EvalValueBool index ->
+              case eval_expr source_handle defs env value_expr of
+                EvalValueInt value -> list_set_at items index value
+                EvalValueBool value -> list_set_at items index value
+                _ -> EvalFail
+            _ -> EvalFail
+        _ -> EvalFail
+    _ -> EvalFail
+
+replicate_zeroes count =
+  case count <= 0 of
+    true -> Nil
+    _ -> Cons 0 (replicate_zeroes (count - 1))
+
+list_get_at items index =
+  case index < 0 of
+    true -> EvalFail
+    _ ->
+      case items of
+        Nil -> EvalFail
+        Cons head rest ->
+          case index == 0 of
+            true -> EvalValueInt head
+            _ -> list_get_at rest (index - 1)
+
+list_set_at items index value =
+  case index < 0 of
+    true -> EvalFail
+    _ ->
+      case items of
+        Nil -> EvalFail
+        Cons head rest ->
+          case index == 0 of
+            true -> EvalValueList (Cons value rest)
+            _ ->
+              case list_set_at rest (index - 1) value of
+                EvalValueList next_rest -> EvalValueList (Cons head next_rest)
+                _ -> EvalFail
+
+apply_expr_with_int_arg source_handle defs env fn_expr arg =
+  case apply_expr_with_args source_handle defs env fn_expr (Cons arg Nil) of
+    EvalValueInt value -> EvalValueInt value
+    _ -> EvalFail
+
+apply_expr_with_int_pair source_handle defs env fn_expr first second =
+  case apply_expr_with_args source_handle defs env fn_expr (Cons first (Cons second Nil)) of
+    EvalValueInt value -> EvalValueInt value
+    _ -> EvalFail
+
+primitive_case source_handle callee =
+  case is_add_symbol source_handle callee of
+    true -> 2
+    _ ->
+      case is_eq_symbol source_handle callee of
+        true -> 2
+        _ ->
+          case is_ne_symbol source_handle callee of
+            true -> 2
+            _ ->
+              case is_lt_symbol source_handle callee of
+                true -> 2
+                _ ->
+                  case is_le_symbol source_handle callee of
+                    true -> 2
+                    _ ->
+                      case is_gt_symbol source_handle callee of
+                        true -> 2
+                        _ ->
+                          case is_ge_symbol source_handle callee of
+                            true -> 2
+                            _ ->
+                              case is_mul_symbol source_handle callee of
+                                true -> 2
+                                _ ->
+                                  case is_sub_symbol source_handle callee of
+                                    true -> 2
+                                    _ ->
+                                      case is_div_symbol source_handle callee of
+                                        true -> 2
+                                        _ ->
+                                          case is_mod_symbol source_handle callee of
+                                            true -> 2
+                                            _ ->
+                                              case is_id_symbol source_handle callee of
+                                                true -> 1
+                                                _ -> 0
+
+is_eq_symbol source_handle symbol = symbol_eq_literal source_handle symbol literal_eq
+is_ne_symbol source_handle symbol = symbol_eq_literal source_handle symbol literal_ne
+is_lt_symbol source_handle symbol = symbol_eq_literal source_handle symbol literal_lt
+is_le_symbol source_handle symbol = symbol_eq_literal source_handle symbol literal_le
+is_gt_symbol source_handle symbol = symbol_eq_literal source_handle symbol literal_gt
+is_ge_symbol source_handle symbol = symbol_eq_literal source_handle symbol literal_ge
+is_list_nil_symbol source_handle symbol = symbol_eq_literal source_handle symbol literal_list_nil
+is_list_cons_symbol source_handle symbol = symbol_eq_literal source_handle symbol literal_list_cons
+is_list_map_symbol source_handle symbol = symbol_eq_literal source_handle symbol literal_list_map
+is_list_foldl_symbol source_handle symbol = symbol_eq_literal source_handle symbol literal_list_foldl
+is_slice_new_u8_symbol source_handle symbol = symbol_eq_literal source_handle symbol literal_slice_new_u8
+is_slice_get_u8_symbol source_handle symbol = symbol_eq_literal source_handle symbol literal_slice_get_u8
+is_slice_set_u8_symbol source_handle symbol = symbol_eq_literal source_handle symbol literal_slice_set_u8
+
+is_add_symbol source_handle symbol = symbol_eq_literal source_handle symbol literal_add
+is_mul_symbol source_handle symbol = symbol_eq_literal source_handle symbol literal_mul
+is_sub_symbol source_handle symbol = symbol_eq_literal source_handle symbol literal_sub
+is_div_symbol source_handle symbol = symbol_eq_literal source_handle symbol literal_div
+is_mod_symbol source_handle symbol = symbol_eq_literal source_handle symbol literal_mod
+is_id_symbol source_handle symbol = symbol_eq_literal source_handle symbol literal_id
+
+find_def source_handle defs name =
+  case defs of
+    Nil -> EvalDefMissing
+    Cons def rest ->
+      case def of
+        ParsedDef def_name _ _ ->
+          case symbol_eq source_handle def_name name of
+            true -> EvalDefOk def
+            _ -> find_def source_handle rest name
+
+parse_int_args source_handle defs env args =
+  case args of
+    Nil -> IntListOk Nil
+    Cons head rest ->
+      let parsed_head = eval_expr source_handle defs env head
+          parsed_tail = parse_int_args source_handle defs env rest
+      in case parsed_head of
+        EvalValueInt value ->
+          case parsed_tail of
+            IntListMissing -> IntListMissing
+            IntListOk tail_values -> IntListOk (Cons value tail_values)
+        EvalValueBool value ->
+          case parsed_tail of
+            IntListMissing -> IntListMissing
+            IntListOk tail_values -> IntListOk (Cons value tail_values)
+        _ -> IntListMissing
+
+expr_list_to_ints args =
+  case args of
+    Nil -> IntListOk Nil
+    Cons head rest ->
+      case head of
+        ParsedExprInt value ->
+          let tail = expr_list_to_ints rest
+          in case tail of
+            IntListMissing -> IntListMissing
+            IntListOk values -> IntListOk (Cons value values)
+        ParsedExprBool value ->
+          let tail = expr_list_to_ints rest
+          in case tail of
+            IntListMissing -> IntListMissing
+            IntListOk values -> IntListOk (Cons value values)
+        _ -> IntListMissing
+
+bind_params params args =
+  case params of
+    Nil -> Nil
+    Cons param rest_params ->
+      case args of
+        Nil -> Nil
+        Cons arg rest_args ->
+          Cons (Pair param (EvalValueInt arg)) (bind_params rest_params rest_args)
+
+lookup_binding source_handle env name =
+  case env of
+    Nil -> EnvMissing
+    Cons binding rest ->
+      case binding of
+        Pair bound_name bound_value ->
+          case symbol_eq source_handle bound_name name of
+            true -> EnvFound bound_value
+            _ -> lookup_binding source_handle rest name
+
+append_lists left right =
+  case left of
+    Nil -> right
+    Cons head rest -> Cons head (append_lists rest right)
+
+list_append left right = append_lists left right
+
+list_len list =
+  case list of
+    Nil -> 0
+    Cons _ rest -> 1 + list_len rest
+
+reverse_list list =
+  reverse_list_impl list Nil
+
+reverse_list_impl list acc =
+  case list of
+    Nil -> acc
+    Cons head rest -> reverse_list_impl rest (Cons head acc)
+
+ints_to_expr_list ints =
+  case ints of
+    Nil -> Nil
+    Cons head rest -> Cons (ParsedExprInt head) (ints_to_expr_list rest)
+
+list_head list =
+  case list of
+    Nil -> 0
+    Cons head _ -> head
+
+list_tail list =
+  case list of
+    Nil -> Nil
+    Cons _ rest -> rest
+
+drop_ints n list =
+  case n of
+    0 -> list
+    _ ->
+      case list of
+        Nil -> Nil
+        Cons _ rest -> drop_ints (n - 1) rest
+
+find_line_end source_handle cursor source_end =
+  case (cursor < source_end) of
+    true ->
+      let b0 = slice_get_u8 source_handle cursor
+      in case (b0 == 10 || b0 == 13) of
+        true -> cursor
+        _ -> find_line_end source_handle (cursor + 1) source_end
+    _ -> source_end
+
+line_leading_indent source_handle cursor end =
+  case (cursor >= end) of
+    true -> 0
+    _ ->
+      let b0 = slice_get_u8 source_handle cursor
+      in case (b0 == 32 || b0 == 9) of
+        true -> 1 + line_leading_indent source_handle (cursor + 1) end
+        _ -> 0
+
+find_def_block_end source_handle cursor source_end base_indent last_end =
+  case (cursor >= source_end) of
+    true -> last_end
+    _ ->
+      let line_end = find_line_end source_handle cursor source_end
+          next_line = next_line_start source_handle line_end source_end
+          comment_end = find_comment_start source_handle cursor line_end
+          ws = scan_skip_ws source_handle cursor comment_end
+      in case ws >= comment_end of
+        true -> find_def_block_end source_handle next_line source_end base_indent last_end
+        _ ->
+          let indent = line_leading_indent source_handle cursor ws
+          in case indent > base_indent of
+            true -> find_def_block_end source_handle next_line source_end base_indent line_end
+            _ -> last_end
+
+next_line_start source_handle line_end source_end =
+  case (line_end >= source_end) of
+    true -> source_end
+    _ ->
+      let b0 = slice_get_u8 source_handle line_end
+      in case (b0 == 10) of
+        true -> line_end + 1
+        _ ->
+          case line_end + 1 < source_end of
+            true ->
+              let b1 = slice_get_u8 source_handle (line_end + 1)
+              in case (b0 == 13 && b1 == 10) of
+                true -> line_end + 2
+                _ -> line_end + 1
+            _ -> source_end
+
+find_comment_start source_handle cursor end =
+  case (cursor + 1 < end) of
+    true ->
+      let b0 = slice_get_u8 source_handle cursor
+          b1 = slice_get_u8 source_handle (cursor + 1)
+      in case (b0 == 45 && b1 == 45) of
+        true -> cursor
+        _ -> find_comment_start source_handle (cursor + 1) end
+    _ -> end
+
+symbol_eq source_handle left right =
+  case left of
+    Symbol left_start left_len ->
+      case right of
+        Symbol right_start right_len ->
+          case left_len == right_len of
+            true -> segment_eq_at source_handle left_start source_handle right_start left_len 0
+            _ -> false
+
+symbol_eq_literal source_handle symbol lit =
+  let Symbol start len = symbol
+      lit_len = slice_len lit
+  in case len == lit_len of
+    true -> segment_eq_at source_handle start lit 0 len 0
+    _ -> false

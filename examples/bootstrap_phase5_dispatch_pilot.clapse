@@ -1,0 +1,29 @@
+data Method = Get i64 | Post i64 | UnknownMethod i64
+data Route = Home i64 | Status i64 | UnknownRoute i64
+
+parse_method code = case code of
+  1 -> Get 0
+  2 -> Post 0
+  _ -> UnknownMethod 0
+
+parse_route code = case code of
+  1 -> Home 0
+  2 -> Status 0
+  _ -> UnknownRoute 0
+
+dispatch_known method route = case method of
+  Get _ -> dispatch_get route
+  Post _ -> dispatch_post route
+  _ -> 0
+
+dispatch_get route = case route of
+  Home _ -> 1
+  Status _ -> 2
+  _ -> 0
+
+dispatch_post route = case route of
+  Home _ -> 3
+  Status _ -> 4
+  _ -> 0
+
+main method_code route_code = dispatch_known (parse_method method_code) (parse_route route_code)

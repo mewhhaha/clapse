@@ -1,0 +1,4 @@
+/.cabal/
+/.tmp/
+/out/
+/tree-sitter-clapse/.ts-cache/
