@@ -279,7 +279,7 @@ const OPERATOR_NAME_RE =
 const QUALIFIED_CALL_RE =
   /([A-Za-z_][A-Za-z0-9_']*)\\.([A-Za-z_][A-Za-z0-9_$.']+|[!#$%&*+./<=>?@\\^|~:-]+)/gu;
 const NAME_OR_OPERATOR_TOKEN_RE =
-  /[A-Za-z_][A-Za-z0-9_$.']+|[!#$%&*+./<=>?@\\^|~:-]+/gu;
+  /[A-Za-z_][A-Za-z0-9_$.']*|[!#$%&*+./<=>?@\\^|~:-]+/gu;
 
 function normalizeFunctionName(rawName) {
   const name = String(rawName ?? "").trim();

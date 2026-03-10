@@ -1176,8 +1176,39 @@ function phase1CollectPatternBinders(pattern, binders) {
 }
 
 function phase1FirstStopIndex(tokens, start, stopTokens) {
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
   for (let index = start; index < tokens.length; index += 1) {
-    if (stopTokens.has(tokens[index])) {
+    const token = tokens[index];
+    if (token === "(") {
+      parenDepth += 1;
+      continue;
+    }
+    if (token === "[") {
+      bracketDepth += 1;
+      continue;
+    }
+    if (token === "{") {
+      braceDepth += 1;
+      continue;
+    }
+    if (token === ")" && parenDepth > 0) {
+      parenDepth -= 1;
+      continue;
+    }
+    if (token === "]" && bracketDepth > 0) {
+      bracketDepth -= 1;
+      continue;
+    }
+    if (token === "}" && braceDepth > 0) {
+      braceDepth -= 1;
+      continue;
+    }
+    if (
+      parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 &&
+      stopTokens.has(token)
+    ) {
       return index;
     }
   }
@@ -1242,7 +1273,8 @@ function phase1FindTrailingPatternSequenceArrowStart(tokens, start, stopTokens, 
 }
 
 function phase1ParseSingleTargetCaseArmChain(tokens, start, stopTokens, targetNode) {
-  const pattern = phase1ParsePattern(tokens, start, new Set(["->"]));
+  const armStart = tokens[start] === "|" ? start + 1 : start;
+  const pattern = phase1ParsePattern(tokens, armStart, new Set(["->"]));
   if (pattern === null || tokens[pattern.next] !== "->") {
     return null;
   }
@@ -2768,6 +2800,267 @@ function phase1ExprFromEvaluatedValue(value) {
     return phase1SubstituteExpr(value.body, substitutions);
   }
   return null;
+}
+
+function phase1ExprFromDebugValue(value, depth = 0, seen = new Set()) {
+  if (depth > 64) {
+    return null;
+  }
+  if (Number.isInteger(value)) {
+    return { type: "int", value };
+  }
+  if (typeof value === "boolean") {
+    return { type: "bool", value };
+  }
+  if (typeof value === "string") {
+    return { type: "string", value };
+  }
+  if (Array.isArray(value)) {
+    const elements = [];
+    for (const element of value) {
+      const expr = phase1ExprFromDebugValue(element, depth + 1, seen);
+      if (expr === null) {
+        return null;
+      }
+      elements.push(expr);
+    }
+    return {
+      type: "listLiteral",
+      elements,
+    };
+  }
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  if (seen.has(value)) {
+    return null;
+  }
+  seen.add(value);
+  try {
+    if (value.kind === "record" && value.fields instanceof Map) {
+      const fields = [];
+      for (const [name, fieldValue] of value.fields.entries()) {
+        const expr = phase1ExprFromDebugValue(fieldValue, depth + 1, seen);
+        if (expr === null) {
+          return null;
+        }
+        fields.push({ name, value: expr });
+      }
+      return {
+        type: "record",
+        fields,
+      };
+    }
+    if (value.kind === "ctor") {
+      let expr = {
+        type: "var",
+        name: value.name,
+      };
+      for (const arg of Array.isArray(value.args) ? value.args : []) {
+        const argExpr = phase1ExprFromDebugValue(arg, depth + 1, seen);
+        if (argExpr === null) {
+          return null;
+        }
+        expr = {
+          type: "apply",
+          fn: expr,
+          arg: argExpr,
+        };
+      }
+      return expr;
+    }
+    if (value.kind === "builtin") {
+      return {
+        type: "var",
+        name: value.name,
+      };
+    }
+    if (value.kind === "builtin_partial") {
+      let expr = {
+        type: "var",
+        name: value.name,
+      };
+      for (const arg of Array.isArray(value.args) ? value.args : []) {
+        const argExpr = phase1ExprFromDebugValue(arg, depth + 1, seen);
+        if (argExpr === null) {
+          return null;
+        }
+        expr = {
+          type: "apply",
+          fn: expr,
+          arg: argExpr,
+        };
+      }
+      return expr;
+    }
+    if (value.kind === "function") {
+      const substitutions = new Map();
+      if (value.locals instanceof Map) {
+        for (const [name, localValue] of value.locals.entries()) {
+          const expr = phase1ExprFromDebugValue(localValue, depth + 1, seen);
+          if (expr === null) {
+            return null;
+          }
+          substitutions.set(name, expr);
+        }
+      }
+      const body = substitutions.size === 0
+        ? value.body
+        : phase1SubstituteExpr(value.body, substitutions);
+      return {
+        type: "lambda",
+        params: Array.isArray(value.params) ? [...value.params] : [],
+        body,
+      };
+    }
+    return null;
+  } finally {
+    seen.delete(value);
+  }
+}
+
+function phase1RenderDebugPattern(pattern) {
+  if (!pattern || typeof pattern !== "object") {
+    return "_";
+  }
+  switch (pattern.type) {
+    case "wildcard":
+      return "_";
+    case "binder":
+      return pattern.name;
+    case "bool":
+      return pattern.value ? "true" : "false";
+    case "int":
+      return String(pattern.value);
+    case "record":
+      return `{ ${
+        (Array.isArray(pattern.fields) ? pattern.fields : [])
+          .map((field) => `${field.name} = ${phase1RenderDebugPattern(field.pattern)}`)
+          .join(", ")
+      } }`;
+    case "ctor": {
+      const args = Array.isArray(pattern.args) ? pattern.args : [];
+      if (args.length === 0) {
+        return pattern.name;
+      }
+      return `${pattern.name} ${
+        args.map((arg) => phase1RenderDebugPattern(arg)).join(" ")
+      }`;
+    }
+    default:
+      return "_";
+  }
+}
+
+function phase1IsDebugAtomicExpr(expr) {
+  return !!expr && typeof expr === "object" && (
+    expr.type === "int" ||
+    expr.type === "bool" ||
+    expr.type === "string" ||
+    expr.type === "var" ||
+    expr.type === "listLiteral" ||
+    expr.type === "record"
+  );
+}
+
+function phase1RenderDebugExpr(expr) {
+  if (!expr || typeof expr !== "object") {
+    return "_";
+  }
+  switch (expr.type) {
+    case "int":
+      return String(expr.value);
+    case "bool":
+      return expr.value ? "true" : "false";
+    case "string":
+      return JSON.stringify(expr.value);
+    case "var":
+      return expr.name;
+    case "lambda":
+      return `\\${(Array.isArray(expr.params) ? expr.params : []).join(" ")} -> ${
+        phase1RenderDebugExpr(expr.body)
+      }`;
+    case "listLiteral":
+      return `[${(Array.isArray(expr.elements) ? expr.elements : []).map((element) => phase1RenderDebugExpr(element)).join(", ")}]`;
+    case "record":
+      return `{ ${
+        (Array.isArray(expr.fields) ? expr.fields : [])
+          .map((field) => `${field.name} = ${phase1RenderDebugExpr(field.value)}`)
+          .join(", ")
+      } }`;
+    case "field": {
+      const base = phase1RenderDebugExpr(expr.base);
+      return `${phase1IsDebugAtomicExpr(expr.base) ? base : `(${base})`}.${expr.field}`;
+    }
+    case "recordUpdate":
+      return `${phase1RenderDebugExpr(expr.base)} { ${
+        (Array.isArray(expr.fields) ? expr.fields : [])
+          .map((field) => `${field.name} = ${phase1RenderDebugExpr(field.value)}`)
+          .join(", ")
+      } }`;
+    case "braceApplyOrUpdate":
+      return `${phase1RenderDebugExpr(expr.base)} { ${
+        (Array.isArray(expr.fields) ? expr.fields : [])
+          .map((field) => `${field.name} = ${phase1RenderDebugExpr(field.value)}`)
+          .join(", ")
+      } }`;
+    case "if":
+      return `if ${phase1RenderDebugExpr(expr.cond)} then ${
+        phase1RenderDebugExpr(expr.thenExpr)
+      } else ${phase1RenderDebugExpr(expr.elseExpr)}`;
+    case "let":
+      return `let ${expr.name} = ${phase1RenderDebugExpr(expr.value)} in ${
+        phase1RenderDebugExpr(expr.body)
+      }`;
+    case "letPattern":
+      return `let ${phase1RenderDebugPattern(expr.pattern)} = ${
+        phase1RenderDebugExpr(expr.value)
+      } in ${phase1RenderDebugExpr(expr.body)}`;
+    case "caseBool":
+      return `case ${phase1RenderDebugExpr(expr.target)} of true -> ${
+        phase1RenderDebugExpr(expr.whenTrue)
+      } | _ -> ${phase1RenderDebugExpr(expr.whenFalse)}`;
+    case "caseCtor":
+      return `case ${phase1RenderDebugExpr(expr.target)} of ${
+        phase1RenderDebugPattern(expr.pattern)
+      } -> ${phase1RenderDebugExpr(expr.whenMatch)}${
+        expr.whenFallback
+          ? ` | ${phase1RenderDebugPattern(expr.fallbackPattern ?? { type: "wildcard" })} -> ${
+            phase1RenderDebugExpr(expr.whenFallback)
+          }`
+          : ""
+      }`;
+    case "caseMulti": {
+      const targets = (Array.isArray(expr.targets) ? expr.targets : [])
+        .map((target) => phase1RenderDebugExpr(target))
+        .join(" ");
+      const patterns = (Array.isArray(expr.patterns) ? expr.patterns : [])
+        .map((pattern) => phase1RenderDebugPattern(pattern))
+        .join(" ");
+      const fallbackPatterns = (Array.isArray(expr.fallbackPatterns) ? expr.fallbackPatterns : [])
+        .map((pattern) => phase1RenderDebugPattern(pattern))
+        .join(" ");
+      return `case ${targets} of ${patterns} -> ${
+        phase1RenderDebugExpr(expr.whenMatch)
+      } | ${fallbackPatterns} -> ${phase1RenderDebugExpr(expr.whenFallback)}`;
+    }
+    case "apply": {
+      const flattened = phase1FlattenApply(expr);
+      const renderedCallee = phase1RenderDebugExpr(flattened.callee);
+      const head = phase1IsDebugAtomicExpr(flattened.callee)
+        ? renderedCallee
+        : `(${renderedCallee})`;
+      const args = flattened.args.map((arg) => {
+        const rendered = phase1RenderDebugExpr(arg);
+        return phase1IsDebugAtomicExpr(arg) ? rendered : `(${rendered})`;
+      });
+      return [head, ...args].join(" ");
+    }
+    case "trap":
+      return "trap";
+    default:
+      return "_";
+  }
 }
 
 function phase1SubstituteResolvedFunctionLocalsExpr(value) {
@@ -4379,7 +4672,28 @@ function phase1JoinExpressionParts(parts) {
   if (cleaned.length === 0) {
     return "";
   }
+  const looksLikeCaseArmLine = (line) => {
+    const tokens = phase1TokenizeExpression(String(line ?? "").trim());
+    if (tokens === null || tokens.length < 3) {
+      return false;
+    }
+    const parsed = phase1ParsePattern(tokens, 0, new Set(["->"]));
+    return parsed !== null &&
+      parsed.next < tokens.length &&
+      tokens[parsed.next] === "->";
+  };
   const first = cleaned[0];
+  if (first.startsWith("case ") && first.includes(" of")) {
+    const rendered = [first];
+    for (let index = 1; index < cleaned.length; index += 1) {
+      const current = cleaned[index];
+      if (looksLikeCaseArmLine(current)) {
+        rendered.push("|");
+      }
+      rendered.push(current);
+    }
+    return rendered.join(" ");
+  }
   if (first !== "let" && !first.startsWith("let ")) {
     return cleaned.join(" ");
   }
@@ -7192,6 +7506,32 @@ function phase1StringConstForRoot(sourceText, rootName) {
   return typeof value === "string" ? value : null;
 }
 
+function phase1DebugValueStringForRoot(sourceText, rootName) {
+  const definitions = phase1ParseTopLevelDefinitions(sourceText);
+  if (definitions === null) {
+    return null;
+  }
+  const value = phase1EvaluateNullaryRootValueFromDefinitions(definitions, rootName);
+  const expr = phase1ExprFromDebugValue(value);
+  if (!expr) {
+    return null;
+  }
+  return phase1RenderDebugExpr(phase1ReduceRecordExpr(expr));
+}
+
+function phase1NeedsDebugValueMaterialization(sourceText, rootName) {
+  if (typeof sourceText !== "string" || typeof rootName !== "string" || rootName.length === 0) {
+    return false;
+  }
+  if (phase1TaggedConstForRoot(sourceText, rootName) !== null) {
+    return false;
+  }
+  if (phase1StringConstForRoot(sourceText, rootName) !== null) {
+    return false;
+  }
+  return typeof phase1DebugValueStringForRoot(sourceText, rootName) === "string";
+}
+
 function phase1TaggedConstEntriesForRoots(sourceText, rootNames) {
   if (!Array.isArray(rootNames) || rootNames.length === 0) {
     return null;
@@ -8281,6 +8621,21 @@ function synthesizedCompileOutput(requestObject, responseObject, collapsedSource
       compatibilityUsed: false,
     };
   }
+  const debugValueString = compileRequestNeedsDebugArtifacts(requestObject) &&
+      selectedRoots.length === 1
+    ? phase1DebugValueStringForRoot(collapsedSource, selectedRoots[0])
+    : null;
+  const debugValueWasm = phase1WasmBase64ForStringConst(
+    debugValueString,
+    selectedRoots.length === 1 ? selectedRoots[0] : "main",
+  );
+  if (selectedRoots.length === 1 && typeof debugValueWasm === "string") {
+    return {
+      wasmBase64: debugValueWasm,
+      strategy: "phase1_executable",
+      compatibilityUsed: false,
+    };
+  }
   const multiTaggedEntries = selectedRoots.length > 1
     ? phase1TaggedConstEntriesForRoots(collapsedSource, selectedRoots)
     : null;
@@ -8570,6 +8925,19 @@ function synthesizePhase1CompileResponse(requestObject, responseObject) {
           responseObject.wasm_base64,
           sampledExportEntries,
         );
+        if (
+          compileRequestNeedsDebugArtifacts(requestObject) &&
+          sampledExportEntries.length === 1 &&
+          sampledExportEntries[0]?.arity === 0 &&
+          phase1NeedsDebugValueMaterialization(
+            sampledCollapsed,
+            sampledExportEntries[0].name,
+          )
+        ) {
+          sampledSelectedRootsMatch = false;
+          sampledRawPreferred = false;
+          sampledSourceOracleMatch = false;
+        }
       }
       const rawSampledPreservationAllowed =
         explicitRequestRoots.length === 0 || canSampleSelectedRootOutputs;

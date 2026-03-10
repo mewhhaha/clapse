@@ -404,8 +404,16 @@ must disappear when compiling with `entrypoint_exports=["main"]`.
 produced wasm (`main`) and no longer falls back to structural code-shape checks.
 Current phase-1 coverage includes evaluator-supported `main` forms with pure
 top-level defs and arithmetic primitives (`add`/`mul`/`sub`/`div`/`mod` with `id`
-and partial application), plus fallback to canonical tagged-0 wasm on unsupported
-inputs.
+and partial application). Unsupported debug shapes now fail closed with
+`compile_phase1_unsupported` instead of returning fake stub wasm, and
+`compile-debug-smoke` now locks in both sides of the current helper boundary:
+`maybe_bind`, recursive constructor helpers, `state_pure`, the prelude
+`map_from_list_by` + `map_lookup_by` + `maybe_with_default` lookup chain, and
+alias-bound helper chains like `s = set_from_list_by ...; main = set_member_by ... s`
+still compile, and constructor-valued nullary debug roots now compile too:
+direct `map_from_list_by`, direct `map_lookup_by`, and direct `state_bind`
+roots materialize as deterministic UTF-8 debug-value slices on the executable
+path instead of failing closed or returning fake stub wasm.
 `just semantics-check` now includes `compile-debug-smoke`, `wildcard-demand-check`,
 and `native-program-codegen-semantics-gate` so `pre-tag-verify` enforces
 program-dependent native wasm output shape before release verification.

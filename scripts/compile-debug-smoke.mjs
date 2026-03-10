@@ -3,6 +3,8 @@
 import { runWithArgs } from "./run-clapse-compiler-wasm.mjs";
 import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
 
+const UTF8_DECODER = new TextDecoder();
+
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
@@ -49,6 +51,141 @@ async function runCase(tmpDir, inputPath, command) {
   await runWithArgs([command, inputPath, outputPath, artifactsDir]);
   await assertWasmFile(outputPath, command);
   await assertArtifacts(artifactsDir, command);
+}
+
+async function assertSupportedCompileDebugCase(tmpDir, name, sourceText) {
+  const inputPath = `${tmpDir}/${name}.clapse`;
+  const outputPath = `${tmpDir}/${name}.wasm`;
+  const artifactsDir = `${tmpDir}/${name}-artifacts`;
+  await Deno.writeTextFile(inputPath, sourceText);
+  await runWithArgs([
+    "compile-debug",
+    inputPath,
+    outputPath,
+    artifactsDir,
+  ]);
+  await assertWasmFile(outputPath, name);
+  await assertArtifacts(artifactsDir, name);
+}
+
+async function decodeNullarySliceString(path, exportName = "main") {
+  const bytes = await Deno.readFile(path);
+  const module = await WebAssembly.compile(bytes);
+  const instance = await WebAssembly.instantiate(module, {});
+  const exported = instance.exports?.[exportName];
+  const memory = instance.exports?.memory;
+  assert(
+    typeof exported === "function" && exported.length === 0,
+    `compile-debug-smoke: expected nullary export ${exportName} in ${path}`,
+  );
+  assert(
+    memory instanceof WebAssembly.Memory,
+    `compile-debug-smoke: expected memory export in ${path}`,
+  );
+  const handle = exported();
+  assert(
+    Number.isInteger(handle) && handle >= 0,
+    `compile-debug-smoke: expected non-negative slice handle from ${path}, got ${handle}`,
+  );
+  const view = new DataView(memory.buffer);
+  const dataPtr = view.getUint32(handle, true);
+  const length = view.getUint32(handle + 4, true);
+  const slice = new Uint8Array(memory.buffer, dataPtr, length);
+  return UTF8_DECODER.decode(slice);
+}
+
+async function decodeNullaryTaggedInt(path, exportName = "main") {
+  const bytes = await Deno.readFile(path);
+  const module = await WebAssembly.compile(bytes);
+  const instance = await WebAssembly.instantiate(module, {});
+  const exported = instance.exports?.[exportName];
+  assert(
+    typeof exported === "function" && exported.length === 0,
+    `compile-debug-smoke: expected nullary export ${exportName} in ${path}`,
+  );
+  const raw = exported();
+  assert(
+    Number.isInteger(raw),
+    `compile-debug-smoke: expected integer return from ${path}, got ${raw}`,
+  );
+  assert(
+    (raw & 1) === 1,
+    `compile-debug-smoke: expected tagged integer from ${path}, got raw=${raw}`,
+  );
+  return raw >> 1;
+}
+
+async function assertSupportedCompileDebugStringCase(
+  tmpDir,
+  name,
+  sourceText,
+  expectedString,
+) {
+  const inputPath = `${tmpDir}/${name}.clapse`;
+  const outputPath = `${tmpDir}/${name}.wasm`;
+  const artifactsDir = `${tmpDir}/${name}-artifacts`;
+  await Deno.writeTextFile(inputPath, sourceText);
+  await runWithArgs([
+    "compile-debug",
+    inputPath,
+    outputPath,
+    artifactsDir,
+  ]);
+  await assertWasmFile(outputPath, name);
+  await assertArtifacts(artifactsDir, name);
+  const decoded = await decodeNullarySliceString(outputPath);
+  assert(
+    decoded === expectedString,
+    `compile-debug-smoke: expected ${name} to decode to ${JSON.stringify(expectedString)}, got ${JSON.stringify(decoded)}`,
+  );
+}
+
+async function assertSupportedCompileDebugTaggedIntCase(
+  tmpDir,
+  name,
+  sourceText,
+  expectedValue,
+) {
+  const inputPath = `${tmpDir}/${name}.clapse`;
+  const outputPath = `${tmpDir}/${name}.wasm`;
+  const artifactsDir = `${tmpDir}/${name}-artifacts`;
+  await Deno.writeTextFile(inputPath, sourceText);
+  await runWithArgs([
+    "compile-debug",
+    inputPath,
+    outputPath,
+    artifactsDir,
+  ]);
+  await assertWasmFile(outputPath, name);
+  await assertArtifacts(artifactsDir, name);
+  const decoded = await decodeNullaryTaggedInt(outputPath);
+  assert(
+    decoded === expectedValue,
+    `compile-debug-smoke: expected ${name} to decode to tagged int ${expectedValue}, got ${decoded}`,
+  );
+}
+
+async function assertUnsupportedCompileDebugCase(tmpDir, name, sourceText) {
+  const inputPath = `${tmpDir}/${name}.clapse`;
+  await Deno.writeTextFile(inputPath, sourceText);
+  let message = "";
+  try {
+    await runWithArgs([
+      "compile-debug",
+      inputPath,
+      `${tmpDir}/${name}.wasm`,
+      `${tmpDir}/${name}-artifacts`,
+    ]);
+    throw new Error(
+      `compile-debug-smoke: expected ${name} to fail closed`,
+    );
+  } catch (err) {
+    message = err instanceof Error ? err.message : String(err);
+  }
+  assert(
+    message.includes("compile_phase1_unsupported"),
+    `compile-debug-smoke: expected compile_phase1_unsupported for ${name}, got ${message}`,
+  );
 }
 
 async function run() {
@@ -197,47 +334,202 @@ async function run() {
       requiredDefs: ["main", "keep"],
       forbiddenDefs: ["dead_internal"],
     });
-    const unsupportedInputPath = `${tmpDir}/unsupported_prelude_map.clapse`;
-    await Deno.writeTextFile(
-      unsupportedInputPath,
-      [
-        'import "prelude" { Pair, eq, map_from_list_by, map_lookup_by, maybe_with_default }',
-        "",
-        "export { main }",
-        "",
-        "status_codes =",
-        "  map_from_list_by eq",
-        '    [ Pair "GET" 200',
-        '    , Pair "POST" 201',
-        '    , Pair "DELETE" 204',
-        "    ]",
-        "",
-        "lookup_code method =",
-        "  maybe_with_default 500 (map_lookup_by eq method status_codes)",
-        "",
-        'main = lookup_code "POST"',
-        "",
-      ].join("\n"),
-    );
-    let unsupportedMessage = "";
-    try {
-      await runWithArgs([
-        "compile-debug",
-        unsupportedInputPath,
-        `${tmpDir}/unsupported_prelude_map.wasm`,
-        `${tmpDir}/unsupported-prelude-map-artifacts`,
-      ]);
-      throw new Error(
-        "compile-debug-smoke: expected unsupported prelude-map case to fail closed",
-      );
-    } catch (err) {
-      unsupportedMessage = err instanceof Error ? err.message : String(err);
+    const supportedCases = [
+      {
+        name: "supported_maybe_bind",
+        source: [
+          'import "prelude" { Just, maybe_bind }',
+          "",
+          "export { main }",
+          "",
+          "main =",
+          "  case maybe_bind (Just 201) (\\x -> Just x) of",
+          "    Just y -> y",
+          "    _ -> 0",
+          "",
+        ].join("\n"),
+      },
+      {
+        name: "supported_recursive_constructor_helper",
+        source: [
+          "data List a = Nil | Cons a (List a)",
+          "",
+          "export { main }",
+          "",
+          "insert x xs =",
+          "  case xs of",
+          "    Nil -> Cons x Nil",
+          "    Cons y ys -> Cons y (insert x ys)",
+          "",
+          "head1 xs =",
+          "  case xs of",
+          "    Cons y _ -> y",
+          "    _ -> 0",
+          "",
+          "main = head1 (insert 201 Nil)",
+          "",
+        ].join("\n"),
+      },
+      {
+        name: "supported_state_pure",
+        source: [
+          'import "prelude" { eval_state, state_pure }',
+          "",
+          "export { main }",
+          "",
+          "main = eval_state (state_pure 201) 0",
+          "",
+        ].join("\n"),
+        expectedTaggedInt: 201,
+      },
+      {
+        name: "supported_state_bind_eval",
+        source: [
+          'import "prelude" { get_state, state_bind, state_pure, eval_state }',
+          "",
+          "export { main }",
+          "",
+          "main = eval_state (state_bind get_state (\\x -> state_pure x)) 201",
+          "",
+        ].join("\n"),
+        expectedTaggedInt: 201,
+      },
+      {
+        name: "supported_map_lookup_by_chain",
+        source: [
+          'import "prelude" { Pair, eq, map_from_list_by, map_lookup_by, maybe_with_default }',
+          "",
+          "export { main }",
+          "",
+          "status_codes =",
+          "  map_from_list_by eq",
+          '    [ Pair "GET" 200',
+          '    , Pair "POST" 201',
+          '    , Pair "DELETE" 204',
+          "    ]",
+          "",
+          "lookup_code method =",
+          "  maybe_with_default 500 (map_lookup_by eq method status_codes)",
+          "",
+          'main = lookup_code "POST"',
+          "",
+        ].join("\n"),
+        expectedTaggedInt: 201,
+      },
+      {
+        name: "supported_maybe_with_default_root",
+        source: [
+          'import "prelude" { maybe_with_default, Just }',
+          "",
+          "export { main }",
+          "",
+          "main = maybe_with_default 500 (Just 201)",
+          "",
+        ].join("\n"),
+        expectedTaggedInt: 201,
+      },
+      {
+        name: "supported_eval_reader_bind",
+        source: [
+          'import "prelude" { reader_bind, reader_pure, run_reader }',
+          "",
+          "export { main }",
+          "",
+          "main = run_reader (reader_bind (reader_pure 201) (\\x -> reader_pure x)) 0",
+          "",
+        ].join("\n"),
+        expectedTaggedInt: 201,
+      },
+      {
+        name: "supported_exec_state_root",
+        source: [
+          'import "prelude" { exec_state, state_pure }',
+          "",
+          "export { main }",
+          "",
+          "main = exec_state (state_pure 201) 7",
+          "",
+        ].join("\n"),
+        expectedTaggedInt: 7,
+      },
+      {
+        name: "supported_set_member_by_root",
+        source: [
+          'import "prelude" { eq, set_from_list_by, set_member_by }',
+          "",
+          "export { main }",
+          "",
+          "s = set_from_list_by eq [1, 2, 2]",
+          "main = set_member_by eq 2 s",
+          "",
+        ].join("\n"),
+        expectedString: "true",
+      },
+      {
+        name: "supported_map_from_list_by_root",
+        source: [
+          'import "prelude" { Pair, eq, map_from_list_by }',
+          "",
+          "export { main }",
+          "",
+          'main = map_from_list_by eq [ Pair "POST" 201 ]',
+          "",
+        ].join("\n"),
+        expectedString: 'Map [Pair "POST" 201]',
+      },
+      {
+        name: "supported_map_lookup_by_root",
+        source: [
+          'import "prelude" { Pair, eq, map_from_list_by, map_lookup_by }',
+          "",
+          "export { main }",
+          "",
+          'status_codes = map_from_list_by eq [ Pair "POST" 201 ]',
+          'main = map_lookup_by eq "POST" status_codes',
+          "",
+        ].join("\n"),
+        expectedString: "Just 201",
+      },
+      {
+        name: "supported_state_bind_root",
+        source: [
+          'import "prelude" { get_state, state_bind, state_pure }',
+          "",
+          "export { main }",
+          "",
+          "main = state_bind get_state (\\x -> state_pure x)",
+          "",
+        ].join("\n"),
+        expectedString:
+          "State (\\s0 -> case run_state (State (\\s -> Pair s s)) s0 of Pair value s1 -> run_state (state_pure value) s1)",
+      },
+    ];
+    for (const testCase of supportedCases) {
+      if (Number.isInteger(testCase.expectedTaggedInt)) {
+        await assertSupportedCompileDebugTaggedIntCase(
+          tmpDir,
+          testCase.name,
+          testCase.source,
+          testCase.expectedTaggedInt,
+        );
+      } else if (typeof testCase.expectedString === "string") {
+        await assertSupportedCompileDebugStringCase(
+          tmpDir,
+          testCase.name,
+          testCase.source,
+          testCase.expectedString,
+        );
+      } else {
+        await assertSupportedCompileDebugCase(
+          tmpDir,
+          testCase.name,
+          testCase.source,
+        );
+      }
     }
-    assert(
-      unsupportedMessage.includes("compile_phase1_unsupported"),
-      `compile-debug-smoke: expected compile_phase1_unsupported, got ${unsupportedMessage}`,
+    console.log(
+      "compile-debug-smoke: PASS (4 command forms + entrypoint dce + helper boundary matrix)",
     );
-    console.log("compile-debug-smoke: PASS (4 command forms + entrypoint dce)");
   } finally {
     await Deno.remove(tmpDir, { recursive: true }).catch(() => {});
   }

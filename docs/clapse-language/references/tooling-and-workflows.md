@@ -152,6 +152,16 @@ deno run -A scripts/clapse.mjs bench [iterations]
     evaluated, the boundary returns
     `error_code: "compile_phase1_unsupported"` instead of synthetic tagged
     constants.
+    The remaining fail-closed surface is now narrower than the old prelude helper
+    families: the int-producing prelude map lookup chain and
+    `eval_state (state_bind ...)` stay on a real executable path, and direct
+    constructor-valued debug roots like `map_from_list_by`, direct
+    `map_lookup_by`, and direct `state_bind` now materialize as deterministic
+    UTF-8 debug-value slices instead of failing closed or using fake stub wasm.
+    Demand-driven root stitching now also keeps value-position top-level helpers
+    with short names, so alias-bound chains like
+    `s = set_from_list_by ...; main = set_member_by ... s` no longer get pruned
+    before the request reaches the wasm boundary.
     Wrapper paths
     (`callCompilerWasm`, `callCompilerWasmRaw` with contract validation, and the
     runner CLI) recognize that explicit boundary error and synthesize the stable
