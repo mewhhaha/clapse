@@ -159,10 +159,14 @@ deno run -A scripts/clapse.mjs bench [iterations]
     `map_lookup_by`, and direct `state_bind` now materialize as deterministic
     UTF-8 debug-value slices instead of failing closed or using fake stub wasm.
     Higher-order prelude helper chains now extend through `reader_ap`.
-    The remaining intentional fail-closed helper gap is narrower again:
-    nested-lambda applicative defaults `keep_left_default` /
-    `keep_right_default` still fail closed rather than silently reducing to
-    placeholder wasm.
+    Generic class-default helper dispatch now fails closed once the
+    demand-driven stitcher hits ambiguous instance methods, so helpers like
+    `map_replace_default` / `map_replace`, `ap_default`,
+    `keep_left_default` / `keep_left`, and
+    `keep_right_default` / `keep_right` report
+    `compile_phase1_unsupported` instead of silently reducing to placeholder
+    wasm. Bare class-method roots without enough instance context, such as
+    `pure 201`, also fail closed instead of inventing a container type.
     Demand-driven root stitching now also keeps value-position top-level helpers
     with short names, so alias-bound chains like
     `s = set_from_list_by ...; main = set_member_by ... s` no longer get pruned

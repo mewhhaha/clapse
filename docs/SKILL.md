@@ -415,10 +415,14 @@ direct `map_from_list_by`, direct `map_lookup_by`, and direct `state_bind`
 roots materialize as deterministic UTF-8 debug-value slices on the executable
 path instead of failing closed or returning fake stub wasm. The higher-order
 prelude helper surface now also includes truthful `reader_ap` executable/debug
-roots. The remaining fail-closed helper edge cases are narrower again:
-`keep_left_default` / `keep_right_default` on nested-lambda `Maybe` shapes
-still must report `compile_phase1_unsupported` until the demand-driven helper
-path can preserve truthful semantics for those applicative defaults.
+roots. Generic class-default helper dispatch now fails closed once the
+demand-driven stitcher hits ambiguous instance methods, so helpers like
+`map_replace_default` / `map_replace`, `ap_default`,
+`keep_left_default` / `keep_left`, and
+`keep_right_default` / `keep_right` report
+`compile_phase1_unsupported` instead of silently compiling the wrong stitched
+prelude graph. Bare class-method roots without enough instance context, such as
+`pure 201`, also fail closed instead of inventing a container type.
 `just semantics-check` now includes `compile-debug-smoke`, `wildcard-demand-check`,
 and `native-program-codegen-semantics-gate` so `pre-tag-verify` enforces
 program-dependent native wasm output shape before release verification.

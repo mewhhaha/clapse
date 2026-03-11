@@ -554,6 +554,59 @@ async function run() {
     }
     const unsupportedCases = [
       {
+        name: "unsupported_pure_without_instance_context",
+        source: [
+          'import "prelude" { pure }',
+          "",
+          "export { main }",
+          "",
+          "main = pure 201",
+          "",
+        ].join("\n"),
+      },
+      {
+        name: "unsupported_ap_default_ambiguous_pure",
+        source: [
+          'import "prelude" { Just, ap_default }',
+          "",
+          "export { main }",
+          "",
+          "main =",
+          "  case ap_default (Just (\\x -> x)) (Just 201) of",
+          "    Just x -> x",
+          "    _ -> 0",
+          "",
+        ].join("\n"),
+      },
+      {
+        name: "unsupported_map_replace_default_ambiguous_fmap",
+        source: [
+          'import "prelude" { Just, map_replace_default }',
+          "",
+          "export { main }",
+          "",
+          "main =",
+          "  case map_replace_default 201 (Just 1) of",
+          "    Just x -> x",
+          "    _ -> 0",
+          "",
+        ].join("\n"),
+      },
+      {
+        name: "unsupported_map_replace_ambiguous_fmap",
+        source: [
+          'import "prelude" { Just, map_replace }',
+          "",
+          "export { main }",
+          "",
+          "main =",
+          "  case map_replace 201 (Just 1) of",
+          "    Just x -> x",
+          "    _ -> 0",
+          "",
+        ].join("\n"),
+      },
+      {
         name: "unsupported_keep_left_default_nested_lambda",
         source: [
           'import "prelude" { Just, keep_left_default }',
@@ -568,6 +621,20 @@ async function run() {
         ].join("\n"),
       },
       {
+        name: "unsupported_keep_left_nested_lambda",
+        source: [
+          'import "prelude" { Just, keep_left }',
+          "",
+          "export { main }",
+          "",
+          "main =",
+          "  case keep_left (Just 201) (Just 1) of",
+          "    Just x -> x",
+          "    _ -> 0",
+          "",
+        ].join("\n"),
+      },
+      {
         name: "unsupported_keep_right_default_nested_lambda",
         source: [
           'import "prelude" { Just, keep_right_default }',
@@ -576,6 +643,20 @@ async function run() {
           "",
           "main =",
           "  case keep_right_default (Just 201) (Just 1) of",
+          "    Just x -> x",
+          "    _ -> 0",
+          "",
+        ].join("\n"),
+      },
+      {
+        name: "unsupported_keep_right_nested_lambda",
+        source: [
+          'import "prelude" { Just, keep_right }',
+          "",
+          "export { main }",
+          "",
+          "main =",
+          "  case keep_right (Just 201) (Just 1) of",
           "    Just x -> x",
           "    _ -> 0",
           "",

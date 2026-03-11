@@ -828,7 +828,7 @@ function collectIndentedMethodSpans(lines, blockStart, blockEndExclusive) {
     }
   }
   if (minIndent === null) {
-    return spans;
+    return { spans, ambiguous };
   }
   for (let i = blockStart + 1; i < blockEndExclusive;) {
     const rawLine = lines[i];
@@ -878,7 +878,7 @@ function collectIndentedMethodSpans(lines, blockStart, blockEndExclusive) {
     });
     i = endLine;
   }
-  return spans;
+  return { spans, ambiguous };
 }
 
 function isTopLevelBoundaryLine(rawLine) {
@@ -1026,6 +1026,7 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
   const functionDefLines = [];
   const boundaryLines = [];
   const instanceMethodSpans = new Map();
+  const ambiguousFunctionNames = new Set();
   for (let i = 0; i < lines.length; i += 1) {
     const rawLine = lines[i];
     const trimmed = stripLineComment(rawLine).trim();
@@ -1062,8 +1063,21 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
             break;
           }
         }
-        const blockSpans = collectIndentedMethodSpans(lines, i, blockEnd);
+        const { spans: blockSpans, ambiguous: blockAmbiguous } =
+          collectIndentedMethodSpans(lines, i, blockEnd);
+        for (const name of blockAmbiguous) {
+          ambiguousFunctionNames.add(name);
+          instanceMethodSpans.delete(name);
+        }
         for (const [name, span] of blockSpans.entries()) {
+          if (ambiguousFunctionNames.has(name)) {
+            continue;
+          }
+          if (instanceMethodSpans.has(name)) {
+            instanceMethodSpans.delete(name);
+            ambiguousFunctionNames.add(name);
+            continue;
+          }
           instanceMethodSpans.set(name, span);
         }
       }
@@ -1080,9 +1094,14 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
             break;
           }
         }
-        const blockSpans = collectIndentedMethodSpans(lines, i, blockEnd);
+        const { spans: blockSpans, ambiguous: blockAmbiguous } =
+          collectIndentedMethodSpans(lines, i, blockEnd);
+        for (const name of blockAmbiguous) {
+          ambiguousFunctionNames.add(name);
+          instanceMethodSpans.delete(name);
+        }
         for (const [name, span] of blockSpans.entries()) {
-          if (!instanceMethodSpans.has(name)) {
+          if (!instanceMethodSpans.has(name) && !ambiguousFunctionNames.has(name)) {
             instanceMethodSpans.set(name, span);
           }
         }
@@ -1194,6 +1213,7 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
       ...functionDefLines.map((entry) => entry.name),
       ...instanceMethodSpans.keys(),
     ]),
+    ambiguousFunctionNames,
   };
 }
 
@@ -1386,6 +1406,19 @@ export async function buildDemandDrivenCompileInput(
           span.sourceLines,
           info.functionNames,
         );
+        if (
+          info.ambiguousFunctionNames instanceof Set &&
+          Array.from(refs.unqualifiedRefs).some((token) =>
+            info.ambiguousFunctionNames.has(token)
+          )
+        ) {
+          const ambiguousName = Array.from(refs.unqualifiedRefs).find((token) =>
+            info.ambiguousFunctionNames.has(token)
+          );
+          throw new Error(
+            `compile [error_code=compile_phase1_unsupported] failed for ${normalizedEntryPath}: demand-driven compile input cannot resolve ambiguous instance method '${ambiguousName}'`,
+          );
+        }
         for (const localRef of refs.localRefs) {
           if (!roots.has(localRef)) {
             roots.add(localRef);
@@ -1675,29 +1708,6 @@ export async function buildDemandDrivenCompileInput(
     entrypointExports: rootList,
     inputSourceOverride: mergedSections.join("\n\n"),
   };
-}
-
-function assertNoKnownUnsupportedDemandDrivenPreludeHelpers(
-  inputPath,
-  originalSource,
-  stitchedSource,
-) {
-  const original = String(originalSource ?? "");
-  const stitched = String(stitchedSource ?? "");
-  const unsupportedHelpers = [
-    "keep_left_default",
-    "keep_right_default",
-  ];
-  for (const helper of unsupportedHelpers) {
-    if (
-      new RegExp(`\\b${helper}\\b`, "u").test(original) &&
-      new RegExp(`^${helper}\\b`, "mu").test(stitched)
-    ) {
-      throw new Error(
-        `compile [error_code=compile_phase1_unsupported] failed for ${inputPath}: demand-driven compile input does not yet support ${helper} on this prelude helper shape`,
-      );
-    }
-  }
 }
 
 async function compilePluginsWasm(wasmPath, inputPath, options = {}) {
@@ -2143,14 +2153,6 @@ async function compileViaWasm(wasmPath, inputPath, outputPath, options = {}) {
   const inputSource = typeof options.inputSourceOverride === "string"
     ? options.inputSourceOverride
     : new TextDecoder().decode(await Deno.readFile(inputPath));
-  const originalInputSource = new TextDecoder().decode(await Deno.readFile(inputPath));
-  if (typeof options.inputSourceOverride === "string") {
-    assertNoKnownUnsupportedDemandDrivenPreludeHelpers(
-      inputPath,
-      originalInputSource,
-      options.inputSourceOverride,
-    );
-  }
   const isKernelCompile = isCompilerKernelPath(inputPath);
   const pluginWasmPaths = Array.isArray(options.pluginWasmPaths)
     ? options.pluginWasmPaths
