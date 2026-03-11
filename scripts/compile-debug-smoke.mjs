@@ -503,6 +503,31 @@ async function run() {
         expectedString:
           "State (\\s0 -> case run_state (State (\\s -> Pair s s)) s0 of Pair value s1 -> run_state (state_pure value) s1)",
       },
+      {
+        name: "supported_reader_ap_eval",
+        source: [
+          'import "prelude" { add, reader_ap, reader_pure, run_reader }',
+          "",
+          "export { main }",
+          "",
+          "main = run_reader (reader_ap (reader_pure (\\x -> add x 1)) (reader_pure 200)) 0",
+          "",
+        ].join("\n"),
+        expectedTaggedInt: 201,
+      },
+      {
+        name: "supported_reader_ap_root",
+        source: [
+          'import "prelude" { add, reader_ap, reader_pure }',
+          "",
+          "export { main }",
+          "",
+          "main = reader_ap (reader_pure (\\x -> add x 1)) (reader_pure 200)",
+          "",
+        ].join("\n"),
+        expectedString:
+          "Reader (\\env -> run_reader (Reader (\\__ignored0 -> \\x -> add x 1)) env (run_reader (Reader (\\__ignored0 -> 200)) env))",
+      },
     ];
     for (const testCase of supportedCases) {
       if (Number.isInteger(testCase.expectedTaggedInt)) {
@@ -553,28 +578,6 @@ async function run() {
           "  case keep_right_default (Just 201) (Just 1) of",
           "    Just x -> x",
           "    _ -> 0",
-          "",
-        ].join("\n"),
-      },
-      {
-        name: "unsupported_reader_ap_eval",
-        source: [
-          'import "prelude" { add, reader_ap, reader_pure, run_reader }',
-          "",
-          "export { main }",
-          "",
-          "main = run_reader (reader_ap (reader_pure (\\x -> add x 1)) (reader_pure 200)) 0",
-          "",
-        ].join("\n"),
-      },
-      {
-        name: "unsupported_reader_ap_root",
-        source: [
-          'import "prelude" { add, reader_ap, reader_pure }',
-          "",
-          "export { main }",
-          "",
-          "main = reader_ap (reader_pure (\\x -> add x 1)) (reader_pure 200)",
           "",
         ].join("\n"),
       },

@@ -8087,7 +8087,7 @@ function phase1TopLevelReachabilityInfo(sourceText, requestObject) {
     reachableNames.add(root);
     const graph = phase1CollectReachableDefs(definitions, root);
     if (graph === null) {
-      continue;
+      return null;
     }
     for (const def of graph.orderedDefs) {
       reachableNames.add(def.name);
