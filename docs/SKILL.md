@@ -836,6 +836,7 @@ program-dependent native wasm output shape before release verification.
     result hover through that alias
   - signed closed-record projection chains like `opts.allow` and
     `default_nested.nested.allow`
+  - dotted field completion for signed closed-record values like `opts.`
 - Initialize now advertises kernel-owned completion/signature/semantic/workspace symbol
   capabilities to keep protocol parity with kernel routing.
 - Fixture coverage for migrated methods is now present in

@@ -950,6 +950,39 @@ function resolveRecordFieldType(index, recordTypeText, fieldName) {
   return resolved.length > 0 ? resolved : null;
 }
 
+function listRecordFieldsForType(index, recordTypeText) {
+  const recordType = stripBalancedOuterParens(String(recordTypeText ?? "").trim());
+  if (recordType.length === 0) {
+    return [];
+  }
+  const inlineFields = parseRecordFieldEntries(recordType);
+  if (Array.isArray(inlineFields)) {
+    return inlineFields.map((field) => ({
+      name: field.name,
+      type: field.value,
+    }));
+  }
+  const terms = splitTopLevelApplyTerms(recordType);
+  if (terms.length === 0) {
+    return [];
+  }
+  const alias = buildTypeAliasIndex(index).get(terms[0]);
+  if (!alias) {
+    return [];
+  }
+  const bindings = new Map();
+  for (let i = 0; i < alias.params.length; i += 1) {
+    const actual = terms[i + 1];
+    if (typeof actual === "string" && actual.length > 0) {
+      bindings.set(alias.params[i], actual);
+    }
+  }
+  return Array.from(alias.fields.entries()).map(([name, rawType]) => ({
+    name,
+    type: substituteSimpleTypeVars(rawType, bindings),
+  }));
+}
+
 function projectionChainAtPosition(lineText, character) {
   const text = String(lineText ?? "");
   if (text.length === 0) {
@@ -983,6 +1016,29 @@ function projectionChainAtPosition(lineText, character) {
     tokenRange,
     parts,
     activeIndex,
+  };
+}
+
+function projectionBaseBeforeCursor(lineText, character) {
+  const text = String(lineText ?? "");
+  const pos = Math.max(0, Math.min(Number(character) || 0, text.length));
+  const prefix = text.slice(0, pos);
+  const match = prefix.match(/([A-Za-z_][A-Za-z0-9_$.']*(?:\.[A-Za-z_][A-Za-z0-9_']*)*)\.$/u);
+  if (!match) {
+    return null;
+  }
+  const token = match[1];
+  const parts = token.split(".").filter((part) => part.length > 0);
+  if (parts.length === 0) {
+    return null;
+  }
+  return {
+    token,
+    parts,
+    range: {
+      start: prefix.length - token.length,
+      end: prefix.length,
+    },
   };
 }
 
@@ -1433,7 +1489,7 @@ function buildLocalHover(index, line, character) {
   if (projection !== null) {
     let currentType = inferSimpleExprType(projection.parts[0], env, index);
     if (typeof currentType === "string" && currentType.length > 0) {
-      for (let i = 1; i < projection.parts.length; i += 1) {
+      for (let i = 1; i <= projection.activeIndex; i += 1) {
         currentType = resolveRecordFieldType(index, currentType, projection.parts[i]);
         if (typeof currentType !== "string" || currentType.length === 0) {
           currentType = null;
@@ -1442,13 +1498,16 @@ function buildLocalHover(index, line, character) {
       }
     }
     if (typeof currentType === "string" && currentType.length > 0) {
+      const hoveredLabel = projection.parts.slice(0, projection.activeIndex + 1).join(".");
+      const hoveredStart = projection.tokenRange.start;
+      const hoveredEnd = hoveredStart + hoveredLabel.length;
       return {
         contents: {
           kind: "markdown",
           value:
-            `### ${projection.token}\n\n\`\`\`clapse\n${projection.token} : ${currentType}\n\`\`\``,
+            `### ${hoveredLabel}\n\n\`\`\`clapse\n${hoveredLabel} : ${currentType}\n\`\`\``,
         },
-        range: buildRange(line, projection.tokenRange.start, projection.tokenRange.end),
+        range: buildRange(line, hoveredStart, hoveredEnd),
         backend: "js",
       };
     }
@@ -1973,6 +2032,32 @@ function buildCompletionItemsFromIndex(index, query) {
     }));
 }
 
+function buildRecordProjectionCompletionItems(index, lineText, character, env) {
+  const projection = projectionBaseBeforeCursor(lineText, character);
+  if (projection === null) {
+    return [];
+  }
+  let currentType = inferSimpleExprType(projection.parts[0], env, index);
+  if (typeof currentType !== "string" || currentType.length === 0) {
+    return [];
+  }
+  for (let i = 1; i < projection.parts.length; i += 1) {
+    currentType = resolveRecordFieldType(index, currentType, projection.parts[i]);
+    if (typeof currentType !== "string" || currentType.length === 0) {
+      return [];
+    }
+  }
+  return listRecordFieldsForType(index, currentType)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((field) => ({
+      label: field.name,
+      kind: 5,
+      detail: field.type,
+      sortText: "0",
+      documentation: "",
+    }));
+}
+
 function buildSignatureHelpFromIndex(index, symbol) {
   const symbolText = String(symbol ?? "");
   if (symbolText.length === 0) {
@@ -2456,6 +2541,19 @@ export async function runLspServer() {
         }
         const line = Number(msg.params?.position?.line ?? 0);
         const character = Number(msg.params?.position?.character ?? 0);
+        const lineText = safeTextForLine(String(source).split("\n")[line]);
+        const context = findEnclosingFunctionContext(index, line);
+        const env = context === null ? new Map() : buildLocalTypeEnv(index, context, line);
+        const projectionItems = buildRecordProjectionCompletionItems(
+          index,
+          lineText,
+          character,
+          env,
+        );
+        if (projectionItems.length > 0) {
+          await sendResponse(id, projectionItems);
+          return;
+        }
         const { symbol } = getSymbolPosition(index, line, character);
         const coreResp = await requestKernelCompletion(wasmPath, source, symbol);
         const completionItems = coreResp === null

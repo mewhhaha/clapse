@@ -411,7 +411,7 @@
       "source": "type Options a = { allow: bool, include: Maybe a }\ndefault_options : Options i64\ndefault_options = { allow = true, include = Nothing }\nmain = let opts = default_options in opts.allow\n",
       "hover": {
         "line": 3,
-        "character": 40
+        "character": 42
       },
       "expectedDiagnostics": 0,
       "expectedBackends": {
@@ -419,6 +419,36 @@
       },
       "hoverExpectation": {
         "contains": "opts.allow : bool"
+      }
+    },
+    {
+      "name": "record_projection_hover_intermediate_segment",
+      "source": "type Options a = { allow: bool, include: Maybe a }\ndefault_options : Options i64\ndefault_options = { allow = true, include = Nothing }\nmain = let opts = default_options in opts.allow\n",
+      "hover": {
+        "line": 3,
+        "character": 38
+      },
+      "expectedDiagnostics": 0,
+      "expectedBackends": {
+        "hover": "js"
+      },
+      "hoverExpectation": {
+        "contains": "opts : Options i64"
+      }
+    },
+    {
+      "name": "record_projection_completion_local_alias",
+      "source": "type Options a = { allow: bool, include: Maybe a }\ndefault_options : Options i64\ndefault_options = { allow = true, include = Nothing }\nmain = let opts = default_options in opts.\n",
+      "completion": {
+        "line": 3,
+        "character": 42
+      },
+      "expectedDiagnostics": 0,
+      "expectedBackends": {
+        "completion": "js"
+      },
+      "completionExpectation": {
+        "containsLabel": "allow"
       }
     },
     {

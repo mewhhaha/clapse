@@ -512,7 +512,8 @@ Current targets in `Justfile`:
     top-level functions and `f x` results through those aliases, plus
     constructor-pattern case binders when the scrutinee already has a truthful
     source signature, plus signed closed-record projection chains like
-    `opts.allow` and `default_nested.nested.allow`
+    `opts.allow` and `default_nested.nested.allow`, plus dotted field completion
+    for signed closed-record values like `opts.`
   - definitions
   - completion
   - signature help
