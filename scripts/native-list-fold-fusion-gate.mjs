@@ -26,7 +26,12 @@ async function run() {
   });
   try {
     const sourceText = [
+      'import "prelude" { add, foldl, fmap }',
       "export { main }",
+      "f acc x = add acc x",
+      "z = 0",
+      "g x = add x 1",
+      "xs = Cons 1 (Cons 2 Nil)",
       "main = foldl f z (fmap g xs)",
       "",
     ].join("\n");

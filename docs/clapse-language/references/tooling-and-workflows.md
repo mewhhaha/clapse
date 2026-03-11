@@ -505,7 +505,9 @@ Current targets in `Justfile`:
     source signature and the arguments are locally-known values, plus signed
     nullary top-level defs used as local values, plus shallow structured
     substitutions like `Maybe a -> Maybe a`, plus local aliases to signed
-    top-level functions and `f x` results through those aliases
+    top-level functions and `f x` results through those aliases, plus
+    constructor-pattern case binders when the scrutinee already has a truthful
+    source signature
   - definitions
   - completion
   - signature help

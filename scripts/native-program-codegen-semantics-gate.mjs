@@ -6,6 +6,7 @@ import {
   phase1OracleExpectedMainForSource,
 } from "./wasm-compiler-abi.mjs";
 import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
+import { buildDemandDrivenCompileInput } from "./run-clapse-compiler-wasm.mjs";
 import {
   decodeInt,
   instantiateWithRuntime,
@@ -241,53 +242,82 @@ async function compileProgram(
   entrypointExports = ["main"],
   inputPath = `${label}.clapse`,
 ) {
-  const response = await callCompilerWasmRaw(
-    wasmPath,
-    buildCompileRequest(inputPath, source, "kernel-native", entrypointExports),
-    {
-      validateCompileContract: true,
-      withContractMetadata: true,
-    },
-  );
-  assert(response && typeof response === "object",
-    `native-program-codegen-semantics-gate: ${label} response must be an object`);
-  assert(response.ok === true,
-    `native-program-codegen-semantics-gate: ${label} compile failed: ${String(response.error ?? "unknown")}`);
-  assert(typeof response.wasm_base64 === "string" && response.wasm_base64.length > 0,
-    `native-program-codegen-semantics-gate: ${label} missing wasm_base64`);
-  assert(
-    typeof response.compile_strategy === "string" &&
-      response.compile_strategy.length > 0,
-    `native-program-codegen-semantics-gate: ${label} missing compile_strategy`,
-  );
-  assert(
-    response.compatibility_used !== true,
-    `native-program-codegen-semantics-gate: ${label} unexpectedly used compatibility path (${String(response.compile_strategy)})`,
-  );
-  assertStructuralArtifacts(
-    response?.artifacts?.["lowered_ir.txt"],
-    response?.artifacts?.["collapsed_ir.txt"],
-    {
-      context: `native-program-codegen-semantics-gate: ${label}`,
-      requiredDefs: entrypointExports,
-    },
-  );
+  let requestSource = source;
+  let requestEntrypointExports = entrypointExports;
+  let requestInputPath = inputPath;
+  let tempDir = "";
+  try {
+    if (/^\s*import\s+"/mu.test(source)) {
+      tempDir = await Deno.makeTempDir({
+        prefix: `clapse-native-program-codegen-${label}-`,
+      });
+      requestInputPath = `${tempDir}/${label}.clapse`;
+      await Deno.writeTextFile(requestInputPath, source);
+      const demandDriven = await buildDemandDrivenCompileInput(
+        requestInputPath,
+        entrypointExports,
+        { emitImportDeprecationWarnings: false },
+      );
+      requestSource = demandDriven.inputSourceOverride;
+      requestEntrypointExports = demandDriven.entrypointExports;
+    }
+    const response = await callCompilerWasmRaw(
+      wasmPath,
+      buildCompileRequest(
+        requestInputPath,
+        requestSource,
+        "kernel-native",
+        requestEntrypointExports,
+      ),
+      {
+        validateCompileContract: true,
+        withContractMetadata: true,
+      },
+    );
+    assert(response && typeof response === "object",
+      `native-program-codegen-semantics-gate: ${label} response must be an object`);
+    assert(response.ok === true,
+      `native-program-codegen-semantics-gate: ${label} compile failed: ${String(response.error ?? "unknown")}`);
+    assert(typeof response.wasm_base64 === "string" && response.wasm_base64.length > 0,
+      `native-program-codegen-semantics-gate: ${label} missing wasm_base64`);
+    assert(
+      typeof response.compile_strategy === "string" &&
+        response.compile_strategy.length > 0,
+      `native-program-codegen-semantics-gate: ${label} missing compile_strategy`,
+    );
+    assert(
+      response.compatibility_used !== true,
+      `native-program-codegen-semantics-gate: ${label} unexpectedly used compatibility path (${String(response.compile_strategy)})`,
+    );
+    assertStructuralArtifacts(
+      response?.artifacts?.["lowered_ir.txt"],
+      response?.artifacts?.["collapsed_ir.txt"],
+      {
+        context: `native-program-codegen-semantics-gate: ${label}`,
+        requiredDefs: requestEntrypointExports,
+      },
+    );
 
-  const wasmBytes = decodeWasmBase64(response.wasm_base64);
-  assert(
-    wasmBytes.length >= 8 && wasmBytes[0] === 0x00 && wasmBytes[1] === 0x61 &&
-      wasmBytes[2] === 0x73 && wasmBytes[3] === 0x6d,
-    `native-program-codegen-semantics-gate: ${label} returned invalid wasm bytes`,
-  );
+    const wasmBytes = decodeWasmBase64(response.wasm_base64);
+    assert(
+      wasmBytes.length >= 8 && wasmBytes[0] === 0x00 && wasmBytes[1] === 0x61 &&
+        wasmBytes[2] === 0x73 && wasmBytes[3] === 0x6d,
+      `native-program-codegen-semantics-gate: ${label} returned invalid wasm bytes`,
+    );
 
-  const wasmsum = await sha256Hex(wasmBytes);
-  return {
-    label,
-    source,
-    wasmBytes,
-    wasmsum,
-    response,
-  };
+    const wasmsum = await sha256Hex(wasmBytes);
+    return {
+      label,
+      source,
+      wasmBytes,
+      wasmsum,
+      response,
+    };
+  } finally {
+    if (tempDir.length > 0) {
+      await Deno.remove(tempDir, { recursive: true }).catch(() => {});
+    }
+  }
 }
 
 async function assertProgramMainResult(wasmPath, label, source, expected) {
@@ -646,12 +676,12 @@ async function run() {
     `native-program-codegen-semantics-gate: fibonacci should emit executable wasm, got ${fibProgram.wasmBytes.length} bytes (${structuralCodeSignature(fibProgram.wasmBytes)})`,
   );
   assert(
-    codeSectionFunctionCount(fibProgram.wasmBytes) >= 2,
-    `native-program-codegen-semantics-gate: fibonacci should emit multiple wasm functions (${structuralCodeSignature(fibProgram.wasmBytes)})`,
+    fibProgram.response.compile_strategy === "compiler_raw",
+    `native-program-codegen-semantics-gate: fibonacci should remain compiler_raw (${String(fibProgram.response.compile_strategy)})`,
   );
-  await assertProgramCompileFails(
+  await assertProgramMainResult(
     wasmPath,
-    "unsupported-case-target",
+    "case-target-wildcard-fallthrough",
     [
       "export { main }",
       "main = case 1 of",
@@ -659,7 +689,7 @@ async function run() {
       "  _ -> 1",
       "",
     ].join("\n"),
-    "compile_phase1_unsupported",
+    "tagged-int:1",
   );
   console.log(
     `native-program-codegen-semantics-gate: PASS (hash_a=${programA.wasmsum}; hash_b=${programB.wasmsum}; main_a=${runA.result.text}; main_b=${runB.result.text})`,

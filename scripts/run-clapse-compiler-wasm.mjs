@@ -1243,7 +1243,7 @@ function collectFunctionReferencesFromSpan(spanSource, localFunctionNames) {
   return { localRefs, qualifiedRefs, unqualifiedRefs };
 }
 
-async function buildDemandDrivenCompileInput(
+export async function buildDemandDrivenCompileInput(
   entryPath,
   entrypointExportsRaw,
   options = {},

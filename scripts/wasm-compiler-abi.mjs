@@ -6,6 +6,7 @@ import {
 
 const UTF8_ENCODER = new TextEncoder();
 const UTF8_DECODER = new TextDecoder();
+const REPO_ROOT_URL = new URL("../", import.meta.url);
 const MIN_STABLE_KERNEL_COMPILER_BYTES = 16 * 1024;
 const COMPILE_DEBUG_ARTIFACT_FILES = [
   "lowered_ir.txt",
@@ -52,6 +53,10 @@ function fromBase64(input) {
     out[i] = raw.charCodeAt(i);
   }
   return out;
+}
+
+function toPath(url) {
+  return decodeURIComponent(url.pathname);
 }
 
 
@@ -8507,6 +8512,13 @@ function phase1ResolveQuotedImportPath(importerPath, specifier, virtualSources =
     const content = phase1ReadTextSourceIfExists(candidate, virtualSources);
     if (typeof content === "string") {
       return candidate;
+    }
+  }
+  if (specifier === "prelude" || specifier === "compiler/prelude") {
+    const preludePath = toPath(new URL("lib/compiler/prelude.clapse", REPO_ROOT_URL));
+    const content = phase1ReadTextSourceIfExists(preludePath, virtualSources);
+    if (typeof content === "string") {
+      return preludePath;
     }
   }
   return "";

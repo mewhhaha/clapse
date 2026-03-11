@@ -2,6 +2,7 @@
 
 import { callCompilerWasmRaw, decodeWasmBase64 } from "./wasm-compiler-abi.mjs";
 import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
+import { buildDemandDrivenCompileInput } from "./run-clapse-compiler-wasm.mjs";
 
 function assert(condition, message) {
   if (!condition) {
@@ -187,9 +188,18 @@ async function run() {
     ].join("\n");
     await Deno.writeTextFile(preludeInputPath, preludeSource);
 
+    const preludeBaselineInput = await buildDemandDrivenCompileInput(
+      preludeInputPath,
+      null,
+      { emitImportDeprecationWarnings: false },
+    );
     const preludeBaselineResponse = await callCompilerWasmRaw(
       wasmPath,
-      buildCompileRequest(preludeInputPath, preludeSource),
+      buildCompileRequest(
+        preludeInputPath,
+        preludeBaselineInput.inputSourceOverride,
+        preludeBaselineInput.entrypointExports,
+      ),
       {
         validateCompileContract: true,
         withContractMetadata: true,
@@ -204,9 +214,18 @@ async function run() {
       requiredDefs: ["main", "numbers", "dead_bool", "dead_maybe"],
     });
 
+    const preludeSubsetInput = await buildDemandDrivenCompileInput(
+      preludeInputPath,
+      ["main"],
+      { emitImportDeprecationWarnings: false },
+    );
     const preludeSubsetResponse = await callCompilerWasmRaw(
       wasmPath,
-      buildCompileRequest(preludeInputPath, preludeSource, ["main"]),
+      buildCompileRequest(
+        preludeInputPath,
+        preludeSubsetInput.inputSourceOverride,
+        preludeSubsetInput.entrypointExports,
+      ),
       {
         validateCompileContract: true,
         withContractMetadata: true,

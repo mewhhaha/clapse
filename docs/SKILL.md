@@ -826,6 +826,8 @@ program-dependent native wasm output shape before release verification.
     including parenthesized and nested signed calls
   - signed nullary top-level defs used as local values
   - shallow structured substitutions in signed calls like `Maybe a -> Maybe a`
+  - constructor-pattern case binders when the scrutinee already has a truthful
+    source signature
   - local aliases to signed top-level functions, including subsequent `f x`
     result hover through that alias
 - Initialize now advertises kernel-owned completion/signature/semantic/workspace symbol

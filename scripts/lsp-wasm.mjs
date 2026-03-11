@@ -779,6 +779,44 @@ function splitTopLevelApplyTerms(exprText) {
   return terms;
 }
 
+function splitTopLevelAlternatives(text, separator = "|") {
+  const input = String(text ?? "").trim();
+  if (input.length === 0) {
+    return [];
+  }
+  const parts = [];
+  let depthParen = 0;
+  let depthBracket = 0;
+  let depthBrace = 0;
+  let start = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    const ch = input[i];
+    if (ch === "(") depthParen += 1;
+    else if (ch === ")") depthParen = Math.max(0, depthParen - 1);
+    else if (ch === "[") depthBracket += 1;
+    else if (ch === "]") depthBracket = Math.max(0, depthBracket - 1);
+    else if (ch === "{") depthBrace += 1;
+    else if (ch === "}") depthBrace = Math.max(0, depthBrace - 1);
+    else if (
+      ch === separator &&
+      depthParen === 0 &&
+      depthBracket === 0 &&
+      depthBrace === 0
+    ) {
+      const part = input.slice(start, i).trim();
+      if (part.length > 0) {
+        parts.push(part);
+      }
+      start = i + 1;
+    }
+  }
+  const finalPart = input.slice(start).trim();
+  if (finalPart.length > 0) {
+    parts.push(finalPart);
+  }
+  return parts;
+}
+
 function stripBalancedOuterParens(exprText) {
   let text = String(exprText ?? "").trim();
   while (text.startsWith("(") && text.endsWith(")")) {
@@ -809,6 +847,57 @@ function stripBalancedOuterParens(exprText) {
     text = text.slice(1, -1).trim();
   }
   return text;
+}
+
+function buildDataConstructorIndex(index) {
+  const cached = index?.dataConstructors;
+  if (cached instanceof Map) {
+    return cached;
+  }
+  const sourceLines = String(index?.sourceText ?? "").split("\n");
+  const constructors = new Map();
+  for (const rawLine of sourceLines) {
+    if (leadingIndentCount(rawLine) > 0) {
+      continue;
+    }
+    const trimmed = safeTextForLine(rawLine).trim();
+    if (!trimmed.startsWith("data ")) {
+      continue;
+    }
+    const match = trimmed.match(/^data\s+([A-Z][A-Za-z0-9_']*)(.*)$/u);
+    if (!match) {
+      continue;
+    }
+    const typeName = match[1];
+    const rest = String(match[2] ?? "");
+    const eqAt = rest.indexOf("=");
+    if (eqAt < 0) {
+      continue;
+    }
+    const paramText = rest.slice(0, eqAt).trim();
+    const typeParams = splitTopLevelApplyTerms(paramText)
+      .filter((part) => /^[a-z][A-Za-z0-9_']*$/u.test(part));
+    const ctorText = rest.slice(eqAt + 1).trim();
+    for (const alternative of splitTopLevelAlternatives(ctorText, "|")) {
+      const terms = splitTopLevelApplyTerms(alternative);
+      if (terms.length === 0) {
+        continue;
+      }
+      const ctorName = terms[0];
+      if (!/^[A-Z][A-Za-z0-9_']*$/u.test(ctorName)) {
+        continue;
+      }
+      constructors.set(ctorName, {
+        typeName,
+        typeParams,
+        fieldTypes: terms.slice(1),
+      });
+    }
+  }
+  if (index && typeof index === "object") {
+    index.dataConstructors = constructors;
+  }
+  return constructors;
 }
 
 function sourceSignaturePartsForSymbol(index, symbol) {
@@ -999,6 +1088,78 @@ function buildLocalTypeEnv(index, context, uptoLine) {
   return env;
 }
 
+function inferCaseBinderType(index, context, line, symbol, env) {
+  if (context === null || typeof symbol !== "string" || symbol.length === 0) {
+    return null;
+  }
+  const sourceLines = String(index?.sourceText ?? "").split("\n");
+  const rawLine = safeTextForLine(sourceLines[line]);
+  const trimmed = rawLine.trim().replace(/^\|\s*/u, "");
+  const armMatch = trimmed.match(/^([A-Z][A-Za-z0-9_']*)(?:\s+(.*?))?\s*->/u);
+  if (!armMatch) {
+    return null;
+  }
+  const ctorName = armMatch[1];
+  const binderTerms = splitTopLevelApplyTerms(String(armMatch[2] ?? ""))
+    .filter((part) => /^[A-Za-z_][A-Za-z0-9_$.']*$/u.test(part) && part !== "_");
+  const binderIndex = binderTerms.indexOf(symbol);
+  if (binderIndex < 0) {
+    return null;
+  }
+  const ctorInfo = buildDataConstructorIndex(index).get(ctorName);
+  if (!ctorInfo || binderIndex >= ctorInfo.fieldTypes.length) {
+    return null;
+  }
+  const baseIndent = Number.isFinite(context?.definitionLine)
+    ? leadingIndentCount(safeTextForLine(sourceLines[context.definitionLine]))
+    : 0;
+  const caseStack = [];
+  for (let currentLine = context.definitionLine; currentLine <= line; currentLine += 1) {
+    const currentRaw = safeTextForLine(sourceLines[currentLine]);
+    const currentTrimmed = currentRaw.trim();
+    if (currentTrimmed.length === 0 || currentTrimmed.startsWith("--")) {
+      continue;
+    }
+    const indent = leadingIndentCount(currentRaw);
+    while (caseStack.length > 0 && indent <= caseStack[caseStack.length - 1].indent) {
+      caseStack.pop();
+    }
+    const caseMatch = currentTrimmed.match(/^(?:[A-Za-z_][A-Za-z0-9_$.']*\s*=\s*)?case\s+(.+?)\s+of\s*$/u);
+    if (
+      caseMatch &&
+      indent >= baseIndent
+    ) {
+      const scrutineeType = inferSimpleExprType(caseMatch[1], env, index);
+      caseStack.push({ indent, scrutineeType });
+    }
+    if (currentLine !== line) {
+      continue;
+    }
+    const activeCase = caseStack[caseStack.length - 1] ?? null;
+    const scrutineeType = String(activeCase?.scrutineeType ?? "").trim();
+    if (scrutineeType.length === 0) {
+      return null;
+    }
+    const scrutineeTerms = splitTopLevelApplyTerms(stripBalancedOuterParens(scrutineeType));
+    if (scrutineeTerms.length === 0 || scrutineeTerms[0] !== ctorInfo.typeName) {
+      return null;
+    }
+    if (scrutineeTerms.length !== ctorInfo.typeParams.length + 1) {
+      return null;
+    }
+    const bindings = new Map();
+    for (let i = 0; i < ctorInfo.typeParams.length; i += 1) {
+      bindings.set(ctorInfo.typeParams[i], scrutineeTerms[i + 1]);
+    }
+    const fieldType = substituteSimpleTypeVars(
+      ctorInfo.fieldTypes[binderIndex],
+      bindings,
+    );
+    return fieldType.length > 0 ? fieldType : null;
+  }
+  return null;
+}
+
 function inferParamTypeFromContext(index, context, symbol) {
   if (typeof symbol !== "string" || symbol.length === 0) {
     return null;
@@ -1075,6 +1236,7 @@ function buildLocalHover(index, line, character) {
   const context = findEnclosingFunctionContext(index, line);
   const env = context === null ? new Map() : buildLocalTypeEnv(index, context, line);
   const inferredType = env.get(token.symbol) ??
+    inferCaseBinderType(index, context, line, token.symbol, env) ??
     (context === null ? null : inferParamTypeFromContext(index, context, token.symbol)) ??
     inferParamTypeFromCurrentLine(index, line, token.symbol);
   if (typeof inferredType !== "string" || inferredType.length === 0) {

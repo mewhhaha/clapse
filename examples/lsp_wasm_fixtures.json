@@ -266,6 +266,36 @@
       }
     },
     {
+      "name": "value_hover_case_binder_type_from_signature",
+      "source": "data Maybe a = Nothing | Just a\nmain : Maybe i64 -> i64\nmain x =\n  case x of\n    Just y -> y\n    Nothing -> 0\n",
+      "hover": {
+        "line": 4,
+        "character": 10
+      },
+      "expectedDiagnostics": 0,
+      "expectedBackends": {
+        "hover": "js"
+      },
+      "hoverExpectation": {
+        "contains": "y : i64"
+      }
+    },
+    {
+      "name": "value_hover_case_pair_binder_type_from_signature",
+      "source": "data Pair a b = Pair a b\nmain : Pair string i64 -> i64\nmain pair =\n  case pair of\n    Pair left right -> right\n",
+      "hover": {
+        "line": 4,
+        "character": 19
+      },
+      "expectedDiagnostics": 0,
+      "expectedBackends": {
+        "hover": "js"
+      },
+      "hoverExpectation": {
+        "contains": "right : i64"
+      }
+    },
+    {
       "name": "value_hover_let_callable_alias_type_from_signature",
       "source": "inc : i64 -> i64\ninc x = x\nmain : i64 -> i64\nmain x =\n  let\n    f = inc\n    y = f x\n  in y\n",
       "hover": {
