@@ -413,7 +413,11 @@ alias-bound helper chains like `s = set_from_list_by ...; main = set_member_by .
 still compile, and constructor-valued nullary debug roots now compile too:
 direct `map_from_list_by`, direct `map_lookup_by`, and direct `state_bind`
 roots materialize as deterministic UTF-8 debug-value slices on the executable
-path instead of failing closed or returning fake stub wasm.
+path instead of failing closed or returning fake stub wasm. The remaining
+fail-closed helper edge cases now include `reader_ap` and the applicative
+default combinators `keep_left_default` / `keep_right_default` on nested-lambda
+`Maybe` shapes; those must report `compile_phase1_unsupported` rather than
+overflowing the JS reducer stack.
 `just semantics-check` now includes `compile-debug-smoke`, `wildcard-demand-check`,
 and `native-program-codegen-semantics-gate` so `pre-tag-verify` enforces
 program-dependent native wasm output shape before release verification.

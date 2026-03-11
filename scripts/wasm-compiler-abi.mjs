@@ -9577,6 +9577,28 @@ function assertCompilerAbiOutputContract(responseObject) {
   };
 }
 
+function synthesizePhase1CompileResponseSafe(requestObject, responseObject) {
+  try {
+    return synthesizePhase1CompileResponse(requestObject, responseObject);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (
+      err instanceof RangeError ||
+      /Maximum call stack size exceeded/u.test(message)
+    ) {
+      return buildPlaceholderCompileError(
+        responseObject,
+        PHASE1_UNSUPPORTED_ERROR_CODE,
+        "phase-1 synthesis exceeded reduction limits for this program shape",
+        {
+          reason: "phase1_reduction_stack_overflow",
+        },
+      );
+    }
+    throw err;
+  }
+}
+
 function validateCompileResponseContract(
   requestObject,
   responseObject,
@@ -9588,7 +9610,7 @@ function validateCompileResponseContract(
     throw new Error("compile response: missing boolean 'ok'");
   }
   if (boundaryResponse.ok !== true) {
-    const synthesizedFromError = synthesizePhase1CompileResponse(
+    const synthesizedFromError = synthesizePhase1CompileResponseSafe(
       requestObject,
       boundaryResponse,
     );
@@ -9600,7 +9622,7 @@ function validateCompileResponseContract(
       return boundaryResponse;
     }
   }
-  const phase1Synthesized = synthesizePhase1CompileResponse(
+  const phase1Synthesized = synthesizePhase1CompileResponseSafe(
     requestObject,
     boundaryResponse,
   );
@@ -9831,7 +9853,7 @@ export async function callCompilerWasmRaw(path, requestObject, options = {}) {
   }
   let response = decodeResponseBytes(runtime, responseHandle);
   if (isCompileLikeRequest(requestForWire)) {
-    const phase1Synthesized = synthesizePhase1CompileResponse(
+    const phase1Synthesized = synthesizePhase1CompileResponseSafe(
       requestForWire,
       response,
     );

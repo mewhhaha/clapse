@@ -158,6 +158,10 @@ deno run -A scripts/clapse.mjs bench [iterations]
     constructor-valued debug roots like `map_from_list_by`, direct
     `map_lookup_by`, and direct `state_bind` now materialize as deterministic
     UTF-8 debug-value slices instead of failing closed or using fake stub wasm.
+    Current intentional fail-closed helper gaps are narrower: `reader_ap`, plus
+    `keep_left_default` / `keep_right_default` on nested-lambda `Maybe` shapes,
+    must now surface `compile_phase1_unsupported` instead of reducer-stack
+    overflow.
     Demand-driven root stitching now also keeps value-position top-level helpers
     with short names, so alias-bound chains like
     `s = set_from_list_by ...; main = set_member_by ... s` no longer get pruned

@@ -527,6 +527,65 @@ async function run() {
         );
       }
     }
+    const unsupportedCases = [
+      {
+        name: "unsupported_keep_left_default_nested_lambda",
+        source: [
+          'import "prelude" { Just, keep_left_default }',
+          "",
+          "export { main }",
+          "",
+          "main =",
+          "  case keep_left_default (Just 201) (Just 1) of",
+          "    Just x -> x",
+          "    _ -> 0",
+          "",
+        ].join("\n"),
+      },
+      {
+        name: "unsupported_keep_right_default_nested_lambda",
+        source: [
+          'import "prelude" { Just, keep_right_default }',
+          "",
+          "export { main }",
+          "",
+          "main =",
+          "  case keep_right_default (Just 201) (Just 1) of",
+          "    Just x -> x",
+          "    _ -> 0",
+          "",
+        ].join("\n"),
+      },
+      {
+        name: "unsupported_reader_ap_eval",
+        source: [
+          'import "prelude" { add, reader_ap, reader_pure, run_reader }',
+          "",
+          "export { main }",
+          "",
+          "main = run_reader (reader_ap (reader_pure (\\x -> add x 1)) (reader_pure 200)) 0",
+          "",
+        ].join("\n"),
+      },
+      {
+        name: "unsupported_reader_ap_root",
+        source: [
+          'import "prelude" { add, reader_ap, reader_pure }',
+          "",
+          "export { main }",
+          "",
+          "main = reader_ap (reader_pure (\\x -> add x 1)) (reader_pure 200)",
+          "",
+        ].join("\n"),
+      },
+    ];
+    for (const testCase of unsupportedCases) {
+      await assertUnsupportedCompileDebugCase(
+        tmpDir,
+        testCase.name,
+        testCase.source,
+      );
+    }
     console.log(
       "compile-debug-smoke: PASS (4 command forms + entrypoint dce + helper boundary matrix)",
     );

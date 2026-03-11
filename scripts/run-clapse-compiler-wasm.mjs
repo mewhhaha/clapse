@@ -1677,6 +1677,29 @@ export async function buildDemandDrivenCompileInput(
   };
 }
 
+function assertNoKnownUnsupportedDemandDrivenPreludeHelpers(
+  inputPath,
+  originalSource,
+  stitchedSource,
+) {
+  const original = String(originalSource ?? "");
+  const stitched = String(stitchedSource ?? "");
+  const unsupportedHelpers = [
+    "keep_left_default",
+    "keep_right_default",
+  ];
+  for (const helper of unsupportedHelpers) {
+    if (
+      new RegExp(`\\b${helper}\\b`, "u").test(original) &&
+      new RegExp(`^${helper}\\b`, "mu").test(stitched)
+    ) {
+      throw new Error(
+        `compile [error_code=compile_phase1_unsupported] failed for ${inputPath}: demand-driven compile input does not yet support ${helper} on this prelude helper shape`,
+      );
+    }
+  }
+}
+
 async function compilePluginsWasm(wasmPath, inputPath, options = {}) {
   const projectConfig = options.projectConfig ??
     await readClapseProjectConfig(inputPath);
@@ -2120,6 +2143,14 @@ async function compileViaWasm(wasmPath, inputPath, outputPath, options = {}) {
   const inputSource = typeof options.inputSourceOverride === "string"
     ? options.inputSourceOverride
     : new TextDecoder().decode(await Deno.readFile(inputPath));
+  const originalInputSource = new TextDecoder().decode(await Deno.readFile(inputPath));
+  if (typeof options.inputSourceOverride === "string") {
+    assertNoKnownUnsupportedDemandDrivenPreludeHelpers(
+      inputPath,
+      originalInputSource,
+      options.inputSourceOverride,
+    );
+  }
   const isKernelCompile = isCompilerKernelPath(inputPath);
   const pluginWasmPaths = Array.isArray(options.pluginWasmPaths)
     ? options.pluginWasmPaths
