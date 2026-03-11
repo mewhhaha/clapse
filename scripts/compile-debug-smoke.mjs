@@ -595,6 +595,34 @@ async function run() {
         ].join("\n"),
       },
       {
+        name: "unsupported_fmap_named_helper_shape",
+        source: [
+          'import "prelude" { Just, fmap, add }',
+          "",
+          "export { main }",
+          "",
+          "main =",
+          "  case fmap (\\x -> add x 1) (Just 200) of",
+          "    Just x -> x",
+          "    _ -> 0",
+          "",
+        ].join("\n"),
+      },
+      {
+        name: "unsupported_filter_named_helper_shape",
+        source: [
+          'import "prelude" { Just, filter }',
+          "",
+          "export { main }",
+          "",
+          "main =",
+          "  case filter (\\_ -> true) (Just 201) of",
+          "    Just x -> x",
+          "    _ -> 0",
+          "",
+        ].join("\n"),
+      },
+      {
         name: "unsupported_ap_default_ambiguous_pure",
         source: [
           'import "prelude" { Just, ap_default }',
@@ -693,7 +721,7 @@ async function run() {
         ].join("\n"),
       },
       {
-        name: "unsupported_fmap_operator_alias_ambiguous_instance",
+        name: "unsupported_fmap_operator_alias_helper_shape",
         source: [
           'import "prelude" { Just, <$>, add }',
           "",

@@ -168,8 +168,9 @@ deno run -A scripts/clapse.mjs bench [iterations]
     wasm. Bare class-method roots without enough instance context, such as
     `pure 201`, also fail closed instead of inventing a container type. Infix
     operator support is better now too: `<|>` compiles truthfully through
-    `alt`, while the remaining operator fail-closed seam is the ambiguous
-    Functor default aliases like `<$>` and `<$`.
+    `alt`. The remaining fail-closed class-helper seam is the
+    `Functor`/`Filterable` mapping side: `fmap`, `<$>`, `filter`,
+    `map_replace`, and `<$`.
     Demand-driven root stitching now also keeps value-position top-level helpers
     with short names, so alias-bound chains like
     `s = set_from_list_by ...; main = set_member_by ... s` no longer get pruned

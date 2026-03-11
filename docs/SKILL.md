@@ -423,9 +423,10 @@ demand-driven stitcher hits ambiguous instance methods, so helpers like
 `compile_phase1_unsupported` instead of silently compiling the wrong stitched
 prelude graph. Bare class-method roots without enough instance context, such as
 `pure 201`, also fail closed instead of inventing a container type. Custom
-infix operator support is better now: `<|>` compiles truthfully through `alt`,
-while the remaining operator fail-closed seam is the ambiguous Functor default
-aliases like `<$>` and `<$`.
+infix operator support is better now: `<|>` compiles truthfully through `alt`.
+The remaining fail-closed class-helper seam is the `Functor`/`Filterable`
+mapping side: `fmap`, `<$>`, `filter`, `map_replace`, and `<$` still report
+`compile_phase1_unsupported` on the current prelude helper shapes.
 `just semantics-check` now includes `compile-debug-smoke`, `wildcard-demand-check`,
 and `native-program-codegen-semantics-gate` so `pre-tag-verify` enforces
 program-dependent native wasm output shape before release verification.
