@@ -64,7 +64,7 @@ The struct field/tag operations are now emitted in-module:
 
 - No general free list and no per-object `free` operation exist today.
 - Memory regions can be reset only via the explicit region API (`region_mark`, `region_reset`) where a backend chooses to allocate from region-managed memory.
-- `region_reset` is kept as an effectful primitive and is not elided by DCE even when its descriptor result is dead, because it participates in deterministic lifetime fencing.
+- `region_reset` is kept as an effectful runtime intrinsic and is not elided by DCE even when its descriptor result is dead, because it participates in deterministic lifetime fencing.
 - `memcpy_u8`/`memset_u8` are pure transformations from byte-level memory access perspective only in IR form; at runtime they still lower to memory side-effecting operations and must remain ordered.
 - There is no host-side GC or sweeping hook for Clapse values; ownership and lifetime are enforced by compile-time rewrite decisions plus explicit region resets.
 - Reclamation in practice means replacing uses of a descriptor with a fresh one in COW

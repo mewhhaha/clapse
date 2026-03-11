@@ -1,6 +1,6 @@
 # Types and Data Model
 
-## Primitive Inventory
+## Literal Inventory
 
 Current language-level target set:
 

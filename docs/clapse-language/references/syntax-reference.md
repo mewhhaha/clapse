@@ -197,7 +197,7 @@ Current limits:
 - Record validity, projection/update behavior, and ambiguity handling are owned
   by kernel compile/typechecking semantics.
 
-## Primitive Declarations
+## Literal Declarations
 
 Lowercase literal-backed declarations use `literal`:
 
