@@ -381,11 +381,11 @@
     },
     {
       "name": "records_with_plugin_compile_path",
-      "source": "type Options a = { allow: bool, include: Maybe a }\ndefault_options = { allow = true, include = Nothing }\nmain x = default_options.allow\n",
+      "source": "type Options a = { allow: bool, include: Maybe a }\ndefault_options : Options i64\ndefault_options = { allow = true, include = Nothing }\nmain x = default_options.allow\n",
       "sourceFile": "src/main.clapse",
       "hover": {
-        "line": 2,
-        "character": 8
+        "line": 3,
+        "character": 27
       },
       "projectConfig": {
         "include": ["src"],
@@ -395,7 +395,46 @@
         "plugins/record_plugin.clapse": "type PluginState = { enabled: bool }\nplugin_state = { enabled = true }\nplugin_use s = s.enabled\n"
       },
       "expectedDiagnostics": 0,
-      "hoverExpectation": null,
+      "expectedBackends": {
+        "hover": "js"
+      },
+      "hoverExpectation": {
+        "contains": "default_options.allow : bool"
+      },
+      "formatting": true,
+      "formattingExpectation": {
+        "expectedEditCount": 1
+      }
+    },
+    {
+      "name": "record_projection_hover_local_alias",
+      "source": "type Options a = { allow: bool, include: Maybe a }\ndefault_options : Options i64\ndefault_options = { allow = true, include = Nothing }\nmain = let opts = default_options in opts.allow\n",
+      "hover": {
+        "line": 3,
+        "character": 40
+      },
+      "expectedDiagnostics": 0,
+      "expectedBackends": {
+        "hover": "js"
+      },
+      "hoverExpectation": {
+        "contains": "opts.allow : bool"
+      }
+    },
+    {
+      "name": "record_projection_hover_nested_chain",
+      "source": "type Nested = { nested: { allow: bool } }\ndefault_nested : Nested\ndefault_nested = { nested = { allow = true } }\nmain = default_nested.nested.allow\n",
+      "hover": {
+        "line": 3,
+        "character": 29
+      },
+      "expectedDiagnostics": 0,
+      "expectedBackends": {
+        "hover": "js"
+      },
+      "hoverExpectation": {
+        "contains": "default_nested.nested.allow : bool"
+      },
       "formatting": true,
       "formattingExpectation": {
         "expectedEditCount": 1

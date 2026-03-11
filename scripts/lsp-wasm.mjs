@@ -817,6 +817,10 @@ function splitTopLevelAlternatives(text, separator = "|") {
   return parts;
 }
 
+function splitTopLevelDelimited(text, delimiter = ",") {
+  return splitTopLevelAlternatives(text, delimiter);
+}
+
 function stripBalancedOuterParens(exprText) {
   let text = String(exprText ?? "").trim();
   while (text.startsWith("(") && text.endsWith(")")) {
@@ -847,6 +851,139 @@ function stripBalancedOuterParens(exprText) {
     text = text.slice(1, -1).trim();
   }
   return text;
+}
+
+function parseRecordFieldEntries(text) {
+  const input = stripBalancedOuterParens(String(text ?? "").trim());
+  if (!input.startsWith("{") || !input.endsWith("}")) {
+    return null;
+  }
+  const inner = input.slice(1, -1).trim();
+  if (inner.length === 0) {
+    return [];
+  }
+  const entries = [];
+  for (const part of splitTopLevelDelimited(inner, ",")) {
+    const match = part.match(/^([A-Za-z_][A-Za-z0-9_']*)\s*[:=]\s*(.+)$/u);
+    if (!match) {
+      return null;
+    }
+    entries.push({
+      name: match[1],
+      value: match[2].trim(),
+    });
+  }
+  return entries;
+}
+
+function renderInlineRecordType(fields) {
+  const entries = Array.from(fields.entries());
+  if (entries.length === 0) {
+    return "{ }";
+  }
+  return `{ ${entries.map(([name, type]) => `${name}: ${type}`).join(", ")} }`;
+}
+
+function buildTypeAliasIndex(index) {
+  const cached = index?.typeAliases;
+  if (cached instanceof Map) {
+    return cached;
+  }
+  const aliases = new Map();
+  const sourceLines = String(index?.sourceText ?? "").split("\n");
+  for (const rawLine of sourceLines) {
+    if (leadingIndentCount(rawLine) > 0) {
+      continue;
+    }
+    const trimmed = safeTextForLine(rawLine).trim();
+    const match = trimmed.match(/^type\s+([A-Z][A-Za-z0-9_']*)(.*?)=\s*(.+)$/u);
+    if (!match) {
+      continue;
+    }
+    const [, name, paramsRaw, bodyRaw] = match;
+    const fields = parseRecordFieldEntries(bodyRaw);
+    if (fields === null) {
+      continue;
+    }
+    aliases.set(name, {
+      params: splitTopLevelApplyTerms(paramsRaw)
+        .filter((part) => /^[a-z][A-Za-z0-9_']*$/u.test(part)),
+      fields: new Map(fields.map((entry) => [entry.name, entry.value])),
+    });
+  }
+  if (index && typeof index === "object") {
+    index.typeAliases = aliases;
+  }
+  return aliases;
+}
+
+function resolveRecordFieldType(index, recordTypeText, fieldName) {
+  const recordType = stripBalancedOuterParens(String(recordTypeText ?? "").trim());
+  if (recordType.length === 0 || typeof fieldName !== "string" || fieldName.length === 0) {
+    return null;
+  }
+  const inlineFields = parseRecordFieldEntries(recordType);
+  if (Array.isArray(inlineFields)) {
+    const field = inlineFields.find((entry) => entry.name === fieldName) ?? null;
+    return field?.value ?? null;
+  }
+  const terms = splitTopLevelApplyTerms(recordType);
+  if (terms.length === 0) {
+    return null;
+  }
+  const alias = buildTypeAliasIndex(index).get(terms[0]);
+  if (!alias) {
+    return null;
+  }
+  const rawFieldType = alias.fields.get(fieldName);
+  if (typeof rawFieldType !== "string" || rawFieldType.length === 0) {
+    return null;
+  }
+  const bindings = new Map();
+  for (let i = 0; i < alias.params.length; i += 1) {
+    const actual = terms[i + 1];
+    if (typeof actual === "string" && actual.length > 0) {
+      bindings.set(alias.params[i], actual);
+    }
+  }
+  const resolved = substituteSimpleTypeVars(rawFieldType, bindings);
+  return resolved.length > 0 ? resolved : null;
+}
+
+function projectionChainAtPosition(lineText, character) {
+  const text = String(lineText ?? "");
+  if (text.length === 0) {
+    return null;
+  }
+  const tokenRange = wordRangeAtPosition(text, character);
+  if (tokenRange === null) {
+    return null;
+  }
+  const token = text.slice(tokenRange.start, tokenRange.end);
+  if (!token.includes(".")) {
+    return null;
+  }
+  const parts = token.split(".").filter((part) => part.length > 0);
+  if (parts.length < 2) {
+    return null;
+  }
+  let segmentStart = tokenRange.start;
+  let activeIndex = -1;
+  for (let i = 0; i < parts.length; i += 1) {
+    const partStart = segmentStart;
+    const partEnd = partStart + parts[i].length;
+    if (character >= partStart && character <= partEnd) {
+      activeIndex = i;
+      break;
+    }
+    segmentStart = partEnd + 1;
+  }
+  return {
+    token,
+    tokenRange,
+    parts,
+    activeIndex,
+  };
 }
 
 function buildDataConstructorIndex(index) {
@@ -933,6 +1070,35 @@ function sourceNullaryValueTypeForSymbol(index, symbol) {
   return parts[0];
 }
 
+function inferTopLevelNullaryDefinitionType(index, symbol, seen = new Set()) {
+  if (typeof symbol !== "string" || symbol.length === 0 || seen.has(symbol)) {
+    return null;
+  }
+  const declaration = index?.declarations?.get?.(symbol) ?? null;
+  const definitionLine = Number.isFinite(Number(declaration?.definitionLine))
+    ? Number(declaration.definitionLine)
+    : null;
+  if (definitionLine === null) {
+    return null;
+  }
+  const sourceLines = String(index?.sourceText ?? "").split("\n");
+  const rawLine = safeTextForLine(sourceLines[definitionLine]);
+  if (parseDefinitionParams(rawLine, symbol).length !== 0) {
+    return null;
+  }
+  const eqAt = rawLine.indexOf("=");
+  if (eqAt < 0) {
+    return null;
+  }
+  const rhs = rawLine.slice(eqAt + 1).trim();
+  if (rhs.length === 0) {
+    return null;
+  }
+  const nextSeen = new Set(seen);
+  nextSeen.add(symbol);
+  return inferSimpleExprType(rhs, new Map(), index, nextSeen);
+}
+
 function isSimpleTypeVariable(typeText) {
   return /^[a-z][A-Za-z0-9_']*$/u.test(String(typeText ?? "").trim());
 }
@@ -980,7 +1146,7 @@ function unifySimpleTypePattern(patternText, actualType, bindings) {
   return true;
 }
 
-function inferSimpleExprType(exprText, env, index) {
+function inferSimpleExprType(exprText, env, index, seen = new Set()) {
   const text = stripBalancedOuterParens(exprText);
   if (/^-?\d+$/u.test(text)) {
     return "i64";
@@ -991,8 +1157,37 @@ function inferSimpleExprType(exprText, env, index) {
   if (text === "true" || text === "false") {
     return "bool";
   }
+  const recordFields = parseRecordFieldEntries(text);
+  if (Array.isArray(recordFields)) {
+    const typedFields = new Map();
+    for (const field of recordFields) {
+      const fieldType = inferSimpleExprType(field.value, env, index, seen);
+      if (typeof fieldType !== "string" || fieldType.length === 0) {
+        continue;
+      }
+      typedFields.set(field.name, fieldType);
+    }
+    if (typedFields.size > 0) {
+      return renderInlineRecordType(typedFields);
+    }
+  }
+  const projectionTerms = projectionChainAtPosition(text, text.length - 1);
+  if (projectionTerms !== null) {
+    let currentType = inferSimpleExprType(projectionTerms.parts[0], env, index, seen);
+    if (typeof currentType !== "string" || currentType.length === 0) {
+      return null;
+    }
+    for (let i = 1; i < projectionTerms.parts.length; i += 1) {
+      currentType = resolveRecordFieldType(index, currentType, projectionTerms.parts[i]);
+      if (typeof currentType !== "string" || currentType.length === 0) {
+        return null;
+      }
+    }
+    return currentType;
+  }
   if (/^[A-Za-z_][A-Za-z0-9_$.']*$/u.test(text)) {
     return env.get(text) ?? sourceNullaryValueTypeForSymbol(index, text) ??
+      inferTopLevelNullaryDefinitionType(index, text, seen) ??
       sourceSignatureTypeForSymbol(index, text) ?? null;
   }
   const terms = splitTopLevelApplyTerms(text);
@@ -1006,7 +1201,7 @@ function inferSimpleExprType(exprText, env, index) {
     if (Array.isArray(signatureParts) && signatureParts.length === args.length + 1) {
       const bindings = new Map();
       for (let i = 0; i < args.length; i += 1) {
-        const argType = inferSimpleExprType(args[i], env, index);
+        const argType = inferSimpleExprType(args[i], env, index, seen);
         if (typeof argType !== "string" || argType.length === 0) {
           return null;
         }
@@ -1229,12 +1424,38 @@ function inferParamTypeFromCurrentLine(index, line, symbol) {
 }
 
 function buildLocalHover(index, line, character) {
+  const sourceLines = String(index?.sourceText ?? "").split("\n");
+  const lineText = safeTextForLine(sourceLines[line]);
   const token = symbolAtPosition(index, line, character);
+  const context = findEnclosingFunctionContext(index, line);
+  const env = context === null ? new Map() : buildLocalTypeEnv(index, context, line);
+  const projection = projectionChainAtPosition(lineText, character);
+  if (projection !== null) {
+    let currentType = inferSimpleExprType(projection.parts[0], env, index);
+    if (typeof currentType === "string" && currentType.length > 0) {
+      for (let i = 1; i < projection.parts.length; i += 1) {
+        currentType = resolveRecordFieldType(index, currentType, projection.parts[i]);
+        if (typeof currentType !== "string" || currentType.length === 0) {
+          currentType = null;
+          break;
+        }
+      }
+    }
+    if (typeof currentType === "string" && currentType.length > 0) {
+      return {
+        contents: {
+          kind: "markdown",
+          value:
+            `### ${projection.token}\n\n\`\`\`clapse\n${projection.token} : ${currentType}\n\`\`\``,
+        },
+        range: buildRange(line, projection.tokenRange.start, projection.tokenRange.end),
+        backend: "js",
+      };
+    }
+  }
   if (token.symbol.length === 0) {
     return null;
   }
-  const context = findEnclosingFunctionContext(index, line);
-  const env = context === null ? new Map() : buildLocalTypeEnv(index, context, line);
   const inferredType = env.get(token.symbol) ??
     inferCaseBinderType(index, context, line, token.symbol, env) ??
     (context === null ? null : inferParamTypeFromContext(index, context, token.symbol)) ??
@@ -1242,10 +1463,7 @@ function buildLocalHover(index, line, character) {
   if (typeof inferredType !== "string" || inferredType.length === 0) {
     return null;
   }
-  const fallbackRange = wordRangeAtPosition(
-    safeTextForLine(String(index?.sourceText ?? "").split("\n")[line]),
-    character,
-  );
+  const fallbackRange = wordRangeAtPosition(lineText, character);
   return {
     contents: {
       kind: "markdown",

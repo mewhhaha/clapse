@@ -830,6 +830,8 @@ program-dependent native wasm output shape before release verification.
     source signature
   - local aliases to signed top-level functions, including subsequent `f x`
     result hover through that alias
+  - signed closed-record projection chains like `opts.allow` and
+    `default_nested.nested.allow`
 - Initialize now advertises kernel-owned completion/signature/semantic/workspace symbol
   capabilities to keep protocol parity with kernel routing.
 - Fixture coverage for migrated methods is now present in

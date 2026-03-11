@@ -507,7 +507,8 @@ Current targets in `Justfile`:
     substitutions like `Maybe a -> Maybe a`, plus local aliases to signed
     top-level functions and `f x` results through those aliases, plus
     constructor-pattern case binders when the scrutinee already has a truthful
-    source signature
+    source signature, plus signed closed-record projection chains like
+    `opts.allow` and `default_nested.nested.allow`
   - definitions
   - completion
   - signature help
