@@ -345,7 +345,7 @@ law Alternative right_identity = append x empty => x
 law Alternative associativity = append (append x y) z => append x (append y z)
 law Alternative alt_default = alt x y => alt_default x y
 
-primitive bool = true<1> | false<0>
+literal bool = true<1> | false<0>
 
 infixr 3 &&
 infixr 2 ||

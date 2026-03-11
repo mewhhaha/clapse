@@ -26,7 +26,7 @@ Use to orient on goals, purity model, implemented features, and current gaps.
 Use for parsing/syntax decisions: identifiers, functions, `let`, `case`, `data`, operators, class/law/instance declarations, and signatures.
 
 - `references/types-and-data.md`
-Use for primitive types, inference behavior, constructor/deconstruction model, and collection semantics.
+Use for literal-backed types, inference behavior, constructor/deconstruction model, and collection semantics.
 
 - `references/optimization-and-collapse-ir.md`
 Use for lowering and collapse pipeline behavior, optimization passes, verifier invariants, and benchmark expectations.

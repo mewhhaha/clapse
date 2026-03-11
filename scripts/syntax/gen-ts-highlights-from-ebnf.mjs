@@ -132,7 +132,6 @@ function emitManagedBlock(terminals, grammarPath) {
   ];
   emitTokenSet(lines, terminals.punctuationBracket, "@punctuation.bracket");
   emitTokenSet(lines, terminals.punctuationDelimiter, "@punctuation.delimiter");
-  emitTokenSet(lines, terminals.operator, "@keyword.operator");
   emitTokenSet(lines, terminals.keyword, "@keyword");
   if (lines[lines.length - 1] === "") {
     lines.pop();

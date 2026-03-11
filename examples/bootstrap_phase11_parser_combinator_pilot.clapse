@@ -1,6 +1,6 @@
 export { main, main_stats, main_stream, main_bad_type, main_bad_type_union, main_bad_type_union_string }
 
-primitive bool = true<1> | false<0>
+literal bool = true<1> | false<0>
 data Maybe a = Just a | Nothing
 data ModuleStart = NoModule | ModulePos i64 | ModuleBad
 data ParserDispatch = ParserDispatchDefault | ParserDispatchRightBiased
@@ -1225,7 +1225,7 @@ parse_top_decl_dispatch_step src i len n = case n of
   2 -> parse_decl_try_keyword "infixl" parse_infix_line src i len
   3 -> parse_decl_try_keyword "infixr" parse_infix_line src i len
   4 -> parse_decl_try_keyword "infix" parse_infix_line src i len
-  5 -> parse_decl_try_keyword "primitive" parse_primitive_line src i len
+  5 -> parse_decl_try_keyword "literal" parse_literal_line src i len
   6 -> parse_decl_try_keyword "data" parse_data_line src i len
   7 -> parse_decl_try_keyword "newtype" parse_newtype_line src i len
   8 -> parse_decl_try_keyword "class" parse_class_line src i len
@@ -1286,17 +1286,17 @@ parse_data_constructor src i len =
     Nothing -> -1
     Just p0 -> p0
 
-parse_primitive_payload src i len =
-  let p = parse_lower_ident *> parser_many parse_ident *> parse_eq *> parse_primitive_payload_tail
+parse_literal_payload src i len =
+  let p = parse_lower_ident *> parser_many parse_ident *> parse_eq *> parse_literal_payload_tail
   in p src i len
 
-parse_primitive_payload_tail src i len =
-  let m0 = to_maybe_pos (parse_primitive_constructor src i len)
+parse_literal_payload_tail src i len =
+  let m0 = to_maybe_pos (parse_literal_constructor src i len)
   in case m0 of
     Nothing -> -1
-    Just p0 -> parse_primitive_payload_after_ctor src p0 len
+    Just p0 -> parse_literal_payload_after_ctor src p0 len
 
-parse_primitive_payload_after_ctor src i len =
+parse_literal_payload_after_ctor src i len =
   let i0 = skip_spaces src i len
   in case (i0 < len) of
     true ->
@@ -1305,11 +1305,11 @@ parse_primitive_payload_after_ctor src i len =
         true -> i0
         _ ->
           case (b == 124) of
-            true -> parse_primitive_payload_tail src (i0 + 1) len
+            true -> parse_literal_payload_tail src (i0 + 1) len
             _ -> -1
     _ -> i0
 
-parse_primitive_constructor src i len =
+parse_literal_constructor src i len =
   let m0 = to_maybe_pos (parse_lower_ident src i len)
   in case m0 of
     Nothing -> -1
@@ -1318,7 +1318,7 @@ parse_primitive_constructor src i len =
       in case m1 of
         Nothing -> -1
         Just p1 ->
-          let m2 = to_maybe_pos (parse_primitive_backing src p1 len)
+          let m2 = to_maybe_pos (parse_literal_backing src p1 len)
           in case m2 of
             Nothing -> -1
             Just p2 ->
@@ -1327,11 +1327,11 @@ parse_primitive_constructor src i len =
                 Nothing -> -1
                 Just p3 -> p3
 
-parse_primitive_backing src i len =
+parse_literal_backing src i len =
   let i0 = skip_spaces src i len
-  in parse_primitive_backing_scan src i0 len false
+  in parse_literal_backing_scan src i0 len false
 
-parse_primitive_backing_scan src i len seen = case (i < len) of
+parse_literal_backing_scan src i len seen = case (i < len) of
   true ->
     let b = slice_get_u8 src i
     in case (b == 62) of
@@ -1340,7 +1340,7 @@ parse_primitive_backing_scan src i len seen = case (i < len) of
         case (b == 10) (b == 124) of
           true _ -> -1
           _ true -> -1
-          _ _ -> parse_primitive_backing_scan src (i + 1) len true
+          _ _ -> parse_literal_backing_scan src (i + 1) len true
   _ -> -1
 
 parse_newtype_payload src i len =
@@ -1493,7 +1493,7 @@ parse_instance_payload src i len =
         _ -> p1
 
 parse_data_line src i len = parse_decl_line "data" parse_data_payload src i len
-parse_primitive_line src i len = parse_decl_line "primitive" parse_primitive_payload src i len
+parse_literal_line src i len = parse_decl_line "literal" parse_literal_payload src i len
 parse_newtype_line src i len = parse_decl_line "newtype" parse_newtype_payload src i len
 parse_type_line src i len = parse_decl_line "type" parse_type_payload src i len
 parse_class_line src i len = parse_decl_line "class" parse_class_payload src i len
@@ -1623,7 +1623,7 @@ parse_import_line_tagged src i len = tagged_parser parse_import_line decl_tag_im
 parse_export_line_tagged src i len = tagged_parser parse_export_line decl_tag_export src i len
 parse_infix_line_tagged src i len = tagged_parser parse_infix_line decl_tag_infix src i len
 parse_data_line_tagged src i len = tagged_parser parse_data_line decl_tag_data src i len
-parse_primitive_line_tagged src i len = tagged_parser parse_primitive_line decl_tag_data src i len
+parse_literal_line_tagged src i len = tagged_parser parse_literal_line decl_tag_data src i len
 parse_newtype_line_tagged src i len = tagged_parser parse_newtype_line decl_tag_newtype src i len
 parse_type_line_tagged src i len = tagged_parser parse_type_line decl_tag_type src i len
 parse_class_line_tagged src i len = tagged_parser parse_class_line decl_tag_class src i len
@@ -1699,7 +1699,7 @@ parse_any_decl_tagged_step src i len n = case n of
   2 -> parse_decl_try_keyword "infixl" parse_infix_line_tagged src i len
   3 -> parse_decl_try_keyword "infixr" parse_infix_line_tagged src i len
   4 -> parse_decl_try_keyword "infix" parse_infix_line_tagged src i len
-  5 -> parse_decl_try_keyword "primitive" parse_primitive_line_tagged src i len
+  5 -> parse_decl_try_keyword "literal" parse_literal_line_tagged src i len
   6 -> parse_decl_try_keyword "data" parse_data_line_tagged src i len
   7 -> parse_decl_try_keyword "newtype" parse_newtype_line_tagged src i len
   8 -> parse_decl_try_keyword "class" parse_class_line_tagged src i len

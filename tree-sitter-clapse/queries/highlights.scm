@@ -95,25 +95,25 @@
 (data_declaration
   field_name: (identifier) @variable.parameter)
 
-(primitive_declaration
+(literal_declaration
   type_name: (identifier) @type.definition)
 
-(primitive_declaration
+(literal_declaration
   type_parameter: (identifier) @type.parameter)
 
-(primitive_declaration
+(literal_declaration
   constructor_name: (identifier) @constant.builtin)
 
-(primitive_declaration
-  primitive_backing: (primitive_backing_text) @constant.numeric.integer
+(literal_declaration
+  literal_backing: (literal_backing_text) @constant.numeric.integer
   (#match? @constant.numeric.integer "^[ \t]*-?[0-9]+[ \t]*$"))
 
-(primitive_declaration
-  primitive_backing: (primitive_backing_text) @string
+(literal_declaration
+  literal_backing: (literal_backing_text) @string
   (#match? @string "^[ \t]*\".*\"[ \t]*$"))
 
-(primitive_declaration
-  primitive_backing: (primitive_backing_text) @type
+(literal_declaration
+  literal_backing: (literal_backing_text) @type
   (#not-match? @type "^[ \t]*-?[0-9]+[ \t]*$")
   (#not-match? @type "^[ \t]*\".*\"[ \t]*$"))
 
@@ -312,16 +312,6 @@
 ] @punctuation.delimiter
 
 [
-  "+"
-  "-"
-  "->"
-  ":"
-  "="
-  "=>"
-  "|"
-] @keyword.operator
-
-[
   "as"
   "case"
   "class"
@@ -330,8 +320,8 @@
   "import"
   "instance"
   "law"
+  "literal"
   "of"
-  "primitive"
   "type"
   "where"
 ] @keyword

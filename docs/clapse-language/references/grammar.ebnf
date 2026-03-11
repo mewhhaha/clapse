@@ -2,7 +2,7 @@
 
 Program          = { TopLevelDecl } EOF
 TopLevelDecl     = ImportDecl | ExportDecl | TypeDecl | SignatureDecl | ValueDecl
-                | ClassDecl | InstanceDecl | LawDecl | DataDecl | PrimitiveDecl | TypeAliasDecl
+                | ClassDecl | InstanceDecl | LawDecl | DataDecl | LiteralDecl | TypeAliasDecl
 
 ImportDecl       = "import" StringLiteral
                 | "import" StringLiteral ImportSpecList
@@ -23,7 +23,7 @@ LawDecl          = "law" Identifier "=" Expr "=>" Expr
 
 TypeAliasDecl    = "type" Identifier TypeParams "=" TypeExpr
 DataDecl         = "data" Identifier TypeParams "=" DataConstructor { "|" DataConstructor }
-PrimitiveDecl    = "primitive" Identifier "=" PrimitiveCtor { "|" PrimitiveCtor }
+LiteralDecl    = "literal" Identifier "=" LiteralCtor { "|" LiteralCtor }
 
 TypeParams       = TypeParam+
 TypeParam        = Identifier | "_" | "(" Identifier ":" TypeExpr ")"

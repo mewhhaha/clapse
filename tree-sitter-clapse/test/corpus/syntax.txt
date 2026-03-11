@@ -795,18 +795,18 @@ ignore = \_ -> 0
             (integer)))))))
 
 ==================
-primitive declaration
+literal declaration
 ==================
 
-primitive bool = true<1> | false<0>
+literal bool = true<1> | false<0>
 
 ---
 
 (source_file
   (declaration
-    (primitive_declaration
+    (literal_declaration
       type_name: (identifier)
       constructor_name: (identifier)
-      primitive_backing: (primitive_backing_text)
+      literal_backing: (literal_backing_text)
       constructor_name: (identifier)
-      primitive_backing: (primitive_backing_text))))
+      literal_backing: (literal_backing_text))))

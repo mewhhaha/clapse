@@ -5,11 +5,11 @@
 - Value/function identifiers: `snake_case`
 - `data` type names: `PascalCase`
 - `data` constructor names: `PascalCase`
-- `primitive` type names: `snake_case`
-- `primitive` constructors are lowercase and primitive-backed:
+- `literal` type names: `snake_case`
+- `literal` constructors are lowercase and literal-backed:
 
 ```haskell
-primitive bool = true<1> | false<0>
+literal bool = true<1> | false<0>
 ```
 
 ## Semantic Contract (core)
@@ -199,11 +199,11 @@ Current limits:
 
 ## Primitive Declarations
 
-Lowercase primitive-backed declarations use `primitive`:
+Lowercase literal-backed declarations use `literal`:
 
 ```haskell
-primitive bool = true<1> | false<0>
-primitive string = string<slice byte>
+literal bool = true<1> | false<0>
+literal string = string<slice byte>
 ```
 
 Newtype form (single constructor + single field):
@@ -478,7 +478,7 @@ infixl 6 plus_op
 The compiler prelude also defines the shared boolean class in Haskell-like naming:
 
 ```haskell
-primitive bool = true<1> | false<0>
+literal bool = true<1> | false<0>
 data Unit = Unit
 data Lazy a = Lazy : (Unit -> a) -> Lazy a
 

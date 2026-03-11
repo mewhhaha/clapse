@@ -460,8 +460,8 @@ program-dependent native wasm output shape before release verification.
   (`foldr`/`foldl`/`filter`/`build`) law surfaces, and the list-backed `map`/`set` baseline APIs (`*_by`
   equality-driven operations).
 - Keep declaration-kind naming rules synchronized across docs/examples: `data`
-  declarations are Capitalized-only, and lowercase primitive-backed declarations
-  use `primitive` (for example `primitive bool = true<1> | false<0>`). `data`
+  declarations are Capitalized-only, and lowercase literal-backed declarations
+  use `literal` (for example `literal bool = true<1> | false<0>`). `data`
   declarations must include explicit constructors (`data X = X`), and bare
   `data X` is invalid.
 - Keep wildcard-demand matching docs aligned with compiler behavior: `_` remains

@@ -36,7 +36,7 @@ module.exports = grammar({
         $.instance_declaration,
         $.operator_declaration,
         $.data_declaration,
-        $.primitive_declaration,
+        $.literal_declaration,
         $.attributed_function_declaration,
         $.function_declaration,
         $.function_signature,
@@ -205,10 +205,10 @@ module.exports = grammar({
         ),
       ),
 
-    primitive_declaration: ($) =>
+    literal_declaration: ($) =>
       prec.right(
         seq(
-          $._kw_primitive,
+          $._kw_literal,
           $._ws1,
           field("type_name", $.identifier),
           repeat(seq($._ws1, field("type_parameter", $.identifier))),
@@ -220,7 +220,7 @@ module.exports = grammar({
             optional($._ws1),
             "<",
             optional($._ws1),
-            field("primitive_backing", $.primitive_backing_text),
+            field("literal_backing", $.literal_backing_text),
             optional($._ws1),
             ">",
           ),
@@ -235,7 +235,7 @@ module.exports = grammar({
                   optional($._ws1),
                   "<",
                   optional($._ws1),
-                  field("primitive_backing", $.primitive_backing_text),
+                  field("literal_backing", $.literal_backing_text),
                   optional($._ws1),
                   ">",
                 ),
@@ -245,7 +245,7 @@ module.exports = grammar({
         ),
       ),
 
-    primitive_backing_text: () => token(/[^>\n|]+/),
+    literal_backing_text: () => token(/[^>\n|]+/),
 
     type_declaration: ($) =>
       seq(
@@ -1044,7 +1044,7 @@ module.exports = grammar({
     _newline_indent: () => token(seq(/\n/, /[ \t\r\f]+/)),
 
     _kw_data: () => token(prec(1, "data")),
-    _kw_primitive: () => token(prec(1, "primitive")),
+    _kw_literal: () => token(prec(1, "literal")),
     _kw_class: () => token(prec(1, "class")),
     _kw_law: () => token(prec(1, "law")),
     _kw_instance: () => token(prec(1, "instance")),

@@ -190,7 +190,7 @@ test/highlight-fixtures/prelude_regression.clapse
     pattern: 94, capture: 10 - punctuation.bracket, start: (24, 72), end: (24, 73), text: `(`
     pattern: 66, capture: 6 - function, start: (24, 73), end: (24, 75), text: `ap`
     pattern: 94, capture: 10 - punctuation.bracket, start: (24, 79), end: (24, 80), text: `)`
-    pattern: 96, capture: 17 - keyword, start: (26, 0), end: (26, 9), text: `primitive`
+    pattern: 96, capture: 17 - keyword, start: (26, 0), end: (26, 9), text: `literal`
     pattern: 31, capture: 11 - type.definition, start: (26, 10), end: (26, 14), text: `bool`
     pattern: 95, capture: 18 - keyword.operator, start: (26, 15), end: (26, 16), text: `=`
     pattern: 33, capture: 14 - constant.builtin, start: (26, 17), end: (26, 21), text: `true`

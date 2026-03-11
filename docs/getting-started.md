@@ -14,7 +14,7 @@ main n = inc n
 ## Tagged booleans
 
 ```clapse skip
-primitive bool = true<1> | false<0>
+literal bool = true<1> | false<0>
 
 --| Convert bool to i64 payload.
 to_i64 b = case b of
@@ -29,7 +29,7 @@ main x = to_i64 (case x == 0 of
 ## String wrapper
 
 ```clapse skip
-primitive string = string<slice u8>
+literal string = string<slice u8>
 
 --| Wrap a byte slice as string.
 from_slice bytes = string bytes

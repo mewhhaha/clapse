@@ -1,7 +1,7 @@
 export { byte_at, json_command_tag }
 import "slice_scan"
 
-primitive bool = true<1> | false<0>
+literal bool = true<1> | false<0>
 data CommandTag = CommandCompile | CommandEmitWat | CommandFormat | CommandSelfhost
 data Maybe a = Just a | Nothing
 

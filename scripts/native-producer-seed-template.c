@@ -819,7 +819,7 @@ static int is_keyword_name(NameSpan name) {
     namespan_equals_literal(name, "type") ||
     namespan_equals_literal(name, "class") ||
     namespan_equals_literal(name, "instance") ||
-    namespan_equals_literal(name, "primitive") ||
+    namespan_equals_literal(name, "literal") ||
     namespan_equals_literal(name, "law");
 }
 

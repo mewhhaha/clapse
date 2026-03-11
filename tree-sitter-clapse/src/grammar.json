@@ -60,7 +60,7 @@
         },
         {
           "type": "SYMBOL",
-          "name": "primitive_declaration"
+          "name": "literal_declaration"
         },
         {
           "type": "SYMBOL",
@@ -842,7 +842,7 @@
         ]
       }
     },
-    "primitive_declaration": {
+    "literal_declaration": {
       "type": "PREC_RIGHT",
       "value": 0,
       "content": {
@@ -850,7 +850,7 @@
         "members": [
           {
             "type": "SYMBOL",
-            "name": "_kw_primitive"
+            "name": "_kw_literal"
           },
           {
             "type": "SYMBOL",
@@ -937,10 +937,10 @@
               },
               {
                 "type": "FIELD",
-                "name": "primitive_backing",
+                "name": "literal_backing",
                 "content": {
                   "type": "SYMBOL",
-                  "name": "primitive_backing_text"
+                  "name": "literal_backing_text"
                 }
               },
               {
@@ -1038,10 +1038,10 @@
                       },
                       {
                         "type": "FIELD",
-                        "name": "primitive_backing",
+                        "name": "literal_backing",
                         "content": {
                           "type": "SYMBOL",
-                          "name": "primitive_backing_text"
+                          "name": "literal_backing_text"
                         }
                       },
                       {
@@ -1069,7 +1069,7 @@
         ]
       }
     },
-    "primitive_backing_text": {
+    "literal_backing_text": {
       "type": "TOKEN",
       "content": {
         "type": "PATTERN",
@@ -4973,14 +4973,14 @@
         }
       }
     },
-    "_kw_primitive": {
+    "_kw_literal": {
       "type": "TOKEN",
       "content": {
         "type": "PREC",
         "value": 1,
         "content": {
           "type": "STRING",
-          "value": "primitive"
+          "value": "literal"
         }
       }
     },

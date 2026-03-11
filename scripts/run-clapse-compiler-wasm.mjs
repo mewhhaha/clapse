@@ -539,7 +539,7 @@ function mergeTokenSet(dst, src) {
   return changed;
 }
 
-function parseTopLevelDataPrimitiveDefinedNames(rawLine) {
+function parseTopLevelDataLiteralDefinedNames(rawLine) {
   if (/^\s/.test(rawLine)) {
     return null;
   }
@@ -562,8 +562,8 @@ function parseTopLevelDataPrimitiveDefinedNames(rawLine) {
     }
     return { kind: "data", names };
   }
-  if (trimmed.startsWith("primitive ")) {
-    const typeMatch = trimmed.match(/^primitive\s+([A-Za-z_][A-Za-z0-9_']*)/u);
+  if (trimmed.startsWith("literal ")) {
+    const typeMatch = trimmed.match(/^literal\s+([A-Za-z_][A-Za-z0-9_']*)/u);
     if (!typeMatch) {
       return null;
     }
@@ -575,7 +575,7 @@ function parseTopLevelDataPrimitiveDefinedNames(rawLine) {
         names.add(ctorMatch[1]);
       }
     }
-    return { kind: "primitive", names };
+    return { kind: "literal", names };
   }
   return null;
 }
@@ -1506,7 +1506,7 @@ async function buildDemandDrivenCompileInput(
           });
           continue;
         }
-        const declNames = parseTopLevelDataPrimitiveDefinedNames(rawLine);
+        const declNames = parseTopLevelDataLiteralDefinedNames(rawLine);
         if (!declNames) {
           continue;
         }

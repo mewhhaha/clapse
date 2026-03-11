@@ -1,6 +1,6 @@
 export { main }
 
-primitive bool = true<1> | false<0>
+literal bool = true<1> | false<0>
 
 if2 p t f = case p of
   true -> t
@@ -125,7 +125,7 @@ is_keyword_slice w =
     "import" -> true
     "export" -> true
     "data" -> true
-    "primitive" -> true
+    "literal" -> true
     "newtype" -> true
     "class" -> true
     "law" -> true

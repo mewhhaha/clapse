@@ -24,7 +24,7 @@ keyword_data = str_to_slice "data"
 keyword_type = str_to_slice "type"
 keyword_class = str_to_slice "class"
 keyword_instance = str_to_slice "instance"
-keyword_primitive = str_to_slice "primitive"
+keyword_literal = str_to_slice "literal"
 keyword_law = str_to_slice "law"
 keyword_let = str_to_slice "let"
 keyword_in = str_to_slice "in"
@@ -407,7 +407,7 @@ token_is_keyword handle start seg_len =
   segment_eq_slice handle start seg_len keyword_type ||
   segment_eq_slice handle start seg_len keyword_class ||
   segment_eq_slice handle start seg_len keyword_instance ||
-  segment_eq_slice handle start seg_len keyword_primitive ||
+  segment_eq_slice handle start seg_len keyword_literal ||
   segment_eq_slice handle start seg_len keyword_law
 
 int_list_member item list =

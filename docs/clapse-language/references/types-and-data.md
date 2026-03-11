@@ -10,15 +10,15 @@ Current language-level target set:
 
 Conventional core wrappers:
 
-- `primitive string = string<slice byte>`
-- `primitive bool = true<1> | false<0>`
+- `literal string = string<slice byte>`
+- `literal bool = true<1> | false<0>`
 - `data Maybe a = Just a | Nothing`
 - `data Pair a b = Pair a b`
 
-`type` aliases may define literal unions (for example `type Digit = <0 | 1 | 2>`) and may not own constructors. Constructor ownership belongs to `data` and `primitive`.
+`type` aliases may define literal unions (for example `type Digit = <0 | 1 | 2>`) and may not own constructors. Constructor ownership belongs to `data` and `literal`.
 
 `data` is now Capitalized-only for both type and constructor names.
-Lowercase primitive-backed declarations use `primitive`.
+Lowercase literal-backed declarations use `literal`.
 
 Prelude abstraction preview also includes:
 

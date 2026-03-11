@@ -336,11 +336,11 @@ Collection literal lowering model:
 
 ## Fundamental data types
 
-Explicit primitive type inventory (language-level target set):
+Explicit literal-backed type inventory (language-level target set):
 
 - `i64`: default numeric literal/arithmetic type today.
-- `u64`: reserved primitive (not yet inferred from literals).
-- `byte`: primitive for compact binary/host ABI boundaries.
+- `u64`: reserved literal-backed type (not yet inferred from literals).
+- `byte`: compact binary/host ABI boundary type.
 - `string`: contiguous byte-string runtime value.
 
 Current inference/runtime status:
