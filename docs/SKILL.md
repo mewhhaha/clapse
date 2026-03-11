@@ -422,7 +422,10 @@ demand-driven stitcher hits ambiguous instance methods, so helpers like
 `keep_right_default` / `keep_right` report
 `compile_phase1_unsupported` instead of silently compiling the wrong stitched
 prelude graph. Bare class-method roots without enough instance context, such as
-`pure 201`, also fail closed instead of inventing a container type.
+`pure 201`, also fail closed instead of inventing a container type. Custom
+infix operator application still has a smaller executable-path gap too, so
+named helpers like `alt` compile while their operator alias use like `<|>`
+still fails closed.
 `just semantics-check` now includes `compile-debug-smoke`, `wildcard-demand-check`,
 and `native-program-codegen-semantics-gate` so `pre-tag-verify` enforces
 program-dependent native wasm output shape before release verification.

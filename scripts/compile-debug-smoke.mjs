@@ -466,6 +466,21 @@ async function run() {
         expectedString: "true",
       },
       {
+        name: "supported_all_list_boolean_override",
+        source: [
+          'import "prelude" { all, eq }',
+          "",
+          "export { main }",
+          "",
+          "main =",
+          "  case all (\\x -> eq x 2) [2, 2, 2] of",
+          "    true -> 1",
+          "    _ -> 0",
+          "",
+        ].join("\n"),
+        expectedTaggedInt: 1,
+      },
+      {
         name: "supported_map_from_list_by_root",
         source: [
           'import "prelude" { Pair, eq, map_from_list_by }',
@@ -657,6 +672,20 @@ async function run() {
           "",
           "main =",
           "  case keep_right (Just 201) (Just 1) of",
+          "    Just x -> x",
+          "    _ -> 0",
+          "",
+        ].join("\n"),
+      },
+      {
+        name: "unsupported_alt_operator_alias_infix",
+        source: [
+          'import "prelude" { Just, <|> }',
+          "",
+          "export { main }",
+          "",
+          "main =",
+          "  case ((Just 201) <|> (Just 1)) of",
           "    Just x -> x",
           "    _ -> 0",
           "",

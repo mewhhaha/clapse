@@ -865,6 +865,18 @@ function collectIndentedMethodSpans(lines, blockStart, blockEndExclusive) {
       continue;
     }
     if (spans.has(functionName)) {
+      const existing = spans.get(functionName);
+      if (existing && existing.endLine <= i) {
+        const mergedEndLine = endLine;
+        spans.set(functionName, {
+          name: functionName,
+          startLine: existing.startLine,
+          endLine: mergedEndLine,
+          sourceLines: trimCommonIndent(lines.slice(existing.startLine, mergedEndLine)),
+        });
+        i = endLine;
+        continue;
+      }
       spans.delete(functionName);
       ambiguous.add(functionName);
       i = endLine;
@@ -1025,6 +1037,7 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
   const exportNameSet = new Set();
   const functionDefLines = [];
   const boundaryLines = [];
+  const classMethodSpans = new Map();
   const instanceMethodSpans = new Map();
   const ambiguousFunctionNames = new Set();
   for (let i = 0; i < lines.length; i += 1) {
@@ -1098,11 +1111,11 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
           collectIndentedMethodSpans(lines, i, blockEnd);
         for (const name of blockAmbiguous) {
           ambiguousFunctionNames.add(name);
-          instanceMethodSpans.delete(name);
+          classMethodSpans.delete(name);
         }
         for (const [name, span] of blockSpans.entries()) {
-          if (!instanceMethodSpans.has(name) && !ambiguousFunctionNames.has(name)) {
-            instanceMethodSpans.set(name, span);
+          if (!classMethodSpans.has(name) && !ambiguousFunctionNames.has(name)) {
+            classMethodSpans.set(name, span);
           }
         }
       }
@@ -1200,6 +1213,11 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
       functionSpans.set(name, span);
     }
   }
+  for (const [name, span] of classMethodSpans.entries()) {
+    if (!functionSpans.has(name)) {
+      functionSpans.set(name, span);
+    }
+  }
   return {
     sourcePath: toAbsolutePath(sourcePath),
     moduleName,
@@ -1211,6 +1229,7 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
     functionSpans,
     functionNames: new Set([
       ...functionDefLines.map((entry) => entry.name),
+      ...classMethodSpans.keys(),
       ...instanceMethodSpans.keys(),
     ]),
     ambiguousFunctionNames,
