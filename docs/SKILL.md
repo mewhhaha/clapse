@@ -426,7 +426,12 @@ prelude graph. Bare class-method roots without enough instance context, such as
 infix operator support is better now: `<|>` compiles truthfully through `alt`.
 The remaining fail-closed class-helper seam is the `Functor`/`Filterable`
 mapping side: `fmap`, `<$>`, `filter`, `map_replace`, and `<$` still report
-`compile_phase1_unsupported` on the current prelude helper shapes.
+`compile_phase1_unsupported` on the current prelude helper shapes. `Alternative`
+is also still Maybe-only on this debug surface, so list-shaped `append` / `alt`
+/ `<|>` calls fail closed instead of silently compiling the wrong instance.
+Named `Boolean` helpers are also narrower than the operator surface: `&&`, `||`,
+`or`, and `xor` runtime-check correctly, but direct `and`, `not`, and `implies`
+still fail closed instead of compiling to the current placeholder module.
 `just semantics-check` now includes `compile-debug-smoke`, `wildcard-demand-check`,
 and `native-program-codegen-semantics-gate` so `pre-tag-verify` enforces
 program-dependent native wasm output shape before release verification.

@@ -1738,12 +1738,30 @@ function assertNoKnownUnsupportedDemandDrivenPreludeHelpers(
     { name: "fmap", pattern: /\bfmap\b/u },
     { name: "<$>", pattern: /<\$>/u },
     { name: "filter", pattern: /\bfilter\b/u },
+    { name: "and", pattern: /\band\b/u },
+    { name: "not", pattern: /\bnot\b/u },
+    { name: "implies", pattern: /\bimplies\b/u },
   ];
   for (const { name, pattern } of unsupportedPatterns) {
     if (pattern.test(original)) {
       throw new Error(
         `compile [error_code=compile_phase1_unsupported] failed for ${inputPath}: demand-driven compile input does not yet support ${name} on this prelude helper shape`,
       );
+    }
+  }
+  const listAlternativePatterns = [
+    { name: "append", pattern: /\bappend\b/u },
+    { name: "alt", pattern: /\balt\b/u },
+    { name: "<|>", pattern: /<\|>/u },
+  ];
+  const hasExplicitListShape = /\bCons\b/u.test(original) || /\[[^\]]*\]/u.test(original);
+  if (hasExplicitListShape) {
+    for (const { name, pattern } of listAlternativePatterns) {
+      if (pattern.test(original)) {
+        throw new Error(
+          `compile [error_code=compile_phase1_unsupported] failed for ${inputPath}: demand-driven compile input does not yet support ${name} on this prelude helper shape`,
+        );
+      }
     }
   }
 }

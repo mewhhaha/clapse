@@ -170,7 +170,12 @@ deno run -A scripts/clapse.mjs bench [iterations]
     operator support is better now too: `<|>` compiles truthfully through
     `alt`. The remaining fail-closed class-helper seam is the
     `Functor`/`Filterable` mapping side: `fmap`, `<$>`, `filter`,
-    `map_replace`, and `<$`.
+    `map_replace`, and `<$`. `Alternative` is also still Maybe-only on this
+    debug surface, so list-shaped `append` / `alt` / `<|>` calls fail closed
+    instead of silently choosing the wrong instance. Named `Boolean` helpers
+    are also narrower than the operator surface: `&&`, `||`, `or`, and `xor`
+    runtime-check correctly, but direct `and`, `not`, and `implies` still fail
+    closed instead of compiling to the current placeholder module.
     Demand-driven root stitching now also keeps value-position top-level helpers
     with short names, so alias-bound chains like
     `s = set_from_list_by ...; main = set_member_by ... s` no longer get pruned
