@@ -4892,7 +4892,7 @@ function phase1DefinitionsCoverExportNames(definitions, exportEntries) {
 
 function phase1TokenizeExpression(text) {
   const tokens = [];
-  const tokenRe = /\s*(->|&&|\|\||>=|<=|==|!=|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])'|[+\-*/<>!][+\-*/<>=!.]*|\\|\(|\)|\[|\]|\{|\}|,|;|\.|\||=|True|False|true|false|[-]?\d+|[+\-*/<>]|[A-Za-z_][A-Za-z0-9_$#']*(?:\.[A-Za-z_][A-Za-z0-9_$#']*)*)/gu;
+  const tokenRe = /\s*(->|>>=|>>|<\|>|<\$>|<\*>|<\$|<\*|\*>|<>|&&|\|\||>=|<=|==|!=|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])'|[!#$%&*+./<=>?@\\^|~:-]+|\\|\(|\)|\[|\]|\{|\}|,|;|\.|\||=|True|False|true|false|[-]?\d+|[A-Za-z_][A-Za-z0-9_$#']*(?:\.[A-Za-z_][A-Za-z0-9_$#']*)*)/gu;
   let cursor = 0;
   while (cursor < text.length) {
     const match = tokenRe.exec(text);
@@ -4939,7 +4939,7 @@ function phase1IsIdentToken(token) {
 }
 
 function phase1IsOperatorNameToken(token) {
-  return token !== "->" && /^[+\-*/<>!][+\-*/<>=!.]*$/u.test(token);
+  return token !== "->" && /^[!#$%&*+./<=>?@\\^|~:-]+$/u.test(token);
 }
 
 function phase1NormalizeCallableName(name) {
@@ -4990,6 +4990,7 @@ function phase1NormalizeCallableName(name) {
       return "keep_left";
     case "*>":
       return "keep_right";
+    case "<|>":
     case "<>":
       return "alt";
     default: {

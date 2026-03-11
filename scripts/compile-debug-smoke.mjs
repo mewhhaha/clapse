@@ -481,6 +481,21 @@ async function run() {
         expectedTaggedInt: 1,
       },
       {
+        name: "supported_alt_operator_alias_infix",
+        source: [
+          'import "prelude" { Just, <|> }',
+          "",
+          "export { main }",
+          "",
+          "main =",
+          "  case ((Just 201) <|> (Just 1)) of",
+          "    Just x -> x",
+          "    _ -> 0",
+          "",
+        ].join("\n"),
+        expectedTaggedInt: 201,
+      },
+      {
         name: "supported_map_from_list_by_root",
         source: [
           'import "prelude" { Pair, eq, map_from_list_by }',
@@ -678,14 +693,28 @@ async function run() {
         ].join("\n"),
       },
       {
-        name: "unsupported_alt_operator_alias_infix",
+        name: "unsupported_fmap_operator_alias_ambiguous_instance",
         source: [
-          'import "prelude" { Just, <|> }',
+          'import "prelude" { Just, <$>, add }',
           "",
           "export { main }",
           "",
           "main =",
-          "  case ((Just 201) <|> (Just 1)) of",
+          "  case ((\\x -> add x 1) <$> (Just 200)) of",
+          "    Just x -> x",
+          "    _ -> 0",
+          "",
+        ].join("\n"),
+      },
+      {
+        name: "unsupported_map_replace_operator_alias_ambiguous_instance",
+        source: [
+          'import "prelude" { Just, <$ }',
+          "",
+          "export { main }",
+          "",
+          "main =",
+          "  case (201 <$ (Just 1)) of",
           "    Just x -> x",
           "    _ -> 0",
           "",

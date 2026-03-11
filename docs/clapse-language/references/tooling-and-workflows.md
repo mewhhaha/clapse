@@ -166,10 +166,10 @@ deno run -A scripts/clapse.mjs bench [iterations]
     `keep_right_default` / `keep_right` report
     `compile_phase1_unsupported` instead of silently reducing to placeholder
     wasm. Bare class-method roots without enough instance context, such as
-    `pure 201`, also fail closed instead of inventing a container type. Custom
-    infix operator application still has a smaller executable-path gap too, so
-    named helpers like `alt` compile while operator-alias uses like `<|>` fail
-    closed.
+    `pure 201`, also fail closed instead of inventing a container type. Infix
+    operator support is better now too: `<|>` compiles truthfully through
+    `alt`, while the remaining operator fail-closed seam is the ambiguous
+    Functor default aliases like `<$>` and `<$`.
     Demand-driven root stitching now also keeps value-position top-level helpers
     with short names, so alias-bound chains like
     `s = set_from_list_by ...; main = set_member_by ... s` no longer get pruned
