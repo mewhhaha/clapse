@@ -45,9 +45,16 @@ the current wasm compiler unless explicitly marked `skip`.
     `scripts/bench-rust-compare.mjs` and currently targets
     `examples/bench_wasm_hand.clapse`,
     `examples/bench_wasm_abstraction.clapse`, and
-    `examples/bench_wasm_http_request_parser.clapse` with the same argument
-    stream and checksum logic on both sides. Treat checksum equality as part of
-    correctness; the benchmark must fail if Rust and Clapse diverge.
+    `examples/bench_wasm_http_request_parser.clapse`, plus the abstraction-heavy
+    standalone cases
+    `examples/bench_wasm_closure_env_abstraction.clapse`,
+    `examples/bench_wasm_struct_field_abstraction.clapse`, and
+    `examples/bench_wasm_wrapper_uncurry_abstraction.clapse`, with the same
+    argument stream and checksum logic on both sides. Treat checksum equality
+    as part of correctness; the benchmark must fail if Rust and Clapse diverge.
+    The output now includes a `wasm-boundary-only` row to separate JS↔Wasm call
+    overhead from the generated program cost, plus `*-net` rows that subtract
+    that boundary-only cost from each Clapse benchmark.
 13. Treat `tree-sitter-clapse/queries/highlights.scm` generated marker region as
     grammar-managed: update `docs/clapse-language/references/grammar.ebnf`
     first, regenerate with `just gen-ts-highlights`, and do not hand-edit lines

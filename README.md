@@ -588,8 +588,16 @@ This compiles the current Clapse benchmark fixtures to wasm, benchmarks them
 with the same tagged argument stream/checksum logic as the wasm runner, and
 compares them against optimized Rust baselines implementing the same programs.
 The harness now fails if the Rust and Clapse checksums diverge. Current cases
-include the numeric hand/abstraction pair and a parser-style request scorer in
-[`examples/bench_wasm_http_request_parser.clapse`](/home/mewhhaha/src/clapse/examples/bench_wasm_http_request_parser.clapse).
+include the numeric hand/abstraction pair, a parser-style request scorer in
+[`examples/bench_wasm_http_request_parser.clapse`](/home/mewhhaha/src/clapse/examples/bench_wasm_http_request_parser.clapse),
+and three abstraction-heavy standalone programs:
+[`examples/bench_wasm_closure_env_abstraction.clapse`](/home/mewhhaha/src/clapse/examples/bench_wasm_closure_env_abstraction.clapse),
+[`examples/bench_wasm_struct_field_abstraction.clapse`](/home/mewhhaha/src/clapse/examples/bench_wasm_struct_field_abstraction.clapse),
+and [`examples/bench_wasm_wrapper_uncurry_abstraction.clapse`](/home/mewhhaha/src/clapse/examples/bench_wasm_wrapper_uncurry_abstraction.clapse).
+The output also includes a `wasm-boundary-only` row so you can see how much of
+the measured gap is plain JS↔Wasm call overhead before attributing it to Clapse
+lowering quality, plus a `*-net` row for each case that subtracts the measured
+boundary-only cost from the end-to-end Clapse number.
 
 ## WASM runtime support
 

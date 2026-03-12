@@ -507,11 +507,17 @@ explorer path; there is no separate GH Pages explorer flow anymore.
 `just bench-rust-compare` runs `scripts/bench-rust-compare.mjs`, which compares
 the current Clapse wasm benchmark fixtures against optimized native Rust
 baselines using the same argument stream and checksum logic. The harness fails
-if the Rust and Clapse checksums diverge. The current coverage is:
+if the Rust and Clapse checksums diverge. It also prints a
+`wasm-boundary-only` row so the report separates plain JS↔Wasm call cost from
+the generated Clapse program cost, plus `*-net` rows that subtract that
+boundary-only cost from each Clapse case. The current coverage is:
 
 - `examples/bench_wasm_hand.clapse`
 - `examples/bench_wasm_abstraction.clapse`
 - `examples/bench_wasm_http_request_parser.clapse`
+- `examples/bench_wasm_closure_env_abstraction.clapse`
+- `examples/bench_wasm_struct_field_abstraction.clapse`
+- `examples/bench_wasm_wrapper_uncurry_abstraction.clapse`
 - `just native-strict-no-fallback-check [wasm=...] [hops=...]`
 - `just native-boundary-strict-seed-scan`
 - `just native-boundary-strict-seed-scan-kernel [hops=...]`
