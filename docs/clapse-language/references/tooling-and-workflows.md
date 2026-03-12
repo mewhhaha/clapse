@@ -139,6 +139,8 @@ deno run -A scripts/clapse.mjs bench [iterations]
     pattern-arm `case`, plus simple literal-pattern `case` arms and char
     literals parsed as integer codepoints, plus custom symbolic infix
     operators in the existing phase1 operator-name subset (for example `+.`).
+    Single-line constructor and record `case ... of ...; ...` forms now lower
+    through the same executable path as their multiline equivalents.
     If the requested `public_exports` still require non-`main` structural
     output outside that subset parser, boundary synthesis emits a compatibility
     wasm stub for the selected public exports so root-pruning and DCE flows
@@ -151,7 +153,9 @@ deno run -A scripts/clapse.mjs bench [iterations]
     If the source does parse in the subset but still cannot be lowered or
     evaluated, the boundary returns
     `error_code: "compile_phase1_unsupported"` instead of synthetic tagged
-    constants.
+    constants. Raw responses that only echo normalized-source artifacts with
+    tiny placeholder wasm now also fail closed as
+    `compile_placeholder_response` instead of being preserved as `compiler_raw`.
     The remaining fail-closed surface is now narrower than the old prelude helper
     families: the int-producing prelude map lookup chain and
     `eval_state (state_bind ...)` stay on a real executable path, and direct
@@ -159,23 +163,38 @@ deno run -A scripts/clapse.mjs bench [iterations]
     `map_lookup_by`, and direct `state_bind` now materialize as deterministic
     UTF-8 debug-value slices instead of failing closed or using fake stub wasm.
     Higher-order prelude helper chains now extend through `reader_ap`.
-    Generic class-default helper dispatch now fails closed once the
-    demand-driven stitcher hits ambiguous instance methods, so helpers like
-    `map_replace_default` / `map_replace`, `ap_default`,
-    `keep_left_default` / `keep_left`, and
-    `keep_right_default` / `keep_right` report
-    `compile_phase1_unsupported` instead of silently reducing to placeholder
-    wasm. Bare class-method roots without enough instance context, such as
-    `pure 201`, also fail closed instead of inventing a container type. Infix
-    operator support is better now too: `<|>` compiles truthfully through
-    `alt`. The remaining fail-closed class-helper seam is the
-    `Functor`/`Filterable` mapping side: `fmap`, `<$>`, `filter`,
-    `map_replace`, and `<$`. `Alternative` is also still Maybe-only on this
-    debug surface, so list-shaped `append` / `alt` / `<|>` calls fail closed
-    instead of silently choosing the wrong instance. Named `Boolean` helpers
-    are also narrower than the operator surface: `&&`, `||`, `or`, and `xor`
-    runtime-check correctly, but direct `and`, `not`, and `implies` still fail
-    closed instead of compiling to the current placeholder module.
+    Generic class-default helper dispatch is much broader now: list-backed
+    `Functor` helpers work on the command path, including `fmap`, `<$>`,
+    `map_replace`, `map_replace_default`, and `<$>` over explicit list roots;
+    explicit `Just`-shaped roots for `fmap` / `<$>`,
+    `map_replace_default` / `map_replace` / `<$`, `ap_default`, and
+    `keep_left` / `keep_left_default` / `<*` plus
+    `keep_right` / `keep_right_default` / `*>` also compile truthfully.
+    `Filterable` now covers both explicit list and explicit `Maybe` roots,
+    `Alternative` now covers both explicit `Maybe` and explicit list roots for
+    `append`, `alt_default`, and `<|>`, and explicit list-shaped
+    `Applicative`/`Monad` helper chains such as `ap_default [\\x -> ...] [..]`,
+    `bind [..] (\\x -> [...])`, `then_m (Cons 1 Nil) (Cons 201 Nil)`,
+    `keep_left[_default]`, `keep_right[_default]`, their `<*` / `*>`
+    operator aliases, and `append (pure 201) [1]` also compile truthfully;
+    `pure` and `empty` likewise work once the surrounding syntax or an
+    explicit root signature forces `Maybe` or `List`. Bare class-method roots
+    without enough instance context, such as untyped `pure 201` and `empty`,
+    still fail closed with an explicit “add a root signature” error instead of
+    inventing a container type, and incompatible root signatures like
+    `main : bool; main = pure 201` now fail with a precise class-instance
+    mismatch error. Concrete
+    `CollectionLiteral` roots remain supported, including `collection_empty 0` and
+    `collection_extend (collection_empty 0) 201`. Monad/operator stitching is better now too:
+    explicit `Maybe` roots using `>>=` now resolve truthfully through `bind`.
+    Reader/state/nullary debug values are also broad now: `maybe_map`,
+    `reader_map`, `local_reader`, `gets_state`, `lazy`, `id`, `compose`, and
+    record roots mixing `byte` / `char` all compile truthfully on the command path.
+    Direct nullary debug roots for `or`, `xor`,
+    `and`, `not`, and `implies` now render truthfully, and both multiline and
+    single-line computed boolean `case` targets now lower correctly, including
+    `case (eq 1 1) of true -> 1; _ -> 0`. Single-line constructor and record
+    `case` forms also lower correctly.
     Demand-driven root stitching now also keeps value-position top-level helpers
     with short names, so alias-bound chains like
     `s = set_from_list_by ...; main = set_member_by ... s` no longer get pruned
@@ -196,6 +215,10 @@ deno run -A scripts/clapse.mjs bench [iterations]
     `debug-funcmap`.
     Compile requests with `plugin_wasm_paths` also fail closed at the JS
     boundary when any referenced plugin wasm path is missing or is not a file.
+    Tiny `compiler_raw` responses that only echo normalized-source artifacts now
+    also fail closed as `compile_placeholder_response`, so wrongly stitched
+    helper families such as list-shaped `append` or `filter` on `Maybe` no
+    longer survive the direct boundary as 51-byte placeholder modules.
     Mixed selected-root export sets can stay on a real path when callable roots
     are executable and nullary roots are evaluable constants, including
     quoted-module alias cycles such as mutually recursive `even`/`odd`
@@ -442,6 +465,7 @@ Current targets in `Justfile`:
 - `just compile-native-debug <input> [output] [artifacts]`
 - `just compile-debug <input> [output] [artifacts]`
 - `just compile_debug <input> [output] [artifacts]` (compat alias)
+- `just explorer [port]`
 - `just format <file>`
 - `just format-write <file>`
 - `just lsp`
@@ -468,6 +492,16 @@ Current targets in `Justfile`:
 - `just native-strict-producer-check-wasm-seed [wasm=...] [hops=...] [source_version=...]`
 - `just native-strict-producer-check-ts-seed [wasm=...] [hops=...] [source_version=...]` (compat alias)
 - `just native-source-version-propagation-gate [wasm=...] [hops=...] [source_version=...]`
+
+`just explorer` now serves a single local HTML page (`explorer.html`) through
+`scripts/explorer.mjs`. The page is intentionally narrow: editable Clapse
+source on the left, `collapsed_ir.txt` from `compile-debug` in the middle, and
+WAT decompiled from the compiled wasm on the right, plus a few built-in
+presets, preset-aware host-side sample input (including real JS request objects
+for arg-taking programs), live `main(...)` sample results, source-side LSP
+hover tooltips, `let`/local type inlay hints, auto-recompile on source edits,
+and local syntax highlighting for Clapse and WAT. This replaces the old deployment-oriented
+explorer path; there is no separate GH Pages explorer flow anymore.
 - `just native-strict-no-fallback-check [wasm=...] [hops=...]`
 - `just native-boundary-strict-seed-scan`
 - `just native-boundary-strict-seed-scan-kernel [hops=...]`
@@ -528,6 +562,9 @@ Current targets in `Justfile`:
     source signature, plus signed closed-record projection chains like
     `opts.allow` and `default_nested.nested.allow`, plus dotted field completion
     for signed closed-record values like `opts.`
+  - hole-aware completion for `_` positions using local/top-level signatures,
+    including head holes like `_ "hello"`, argument holes like `inc _`, and
+    plain value holes where the enclosing signature gives an expected type
   - definitions
   - completion
   - signature help

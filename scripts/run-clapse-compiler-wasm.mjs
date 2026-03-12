@@ -716,9 +716,212 @@ function rewriteLegacyListConstructors(rawSource, sourcePath, warnings) {
   return changed ? lines.join("\n") : source;
 }
 
-function parseFunctionDefinitionName(rawLine) {
+function rewriteSupportedListHelperSugar(rawSource) {
+  const source = String(rawSource ?? "");
+  if (
+    !source.includes("map_replace") &&
+    !source.includes("map_replace_default") &&
+    !source.includes("<$") &&
+    !source.includes("<$>")
+  ) {
+    return source;
+  }
+  const lines = source.split(/\r?\n/);
+  let changed = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const commentAt = line.indexOf("--");
+    const code = commentAt >= 0 ? line.slice(0, commentAt) : line;
+    const comment = commentAt >= 0 ? line.slice(commentAt) : "";
+    let rewritten = code;
+    rewritten = rewritten.replace(
+      /\bmap_replace_default\s+(.+?)\s+(\[[^\n]*\])/u,
+      "fmap (\\_ -> $1) $2",
+    );
+    rewritten = rewritten.replace(
+      /\bmap_replace\s+(.+?)\s+(\[[^\n]*\])/u,
+      "fmap (\\_ -> $1) $2",
+    );
+    rewritten = rewritten.replace(
+      /\(\s*(.+?)\s*<\$\s*(\[[^\n]*\])\s*\)/u,
+      "fmap (\\_ -> $1) $2",
+    );
+    rewritten = rewritten.replace(
+      /\(\s*(.+?)\s*<\$>\s*(\[[^\n]*\])\s*\)/u,
+      "fmap $1 $2",
+    );
+    rewritten = rewritten.replace(
+      /\bfmap\s+\(\((.+)\)\s+(\[[^\n]*\])\)/u,
+      "fmap ($1) $2",
+    );
+    if (rewritten !== code) {
+      lines[i] = `${rewritten}${comment}`;
+      changed = true;
+    }
+  }
+  return changed ? lines.join("\n") : source;
+}
+
+function ensurePreludeImportBindings(sourceText, requiredNames = new Set()) {
+  const required = [...requiredNames].filter((name) => typeof name === "string" && name.length > 0);
+  if (required.length === 0) {
+    return sourceText;
+  }
+  const lines = String(sourceText ?? "").split(/\r?\n/);
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const match = line.match(/^(\s*import\s+"prelude"\s*\{)([^}]*)(\}.*)$/u);
+    if (!match) {
+      continue;
+    }
+    const [, prefix, bindingsRaw, suffix] = match;
+    const existing = bindingsRaw.split(",").map((part) => part.trim()).filter(Boolean);
+    const next = [...existing];
+    for (const name of required) {
+      if (!next.includes(name)) {
+        next.push(name);
+      }
+    }
+    lines[i] = `${prefix} ${next.join(", ")} ${suffix}`;
+    return lines.join("\n");
+  }
+  const importLine = `import "prelude" { ${required.join(", ")} }`;
+  return `${importLine}\n${sourceText}`;
+}
+
+function rewriteSupportedMaybeHelperSugar(rawSource) {
+  const source = String(rawSource ?? "");
+  if (
+    !source.includes("fmap") &&
+    !source.includes("<$>") &&
+    !source.includes("map_replace") &&
+    !source.includes("keep_left") &&
+    !source.includes("keep_right") &&
+    !source.includes("ap_default") &&
+    !source.includes("<$") &&
+    !source.includes("<*") &&
+    !source.includes("*>")
+  ) {
+    return source;
+  }
+  const maybeArgPattern = "(\\((?:Just|Nothing)[^\\n]*\\))";
+  const lines = source.split(/\r?\n/);
+  const requiredPreludeBindings = new Set();
+  let changed = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const commentAt = line.indexOf("--");
+    const code = commentAt >= 0 ? line.slice(0, commentAt) : line;
+    const comment = commentAt >= 0 ? line.slice(commentAt) : "";
+    let rewritten = code;
+    rewritten = rewritten.replace(
+      new RegExp(`\\bfmap\\s+(.+?)\\s+${maybeArgPattern}`, "u"),
+      "maybe_map $1 $2",
+    );
+    rewritten = rewritten.replace(
+      new RegExp(`\\(\\s*(.+?)\\s*<\\$>\\s*${maybeArgPattern}\\s*\\)`, "u"),
+      "maybe_map $1 $2",
+    );
+    rewritten = rewritten.replace(
+      new RegExp(`\\bmap_replace_default\\s+(.+?)\\s+${maybeArgPattern}`, "u"),
+      "maybe_map (\\_ -> $1) $2",
+    );
+    rewritten = rewritten.replace(
+      new RegExp(`\\bmap_replace\\s+(.+?)\\s+${maybeArgPattern}`, "u"),
+      "maybe_map (\\_ -> $1) $2",
+    );
+    rewritten = rewritten.replace(
+      new RegExp(`\\(\\s*(.+?)\\s*<\\$\\s*${maybeArgPattern}\\s*\\)`, "u"),
+      "maybe_map (\\_ -> $1) $2",
+    );
+    rewritten = rewritten.replace(
+      new RegExp(`\\bkeep_left_default\\s+${maybeArgPattern}\\s+${maybeArgPattern}`, "u"),
+      "maybe_bind $1 (\\x -> maybe_bind $2 (\\_ -> Just x))",
+    );
+    rewritten = rewritten.replace(
+      new RegExp(`\\bkeep_left\\s+${maybeArgPattern}\\s+${maybeArgPattern}`, "u"),
+      "maybe_bind $1 (\\x -> maybe_bind $2 (\\_ -> Just x))",
+    );
+    rewritten = rewritten.replace(
+      new RegExp(`\\(\\s*${maybeArgPattern}\\s*<\\*\\s*${maybeArgPattern}\\s*\\)`, "u"),
+      "maybe_bind $1 (\\x -> maybe_bind $2 (\\_ -> Just x))",
+    );
+    rewritten = rewritten.replace(
+      new RegExp(`\\bkeep_right_default\\s+${maybeArgPattern}\\s+${maybeArgPattern}`, "u"),
+      "maybe_bind $1 (\\_ -> $2)",
+    );
+    rewritten = rewritten.replace(
+      new RegExp(`\\bkeep_right\\s+${maybeArgPattern}\\s+${maybeArgPattern}`, "u"),
+      "maybe_bind $1 (\\_ -> $2)",
+    );
+    rewritten = rewritten.replace(
+      new RegExp(`\\(\\s*${maybeArgPattern}\\s*\\*>\\s*${maybeArgPattern}\\s*\\)`, "u"),
+      "maybe_bind $1 (\\_ -> $2)",
+    );
+    rewritten = rewritten.replace(
+      new RegExp(`\\bap_default\\s+${maybeArgPattern}\\s+${maybeArgPattern}`, "u"),
+      "maybe_bind $1 (\\f -> maybe_bind $2 (\\x -> Just (f x)))",
+    );
+    if (rewritten !== code) {
+      if (rewritten.includes("maybe_map")) {
+        requiredPreludeBindings.add("maybe_map");
+      }
+      if (rewritten.includes("maybe_bind")) {
+        requiredPreludeBindings.add("maybe_bind");
+      }
+      lines[i] = `${rewritten}${comment}`;
+      changed = true;
+    }
+  }
+  const nextSource = changed ? lines.join("\n") : source;
+  return ensurePreludeImportBindings(nextSource, requiredPreludeBindings);
+}
+
+function rewriteSupportedBooleanHelperSugar(rawSource) {
+  const source = String(rawSource ?? "");
+  if (
+    !source.includes("and") &&
+    !source.includes("not") &&
+    !source.includes("implies")
+  ) {
+    return source;
+  }
+  const simpleTerm = "(\\([^\\n()]+\\)|[A-Za-z_][A-Za-z0-9_']*|true|false|[0-9]+)";
+  const lines = source.split(/\r?\n/);
+  let changed = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const commentAt = line.indexOf("--");
+    const code = commentAt >= 0 ? line.slice(0, commentAt) : line;
+    const comment = commentAt >= 0 ? line.slice(commentAt) : "";
+    let rewritten = code;
+    rewritten = rewritten.replace(
+      new RegExp(`\\band\\s+${simpleTerm}\\s+${simpleTerm}`, "u"),
+      "(($1) && ($2))",
+    );
+    rewritten = rewritten.replace(
+      new RegExp(`\\bnot\\s+${simpleTerm}`, "u"),
+      "(case $1 of true -> false; _ -> true)",
+    );
+    rewritten = rewritten.replace(
+      new RegExp(`\\bimplies\\s+${simpleTerm}\\s+${simpleTerm}`, "u"),
+      "(case $1 of true -> $2; _ -> true)",
+    );
+    if (rewritten !== code) {
+      lines[i] = `${rewritten}${comment}`;
+      changed = true;
+    }
+  }
+  return changed ? lines.join("\n") : source;
+}
+
+function parseDefinitionHeadName(rawLine, { requireIndented = false } = {}) {
+  const hasIndent = /^\s/u.test(rawLine);
+  if (requireIndented ? !hasIndent : hasIndent) {
+    return "";
+  }
   const line = stripLineComment(rawLine).trim();
-  if (line.length === 0 || /^\s/.test(rawLine)) {
+  if (line.length === 0) {
     return "";
   }
   if (
@@ -736,19 +939,28 @@ function parseFunctionDefinitionName(rawLine) {
   ) {
     return "";
   }
-  const sepAt = line.indexOf("=");
-  if (sepAt < 0) {
+  if (line.startsWith("|")) {
     return "";
   }
-  const lhs = line.slice(0, sepAt).trim();
-  if (lhs.length === 0) {
+  const headMatch = line.match(
+    /^([A-Za-z_][A-Za-z0-9_$.']*|[!#$%&*+./<=>?@\\^|~:-]+)/u,
+  );
+  if (!headMatch) {
     return "";
   }
-  const firstToken = lhs.split(/\s+/u)[0];
+  const firstToken = normalizeFunctionName(headMatch[1]);
   if (!isFunctionName(firstToken)) {
     return "";
   }
+  const remainder = line.slice(headMatch[0].length);
+  if (!remainder.includes("=")) {
+    return "";
+  }
   return normalizeFunctionName(firstToken);
+}
+
+function parseFunctionDefinitionName(rawLine) {
+  return parseDefinitionHeadName(rawLine);
 }
 
 function parseFunctionSignatureName(rawLine) {
@@ -769,26 +981,7 @@ function parseFunctionSignatureName(rawLine) {
 }
 
 function parseIndentedFunctionDefinitionName(rawLine) {
-  if (!/^\s/u.test(rawLine)) {
-    return "";
-  }
-  const line = stripLineComment(rawLine).trim();
-  if (line.length === 0 || line.startsWith("|")) {
-    return "";
-  }
-  const sepAt = line.indexOf("=");
-  if (sepAt < 0) {
-    return "";
-  }
-  const lhs = line.slice(0, sepAt).trim();
-  if (lhs.length === 0) {
-    return "";
-  }
-  const firstToken = lhs.split(/\s+/u)[0];
-  if (!isFunctionName(firstToken)) {
-    return "";
-  }
-  return normalizeFunctionName(firstToken);
+  return parseDefinitionHeadName(rawLine, { requireIndented: true });
 }
 
 function trimCommonIndent(lines) {
@@ -891,6 +1084,209 @@ function collectIndentedMethodSpans(lines, blockStart, blockEndExclusive) {
     i = endLine;
   }
   return { spans, ambiguous };
+}
+
+function parseClassHeaderInfo(rawLine) {
+  const trimmed = stripLineComment(rawLine).trim();
+  const match = trimmed.match(/^class\s+([^\s]+)\b/u);
+  if (!match) {
+    return null;
+  }
+  return {
+    className: String(match[1] ?? "").trim(),
+  };
+}
+
+function parseInstanceHeaderInfo(rawLine) {
+  const trimmed = stripLineComment(rawLine).trim();
+  const match = trimmed.match(/^instance\s+([^\s]+)\s+(.+?)\s+where$/u);
+  if (!match) {
+    return null;
+  }
+  const className = String(match[1] ?? "").trim();
+  const ownerSpec = String(match[2] ?? "").trim();
+  const ownerTokens = ownerSpec.split(/\s+/u).filter(Boolean);
+  const ownerName = ownerTokens.length > 0
+    ? ownerTokens[ownerTokens.length - 1]
+    : ownerSpec;
+  return {
+    className,
+    ownerName,
+    ownerSpec,
+  };
+}
+
+function cloneMethodOwnerSpans(mapLike) {
+  const out = new Map();
+  if (!(mapLike instanceof Map)) {
+    return out;
+  }
+  for (const [name, ownerMap] of mapLike.entries()) {
+    if (!(ownerMap instanceof Map)) {
+      continue;
+    }
+    out.set(name, new Map(ownerMap));
+  }
+  return out;
+}
+
+function rootTypeOwnerHint(sourceText, rootName) {
+  const source = String(sourceText ?? "");
+  const cleanRootName = normalizeFunctionName(rootName);
+  if (cleanRootName.length === 0) {
+    return "";
+  }
+  const escaped = cleanRootName.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const pattern = new RegExp(`^\\s*${escaped}\\s*:\\s*([A-Za-z_][A-Za-z0-9_']*)\\b`, "mu");
+  const match = source.match(pattern);
+  return String(match?.[1] ?? "").trim();
+}
+
+function inferMethodOwnerPreferences(sourceText, rootNames = []) {
+  const source = String(sourceText ?? "");
+  const hasExplicitListShape = /\bCons\b/u.test(source) || /\[[^\]]*\]/u.test(source);
+  const hasExplicitMaybeShape = /\bJust\b/u.test(source) || /\bNothing\b/u.test(source);
+  const hasExplicitBooleanShape = /\btrue\b/u.test(source) || /\bfalse\b/u.test(source);
+  const preferences = new Map();
+  if (hasExplicitListShape && !hasExplicitMaybeShape) {
+    for (
+      const name of [
+        "fmap",
+        "<$>",
+        "<$",
+        "filter",
+        "append",
+        "alt",
+        "<|>",
+        "empty",
+        "pure",
+        "ap",
+        "<*>",
+        "bind",
+        ">>=",
+        "then_m",
+        ">>",
+      ]
+    ) {
+      preferences.set(name, "List");
+    }
+  }
+  if (hasExplicitMaybeShape && !hasExplicitListShape) {
+    for (
+      const name of [
+        "fmap",
+        "<$>",
+        "<$",
+        "filter",
+        "append",
+        "alt",
+        "<|>",
+        "empty",
+        "pure",
+        "ap",
+        "<*>",
+        "bind",
+        ">>=",
+        "then_m",
+        ">>",
+      ]
+    ) {
+      preferences.set(name, "Maybe");
+    }
+  }
+  if (hasExplicitBooleanShape) {
+    for (const name of ["not", "and", "or", "xor", "implies", "&&", "||"]) {
+      preferences.set(name, "bool");
+    }
+  }
+  const rootOwnerHints = new Set(
+    (Array.isArray(rootNames) ? rootNames : []).map((name) =>
+      rootTypeOwnerHint(source, name)
+    ).filter((name) => name.length > 0),
+  );
+  if (rootOwnerHints.size === 1) {
+    const [rootOwner] = [...rootOwnerHints];
+    if (rootOwner === "List" || rootOwner === "Maybe") {
+      for (
+        const name of [
+          "fmap",
+          "<$>",
+          "<$",
+          "filter",
+          "append",
+          "alt",
+          "<|>",
+          "empty",
+          "pure",
+          "ap",
+          "<*>",
+          "bind",
+          ">>=",
+          "then_m",
+          ">>",
+          "keep_left",
+          "keep_right",
+          "keep_left_default",
+          "keep_right_default",
+          "<*",
+          "*>",
+        ]
+      ) {
+        if (!preferences.has(name)) {
+          preferences.set(name, rootOwner);
+        }
+      }
+    }
+    if (rootOwner === "bool") {
+      for (const name of ["not", "and", "or", "xor", "implies", "&&", "||"]) {
+        if (!preferences.has(name)) {
+          preferences.set(name, "bool");
+        }
+      }
+    }
+  }
+  return preferences;
+}
+
+function applyMethodOwnerPreferencesToModuleInfo(info, sourceText, rootNames = []) {
+  if (!info || typeof info !== "object") {
+    return info;
+  }
+  const preferences = inferMethodOwnerPreferences(sourceText, rootNames);
+  if (preferences.size === 0) {
+    return info;
+  }
+  const instanceMethodOwnersByName = cloneMethodOwnerSpans(info.instanceMethodOwnersByName);
+  if (instanceMethodOwnersByName.size === 0) {
+    return info;
+  }
+  const functionSpans = new Map(info.functionSpans instanceof Map ? info.functionSpans : []);
+  const ambiguousFunctionNames = new Set(
+    info.ambiguousFunctionNames instanceof Set ? info.ambiguousFunctionNames : [],
+  );
+  let changed = false;
+  for (const [name, preferredOwner] of preferences.entries()) {
+    const ownerMap = instanceMethodOwnersByName.get(name);
+    if (!(ownerMap instanceof Map) || ownerMap.size === 0) {
+      continue;
+    }
+    const preferredSpan = ownerMap.get(preferredOwner);
+    if (!preferredSpan) {
+      continue;
+    }
+    functionSpans.set(name, preferredSpan);
+    ambiguousFunctionNames.delete(name);
+    changed = true;
+  }
+  if (!changed) {
+    return info;
+  }
+  return {
+    ...info,
+    functionSpans,
+    ambiguousFunctionNames,
+    instanceMethodOwnersByName,
+  };
 }
 
 function isTopLevelBoundaryLine(rawLine) {
@@ -1039,6 +1435,7 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
   const boundaryLines = [];
   const classMethodSpans = new Map();
   const instanceMethodSpans = new Map();
+  const instanceMethodOwnersByName = new Map();
   const ambiguousFunctionNames = new Set();
   for (let i = 0; i < lines.length; i += 1) {
     const rawLine = lines[i];
@@ -1064,6 +1461,7 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
       }
       boundaryLines.push(i);
       if (trimmed.startsWith("instance ")) {
+        const instanceHeader = parseInstanceHeaderInfo(rawLine);
         let blockEnd = lines.length;
         for (let j = i + 1; j < lines.length; j += 1) {
           const nextLine = lines[j];
@@ -1083,6 +1481,15 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
           instanceMethodSpans.delete(name);
         }
         for (const [name, span] of blockSpans.entries()) {
+          const ownerName = String(instanceHeader?.ownerName ?? "").trim();
+          let ownerMap = instanceMethodOwnersByName.get(name);
+          if (!(ownerMap instanceof Map)) {
+            ownerMap = new Map();
+            instanceMethodOwnersByName.set(name, ownerMap);
+          }
+          if (ownerName.length > 0 && !ownerMap.has(ownerName)) {
+            ownerMap.set(ownerName, span);
+          }
           if (ambiguousFunctionNames.has(name)) {
             continue;
           }
@@ -1232,6 +1639,7 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
       ...classMethodSpans.keys(),
       ...instanceMethodSpans.keys(),
     ]),
+    instanceMethodOwnersByName,
     ambiguousFunctionNames,
   };
 }
@@ -1308,10 +1716,16 @@ export async function buildDemandDrivenCompileInput(
     }
     seen.add(sourcePath);
     const rawSource = await Deno.readTextFile(sourcePath);
-    const source = rewriteLegacyListConstructors(
-      rawSource,
-      sourcePath,
-      deprecationWarnings,
+    const source = rewriteSupportedMaybeHelperSugar(
+      rewriteSupportedListHelperSugar(
+        rewriteSupportedBooleanHelperSugar(
+          rewriteLegacyListConstructors(
+            rawSource,
+            sourcePath,
+            deprecationWarnings,
+          ),
+        ),
+      ),
     );
     const info = parseModuleSourceInfo(source, sourcePath);
     const resolvedImportEntries = [];
@@ -1391,6 +1805,13 @@ export async function buildDemandDrivenCompileInput(
     : entryInfo.exportNames.length > 0
     ? [...entryInfo.exportNames]
     : ["main"];
+  const originalEntrySource = entryInfo.sourceLines.join("\n");
+  for (const [modulePath, info] of moduleInfos.entries()) {
+    moduleInfos.set(
+      modulePath,
+      applyMethodOwnerPreferencesToModuleInfo(info, originalEntrySource, rootList),
+    );
+  }
   const enableFoldlFmapFusion = explicitRoots.length > 0;
 
   const moduleRoots = new Map();
@@ -1421,9 +1842,13 @@ export async function buildDemandDrivenCompileInput(
         if (!span) {
           continue;
         }
+        const availableLocalFunctionNames = new Set([
+          ...(info.functionNames instanceof Set ? info.functionNames : []),
+          ...(info.functionSpans instanceof Map ? info.functionSpans.keys() : []),
+        ]);
         const refs = collectFunctionReferencesFromSpan(
           span.sourceLines,
-          info.functionNames,
+          availableLocalFunctionNames,
         );
         if (
           info.ambiguousFunctionNames instanceof Set &&
@@ -1729,39 +2154,122 @@ export async function buildDemandDrivenCompileInput(
   };
 }
 
+function isBareEmptyRootDefinition(sourceText, rootName) {
+  const escapedRootName = rootName.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const pattern = new RegExp(`^${escapedRootName}\\s*=\\s*empty$`, "u");
+  return String(sourceText ?? "")
+    .split(/\r?\n/u)
+    .some((rawLine) => pattern.test(stripLineComment(rawLine).trim()));
+}
+
+function isBarePureRootDefinition(sourceText, rootName) {
+  const escapedRootName = rootName.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const pattern = new RegExp(`^${escapedRootName}\\s*=\\s*pure\\b`, "u");
+  return String(sourceText ?? "")
+    .split(/\r?\n/u)
+    .some((rawLine) => pattern.test(stripLineComment(rawLine).trim()));
+}
+
+function rootHasSupportedTypeContext(sourceText, rootName) {
+  const owner = rootTypeOwnerHint(sourceText, rootName);
+  return owner === "Maybe" || owner === "List" || owner === "bool";
+}
+
 function assertNoKnownUnsupportedDemandDrivenPreludeHelpers(
   inputPath,
   originalSource,
+  entrypointExportsRaw = [],
 ) {
   const original = String(originalSource ?? "");
+  const hasExplicitListShape = /\bCons\b/u.test(original) || /\[[^\]]*\]/u.test(original);
+  const hasExplicitMaybeShape = /\((?:Just|Nothing)[^\n]*\)/u.test(original);
+  const hasSupportedBooleanSugarRewrite =
+    rewriteSupportedBooleanHelperSugar(original) !== original;
   const unsupportedPatterns = [
-    { name: "fmap", pattern: /\bfmap\b/u },
-    { name: "<$>", pattern: /<\$>/u },
-    { name: "filter", pattern: /\bfilter\b/u },
-    { name: "and", pattern: /\band\b/u },
-    { name: "not", pattern: /\bnot\b/u },
-    { name: "implies", pattern: /\bimplies\b/u },
+    {
+      name: "fmap",
+      pattern: /\bfmap\b/u,
+      allowWhenListShaped: true,
+      allowWhenMaybeShaped: true,
+    },
+    {
+      name: "<$>",
+      pattern: /<\$>/u,
+      allowWhenListShaped: true,
+      allowWhenMaybeShaped: true,
+    },
+    {
+      name: "filter",
+      pattern: /\bfilter\b/u,
+      allowWhenListShaped: true,
+      allowWhenMaybeShaped: true,
+    },
+    { name: "and", pattern: /\band\b/u, allowWhenBooleanSugarRewritten: true },
+    { name: "not", pattern: /\bnot\b/u, allowWhenBooleanSugarRewritten: true },
+    {
+      name: "implies",
+      pattern: /\bimplies\b/u,
+      allowWhenBooleanSugarRewritten: true,
+    },
   ];
-  for (const { name, pattern } of unsupportedPatterns) {
+  for (
+    const {
+      name,
+      pattern,
+      allowWhenListShaped,
+      allowWhenMaybeShaped,
+      allowWhenBooleanSugarRewritten,
+    } of unsupportedPatterns
+  ) {
     if (pattern.test(original)) {
+      if (allowWhenListShaped && hasExplicitListShape) {
+        continue;
+      }
+      if (allowWhenMaybeShaped && hasExplicitMaybeShape) {
+        continue;
+      }
+      if (allowWhenBooleanSugarRewritten && hasSupportedBooleanSugarRewrite) {
+        continue;
+      }
       throw new Error(
         `compile [error_code=compile_phase1_unsupported] failed for ${inputPath}: demand-driven compile input does not yet support ${name} on this prelude helper shape`,
       );
     }
   }
-  const listAlternativePatterns = [
-    { name: "append", pattern: /\bappend\b/u },
-    { name: "alt", pattern: /\balt\b/u },
-    { name: "<|>", pattern: /<\|>/u },
-  ];
-  const hasExplicitListShape = /\bCons\b/u.test(original) || /\[[^\]]*\]/u.test(original);
-  if (hasExplicitListShape) {
-    for (const { name, pattern } of listAlternativePatterns) {
-      if (pattern.test(original)) {
+  try {
+    const info = parseModuleSourceInfo(original, inputPath);
+    const explicitRoots = normalizeEntrypointExportRoots(entrypointExportsRaw);
+    const rootList = explicitRoots.length > 0
+      ? explicitRoots
+      : info.exportNames.length > 0
+      ? [...info.exportNames]
+      : ["main"];
+    for (const root of rootList) {
+      const rootOwner = rootTypeOwnerHint(original, root);
+      if (isBarePureRootDefinition(original, root) && rootOwner === "bool") {
         throw new Error(
-          `compile [error_code=compile_phase1_unsupported] failed for ${inputPath}: demand-driven compile input does not yet support ${name} on this prelude helper shape`,
+          `compile [error_code=compile_phase1_unsupported] failed for ${inputPath}: bare pure at root '${root}' requires an Applicative instance; signature 'bool' is incompatible`,
         );
       }
+      if (isBarePureRootDefinition(original, root) && !rootHasSupportedTypeContext(original, root)) {
+        throw new Error(
+          `compile [error_code=compile_phase1_unsupported] failed for ${inputPath}: demand-driven compile input cannot resolve bare pure without instance context; add a root signature like '${root} : Maybe i64' or '${root} : List i64'`,
+        );
+      }
+      if (isBareEmptyRootDefinition(original, root) && rootOwner === "bool") {
+        throw new Error(
+          `compile [error_code=compile_phase1_unsupported] failed for ${inputPath}: bare empty at root '${root}' requires an Alternative instance; signature 'bool' is incompatible`,
+        );
+      }
+      if (isBareEmptyRootDefinition(original, root) && !rootHasSupportedTypeContext(original, root)) {
+        throw new Error(
+          `compile [error_code=compile_phase1_unsupported] failed for ${inputPath}: demand-driven compile input cannot resolve bare empty without instance context; add a root signature like '${root} : Maybe i64' or '${root} : List i64'`,
+        );
+      }
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("compile_phase1_unsupported")) {
+      throw error;
     }
   }
 }
@@ -2214,6 +2722,7 @@ async function compileViaWasm(wasmPath, inputPath, outputPath, options = {}) {
     assertNoKnownUnsupportedDemandDrivenPreludeHelpers(
       inputPath,
       originalInputSource,
+      options.entrypointExports,
     );
   }
   const isKernelCompile = isCompilerKernelPath(inputPath);

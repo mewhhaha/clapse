@@ -32,12 +32,20 @@ the current wasm compiler unless explicitly marked `skip`.
 10. Use
    `deno run -A scripts/run-clapse-compiler-wasm.mjs compile-debug <input.clapse> [output.wasm] [artifacts-dir]`
    for unified wasm+IR debug flows.
-11. Treat `tree-sitter-clapse/queries/highlights.scm` generated marker region as
+11. Use `just explorer` for the single local explorer page:
+    editable Clapse source, `collapsed_ir.txt`, and WAT decompiled from the
+    compiled wasm output only. The explorer is served by `scripts/explorer.mjs`
+    from `explorer.html`, includes preset-aware host-side sample input
+    (including real JS request objects for arg-taking programs), live
+    `main(...)` sample results, source-side LSP hover tooltips, `let`/local
+    type inlay hints, and auto-recompile on edits. It should stay a single
+    local page; do not reintroduce a separate GH Pages explorer path.
+12. Treat `tree-sitter-clapse/queries/highlights.scm` generated marker region as
     grammar-managed: update `docs/clapse-language/references/grammar.ebnf`
     first, regenerate with `just gen-ts-highlights`, and do not hand-edit lines
     between `; BEGIN GENERATED-HIGHLIGHTS FROM_EBNF` and
     `; END GENERATED-HIGHLIGHTS FROM_EBNF`.
-12. Keep native parse wired through `compiler/syntax_parser_entry` as the
+13. Keep native parse wired through `compiler/syntax_parser_entry` as the
     generated-parser migration seam; grammar-backed parser data should enter via
     that entry module rather than direct `compiler/syntax_parser` calls.
 
@@ -217,8 +225,13 @@ That subset includes:
   `updated = options { allow = false }`, including multi-root nullary record and
   parameterized type-alias record exports that reduce through folded field
   projections
-- boolean operator chains through builtin boolean methods in phase1 executable
-  paths, such as `main = case lt 1 2 && not false || false of true -> 1; _ -> 0`
+- direct boolean-expression roots in phase1 executable/debug-value paths,
+  including operator and named-helper roots like `main = true || false`,
+  `main = or true false`, and `main = xor true false`; both multiline and
+  single-line computed boolean `case` targets now lower correctly, including
+  `case (eq 1 1) of true -> 1; _ -> 0`
+- single-line constructor and record `case ... of ...; ...` forms now lower
+  through the same debug executable path as their multiline equivalents
 - guarded `case of` in phase1 executable paths for boolean guard chains with
   `otherwise` fallback, such as
   `main = case of | eq x 0 -> 0 | eq x 1 -> 1 | otherwise -> 2`
@@ -255,7 +268,12 @@ If a non-kernel compile request is valid Clapse source but the requested
 synthesis now fails with `compile_phase1_unsupported` instead of emitting a
 compatibility wasm stub. Demand-driven module graph merges still drop inlined
 local imports before the wasm boundary, but unsupported debug requests are now
-explicit failures rather than fake-success outputs.
+explicit failures rather than fake-success outputs. Raw responses that only
+echo normalized-source artifacts with tiny placeholder wasm also fail closed as
+`compile_placeholder_response` instead of being preserved as `compiler_raw`.
+That direct-boundary check now also catches wrongly stitched helper families
+like list-shaped `append` and `filter` on `Maybe` before they escape as
+51-byte `compiler_raw` placeholder modules.
 
 Mixed selected-root export sets can stay on a real path when callable roots are
 executable and nullary roots are evaluable constants, including quoted-module
@@ -415,23 +433,37 @@ direct `map_from_list_by`, direct `map_lookup_by`, and direct `state_bind`
 roots materialize as deterministic UTF-8 debug-value slices on the executable
 path instead of failing closed or returning fake stub wasm. The higher-order
 prelude helper surface now also includes truthful `reader_ap` executable/debug
-roots. Generic class-default helper dispatch now fails closed once the
-demand-driven stitcher hits ambiguous instance methods, so helpers like
-`map_replace_default` / `map_replace`, `ap_default`,
-`keep_left_default` / `keep_left`, and
-`keep_right_default` / `keep_right` report
-`compile_phase1_unsupported` instead of silently compiling the wrong stitched
-prelude graph. Bare class-method roots without enough instance context, such as
-`pure 201`, also fail closed instead of inventing a container type. Custom
-infix operator support is better now: `<|>` compiles truthfully through `alt`.
-The remaining fail-closed class-helper seam is the `Functor`/`Filterable`
-mapping side: `fmap`, `<$>`, `filter`, `map_replace`, and `<$` still report
-`compile_phase1_unsupported` on the current prelude helper shapes. `Alternative`
-is also still Maybe-only on this debug surface, so list-shaped `append` / `alt`
-/ `<|>` calls fail closed instead of silently compiling the wrong instance.
-Named `Boolean` helpers are also narrower than the operator surface: `&&`, `||`,
-`or`, and `xor` runtime-check correctly, but direct `and`, `not`, and `implies`
-still fail closed instead of compiling to the current placeholder module.
+roots. Generic class-default helper dispatch is broader now: explicit
+`Just`-shaped roots for `fmap` / `<$>`, `map_replace_default` / `map_replace` /
+`<$`, `ap_default`, and `keep_left` / `keep_left_default` / `<*` plus
+`keep_right` / `keep_right_default` / `*>` compile truthfully, and list-backed
+`Functor` helpers like `fmap (\x -> add x 1) [1, 2, 3]`, `(<$>)`,
+`map_replace`, `map_replace_default`, and `<$` on explicit list roots do too.
+`Filterable` now covers both explicit list and explicit `Maybe` roots,
+`Alternative` now covers both explicit `Maybe` and explicit list roots for
+`append`, `alt_default`, and `<|>`, and explicit list-shaped
+`Applicative`/`Monad` helper chains like `ap_default [\\x -> ...] [..]`,
+`bind [..] (\\x -> [...])`, `then_m (Cons 1 Nil) (Cons 201 Nil)`,
+`keep_left[_default]`, `keep_right[_default]`, their `<*` / `*>` aliases,
+and `append (pure 201) [1]` compile truthfully too, and `pure` / `empty`
+likewise work once the surrounding syntax or an explicit root signature forces
+`Maybe` or `List`. Bare class-method roots without enough instance context,
+such as untyped `pure 201` and `empty`, still fail closed with an explicit
+“add a root signature” error instead of inventing a container type, and
+incompatible root signatures like `main : bool; main = pure 201` now fail with
+a precise class-instance mismatch error, while concrete `CollectionLiteral`
+roots like
+`collection_empty 0` and `collection_extend (collection_empty 0) 201` stay
+supported. Custom infix operator support is better now: `<|>` compiles
+truthfully through `alt`, and `>>=` now stitches to `bind` correctly for
+explicit `Maybe` roots. Reader/state/nullary debug values are also broad now:
+`maybe_map`, `reader_map`, `local_reader`, `gets_state`, `lazy`, `id`,
+`compose`, and record roots mixing `byte` / `char` all compile truthfully on
+the command path.
+Named `Boolean` helpers now compile truthfully too: direct nullary debug roots
+for `or`, `xor`, `and`, `not`, and `implies` render truthfully, and multiline
+and single-line computed boolean `case` targets now lower correctly.
+Single-line constructor/record `case` forms now do as well.
 `just semantics-check` now includes `compile-debug-smoke`, `wildcard-demand-check`,
 and `native-program-codegen-semantics-gate` so `pre-tag-verify` enforces
 program-dependent native wasm output shape before release verification.
@@ -851,6 +883,9 @@ program-dependent native wasm output shape before release verification.
   - signed closed-record projection chains like `opts.allow` and
     `default_nested.nested.allow`
   - dotted field completion for signed closed-record values like `opts.`
+  - hole-aware completion for `_` positions using local/top-level signatures,
+    including head holes like `_ "hello"`, argument holes like `inc _`, and
+    plain value holes where the enclosing signature gives an expected type
 - Initialize now advertises kernel-owned completion/signature/semantic/workspace symbol
   capabilities to keep protocol parity with kernel routing.
 - Fixture coverage for migrated methods is now present in

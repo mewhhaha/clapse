@@ -109,6 +109,15 @@ instance Functor Maybe where
   <$> = fmap
   <$ = map_replace
 
+instance Filterable Maybe where
+  filter pred m =
+    case m of
+      Just x ->
+        case pred x of
+          true -> Just x
+          _ -> Nothing
+      Nothing -> Nothing
+
 instance Applicative Maybe where
   pure = Just
   ap mf mx = maybe_bind mf (\f -> maybe_bind mx (\x -> Just (f x)))
@@ -246,6 +255,29 @@ instance Buildable List where
 instance CollectionLiteral List where
   collection_empty _ = build (\cons -> \nil -> nil)
   collection_extend xs x = build (\cons -> \nil -> foldr cons (cons x nil) xs)
+
+instance Applicative List where
+  pure x = Cons x Nil
+  ap fs xs =
+    foldr
+      (\f -> \acc -> append (fmap f xs) acc)
+      Nil
+      fs
+
+instance Monad List where
+  pure x = Cons x Nil
+  bind xs f =
+    foldr
+      (\x -> \acc -> append (f x) acc)
+      Nil
+      xs
+
+instance Alternative List where
+  empty = Nil
+  append a b =
+    case a of
+      Nil -> b
+      Cons x rest -> Cons x (append rest b)
 
 run_reader ra env =
   case ra of
