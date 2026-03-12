@@ -504,7 +504,7 @@ function classifyFunctionDeclLine(rawLine) {
   return { name, kind };
 }
 
-function buildFunctionDocIndex(text) {
+export function buildFunctionDocIndex(text) {
   const sourceText = String(text);
   const lines = sourceText.split("\n");
   const out = new Map();
@@ -1098,8 +1098,8 @@ function sourceSignaturePartsForSymbol(index, symbol) {
     return null;
   }
   const declaration = index?.declarations?.get?.(symbol) ?? null;
-  const signatureLine = Number.isFinite(Number(declaration?.signatureLine))
-    ? Number(declaration.signatureLine)
+  const signatureLine = typeof declaration?.signatureLine === "number"
+    ? declaration.signatureLine
     : null;
   if (signatureLine === null) {
     return null;
@@ -1153,6 +1153,146 @@ function inferTopLevelNullaryDefinitionType(index, symbol, seen = new Set()) {
   const nextSeen = new Set(seen);
   nextSeen.add(symbol);
   return inferSimpleExprType(rhs, new Map(), index, nextSeen);
+}
+
+function topLevelDefinitionBodyText(index, symbol) {
+  const declaration = index?.declarations?.get?.(symbol) ?? null;
+  const definitionLine = typeof declaration?.definitionLine === "number"
+    ? declaration.definitionLine
+    : null;
+  if (definitionLine === null) {
+    return null;
+  }
+  const sourceLines = String(index?.sourceText ?? "").split("\n");
+  const rawLine = safeTextForLine(sourceLines[definitionLine]);
+  const eqAt = rawLine.indexOf("=");
+  if (eqAt < 0) {
+    return null;
+  }
+  const rhs = rawLine.slice(eqAt + 1).trim();
+  if (rhs.length > 0 && rhs !== "let") {
+    return rhs;
+  }
+  const context = findEnclosingFunctionContext(index, definitionLine);
+  if (context === null) {
+    return rhs.length > 0 ? rhs : null;
+  }
+  for (
+    let line = Math.min(Number(context.endLineExclusive ?? sourceLines.length) - 1, sourceLines.length - 1);
+    line > definitionLine;
+    line -= 1
+  ) {
+    const trimmed = safeTextForLine(sourceLines[line]).trim();
+    if (trimmed.length === 0 || trimmed.startsWith("--")) {
+      continue;
+    }
+    if (trimmed.startsWith("in ")) {
+      return trimmed.slice(3).trim();
+    }
+    return trimmed;
+  }
+  return rhs.length > 0 ? rhs : null;
+}
+
+function inferTopLevelDefinitionReturnType(index, symbol, seen = new Set()) {
+  if (typeof symbol !== "string" || symbol.length === 0 || seen.has(symbol)) {
+    return null;
+  }
+  const declaration = index?.declarations?.get?.(symbol) ?? null;
+  const definitionLine = typeof declaration?.definitionLine === "number"
+    ? declaration.definitionLine
+    : null;
+  if (definitionLine === null) {
+    return null;
+  }
+  const sourceLines = String(index?.sourceText ?? "").split("\n");
+  const rawLine = safeTextForLine(sourceLines[definitionLine]);
+  const decl = classifyFunctionDeclLine(rawLine);
+  if (decl === null || decl.kind !== "definition") {
+    return null;
+  }
+  const params = parseDefinitionParams(rawLine, symbol);
+  const eqAt = rawLine.indexOf("=");
+  const rhsHead = eqAt >= 0 ? rawLine.slice(eqAt + 1).trim() : "";
+  const body = topLevelDefinitionBodyText(index, symbol);
+  if (typeof body !== "string" || body.length === 0) {
+    return null;
+  }
+  const env = new Map();
+  for (const param of params) {
+    env.set(param, "_");
+  }
+  if (rhsHead === "let") {
+    const baseIndent = leadingIndentCount(rawLine);
+    for (let line = definitionLine + 1; line < sourceLines.length; line += 1) {
+      const currentRaw = safeTextForLine(sourceLines[line]);
+      const currentTrimmed = currentRaw.trim();
+      if (currentTrimmed.length === 0 || currentTrimmed.startsWith("--")) {
+        continue;
+      }
+      if (leadingIndentCount(currentRaw) <= baseIndent) {
+        break;
+      }
+      if (currentTrimmed.startsWith("in ")) {
+        const finalExpr = currentTrimmed.slice(3).trim();
+        const nextSeen = new Set(seen);
+        nextSeen.add(symbol);
+        return inferSimpleExprType(finalExpr, env, index, nextSeen);
+      }
+      const localBind = currentRaw.match(/^\s*([A-Za-z_][A-Za-z0-9_$.']*)\s*=\s*(.+)$/u);
+      if (!localBind) {
+        continue;
+      }
+      const [, name, rhs] = localBind;
+      const cleanedRhs = String(rhs).replace(/;\s*$/u, "").trim();
+      const inferred = inferSimpleExprType(cleanedRhs, env, index, seen);
+      if (typeof inferred === "string" && inferred.length > 0) {
+        env.set(name, inferred);
+      }
+    }
+  }
+  const context = findEnclosingFunctionContext(index, definitionLine);
+  if (context !== null) {
+    const localEnv = buildLocalTypeEnv(
+      index,
+      context,
+      Math.max(definitionLine, Number(context.endLineExclusive ?? definitionLine + 1) - 1),
+    );
+    for (const [name, inferred] of localEnv.entries()) {
+      if (!env.has(name)) {
+        env.set(name, inferred);
+      }
+    }
+  }
+  const nextSeen = new Set(seen);
+  nextSeen.add(symbol);
+  return inferSimpleExprType(body, env, index, nextSeen);
+}
+
+function inferredDefinitionSignatureForSymbol(index, symbol) {
+  if (typeof symbol !== "string" || symbol.length === 0) {
+    return null;
+  }
+  const declaration = index?.declarations?.get?.(symbol) ?? null;
+  const definitionLine = typeof declaration?.definitionLine === "number"
+    ? declaration.definitionLine
+    : null;
+  if (definitionLine === null) {
+    return null;
+  }
+  const sourceLines = String(index?.sourceText ?? "").split("\n");
+  const rawLine = safeTextForLine(sourceLines[definitionLine]);
+  const decl = classifyFunctionDeclLine(rawLine);
+  if (decl === null || decl.kind !== "definition") {
+    return null;
+  }
+  const params = parseDefinitionParams(rawLine, symbol);
+  const returnType = inferTopLevelDefinitionReturnType(index, symbol);
+  if (typeof returnType !== "string" || returnType.length === 0) {
+    return null;
+  }
+  const paramTypes = params.map(() => "_");
+  return `${symbol} : ${[...paramTypes, returnType].join(" -> ")}`;
 }
 
 function isSimpleTypeVariable(typeText) {
@@ -1213,6 +1353,14 @@ function inferSimpleExprType(exprText, env, index, seen = new Set()) {
   if (text === "true" || text === "false") {
     return "bool";
   }
+  const arithmeticBinary = findTopLevelBinaryOperator(text, ["+", "-", "*", "/"]);
+  if (arithmeticBinary !== null) {
+    return "i64";
+  }
+  const booleanBinary = findTopLevelBinaryOperator(text, ["&&", "||", "=="]);
+  if (booleanBinary !== null) {
+    return "bool";
+  }
   const recordFields = parseRecordFieldEntries(text);
   if (Array.isArray(recordFields)) {
     const typedFields = new Map();
@@ -1242,11 +1390,39 @@ function inferSimpleExprType(exprText, env, index, seen = new Set()) {
     return currentType;
   }
   if (/^[A-Za-z_][A-Za-z0-9_$.']*$/u.test(text)) {
-    return env.get(text) ?? sourceNullaryValueTypeForSymbol(index, text) ??
+    return env.get(text) ?? sourceSignatureTypeForSymbol(index, text) ??
+      sourceNullaryValueTypeForSymbol(index, text) ??
       inferTopLevelNullaryDefinitionType(index, text, seen) ??
-      sourceSignatureTypeForSymbol(index, text) ?? null;
+      inferTopLevelDefinitionReturnType(index, text, seen) ??
+      null;
   }
   const terms = splitTopLevelApplyTerms(text);
+  if (terms.length > 0) {
+    const ctorInfo = buildDataConstructorIndex(index).get(terms[0]);
+    if (ctorInfo && terms.length - 1 === ctorInfo.fieldTypes.length) {
+      const bindings = new Map();
+      let ok = true;
+      for (let i = 0; i < ctorInfo.fieldTypes.length; i += 1) {
+        const argType = inferSimpleExprType(terms[i + 1], env, index, seen);
+        if (typeof argType !== "string" || argType.length === 0) {
+          ok = false;
+          break;
+        }
+        if (!unifySimpleTypePattern(ctorInfo.fieldTypes[i], argType, bindings)) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) {
+        const appliedParams = ctorInfo.typeParams.map((name) =>
+          substituteSimpleTypeVars(name, bindings)
+        );
+        return appliedParams.length > 0
+          ? `${ctorInfo.typeName} ${appliedParams.join(" ")}`
+          : ctorInfo.typeName;
+      }
+    }
+  }
   if (terms.length > 1) {
     const [head, ...args] = terms;
     const envHeadType = env.get(head) ?? null;
@@ -1270,6 +1446,71 @@ function inferSimpleExprType(exprText, env, index, seen = new Set()) {
         bindings,
       );
       return resultType.length > 0 ? resultType : null;
+    }
+    const inferredReturn = inferTopLevelDefinitionReturnType(index, head, seen);
+    const declaration = index?.declarations?.get?.(head) ?? null;
+    const definitionLine = typeof declaration?.definitionLine === "number"
+      ? declaration.definitionLine
+      : null;
+    if (
+      typeof inferredReturn === "string" &&
+      inferredReturn.length > 0 &&
+      definitionLine !== null
+    ) {
+      const sourceLines = String(index?.sourceText ?? "").split("\n");
+      const rawLine = safeTextForLine(sourceLines[definitionLine]);
+      const paramCount = parseDefinitionParams(rawLine, head).length;
+      if (paramCount === args.length) {
+        return inferredReturn;
+      }
+    }
+  }
+  return null;
+}
+
+function findTopLevelBinaryOperator(text, operators) {
+  const source = String(text ?? "");
+  let paren = 0;
+  let bracket = 0;
+  let brace = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === "\"") {
+      inString = true;
+      continue;
+    }
+    if (ch === "(") paren += 1;
+    else if (ch === ")") paren = Math.max(0, paren - 1);
+    else if (ch === "[") bracket += 1;
+    else if (ch === "]") bracket = Math.max(0, bracket - 1);
+    else if (ch === "{") brace += 1;
+    else if (ch === "}") brace = Math.max(0, brace - 1);
+    if (paren !== 0 || bracket !== 0 || brace !== 0) {
+      continue;
+    }
+    for (const operator of operators) {
+      if (source.startsWith(operator, i)) {
+        return {
+          operator,
+          index: i,
+        };
+      }
     }
   }
   return null;
@@ -1315,7 +1556,8 @@ function buildLocalTypeEnv(index, context, uptoLine) {
     const sameLineLet = raw.match(/\blet\s+([A-Za-z_][A-Za-z0-9_$.']*)\s*=\s*(.+?)(?:\s+in\b|$)/u);
     if (sameLineLet) {
       const [, name, rhs] = sameLineLet;
-      const inferred = inferSimpleExprType(rhs, env, index);
+      const cleanedRhs = String(rhs).replace(/;\s*$/u, "").trim();
+      const inferred = inferSimpleExprType(cleanedRhs, env, index);
       if (inferred) {
         env.set(name, inferred);
       }
@@ -1331,7 +1573,8 @@ function buildLocalTypeEnv(index, context, uptoLine) {
       continue;
     }
     const [, name, rhs] = localBind;
-    const inferred = inferSimpleExprType(rhs, env, index);
+    const cleanedRhs = String(rhs).replace(/;\s*$/u, "").trim();
+    const inferred = inferSimpleExprType(cleanedRhs, env, index);
     if (inferred) {
       env.set(name, inferred);
     }
@@ -1534,6 +1777,217 @@ function buildLocalHover(index, line, character) {
       token.occurrence?.end ?? fallbackRange?.end ?? 0,
     ),
     backend: "js",
+  };
+}
+
+function buildHoverMarkdown(symbol, signature, doc) {
+  const safeSymbol = String(symbol ?? "").trim();
+  const safeSignature = String(signature ?? "").trim();
+  const safeDoc = typeof doc === "string" ? doc.trim() : "";
+  const parts = [`### ${safeSymbol}`];
+  if (safeSignature.length > 0) {
+    parts.push(`\`\`\`clapse\n${safeSignature}\n\`\`\``);
+  }
+  if (safeDoc.length > 0) {
+    parts.push(safeDoc);
+  }
+  return parts.join("\n\n");
+}
+
+function explorerHoverSignatureForSymbol(index, declaration, symbol) {
+  const explicitType = sourceSignatureTypeForSymbol(index, symbol);
+  if (typeof explicitType === "string" && explicitType.length > 0) {
+    return `${symbol} : ${explicitType}`;
+  }
+  const inferredSignature = inferredDefinitionSignatureForSymbol(index, symbol);
+  if (typeof inferredSignature === "string" && inferredSignature.length > 0) {
+    return inferredSignature;
+  }
+  const inferredNullary = inferTopLevelNullaryDefinitionType(index, symbol);
+  if (typeof inferredNullary === "string" && inferredNullary.length > 0) {
+    return `${symbol} : ${inferredNullary}`;
+  }
+  const sourceLines = String(index?.sourceText ?? "").split("\n");
+  const signatureLine = typeof declaration?.signatureLine === "number"
+    ? declaration.signatureLine
+    : null;
+  if (signatureLine !== null) {
+    const rawSignature = safeTextForLine(sourceLines[signatureLine]).trim();
+    if (rawSignature.length > 0) {
+      return rawSignature;
+    }
+  }
+  return null;
+}
+
+async function resolveExplorerHoverForOccurrence(
+  wasmPath,
+  uri,
+  source,
+  index,
+  occurrence,
+  symbol,
+  kernelHoverCache,
+) {
+  const localHover = buildLocalHover(index, occurrence.line, occurrence.start);
+  if (localHover && typeof localHover?.contents?.value === "string") {
+    return {
+      line: occurrence.line,
+      start: occurrence.start,
+      end: occurrence.end,
+      markdown: localHover.contents.value,
+      backend: String(localHover.backend ?? "js"),
+      symbol,
+    };
+  }
+  const declaration = index?.declarations?.get?.(symbol) ?? null;
+  if (!declaration) {
+    return null;
+  }
+  let kernelHover = null;
+  if (kernelHoverCache.has(symbol)) {
+    kernelHover = kernelHoverCache.get(symbol);
+  } else {
+    kernelHover = await requestKernelHover(wasmPath, uri, source, symbol);
+    kernelHoverCache.set(symbol, kernelHover);
+  }
+  if (kernelHover && kernelHover.found === true && typeof kernelHover.signature === "string") {
+    return {
+      line: occurrence.line,
+      start: occurrence.start,
+      end: occurrence.end,
+      markdown: buildHoverMarkdown(symbol, kernelHover.signature, kernelHover.doc),
+      backend: "clapse",
+      symbol,
+    };
+  }
+  const sourceLines = String(index?.sourceText ?? "").split("\n");
+  const signatureLine = explorerHoverSignatureForSymbol(index, declaration, symbol) ??
+    safeTextForLine(sourceLines[Number(declaration.line ?? 0)]).trim();
+  return {
+    line: occurrence.line,
+    start: occurrence.start,
+    end: occurrence.end,
+    markdown: buildHoverMarkdown(symbol, signatureLine, declaration.doc),
+    backend: "js",
+    symbol,
+  };
+}
+
+function buildExplorerLetInlayHints(index) {
+  const hints = [];
+  const sourceLines = String(index?.sourceText ?? "").split("\n");
+  const seen = new Set();
+  for (const [, entry] of index?.declarations ?? []) {
+    if (!Number.isFinite(Number(entry?.definitionLine))) {
+      continue;
+    }
+    const context = findEnclosingFunctionContext(index, Number(entry.definitionLine));
+    if (context === null) {
+      continue;
+    }
+    const baseIndent = Number.isFinite(context?.definitionLine)
+      ? leadingIndentCount(safeTextForLine(sourceLines[context.definitionLine]))
+      : 0;
+    for (
+      let line = Number(context.definitionLine) + 1;
+      line < Math.min(Number(context.endLineExclusive ?? sourceLines.length), sourceLines.length);
+      line += 1
+    ) {
+      const raw = safeTextForLine(sourceLines[line]);
+      if (raw.trim().length === 0 || raw.trim().startsWith("--")) {
+        continue;
+      }
+      if (leadingIndentCount(raw) <= baseIndent) {
+        continue;
+      }
+      const localBind = raw.match(/^\s*([A-Za-z_][A-Za-z0-9_$.']*)\s*=\s*(.+)$/u);
+      if (!localBind) {
+        continue;
+      }
+      const [, name, rhs] = localBind;
+      const nameStart = raw.indexOf(name);
+      if (nameStart < 0) {
+        continue;
+      }
+      const prefixKey = `${line}:before:${nameStart}`;
+      if (!seen.has(prefixKey)) {
+        seen.add(prefixKey);
+        hints.push({
+          line,
+          position: nameStart,
+          side: "before",
+          label: "let ",
+          kind: "keyword",
+        });
+      }
+      const env = buildLocalTypeEnv(index, context, line);
+      const inferred = inferSimpleExprType(rhs, env, index);
+      if (typeof inferred !== "string" || inferred.length === 0) {
+        continue;
+      }
+      const suffixPos = nameStart + name.length;
+      const suffixKey = `${line}:after:${suffixPos}:${inferred}`;
+      if (seen.has(suffixKey)) {
+        continue;
+      }
+      seen.add(suffixKey);
+      hints.push({
+        line,
+        position: suffixPos,
+        side: "after",
+        label: ` : ${inferred}`,
+        kind: "type",
+      });
+    }
+  }
+  hints.sort((a, b) =>
+    a.line - b.line ||
+    a.position - b.position ||
+    String(a.side).localeCompare(String(b.side), "en")
+  );
+  return hints;
+}
+
+export async function buildExplorerSourceAnnotations(
+  wasmPath,
+  source,
+  uri = "file:///explorer.clapse",
+) {
+  const index = buildFunctionDocIndex(source);
+  const hoverables = [];
+  const kernelHoverCache = new Map();
+  const seenRanges = new Set();
+  for (const [symbol, occurrences] of index.occurrences.entries()) {
+    for (const occurrence of occurrences) {
+      const hover = await resolveExplorerHoverForOccurrence(
+        wasmPath,
+        uri,
+        source,
+        index,
+        occurrence,
+        symbol,
+        kernelHoverCache,
+      );
+      if (!hover) {
+        continue;
+      }
+      const key = `${hover.line}:${hover.start}:${hover.end}:${hover.symbol}:${hover.backend}`;
+      if (seenRanges.has(key)) {
+        continue;
+      }
+      seenRanges.add(key);
+      hoverables.push(hover);
+    }
+  }
+  hoverables.sort((a, b) =>
+    a.line - b.line ||
+    a.start - b.start ||
+    a.end - b.end
+  );
+  return {
+    hoverables,
+    inlayHints: buildExplorerLetInlayHints(index),
   };
 }
 
@@ -2030,6 +2484,258 @@ function buildCompletionItemsFromIndex(index, query) {
       sortText: "0",
       documentation: "",
     }));
+}
+
+function typeSignatureForLocalEnvSymbol(symbol, env) {
+  const type = env.get(symbol);
+  if (typeof type !== "string" || type.trim().length === 0) {
+    return null;
+  }
+  return `${symbol} : ${type.trim()}`;
+}
+
+function typeSignatureForTopLevelSymbol(index, symbol) {
+  const explicit = sourceSignatureTypeForSymbol(index, symbol);
+  if (typeof explicit === "string" && explicit.length > 0) {
+    return `${symbol} : ${explicit}`;
+  }
+  const inferred = inferredDefinitionSignatureForSymbol(index, symbol);
+  if (typeof inferred === "string" && inferred.length > 0) {
+    return inferred;
+  }
+  const nullary = inferTopLevelNullaryDefinitionType(index, symbol);
+  if (typeof nullary === "string" && nullary.length > 0) {
+    return `${symbol} : ${nullary}`;
+  }
+  const ret = inferTopLevelDefinitionReturnType(index, symbol);
+  if (typeof ret === "string" && ret.length > 0) {
+    return `${symbol} : ${ret}`;
+  }
+  return null;
+}
+
+function completionItemKindForSignature(signature) {
+  const typeText = topLevelTypeSuffix(signature);
+  const parts = splitTopLevelFunctionType(typeText);
+  return parts.length > 1 ? 3 : 6;
+}
+
+function collectHoleCompletionCandidates(index, env) {
+  const candidates = [];
+  const seen = new Set();
+  for (const [name] of env.entries()) {
+    if (name === "_") {
+      continue;
+    }
+    const signature = typeSignatureForLocalEnvSymbol(name, env);
+    if (typeof signature !== "string" || signature.length === 0 || seen.has(name)) {
+      continue;
+    }
+    seen.add(name);
+    candidates.push({
+      label: name,
+      signature,
+      detail: "local",
+      kind: completionItemKindForSignature(signature),
+      source: "local",
+    });
+  }
+  for (const [name, decl] of index?.declarations ?? []) {
+    if (name === "_" || seen.has(name)) {
+      continue;
+    }
+    const signature = typeSignatureForTopLevelSymbol(index, name);
+    if (typeof signature !== "string" || signature.length === 0) {
+      continue;
+    }
+    seen.add(name);
+    candidates.push({
+      label: name,
+      signature,
+      detail: decl?.doc ? String(decl.doc) : "",
+      kind: completionItemKindForSignature(signature),
+      source: "top-level",
+    });
+  }
+  return candidates;
+}
+
+function signaturePartsForCompletionCandidate(candidate) {
+  const signature = String(candidate?.signature ?? "");
+  const typeText = topLevelTypeSuffix(signature);
+  return splitTopLevelFunctionType(typeText);
+}
+
+function inferExpectedReturnTypeForHole(index, context, line) {
+  if (context === null) {
+    return null;
+  }
+  const sourceLines = String(index?.sourceText ?? "").split("\n");
+  const signatureLine = Number.isFinite(context?.signatureLine)
+    ? Number(context.signatureLine)
+    : null;
+  if (signatureLine === null) {
+    return null;
+  }
+  const parts = splitTopLevelFunctionType(
+    topLevelTypeSuffix(safeTextForLine(sourceLines[signatureLine])),
+  );
+  if (parts.length === 0) {
+    return null;
+  }
+  return parts[parts.length - 1] ?? null;
+}
+
+function findExpressionRangeForHole(lineText, holeStart) {
+  const text = String(lineText ?? "");
+  const topLevelArrow = (() => {
+    let paren = 0;
+    let bracket = 0;
+    let brace = 0;
+    for (let i = 0; i + 1 < text.length; i += 1) {
+      const ch = text[i];
+      if (ch === "(") paren += 1;
+      else if (ch === ")") paren = Math.max(0, paren - 1);
+      else if (ch === "[") bracket += 1;
+      else if (ch === "]") bracket = Math.max(0, bracket - 1);
+      else if (ch === "{") brace += 1;
+      else if (ch === "}") brace = Math.max(0, brace - 1);
+      if (
+        ch === "-" &&
+        text[i + 1] === ">" &&
+        paren === 0 &&
+        bracket === 0 &&
+        brace === 0 &&
+        i < holeStart
+      ) {
+        return i;
+      }
+    }
+    return -1;
+  })();
+  const eqAt = text.indexOf("=");
+  const inMatch = text.match(/\bin\s/u);
+  const inAt = inMatch?.index ?? -1;
+  let start = 0;
+  if (topLevelArrow >= 0) {
+    start = topLevelArrow + 2;
+  } else if (eqAt >= 0 && eqAt < holeStart) {
+    start = eqAt + 1;
+  } else if (inAt >= 0 && inAt < holeStart) {
+    start = inAt + 2;
+  }
+  return {
+    start,
+    end: text.length,
+    text: text.slice(start).trim(),
+    holeOffset: Math.max(0, holeStart - start),
+  };
+}
+
+function buildHoleCompletionItems(index, line, character) {
+  const source = String(index?.sourceText ?? "");
+  const sourceLines = source.split("\n");
+  const lineText = safeTextForLine(sourceLines[line]);
+  const holeRange = wordRangeAtPosition(lineText, character);
+  if (holeRange === null || lineText.slice(holeRange.start, holeRange.end) !== "_") {
+    return [];
+  }
+  const context = findEnclosingFunctionContext(index, line);
+  const env = context === null ? new Map() : buildLocalTypeEnv(index, context, line);
+  const exprRange = findExpressionRangeForHole(lineText, holeRange.start);
+  const exprText = exprRange.text;
+  if (exprText.length === 0) {
+    return [];
+  }
+  const terms = splitTopLevelApplyTerms(exprText);
+  const holeTermIndex = terms.indexOf("_");
+  const candidates = collectHoleCompletionCandidates(index, env);
+  if (candidates.length === 0) {
+    return [];
+  }
+  const filtered = [];
+  if (holeTermIndex === 0 && terms.length > 1) {
+    const argTypes = terms.slice(1)
+      .map((term) => inferSimpleExprType(term, env, index))
+      .filter((type) => typeof type === "string" && type.length > 0);
+    for (const candidate of candidates) {
+      const parts = signaturePartsForCompletionCandidate(candidate);
+      if (parts.length < argTypes.length + 1) {
+        continue;
+      }
+      const bindings = new Map();
+      let ok = true;
+      for (let i = 0; i < argTypes.length; i += 1) {
+        if (!unifySimpleTypePattern(parts[i], argTypes[i], bindings)) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) {
+        filtered.push(candidate);
+      }
+    }
+  } else if (holeTermIndex > 0) {
+    const head = terms[0];
+    const headType = env.get(head) ?? sourceSignatureTypeForSymbol(index, head) ?? null;
+    const headParts = splitTopLevelFunctionType(String(headType ?? ""));
+    if (headParts.length > holeTermIndex) {
+      const bindings = new Map();
+      let ok = true;
+      for (let i = 1; i < holeTermIndex; i += 1) {
+        const argType = inferSimpleExprType(terms[i], env, index);
+        if (typeof argType !== "string" || argType.length === 0) {
+          ok = false;
+          break;
+        }
+        if (!unifySimpleTypePattern(headParts[i - 1], argType, bindings)) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) {
+        const expectedType = substituteSimpleTypeVars(headParts[holeTermIndex - 1], bindings);
+        for (const candidate of candidates) {
+          const candidateParts = signaturePartsForCompletionCandidate(candidate);
+          const candidateType = candidateParts.join(" -> ");
+          if (
+            typeof candidateType === "string" &&
+            candidateType.length > 0 &&
+            unifySimpleTypePattern(expectedType, candidateType, new Map())
+          ) {
+            filtered.push(candidate);
+          }
+        }
+      }
+    }
+  } else {
+    const expectedType = inferExpectedReturnTypeForHole(index, context, line);
+    if (typeof expectedType === "string" && expectedType.length > 0) {
+      for (const candidate of candidates) {
+        const candidateType = signaturePartsForCompletionCandidate(candidate).join(" -> ");
+        if (
+          typeof candidateType === "string" &&
+          candidateType.length > 0 &&
+          unifySimpleTypePattern(expectedType, candidateType, new Map())
+        ) {
+          filtered.push(candidate);
+        }
+      }
+    }
+  }
+  const items = (filtered.length > 0 ? filtered : candidates)
+    .sort((left, right) =>
+      (left.source === right.source ? 0 : left.source === "local" ? -1 : 1) ||
+      left.label.localeCompare(right.label, "en")
+    )
+    .map((candidate, index) => ({
+      label: candidate.label,
+      kind: candidate.kind,
+      detail: candidate.signature,
+      documentation: candidate.detail,
+      sortText: String(index).padStart(4, "0"),
+    }));
+  return items;
 }
 
 function buildRecordProjectionCompletionItems(index, lineText, character, env) {
@@ -2552,6 +3258,11 @@ export async function runLspServer() {
         );
         if (projectionItems.length > 0) {
           await sendResponse(id, projectionItems);
+          return;
+        }
+        const holeItems = buildHoleCompletionItems(index, line, character);
+        if (holeItems.length > 0) {
+          await sendResponse(id, holeItems);
           return;
         }
         const { symbol } = getSymbolPosition(index, line, character);

@@ -40,12 +40,20 @@ the current wasm compiler unless explicitly marked `skip`.
     `main(...)` sample results, source-side LSP hover tooltips, `let`/local
     type inlay hints, and auto-recompile on edits. It should stay a single
     local page; do not reintroduce a separate GH Pages explorer path.
-12. Treat `tree-sitter-clapse/queries/highlights.scm` generated marker region as
+12. Use `just bench-rust-compare` to compare the current Clapse wasm fixtures
+    against optimized native Rust baselines. The script is
+    `scripts/bench-rust-compare.mjs` and currently targets
+    `examples/bench_wasm_hand.clapse`,
+    `examples/bench_wasm_abstraction.clapse`, and
+    `examples/bench_wasm_http_request_parser.clapse` with the same argument
+    stream and checksum logic on both sides. Treat checksum equality as part of
+    correctness; the benchmark must fail if Rust and Clapse diverge.
+13. Treat `tree-sitter-clapse/queries/highlights.scm` generated marker region as
     grammar-managed: update `docs/clapse-language/references/grammar.ebnf`
     first, regenerate with `just gen-ts-highlights`, and do not hand-edit lines
     between `; BEGIN GENERATED-HIGHLIGHTS FROM_EBNF` and
     `; END GENERATED-HIGHLIGHTS FROM_EBNF`.
-13. Keep native parse wired through `compiler/syntax_parser_entry` as the
+14. Keep native parse wired through `compiler/syntax_parser_entry` as the
     generated-parser migration seam; grammar-backed parser data should enter via
     that entry module rather than direct `compiler/syntax_parser` calls.
 

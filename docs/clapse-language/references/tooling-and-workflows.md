@@ -466,6 +466,7 @@ Current targets in `Justfile`:
 - `just compile-debug <input> [output] [artifacts]`
 - `just compile_debug <input> [output] [artifacts]` (compat alias)
 - `just explorer [port]`
+- `just bench-rust-compare [iterations=...] [warmup=...]`
 - `just format <file>`
 - `just format-write <file>`
 - `just lsp`
@@ -502,6 +503,15 @@ for arg-taking programs), live `main(...)` sample results, source-side LSP
 hover tooltips, `let`/local type inlay hints, auto-recompile on source edits,
 and local syntax highlighting for Clapse and WAT. This replaces the old deployment-oriented
 explorer path; there is no separate GH Pages explorer flow anymore.
+
+`just bench-rust-compare` runs `scripts/bench-rust-compare.mjs`, which compares
+the current Clapse wasm benchmark fixtures against optimized native Rust
+baselines using the same argument stream and checksum logic. The harness fails
+if the Rust and Clapse checksums diverge. The current coverage is:
+
+- `examples/bench_wasm_hand.clapse`
+- `examples/bench_wasm_abstraction.clapse`
+- `examples/bench_wasm_http_request_parser.clapse`
 - `just native-strict-no-fallback-check [wasm=...] [hops=...]`
 - `just native-boundary-strict-seed-scan`
 - `just native-boundary-strict-seed-scan-kernel [hops=...]`

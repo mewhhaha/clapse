@@ -13,6 +13,7 @@ const COMPILE_DEBUG_ARTIFACT_FILES = [
   "collapsed_ir.txt",
 ];
 const KNOWN_PLACEHOLDER_WASM_BYTES = 122;
+const TINY_SOURCE_ECHO_PLACEHOLDER_WASM_BYTES = 51;
 const KNOWN_PLACEHOLDER_ERROR_CODE = "compile_placeholder_response";
 const PHASE1_UNSUPPORTED_ERROR_CODE = "compile_phase1_unsupported";
 const RAW_NON_KERNEL_BOUNDARY_SYNTHESIS_ERROR =
@@ -1032,7 +1033,7 @@ function phase1ParseLetBindingChain(tokens, start, stopTokens) {
     const branches = [];
     let cursor = start + 1;
     while (true) {
-      if (tokens[cursor] === "|") {
+      if (tokens[cursor] === "|" || tokens[cursor] === ";") {
         cursor += 1;
       }
       const guardToken = tokens[cursor];
@@ -1223,14 +1224,14 @@ function phase1FirstStopIndex(tokens, start, stopTokens) {
 function phase1FindTrailingPatternArrowStart(tokens, start, stopTokens) {
   const limit = phase1FirstStopIndex(tokens, start, stopTokens);
   for (let index = limit - 1; index >= start; index -= 1) {
-    if (tokens[index] === "|") {
+    if (tokens[index] === "|" || tokens[index] === ";") {
       continue;
     }
     const parsed = phase1ParsePattern(tokens, index, new Set(["->"]));
     if (parsed !== null && parsed.next < limit && tokens[parsed.next] === "->") {
       let earliest = index;
       for (let scan = index - 1; scan >= start; scan -= 1) {
-        if (tokens[scan] === "|") {
+        if (tokens[scan] === "|" || tokens[scan] === ";") {
           continue;
         }
         const earlier = phase1ParsePattern(tokens, scan, new Set(["->"]));
@@ -1247,7 +1248,7 @@ function phase1FindTrailingPatternArrowStart(tokens, start, stopTokens) {
 function phase1FindTrailingPatternSequenceArrowStart(tokens, start, stopTokens, arity) {
   const limit = phase1FirstStopIndex(tokens, start, stopTokens);
   for (let index = limit - 1; index >= start; index -= 1) {
-    if (tokens[index] === "|") {
+    if (tokens[index] === "|" || tokens[index] === ";") {
       continue;
     }
     const parsed = phase1ParsePatternSequence(tokens, index, new Set(["->"]));
@@ -1259,7 +1260,7 @@ function phase1FindTrailingPatternSequenceArrowStart(tokens, start, stopTokens, 
     ) {
       let earliest = index;
       for (let scan = index - 1; scan >= start; scan -= 1) {
-        if (tokens[scan] === "|") {
+        if (tokens[scan] === "|" || tokens[scan] === ";") {
           continue;
         }
         const earlier = phase1ParsePatternSequence(tokens, scan, new Set(["->"]));
@@ -1278,7 +1279,7 @@ function phase1FindTrailingPatternSequenceArrowStart(tokens, start, stopTokens, 
 }
 
 function phase1ParseSingleTargetCaseArmChain(tokens, start, stopTokens, targetNode) {
-  const armStart = tokens[start] === "|" ? start + 1 : start;
+  const armStart = tokens[start] === "|" || tokens[start] === ";" ? start + 1 : start;
   const pattern = phase1ParsePattern(tokens, armStart, new Set(["->"]));
   if (pattern === null || tokens[pattern.next] !== "->") {
     return null;
@@ -1301,7 +1302,9 @@ function phase1ParseSingleTargetCaseArmChain(tokens, start, stopTokens, targetNo
     };
   }
   for (let candidate = bodyStart + 1; candidate < limit; candidate += 1) {
-    const suffixStart = tokens[candidate] === "|" ? candidate + 1 : candidate;
+    const suffixStart = tokens[candidate] === "|" || tokens[candidate] === ";"
+      ? candidate + 1
+      : candidate;
     if (suffixStart >= limit) {
       continue;
     }
@@ -3711,11 +3714,11 @@ function phase1ReduceRecordExpr(expr) {
     }
     case "let": {
       const value = phase1ReduceRecordExpr(expr.value);
-      const body = phase1ReduceRecordExpr(expr.body);
-      const inlined = phase1InlineLetBindingExpr(expr.name, value, body);
+      const inlined = phase1InlineLetBindingExpr(expr.name, value, expr.body);
       if (inlined !== null) {
-        return inlined;
+        return phase1ReduceRecordExpr(inlined);
       }
+      const body = phase1ReduceRecordExpr(expr.body);
       return {
         type: "let",
         name: expr.name,
@@ -3726,11 +3729,11 @@ function phase1ReduceRecordExpr(expr) {
     case "letPattern":
       {
         const value = phase1ReduceRecordExpr(expr.value);
-        const body = phase1ReduceRecordExpr(expr.body);
-        const inlined = phase1InlineLetPatternExpr(expr.pattern, value, body);
+        const inlined = phase1InlineLetPatternExpr(expr.pattern, value, expr.body);
         if (inlined !== null) {
-          return inlined;
+          return phase1ReduceRecordExpr(inlined);
         }
+        const body = phase1ReduceRecordExpr(expr.body);
         if (value === expr.value && body === expr.body) {
           return expr;
         }
@@ -5644,7 +5647,7 @@ function phase1ParsePrimary(tokens, start, stopTokens) {
       if (branches.length === 0) {
         return null;
       }
-      if (tokens[cursor] === "|") {
+      if (tokens[cursor] === "|" || tokens[cursor] === ";") {
         cursor += 1;
       }
       if (tokens[cursor] !== "otherwise" || tokens[cursor + 1] !== "->") {
@@ -5701,7 +5704,7 @@ function phase1ParsePrimary(tokens, start, stopTokens) {
         return null;
       }
       let cursor = fallbackStart;
-      if (tokens[cursor] === "|") {
+      if (tokens[cursor] === "|" || tokens[cursor] === ";") {
         cursor += 1;
       }
       const fallbackSeq = phase1ParsePatternSequence(tokens, cursor, new Set(["->"]));
@@ -5755,7 +5758,7 @@ function phase1ParsePrimary(tokens, start, stopTokens) {
         return null;
       }
       cursor = whenTrue.next;
-      if (tokens[cursor] === "|") {
+      if (tokens[cursor] === "|" || tokens[cursor] === ";") {
         cursor += 1;
       }
       const falseToken = tokens[cursor];
@@ -7995,6 +7998,30 @@ function phase1NullaryRawExportsMatchSource(wasmBase64, sourceText, exportEntrie
   return true;
 }
 
+function phase1AnyNullaryRawExportMatchesSource(wasmBase64, sourceText, exportEntries) {
+  if (!Array.isArray(exportEntries) || exportEntries.length === 0) {
+    return false;
+  }
+  let sawNullary = false;
+  for (const entry of exportEntries) {
+    const name = entry?.name;
+    const arity = entry?.arity;
+    if (typeof name !== "string" || name.length === 0 || arity !== 0) {
+      continue;
+    }
+    sawNullary = true;
+    const expectedValue = phase1TaggedConstForRoot(sourceText, name);
+    const observedRaw = phase1NullaryRawExportResult(wasmBase64, name);
+    if (!Number.isInteger(expectedValue) || !Number.isInteger(observedRaw)) {
+      return false;
+    }
+    if (observedRaw !== ((expectedValue << 1) | 1)) {
+      return false;
+    }
+  }
+  return sawNullary;
+}
+
 function phase1StubTaggedValueFromWasmBase64(value) {
   if (typeof value !== "string" || value.length === 0) {
     return null;
@@ -9153,15 +9180,27 @@ function synthesizePhase1CompileResponse(requestObject, responseObject) {
 }
 
 function sourceEchoArtifactPayload(artifactText, label, sourceText) {
-  const marker = `(${label}) `;
   if (typeof artifactText !== "string") {
     return null;
   }
   const text = normalizePlaceholderSourceText(artifactText);
-  if (!text.startsWith(marker)) {
-    return null;
+  const inlineMarker = `(${label}) `;
+  let payload = null;
+  if (text.startsWith(inlineMarker)) {
+    payload = text.slice(inlineMarker.length);
+  } else {
+    const lines = text.split("\n");
+    if (
+      lines.length >= 4 &&
+      lines[0] === `(${label})` &&
+      /^phase:\s+/u.test(lines[1]) &&
+      /^kind:\s+/u.test(lines[2])
+    ) {
+      payload = lines.slice(3).join("\n");
+    } else {
+      return null;
+    }
   }
-  const payload = text.slice(marker.length);
   const source = normalizePlaceholderSourceText(sourceText);
   if (source.length === 0) {
     return null;
@@ -9190,6 +9229,43 @@ function isSourceEchoCompileResponse(requestObject, responseObject) {
   const sourceText = requestObject?.input_source;
   return sourceEchoArtifactMatches(lowered, "lowered_ir", sourceText) &&
     sourceEchoArtifactMatches(collapsed, "collapsed_ir", sourceText);
+}
+
+function tryDecodeCompileResponseWasmBytes(responseObject) {
+  try {
+    return decodeWasmBase64(responseObject?.wasm_base64 ?? "");
+  } catch {
+    return null;
+  }
+}
+
+function compileResponsePublicExportEntries(responseObject) {
+  const declaredExports = Array.isArray(responseObject?.public_exports)
+    ? responseObject.public_exports
+    : [];
+  let exports = declaredExports;
+  if (
+    exports.length === 0 &&
+    typeof responseObject?.wasm_base64 === "string" &&
+    responseObject.wasm_base64.length > 0
+  ) {
+    try {
+      exports = deriveCompileExportMetadataFromWasmBase64(
+        responseObject.wasm_base64,
+      ).publicExports;
+    } catch {
+      exports = declaredExports;
+    }
+  }
+  return exports.filter((entry) =>
+    entry &&
+    typeof entry === "object" &&
+    !Array.isArray(entry) &&
+    typeof entry.name === "string" &&
+    entry.name.length > 0 &&
+    Number.isInteger(entry.arity) &&
+    entry.arity >= 0
+  );
 }
 
 function detectPlaceholderCompileShape(responseObject) {
@@ -9225,6 +9301,18 @@ function detectPlaceholderCompileShape(responseObject) {
   const dts = typeof responseObject.dts === "string"
     ? responseObject.dts.trim()
     : "";
+  const compileStrategy =
+    typeof responseObject?.compile_strategy === "string" &&
+      responseObject.compile_strategy.length > 0
+      ? responseObject.compile_strategy
+      : "";
+  const exportEntries = compileResponsePublicExportEntries(responseObject);
+  const mainOnlyNullary = exportEntries.length === 1 &&
+    exportEntries[0]?.name === "main" &&
+    exportEntries[0]?.arity === 0;
+  if (compileStrategy === "phase1_tagged" && mainOnlyNullary) {
+    return false;
+  }
   return dts.length === 0 || dts === "export {}";
 }
 
@@ -9600,6 +9688,131 @@ function synthesizePhase1CompileResponseSafe(requestObject, responseObject) {
   }
 }
 
+function preferSourceMatchedSynthesizedCompileResponse(requestObject, responseObject) {
+  if (
+    !responseObject ||
+    typeof responseObject !== "object" ||
+    responseObject.ok !== true
+  ) {
+    return responseObject;
+  }
+  const compileStrategy =
+    typeof responseObject?.compile_strategy === "string" &&
+      responseObject.compile_strategy.length > 0
+      ? responseObject.compile_strategy
+      : "compiler_raw";
+  if (compileStrategy !== "compiler_raw") {
+    return responseObject;
+  }
+  const requestSourceText = normalizePlaceholderSourceText(requestObject?.input_source);
+  if (requestSourceText.length === 0) {
+    return responseObject;
+  }
+  const synthesisSourceText = phase1ExpandSynthesisSource(
+    requestObject,
+    requestSourceText,
+  );
+  const desiredPublicExports = phase1PublicExportsForSource(
+    requestObject,
+    requestSourceText,
+  );
+  const desiredSampleExports = phase1PublicExportsWithRolesForSource(
+    requestObject,
+    requestSourceText,
+  );
+  const exportEntries = desiredSampleExports.length > 0
+    ? desiredSampleExports
+    : desiredPublicExports.map((entry) => ({
+      ...entry,
+      param_roles: Array(Number.isInteger(entry?.arity) ? entry.arity : 0).fill(
+        "scalar",
+      ),
+    }));
+  if (
+    exportEntries.length === 0 ||
+    !exportEntries.every((entry) =>
+      entry &&
+      Array.isArray(
+        phase1SampleArgsForRoles(entry.param_roles) ??
+          phase1SampleArgsForArity(entry.arity)
+      )
+    )
+  ) {
+    return responseObject;
+  }
+  const collapsed = appendPhase1TailMarkers(
+    prunePhase1CollapsedSource(synthesisSourceText, requestObject),
+    synthesisSourceText,
+  );
+  const synthesized = synthesizedCompileOutput(
+    requestObject,
+    responseObject,
+    collapsed,
+  );
+  if (!synthesized || typeof synthesized.wasmBase64 !== "string") {
+    return responseObject;
+  }
+  if (
+    phase1ExportResultsMatchForSamples(
+      responseObject.wasm_base64,
+      synthesized.wasmBase64,
+      exportEntries,
+    )
+  ) {
+    return responseObject;
+  }
+  if (
+    !phase1SourceExportResultsMatchForSamples(
+      synthesisSourceText,
+      synthesized.wasmBase64,
+      exportEntries,
+    ) ||
+    phase1SourceExportResultsMatchForSamples(
+      synthesisSourceText,
+      responseObject.wasm_base64,
+      exportEntries,
+    )
+  ) {
+    const synthNullaryMatches = phase1AnyNullaryRawExportMatchesSource(
+      synthesized.wasmBase64,
+      synthesisSourceText,
+      exportEntries,
+    );
+    const rawNullaryMatches = phase1AnyNullaryRawExportMatchesSource(
+      responseObject.wasm_base64,
+      synthesisSourceText,
+      exportEntries,
+    );
+    if (!(synthNullaryMatches && !rawNullaryMatches)) {
+      return responseObject;
+    }
+  }
+  const lowered = phase1StructuralArtifact(
+    "lowered_ir",
+    collapsed,
+    requestObject,
+  );
+  const collapsedArtifact = phase1StructuralArtifact(
+    "collapsed_ir",
+    collapsed,
+    requestObject,
+  );
+  const publicExports = phase1PublicExportsForSource(requestObject, collapsed);
+  return {
+    ...responseObject,
+    backend: "kernel-native",
+    wasm_base64: synthesized.wasmBase64,
+    compile_strategy: synthesized.strategy,
+    compatibility_used: synthesized.compatibilityUsed,
+    public_exports: cloneCompileExports(publicExports),
+    abi_exports: [],
+    artifacts: {
+      "lowered_ir.txt": lowered,
+      "collapsed_ir.txt": collapsedArtifact,
+    },
+  };
+}
+
 function validateCompileResponseContract(
   requestObject,
   responseObject,
@@ -9633,8 +9846,119 @@ function validateCompileResponseContract(
       return boundaryResponse;
     }
   }
+  boundaryResponse = preferSourceMatchedSynthesizedCompileResponse(
+    requestObject,
+    boundaryResponse,
+  );
   if (shouldFailClosedPlaceholderCompileResponse(requestObject)) {
-    if (isSourceEchoCompileResponse(requestObject, boundaryResponse)) {
+    const decodedWasmBytes = tryDecodeCompileResponseWasmBytes(boundaryResponse);
+    let trustedTinyTaggedMain = false;
+    const exportEntries = compileResponsePublicExportEntries(boundaryResponse);
+    const compileStrategy =
+      typeof boundaryResponse?.compile_strategy === "string" &&
+        boundaryResponse.compile_strategy.length > 0
+        ? boundaryResponse.compile_strategy
+        : "compiler_raw";
+    const sourceText = typeof requestObject?.input_source === "string"
+      ? requestObject.input_source
+      : "";
+    const mainOnlyNullary = exportEntries.length === 1 &&
+      exportEntries[0]?.name === "main" &&
+      exportEntries[0]?.arity === 0;
+    const hasNullaryMain = exportEntries.some((entry) =>
+      entry?.name === "main" && entry?.arity === 0
+    );
+    if (decodedWasmBytes !== null && decodedWasmBytes.length <= TINY_SOURCE_ECHO_PLACEHOLDER_WASM_BYTES) {
+      if (compileStrategy === "phase1_tagged" && sourceText.length > 0 && mainOnlyNullary) {
+        const expected = phase1OracleExpectedMainForSource(
+          sourceText,
+          requestObject,
+        );
+        const actualRaw = phase1NullaryRawExportResult(
+          boundaryResponse.wasm_base64,
+          "main",
+        );
+        const actual = Number.isInteger(actualRaw) && ((actualRaw & 1) === 1)
+          ? (actualRaw >> 1)
+          : null;
+        trustedTinyTaggedMain =
+          Number.isInteger(expected) && Number.isInteger(actual) && expected === actual;
+      }
+    }
+    if (compileStrategy === "compiler_raw" && sourceText.length > 0 && hasNullaryMain) {
+      const expected = phase1OracleExpectedMainForSource(
+        sourceText,
+        requestObject,
+      );
+      const actualRaw = phase1NullaryRawExportResult(
+        boundaryResponse.wasm_base64,
+        "main",
+      );
+      const actual = Number.isInteger(actualRaw) && ((actualRaw & 1) === 1)
+        ? (actualRaw >> 1)
+        : null;
+      if (
+        Number.isInteger(expected) &&
+        Number.isInteger(actual) &&
+        expected !== actual
+      ) {
+        return buildPlaceholderCompileError(
+          boundaryResponse,
+          KNOWN_PLACEHOLDER_ERROR_CODE,
+          "compile response main export disagrees with the source oracle",
+          {
+            reason: "main_source_oracle_mismatch",
+          },
+        );
+      }
+    }
+    if (
+      isSourceEchoCompileResponse(requestObject, boundaryResponse) &&
+      decodedWasmBytes !== null &&
+      decodedWasmBytes.length <= TINY_SOURCE_ECHO_PLACEHOLDER_WASM_BYTES &&
+      !trustedTinyTaggedMain
+    ) {
+      if (compileStrategy === "compiler_raw") {
+        return buildPlaceholderCompileError(
+          boundaryResponse,
+          KNOWN_PLACEHOLDER_ERROR_CODE,
+          "compile response appears to contain source-echo placeholder artifacts",
+          {
+            reason: "source_echo_artifacts",
+          },
+        );
+      }
+      if (sourceText.length > 0 && mainOnlyNullary) {
+        const expected = phase1OracleExpectedMainForSource(
+          sourceText,
+          requestObject,
+        );
+        const actualRaw = phase1NullaryRawExportResult(
+          boundaryResponse.wasm_base64,
+          "main",
+        );
+        const actual = Number.isInteger(actualRaw)
+          ? ((actualRaw & 1) === 1 ? (actualRaw >> 1) : actualRaw)
+          : null;
+        if (Number.isInteger(expected) && Number.isInteger(actual) && expected !== actual) {
+          return buildPlaceholderCompileError(
+            boundaryResponse,
+            KNOWN_PLACEHOLDER_ERROR_CODE,
+            "compile response appears to contain source-echo placeholder artifacts",
+            {
+              reason: "source_echo_artifacts",
+            },
+          );
+        }
+      }
+      const sourceMatches = sourceText.length > 0 &&
+        exportEntries.length > 0 &&
+        phase1SourceExportResultsMatchForSamples(
+          sourceText,
+          boundaryResponse.wasm_base64,
+          exportEntries,
+        );
+      if (!sourceMatches) {
       return buildPlaceholderCompileError(
         boundaryResponse,
         KNOWN_PLACEHOLDER_ERROR_CODE,
@@ -9643,19 +9967,31 @@ function validateCompileResponseContract(
           reason: "source_echo_artifacts",
         },
       );
+      }
     }
-    if (detectPlaceholderCompileShape(boundaryResponse)) {
-      return buildPlaceholderCompileError(
-        boundaryResponse,
-        KNOWN_PLACEHOLDER_ERROR_CODE,
-        "compile response appears to be a known tiny placeholder artifact",
-        {
-          reason: "tiny_placeholder_shape",
-          wasm_bytes: boundaryResponse.wasm_base64
-            ? decodeWasmBase64(boundaryResponse.wasm_base64).length
-            : 0,
-        },
-      );
+    if (detectPlaceholderCompileShape(boundaryResponse) && !trustedTinyTaggedMain) {
+      const exportEntries = compileResponsePublicExportEntries(boundaryResponse);
+      const compileStrategy =
+        typeof boundaryResponse?.compile_strategy === "string" &&
+          boundaryResponse.compile_strategy.length > 0
+          ? boundaryResponse.compile_strategy
+          : "compiler_raw";
+      const mainOnlyNullary = exportEntries.length === 1 &&
+        exportEntries[0]?.name === "main" &&
+        exportEntries[0]?.arity === 0;
+      if (!(compileStrategy === "phase1_tagged" && mainOnlyNullary)) {
+        return buildPlaceholderCompileError(
+          boundaryResponse,
+          KNOWN_PLACEHOLDER_ERROR_CODE,
+          "compile response appears to be a known tiny placeholder artifact",
+          {
+            reason: "tiny_placeholder_shape",
+            wasm_bytes: boundaryResponse.wasm_base64
+              ? decodeWasmBase64(boundaryResponse.wasm_base64).length
+              : 0,
+            },
+        );
+      }
     }
   }
   if (

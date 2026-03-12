@@ -1,0 +1,1323 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clapse Explorer</title>
+    <style>
+      :root {
+        --bg: #0e1116;
+        --bg-top: #171c24;
+        --panel: #151a22;
+        --panel-2: #10151c;
+        --ink: #edf2f8;
+        --muted: #90a0b5;
+        --line: #283242;
+        --accent: #d56b2d;
+        --accent-soft: rgba(213, 107, 45, 0.14);
+        --comment: #73849b;
+        --string: #97d36c;
+        --number: #60d3e2;
+        --keyword: #ff8d73;
+        --type: #c29cff;
+        --operator: #ffbd59;
+        --name: #75b6ff;
+        --error: #ff6f6f;
+        --ok: #4fd49a;
+        --shadow: 0 18px 50px rgba(0, 0, 0, 0.38);
+        --mono: "Iosevka", "Cascadia Code", "JetBrains Mono", "SFMono-Regular",
+          "Menlo", monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+
+      body {
+        min-height: 100vh;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at top left, rgba(213, 107, 45, 0.14), transparent 28rem),
+          radial-gradient(circle at bottom right, rgba(117, 182, 255, 0.12), transparent 30rem),
+          linear-gradient(180deg, var(--bg-top), var(--bg)),
+          var(--bg);
+        color: var(--ink);
+        font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+      }
+
+      .shell {
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        padding: 0.75rem;
+      }
+
+      .topbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.9rem 1rem;
+        background: rgba(21, 26, 34, 0.92);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(12px);
+        flex: 0 0 auto;
+      }
+
+      .title {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+      }
+
+      .title h1 {
+        margin: 0;
+        font-size: 1.05rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .title p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.65rem;
+        align-items: center;
+      }
+
+      .controls label {
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+
+      select,
+      button {
+        appearance: none;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        color: var(--ink);
+        font: inherit;
+      }
+
+      select {
+        padding: 0.65rem 2.4rem 0.65rem 0.9rem;
+        background-image:
+          linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+          linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+        background-position:
+          calc(100% - 0.95rem) calc(50% - 0.15rem),
+          calc(100% - 0.62rem) calc(50% - 0.15rem);
+        background-size: 0.38rem 0.38rem, 0.38rem 0.38rem;
+        background-repeat: no-repeat;
+      }
+
+      button {
+        cursor: pointer;
+        padding: 0.68rem 0.95rem;
+        font-weight: 600;
+      }
+
+      button.primary {
+        background: var(--accent);
+        color: #120d07;
+        border-color: var(--accent);
+      }
+
+      button:disabled {
+        cursor: wait;
+        opacity: 0.7;
+      }
+
+      .status {
+        min-width: 15rem;
+        color: var(--muted);
+        font-size: 0.9rem;
+        text-align: right;
+      }
+
+      .status.error {
+        color: var(--error);
+      }
+
+      .status.ok {
+        color: var(--ok);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(28rem, 1.1fr) minmax(20rem, 0.9fr) minmax(24rem, 1fr);
+        gap: 1rem;
+        margin-top: 1rem;
+        flex: 1 1 auto;
+        min-height: 0;
+      }
+
+      .panel {
+        min-width: 0;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.85rem 1rem;
+        border-bottom: 1px solid var(--line);
+        background: linear-gradient(180deg, rgba(213, 107, 45, 0.08), transparent);
+        flex: 0 0 auto;
+      }
+
+      .panel-head h2 {
+        margin: 0;
+        font-size: 0.88rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .panel-head span {
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+
+      .panel-meta {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 0.45rem 0.75rem;
+        text-align: right;
+      }
+
+      .editor-shell,
+      .code-shell {
+        position: relative;
+        background: var(--panel-2);
+        flex: 1 1 auto;
+        min-height: 0;
+      }
+
+      .source-panel-body {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 auto;
+        min-height: 0;
+      }
+
+      .sample-shell {
+        display: flex;
+        flex-direction: column;
+        gap: 0.65rem;
+        padding: 0.85rem 1rem 0.9rem;
+        border-bottom: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.02);
+        flex: 0 0 auto;
+      }
+
+      .sample-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.75rem;
+      }
+
+      .sample-head strong {
+        font-size: 0.8rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .sample-subtitle {
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+
+      .request-input {
+        width: 100%;
+        min-height: 7.2rem;
+        resize: vertical;
+        padding: 0.8rem 0.9rem;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgba(16, 21, 28, 0.94);
+        color: var(--ink);
+        font: 0.88rem/1.45 var(--mono);
+        outline: none;
+      }
+
+      .request-input:focus {
+        border-color: rgba(117, 182, 255, 0.7);
+        box-shadow: 0 0 0 1px rgba(117, 182, 255, 0.22);
+      }
+
+      .sample-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+
+      .sample-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        min-height: 2rem;
+        max-width: 100%;
+        padding: 0.32rem 0.62rem;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: rgba(16, 21, 28, 0.88);
+        color: var(--muted);
+        font: 0.8rem/1.4 var(--mono);
+      }
+
+      .sample-chip strong {
+        color: var(--ink);
+        font-weight: 700;
+      }
+
+      .sample-chip.error {
+        color: var(--error);
+        border-color: rgba(255, 111, 111, 0.45);
+      }
+
+      .sample-chip.ok {
+        color: var(--ok);
+        border-color: rgba(79, 212, 154, 0.45);
+      }
+
+      .editor-shell {
+        min-height: 0;
+      }
+
+      .editor-highlight,
+      .code-output,
+      .editor-input {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        padding: 1rem 1.1rem 1.25rem;
+        font: 0.93rem/1.55 var(--mono);
+        tab-size: 2;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .editor-highlight,
+      .code-output {
+        overflow: auto;
+      }
+
+      .editor-highlight {
+        position: relative;
+        z-index: 1;
+        pointer-events: auto;
+      }
+
+      .editor-input {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        resize: none;
+        border: 0;
+        background: transparent;
+        color: transparent;
+        caret-color: var(--ink);
+        outline: none;
+        overflow: auto;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .editor-input::selection {
+        background: rgba(213, 107, 45, 0.24);
+      }
+
+      .editor-shell.editing .editor-input {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .editor-shell.editing .editor-highlight {
+        pointer-events: none;
+      }
+
+      .code-output {
+        color: var(--ink);
+      }
+
+      .placeholder {
+        color: var(--comment);
+      }
+
+      .tok-comment { color: var(--comment); }
+      .tok-string { color: var(--string); }
+      .tok-number { color: var(--number); }
+      .tok-keyword { color: var(--keyword); font-weight: 700; }
+      .tok-type { color: var(--type); }
+      .tok-operator { color: var(--operator); }
+      .tok-name { color: var(--name); }
+      .tok-wat-keyword { color: var(--keyword); font-weight: 700; }
+      .tok-wat-op { color: var(--operator); }
+
+      .hoverable {
+        cursor: help;
+        text-decoration-line: underline;
+        text-decoration-style: dotted;
+        text-decoration-color: rgba(117, 182, 255, 0.9);
+        text-underline-offset: 0.18rem;
+      }
+
+      .hoverable:hover {
+        background: rgba(117, 182, 255, 0.12);
+      }
+
+      .inlay-hint {
+        color: var(--comment);
+        opacity: 0.95;
+        user-select: none;
+      }
+
+      .inlay-hint.kind-keyword {
+        color: var(--keyword);
+        opacity: 0.75;
+      }
+
+      .inlay-hint.kind-type {
+        color: var(--type);
+        opacity: 0.78;
+      }
+
+      .source-tooltip {
+        position: fixed;
+        z-index: 20;
+        min-width: 14rem;
+        max-width: min(32rem, calc(100vw - 2rem));
+        padding: 0.8rem 0.9rem;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgba(16, 21, 28, 0.98);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(10px);
+        pointer-events: none;
+        display: none;
+      }
+
+      .source-tooltip.visible {
+        display: block;
+      }
+
+      .source-tooltip-title {
+        margin: 0 0 0.45rem;
+        color: var(--ink);
+        font-size: 0.86rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+
+      .source-tooltip-text {
+        margin: 0.32rem 0 0;
+        color: var(--muted);
+        font-size: 0.85rem;
+        line-height: 1.45;
+        white-space: pre-wrap;
+      }
+
+      .source-tooltip-code {
+        margin: 0.45rem 0 0;
+        padding: 0.6rem 0.7rem;
+        border-radius: 10px;
+        background: rgba(117, 182, 255, 0.08);
+        color: var(--ink);
+        font: 0.85rem/1.45 var(--mono);
+        white-space: pre-wrap;
+      }
+
+      .error-block {
+        color: var(--error);
+        white-space: pre-wrap;
+      }
+
+      @media (max-width: 1200px) {
+        body {
+          overflow: auto;
+        }
+
+        .shell {
+          height: auto;
+          min-height: 100vh;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+          min-height: auto;
+        }
+
+        .editor-shell,
+        .code-shell {
+          min-height: 24rem;
+        }
+
+        .status {
+          width: 100%;
+          text-align: left;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="topbar">
+        <div class="title">
+          <h1>Clapse Explorer</h1>
+          <p>Source in, collapsed IR and WAT out. No extras.</p>
+        </div>
+        <div class="controls">
+          <label for="preset-select">Preset</label>
+          <select id="preset-select"></select>
+        </div>
+        <div id="status" class="status">Ready.</div>
+      </div>
+
+      <div class="grid">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Source</h2>
+            <div class="panel-meta">
+              <span id="source-meta">Editable Clapse</span>
+            </div>
+          </div>
+          <div class="source-panel-body">
+            <div id="sample-shell" class="sample-shell">
+              <div class="sample-head">
+                <strong id="sample-label">JS Request</strong>
+                <span id="sample-subtitle" class="sample-subtitle">Editable host-side sample input.</span>
+              </div>
+              <textarea id="request-input" class="request-input" spellcheck="false"></textarea>
+              <div class="sample-meta">
+                <div id="encoded-chip" class="sample-chip"><strong>main arg</strong><span id="encoded-value">—</span></div>
+                <div id="result-chip" class="sample-chip"><strong>result</strong><span id="result-value">—</span></div>
+              </div>
+            </div>
+            <div id="source-shell" class="editor-shell">
+              <pre id="source-highlight" class="editor-highlight"></pre>
+              <textarea id="source-input" class="editor-input" spellcheck="false"></textarea>
+              <div id="source-tooltip" class="source-tooltip"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Collapsed IR</h2>
+            <span>From compile-debug</span>
+          </div>
+          <div class="code-shell">
+            <pre id="collapsed-output" class="code-output placeholder">Run the explorer to populate collapsed_ir.txt.</pre>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>WAT</h2>
+            <span>Decompiled from output wasm</span>
+          </div>
+          <div class="code-shell">
+            <pre id="wat-output" class="code-output placeholder">Run the explorer to populate WAT.</pre>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <script>
+      const PRESETS = [
+        {
+          id: "http-request-parser",
+          label: "HTTP Request Parser",
+          sampleLabel: "JS request",
+          sampleSubtitle: "Host-side request object encoded into the packed integer main input.",
+          sampleRequest: `{
+  method: "POST",
+  path: "/users",
+  version: "1.1"
+}`,
+          encodeRequest(request) {
+            const methodCodes = { GET: 1, POST: 2, DELETE: 3 };
+            const pathCodes = { "/": 1, "/users": 2, "/users/:id": 3 };
+            const versionCodes = { "1.0": 10, "1.1": 11 };
+            if (!request || typeof request !== "object") {
+              throw new Error("request must be an object");
+            }
+            const method = methodCodes[request.method];
+            const path = pathCodes[request.path];
+            const version = versionCodes[request.version];
+            if (!Number.isInteger(method)) {
+              throw new Error("request.method must be GET, POST, or DELETE");
+            }
+            if (!Number.isInteger(path)) {
+              throw new Error("request.path must be /, /users, or /users/:id");
+            }
+            if (!Number.isInteger(version)) {
+              throw new Error("request.version must be \"1.0\" or \"1.1\"");
+            }
+            return method * 10000 + path * 100 + version;
+          },
+          source: `-- Encoded request format (fixed-width decimal fields):
+-- request = method * 10000 + path * 100 + version
+-- Example input 10203 means: method=1, path=2, version=3.
+
+export { main }
+
+data HttpRequest method path version = HttpRequest method path version
+
+method_code packed = packed / 10000
+without_method packed = packed - method_code packed * 10000
+path_code packed = without_method packed / 100
+version_code packed = without_method packed - path_code packed * 100
+
+parse_http_request packed = let
+  method = method_code packed;
+  path = path_code packed;
+  version = version_code packed
+  in HttpRequest method path version
+
+request_method req = let HttpRequest method path version = req in method
+request_path req = let HttpRequest method path version = req in path
+request_version req = let HttpRequest method path version = req in version
+
+normalized_path path = path - 1
+version_major version = version / 10
+request_score method path version = method * 1000 + path * 10 + version
+
+main packed = let
+  req = parse_http_request packed;
+  method = request_method req;
+  path = normalized_path (request_path req);
+  version = version_major (request_version req)
+  in request_score method path version
+`,
+        },
+        {
+          id: "monads-maybe-either",
+          label: "Maybe + Either Monads",
+          sampleLabel: "JS value",
+          sampleSubtitle: "A plain JS number passed into main(x).",
+          sampleRequest: `7`,
+          encodeRequest(value) {
+            if (!Number.isInteger(value)) {
+              throw new Error("input must be an integer");
+            }
+            return value;
+          },
+          source: `class monad_rules m : monad
+law monad_rules left_identity = bind (pure x) f => f x
+law monad_rules right_identity = bind m pure => m
+law monad_rules associativity = bind (bind m f) g => bind m (\\x -> bind (f x) g)
+
+data Maybe a = Nothing : Maybe a | Just : a -> Maybe a
+data Either e a = Left : e -> Either e a | Right : a -> Either e a
+
+maybe_just x = Just x
+maybe_pure x = maybe_just x
+maybe_bind m f = case m of
+  Nothing -> m
+  Just x -> f x
+maybe_with_default default_value m = case m of
+  Nothing -> default_value
+  Just x -> x
+instance monad_on_maybe : monad_rules Maybe pure=maybe_pure bind=maybe_bind
+
+either_left err = Left err
+either_right x = Right x
+either_pure x = either_right x
+either_bind m f = case m of
+  Left err -> m
+  Right x -> f x
+either_with_default default_value m = case m of
+  Left _ -> default_value
+  Right x -> x
+instance monad_on_either : monad_rules Either pure=either_pure bind=either_bind
+
+inc x = x + 1
+double x = x * 2
+
+maybe_demo x =
+  maybe_with_default 0
+    (maybe_bind (maybe_pure x) (\\n -> maybe_pure (inc n)))
+
+either_demo x =
+  either_with_default 0
+    (either_bind (either_pure x) (\\n -> either_pure (double n)))
+
+main x = maybe_demo x + either_demo x
+`,
+        },
+        {
+          id: "record-case",
+          label: "Record Case",
+          sampleLabel: "Sample call",
+          sampleSubtitle: "This preset is nullary, so the explorer calls main() directly.",
+          sampleRequest: "",
+          source: `export { main }
+
+main =
+  case { x = 201, y = 7 } of
+    { x = value, _ } -> value
+    _ -> 0
+`,
+        },
+        {
+          id: "factorial",
+          label: "Factorial",
+          sampleLabel: "Sample call",
+          sampleSubtitle: "This preset is nullary, so the explorer calls main() directly.",
+          sampleRequest: "",
+          source: `import "prelude" { eq, mul, sub }
+
+export { main }
+
+factorial n =
+  case eq n 0 of
+    true -> 1
+    _ -> mul n (factorial (sub n 1))
+
+main = factorial 6
+`,
+        },
+      ];
+
+      const sourceInput = document.getElementById("source-input");
+      const sourceShell = document.getElementById("source-shell");
+      const sourceHighlight = document.getElementById("source-highlight");
+      const sourceTooltip = document.getElementById("source-tooltip");
+      const sampleShell = document.getElementById("sample-shell");
+      const sampleLabelEl = document.getElementById("sample-label");
+      const sampleSubtitleEl = document.getElementById("sample-subtitle");
+      const requestInput = document.getElementById("request-input");
+      const encodedChip = document.getElementById("encoded-chip");
+      const encodedValueEl = document.getElementById("encoded-value");
+      const resultChip = document.getElementById("result-chip");
+      const resultValueEl = document.getElementById("result-value");
+      const collapsedOutput = document.getElementById("collapsed-output");
+      const watOutput = document.getElementById("wat-output");
+      const presetSelect = document.getElementById("preset-select");
+      const statusEl = document.getElementById("status");
+      const sourceMetaEl = document.getElementById("source-meta");
+      let currentAnnotations = { hoverables: [], inlayHints: [] };
+      let inspectTimer = null;
+      let inspectRunId = 0;
+      let currentPreset = PRESETS[0];
+
+      const CLAPSE_KEYWORDS = new Set([
+        "import", "export", "data", "type", "class", "instance", "law",
+        "literal", "infix", "infixl", "infixr", "where", "case", "of",
+        "true", "false", "let", "in",
+      ]);
+
+      const WAT_KEYWORDS = new Set([
+        "module", "func", "type", "param", "result", "local", "memory",
+        "data", "export", "import", "table", "elem", "global", "mut",
+      ]);
+
+      function escapeHtml(text) {
+        return text
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;");
+      }
+
+      function wrapToken(className, text) {
+        return `<span class="${className}">${escapeHtml(text)}</span>`;
+      }
+
+      function highlightClapse(text) {
+        const tokenRe =
+          /--[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b\d+\b|\b[A-Z][A-Za-z0-9_']*\b|\b[A-Za-z_][A-Za-z0-9_']*\b|[!#$%&*+./<=>?@\\^|~:-]+/gu;
+        let out = "";
+        let lastIndex = 0;
+        for (const match of text.matchAll(tokenRe)) {
+          const token = match[0];
+          const index = match.index ?? 0;
+          out += escapeHtml(text.slice(lastIndex, index));
+          if (token.startsWith("--")) {
+            out += wrapToken("tok-comment", token);
+          } else if (token.startsWith("\"") || token.startsWith("'")) {
+            out += wrapToken("tok-string", token);
+          } else if (/^\d+$/u.test(token)) {
+            out += wrapToken("tok-number", token);
+          } else if (CLAPSE_KEYWORDS.has(token)) {
+            out += wrapToken("tok-keyword", token);
+          } else if (/^[A-Z][A-Za-z0-9_']*$/u.test(token)) {
+            out += wrapToken("tok-type", token);
+          } else if (/^[!#$%&*+./<=>?@\\^|~:-]+$/u.test(token)) {
+            out += wrapToken("tok-operator", token);
+          } else {
+            out += wrapToken("tok-name", token);
+          }
+          lastIndex = index + token.length;
+        }
+        out += escapeHtml(text.slice(lastIndex));
+        return out.length > 0 ? out : escapeHtml(text);
+      }
+
+      function highlightWat(text) {
+        const tokenRe =
+          /;;[^\n]*|"(?:\\.|[^"\\])*"|\$[!#$%&'*+\-./:<=>?@\\^_`|~A-Za-z0-9]+|\b-?\d+\b|\b[A-Za-z][A-Za-z0-9_.-]*\b|[()]/gu;
+        let out = "";
+        let lastIndex = 0;
+        for (const match of text.matchAll(tokenRe)) {
+          const token = match[0];
+          const index = match.index ?? 0;
+          out += escapeHtml(text.slice(lastIndex, index));
+          if (token.startsWith(";;")) {
+            out += wrapToken("tok-comment", token);
+          } else if (token.startsWith("\"")) {
+            out += wrapToken("tok-string", token);
+          } else if (token.startsWith("$")) {
+            out += wrapToken("tok-name", token);
+          } else if (/^-?\d+$/u.test(token)) {
+            out += wrapToken("tok-number", token);
+          } else if (token === "(" || token === ")") {
+            out += wrapToken("tok-wat-op", token);
+          } else if (
+            WAT_KEYWORDS.has(token) ||
+            token.includes(".") ||
+            token === "if" ||
+            token === "else" ||
+            token === "then" ||
+            token === "call" ||
+            token === "return" ||
+            token === "drop"
+          ) {
+            out += wrapToken("tok-wat-keyword", token);
+          } else {
+            out += wrapToken("tok-name", token);
+          }
+          lastIndex = index + token.length;
+        }
+        out += escapeHtml(text.slice(lastIndex));
+        return out.length > 0 ? out : escapeHtml(text);
+      }
+
+      function normalizeAnnotations(payload) {
+        return {
+          hoverables: Array.isArray(payload?.hoverables) ? payload.hoverables : [],
+          inlayHints: Array.isArray(payload?.inlayHints) ? payload.inlayHints : [],
+        };
+      }
+
+      function groupByLine(items) {
+        const grouped = new Map();
+        for (const item of items) {
+          const line = Number(item?.line ?? -1);
+          if (!Number.isInteger(line) || line < 0) {
+            continue;
+          }
+          const bucket = grouped.get(line) ?? [];
+          bucket.push(item);
+          grouped.set(line, bucket);
+        }
+        return grouped;
+      }
+
+      function renderHoverMarkdown(markdown) {
+        const text = String(markdown ?? "").replace(/\r\n/g, "\n");
+        if (text.length === 0) {
+          return "";
+        }
+        const blocks = [];
+        const lines = text.split("\n");
+        for (let i = 0; i < lines.length; i += 1) {
+          const line = lines[i];
+          if (line.startsWith("### ")) {
+            blocks.push(
+              `<div class="source-tooltip-title">${escapeHtml(line.slice(4))}</div>`,
+            );
+            continue;
+          }
+          if (line.startsWith("```")) {
+            const codeLines = [];
+            for (i += 1; i < lines.length && !lines[i].startsWith("```"); i += 1) {
+              codeLines.push(lines[i]);
+            }
+            blocks.push(
+              `<pre class="source-tooltip-code">${escapeHtml(codeLines.join("\n"))}</pre>`,
+            );
+            continue;
+          }
+          if (line.trim().length === 0) {
+            continue;
+          }
+          blocks.push(
+            `<div class="source-tooltip-text">${escapeHtml(line)}</div>`,
+          );
+        }
+        return blocks.join("");
+      }
+
+      function plainHoverSummary(markdown) {
+        const text = String(markdown ?? "")
+          .replace(/```(?:[^\n]*)\n([\s\S]*?)```/gu, "$1")
+          .trim();
+        return text.replace(/^###\s*/u, "").trim();
+      }
+
+      function hoverTargetFromEventTarget(target) {
+        if (target instanceof Element) {
+          return target.closest(".hoverable");
+        }
+        let node = target?.parentNode ?? null;
+        while (node) {
+          if (node instanceof Element) {
+            return node.closest(".hoverable");
+          }
+          node = node.parentNode ?? null;
+        }
+        return null;
+      }
+
+      function hideTooltip() {
+        sourceTooltip.classList.remove("visible");
+        sourceTooltip.innerHTML = "";
+      }
+
+      function showTooltip(markdown, clientX, clientY) {
+        sourceTooltip.innerHTML = renderHoverMarkdown(markdown);
+        if (sourceTooltip.innerHTML.length === 0) {
+          hideTooltip();
+          return;
+        }
+        sourceTooltip.classList.add("visible");
+        const margin = 14;
+        const rect = sourceTooltip.getBoundingClientRect();
+        let left = clientX + 16;
+        let top = clientY + 18;
+        if (left + rect.width > window.innerWidth - margin) {
+          left = Math.max(margin, clientX - rect.width - 16);
+        }
+        if (top + rect.height > window.innerHeight - margin) {
+          top = Math.max(margin, clientY - rect.height - 16);
+        }
+        sourceTooltip.style.left = `${left}px`;
+        sourceTooltip.style.top = `${top}px`;
+      }
+
+      function renderSourceLine(lineText, lineIndex, hoverablesByLine, inlayHintsByLine, decorated = true) {
+        const text = String(lineText ?? "");
+        const hoverables = decorated
+          ? [...(hoverablesByLine.get(lineIndex) ?? [])].sort((a, b) =>
+          Number(a.start ?? 0) - Number(b.start ?? 0) ||
+          Number(a.end ?? 0) - Number(b.end ?? 0)
+          )
+          : [];
+        const inlayHints = decorated
+          ? [...(inlayHintsByLine.get(lineIndex) ?? [])].sort((a, b) =>
+          Number(a.position ?? 0) - Number(b.position ?? 0) ||
+          String(a.side ?? "").localeCompare(String(b.side ?? ""), "en")
+          )
+          : [];
+        const breakpoints = new Set([0, text.length]);
+        for (const hover of hoverables) {
+          breakpoints.add(Math.max(0, Math.min(text.length, Number(hover.start ?? 0))));
+          breakpoints.add(Math.max(0, Math.min(text.length, Number(hover.end ?? 0))));
+        }
+        for (const hint of inlayHints) {
+          breakpoints.add(Math.max(0, Math.min(text.length, Number(hint.position ?? 0))));
+        }
+        const points = [...breakpoints].sort((a, b) => a - b);
+        const renderHintsAt = (position, side) =>
+          inlayHints
+            .filter((hint) =>
+              Number(hint.position ?? -1) === position && String(hint.side ?? "") === side
+            )
+            .map((hint) =>
+              `<span class="inlay-hint kind-${escapeHtml(String(hint.kind ?? "type"))}">${
+                escapeHtml(String(hint.label ?? ""))
+              }</span>`
+            )
+            .join("");
+        let html = renderHintsAt(0, "before");
+        for (let i = 0; i < points.length - 1; i += 1) {
+          const start = points[i];
+          const end = points[i + 1];
+          const rawSegment = text.slice(start, end);
+          if (rawSegment.length > 0) {
+            const activeHover = hoverables.find((hover) =>
+              start >= Number(hover.start ?? -1) && end <= Number(hover.end ?? -1) && end > start
+            ) ?? null;
+            const segmentHtml = highlightClapse(rawSegment);
+            if (activeHover && typeof activeHover.markdown === "string") {
+              html +=
+                `<span class="hoverable" title="${escapeHtml(plainHoverSummary(activeHover.markdown))}" data-hover="${encodeURIComponent(activeHover.markdown)}">${segmentHtml}</span>`;
+            } else {
+              html += segmentHtml;
+            }
+          }
+          html += renderHintsAt(end, "after");
+          html += renderHintsAt(end, "before");
+        }
+        if (text.length === 0) {
+          return renderHintsAt(0, "after");
+        }
+        return html;
+      }
+
+      function renderEditor() {
+        const sourceText = sourceInput.value;
+        const lines = sourceText.split("\n");
+        const hoverablesByLine = groupByLine(currentAnnotations.hoverables);
+        const inlayHintsByLine = groupByLine(currentAnnotations.inlayHints);
+        const decorated = !sourceShell.classList.contains("editing");
+        sourceHighlight.innerHTML = lines
+          .map((lineText, lineIndex) =>
+            renderSourceLine(lineText, lineIndex, hoverablesByLine, inlayHintsByLine, decorated)
+          )
+          .join("\n") + "\n";
+        if (sourceShell.classList.contains("editing")) {
+          sourceHighlight.scrollTop = sourceInput.scrollTop;
+          sourceHighlight.scrollLeft = sourceInput.scrollLeft;
+        }
+      }
+
+      function renderPanel(target, text, grammar, error = false) {
+        target.classList.remove("placeholder");
+        if (error) {
+          target.innerHTML = `<span class="error-block">${escapeHtml(text)}</span>`;
+          return;
+        }
+        target.innerHTML = grammar === "wat"
+          ? highlightWat(text)
+          : highlightClapse(text);
+      }
+
+      function setStatus(message, kind = "") {
+        statusEl.textContent = message;
+        statusEl.className = `status${kind ? ` ${kind}` : ""}`;
+      }
+
+      function setSourceMeta(preset) {
+        const parts = ["Editable Clapse"];
+        if (preset?.sampleRequest && typeof preset.encodeRequest === "function") {
+          parts.push("main(request)");
+        } else {
+          parts.push("main()");
+        }
+        sourceMetaEl.textContent = parts.join(" • ");
+      }
+
+      function setChipState(element, kind) {
+        element.classList.remove("ok", "error");
+        if (kind) {
+          element.classList.add(kind);
+        }
+      }
+
+      function setSampleRunState({
+        encoded = "—",
+        result = "—",
+        encodedKind = "",
+        resultKind = "",
+      } = {}) {
+        encodedValueEl.textContent = encoded;
+        resultValueEl.textContent = result;
+        setChipState(encodedChip, encodedKind);
+        setChipState(resultChip, resultKind);
+      }
+
+      function formatJsValue(value) {
+        if (typeof value === "string") {
+          return value;
+        }
+        try {
+          return JSON.stringify(value, null, 2);
+        } catch (_err) {
+          return String(value);
+        }
+      }
+
+      function evaluateJsSample(text) {
+        return Function(`"use strict"; return (\n${text}\n);`)();
+      }
+
+      function resolveSampleArg(preset) {
+        if (typeof preset?.encodeRequest !== "function") {
+          return { sampleArg: null, encodedDisplay: "main()", inputError: "" };
+        }
+        const requestSource = requestInput.value.trim();
+        if (requestSource.length === 0) {
+          return {
+            sampleArg: null,
+            encodedDisplay: "missing request",
+            inputError: "JS request is empty",
+          };
+        }
+        let requestValue;
+        try {
+          requestValue = evaluateJsSample(requestSource);
+        } catch (err) {
+          return {
+            sampleArg: null,
+            encodedDisplay: "parse error",
+            inputError: err instanceof Error ? err.message : String(err),
+          };
+        }
+        let encoded;
+        try {
+          encoded = preset.encodeRequest(requestValue);
+        } catch (err) {
+          return {
+            sampleArg: null,
+            encodedDisplay: "encode error",
+            inputError: err instanceof Error ? err.message : String(err),
+          };
+        }
+        if (!Number.isInteger(encoded)) {
+          return {
+            sampleArg: null,
+            encodedDisplay: "encode error",
+            inputError: "encoder must return an integer main argument",
+          };
+        }
+        return {
+          sampleArg: encoded,
+          encodedDisplay: `main(${encoded})`,
+          inputError: "",
+        };
+      }
+
+      function syncSampleUiFromPreset(preset) {
+        currentPreset = preset;
+        sampleLabelEl.textContent = preset?.sampleLabel || "Sample Input";
+        sampleSubtitleEl.textContent = preset?.sampleSubtitle || "Editable host-side sample input.";
+        requestInput.value = preset?.sampleRequest || "";
+        requestInput.disabled = typeof preset?.encodeRequest !== "function";
+        requestInput.placeholder = typeof preset?.encodeRequest === "function"
+          ? "Enter a JS value or object literal."
+          : "This preset runs main() directly.";
+        setSourceMeta(preset);
+        if (typeof preset?.encodeRequest !== "function") {
+          setSampleRunState({ encoded: "main()", result: "pending" });
+          return;
+        }
+        const { encodedDisplay, inputError } = resolveSampleArg(preset);
+        setSampleRunState({
+          encoded: encodedDisplay,
+          encodedKind: inputError ? "error" : "",
+          result: inputError || "pending",
+          resultKind: inputError ? "error" : "",
+        });
+      }
+
+      function enterEditMode() {
+        sourceShell.classList.add("editing");
+        renderEditor();
+        sourceInput.focus();
+        sourceInput.scrollTop = sourceHighlight.scrollTop;
+        sourceInput.scrollLeft = sourceHighlight.scrollLeft;
+        hideTooltip();
+      }
+
+      function exitEditMode() {
+        sourceShell.classList.remove("editing");
+        sourceHighlight.scrollTop = sourceInput.scrollTop;
+        sourceHighlight.scrollLeft = sourceInput.scrollLeft;
+        renderEditor();
+        hideTooltip();
+      }
+
+      function scheduleInspect(delayMs = 420) {
+        if (inspectTimer !== null) {
+          window.clearTimeout(inspectTimer);
+        }
+        inspectTimer = window.setTimeout(() => {
+          inspectTimer = null;
+          runExplorer();
+        }, delayMs);
+      }
+
+      async function loadPresetById(id) {
+        const preset = PRESETS.find((entry) => entry.id === id) ?? PRESETS[0];
+        sourceInput.value = preset.source;
+        syncSampleUiFromPreset(preset);
+        renderEditor();
+        setStatus(`Loaded preset: ${preset.label}`);
+        await runExplorer();
+      }
+
+      async function runExplorer() {
+        const runId = ++inspectRunId;
+        const sample = resolveSampleArg(currentPreset);
+        setSampleRunState({
+          encoded: sample.encodedDisplay,
+          encodedKind: sample.inputError ? "error" : "",
+          result: sample.inputError || "running…",
+          resultKind: sample.inputError ? "error" : "",
+        });
+        setStatus("Compiling, running main, and decompiling WAT...");
+        try {
+          const response = await fetch("/api/inspect", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              source: sourceInput.value,
+              sampleArg: sample.sampleArg,
+              skipSampleRun: sample.inputError.length > 0,
+            }),
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload?.error ?? `request failed with ${response.status}`);
+          }
+          if (runId !== inspectRunId) {
+            return;
+          }
+          currentAnnotations = normalizeAnnotations(payload);
+          renderEditor();
+          if (payload.compileError) {
+            renderPanel(collapsedOutput, payload.compileError, "clapse", true);
+          } else {
+            renderPanel(
+              collapsedOutput,
+              payload.collapsedIr || "(no collapsed IR returned)",
+              "clapse",
+            );
+          }
+          if (payload.watError) {
+            renderPanel(watOutput, payload.watError, "wat", true);
+          } else {
+            renderPanel(
+              watOutput,
+              payload.wat || "(no wat returned)",
+              "wat",
+            );
+          }
+
+          if (sample.inputError) {
+            setSampleRunState({
+              encoded: sample.encodedDisplay,
+              encodedKind: "error",
+              result: sample.inputError,
+              resultKind: "error",
+            });
+          } else if (payload.sampleError) {
+            setSampleRunState({
+              encoded: sample.encodedDisplay,
+              result: payload.sampleError,
+              resultKind: "error",
+            });
+          } else {
+            setSampleRunState({
+              encoded: sample.encodedDisplay,
+              result: payload.sampleResult || "(no sample result)",
+              resultKind: "ok",
+            });
+          }
+
+          if (sample.inputError) {
+            if (!payload.compileError && !payload.watError) {
+              setStatus("Compile-debug and WAT succeeded; sample request is invalid.", "error");
+            } else {
+              setStatus("Sample request is invalid and one explorer stage failed.", "error");
+            }
+          } else if (!payload.compileError && !payload.watError && !payload.sampleError) {
+            setStatus("Compile-debug, sample run, and WAT succeeded.", "ok");
+          } else if (!payload.compileError || !payload.watError || !payload.sampleError) {
+            setStatus("One explorer stage succeeded; one stage failed.", "error");
+          } else {
+            setStatus("Compile-debug, sample run, and WAT all failed.", "error");
+          }
+        } catch (error) {
+          if (runId !== inspectRunId) {
+            return;
+          }
+          currentAnnotations = { hoverables: [], inlayHints: [] };
+          renderEditor();
+          const message = error instanceof Error ? error.message : String(error);
+          renderPanel(collapsedOutput, message, "clapse", true);
+          renderPanel(watOutput, message, "wat", true);
+          setSampleRunState({
+            encoded: sample.encodedDisplay,
+            result: message,
+            resultKind: "error",
+          });
+          setStatus(message, "error");
+        }
+      }
+
+      for (const preset of PRESETS) {
+        const option = document.createElement("option");
+        option.value = preset.id;
+        option.textContent = preset.label;
+        presetSelect.append(option);
+      }
+
+      sourceInput.addEventListener("input", () => {
+        renderEditor();
+        scheduleInspect();
+      });
+      requestInput.addEventListener("input", () => {
+        if (typeof currentPreset?.encodeRequest === "function") {
+          const sample = resolveSampleArg(currentPreset);
+          setSampleRunState({
+            encoded: sample.encodedDisplay,
+            encodedKind: sample.inputError ? "error" : "",
+            result: sample.inputError || "pending",
+            resultKind: sample.inputError ? "error" : "",
+          });
+        }
+        scheduleInspect();
+      });
+      sourceInput.addEventListener("scroll", renderEditor);
+      sourceInput.addEventListener("blur", exitEditMode);
+      sourceHighlight.addEventListener("dblclick", () => {
+        enterEditMode();
+      });
+      sourceHighlight.addEventListener("mouseover", (event) => {
+        const target = hoverTargetFromEventTarget(event.target);
+        if (!target) {
+          hideTooltip();
+          return;
+        }
+        const markdown = decodeURIComponent(target.dataset.hover || "");
+        showTooltip(markdown, event.clientX, event.clientY);
+      });
+      sourceHighlight.addEventListener("mousemove", (event) => {
+        const target = hoverTargetFromEventTarget(event.target);
+        if (!target) {
+          hideTooltip();
+          return;
+        }
+        const markdown = decodeURIComponent(target.dataset.hover || "");
+        showTooltip(markdown, event.clientX, event.clientY);
+      });
+      sourceHighlight.addEventListener("mouseleave", hideTooltip);
+      presetSelect.addEventListener("change", () => {
+        loadPresetById(presetSelect.value);
+      });
+
+      loadPresetById(PRESETS[0].id);
+    </script>
+  </body>
+</html>

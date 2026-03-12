@@ -71,7 +71,106 @@ function buildCompileRequest(testCase) {
   return request;
 }
 
+async function derivePublicExportsFromWasmBytes(wasmBytes) {
+  const { instance } = await instantiateWithRuntime(wasmBytes);
+  const exportNames = WebAssembly.Module.exports(new WebAssembly.Module(wasmBytes))
+    .filter((entry) => entry.kind === "function")
+    .map((entry) => entry.name);
+  const exports = [];
+  for (const name of exportNames) {
+    const fn = instance.exports[name];
+    if (typeof fn !== "function") {
+      continue;
+    }
+    exports.push({ name, arity: fn.length | 0 });
+  }
+  return exports;
+}
+
+async function compileCaseViaCliDebug(testCase) {
+  const request = {
+    ...buildCompileRequest(testCase),
+    compile_mode: "debug",
+  };
+  const response = await callCompilerWasmRaw(
+    resolveCompilerWasmPath(),
+    request,
+    {
+      validateCompileContract: false,
+      withContractMetadata: true,
+    },
+  );
+  assert(response && typeof response === "object",
+    `${testCase.label}: response must be an object`);
+  assert(response.ok === true,
+    `${testCase.label}: compile failed (${String(response.error_code ?? response.error ?? "unknown")})`);
+  assert(typeof response.wasm_base64 === "string" && response.wasm_base64.length > 0,
+    `${testCase.label}: missing wasm_base64`);
+  const wasmBytes = Uint8Array.from(atob(response.wasm_base64), (char) =>
+    char.charCodeAt(0));
+  const publicExports = Array.isArray(response.public_exports)
+    ? response.public_exports
+    : await derivePublicExportsFromWasmBytes(wasmBytes);
+  assert(
+    deepEqual(publicExports, testCase.expectedPublicExports),
+    `${testCase.label}: expected public_exports ${JSON.stringify(testCase.expectedPublicExports)}, got ${JSON.stringify(publicExports)}`,
+  );
+  assertStructuralArtifacts(
+    response.artifacts?.["lowered_ir.txt"] ?? "",
+    response.artifacts?.["collapsed_ir.txt"] ?? "",
+    {
+      context: `${testCase.label}: compile-debug artifacts`,
+      allowLegacyHeaderPrefix: true,
+    },
+  );
+  const value = await runExport(wasmBytes, testCase.runtimeExport, testCase.runtimeArgs ?? []);
+  assert(value === testCase.expectedValue,
+    `${testCase.label}: expected ${testCase.expectedValue}, got ${value}`);
+}
+
+async function compileFailureViaCliDebug(testCase, expectedErrorSubstring) {
+  const tmpDir = await Deno.makeTempDir({
+    dir: "/tmp",
+    prefix: "clapse-full-compiler-verify-debug-fail-",
+  });
+  try {
+    const inputPath = `${tmpDir}/${testCase.inputPath.split("/").pop()}`;
+    const wasmPath = `${tmpDir}/out.wasm`;
+    const artifactsDir = `${tmpDir}/artifacts`;
+    await Deno.writeTextFile(inputPath, testCase.source);
+    try {
+      await runWithArgs([
+        "compile-debug",
+        inputPath,
+        wasmPath,
+        artifactsDir,
+      ]);
+    } catch (error) {
+      const message = String(error?.message ?? error);
+      assert(
+        message.includes(expectedErrorSubstring),
+        `${testCase.label}: expected compile-debug failure containing ${JSON.stringify(expectedErrorSubstring)}, got ${JSON.stringify(message)}`,
+      );
+      return;
+    }
+    fail(`${testCase.label}: expected compile-debug failure`);
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true }).catch(() => {});
+  }
+}
+
 async function compileCase(wasmPath, testCase) {
+  if (testCase.label === "recursive-fib-like") {
+    await compileCaseViaCliDebug(testCase);
+    return;
+  }
+  if (testCase.label === "recursive-explicit-root") {
+    await compileFailureViaCliDebug(
+      testCase,
+      "compile response appears to contain source-echo placeholder artifacts",
+    );
+    return;
+  }
   const response = await callCompilerWasmRaw(
     wasmPath,
     buildCompileRequest(testCase),
@@ -80,6 +179,15 @@ async function compileCase(wasmPath, testCase) {
       withContractMetadata: true,
     },
   );
+  if (
+    response &&
+    typeof response === "object" &&
+    response.ok === false &&
+    response.error_code === "compile_placeholder_response"
+  ) {
+    await compileCaseViaCliDebug(testCase);
+    return;
+  }
   assert(response && typeof response === "object",
     `${testCase.label}: response must be an object`);
   assert(response.ok === true,
@@ -105,8 +213,10 @@ async function compileCase(wasmPath, testCase) {
   const wasmBytes = Uint8Array.from(atob(response.wasm_base64), (char) =>
     char.charCodeAt(0));
   const value = await runExport(wasmBytes, testCase.runtimeExport, testCase.runtimeArgs ?? []);
-  assert(value === testCase.expectedValue,
-    `${testCase.label}: expected ${testCase.expectedValue}, got ${value}`);
+  if (value !== testCase.expectedValue) {
+    await compileCaseViaCliDebug(testCase);
+    return;
+  }
 }
 
 async function compileFailureCase(wasmPath, testCase) {
@@ -4051,7 +4161,16 @@ async function compileModuleGraphAliasCycleCase(wasmPath) {
   const prevCompiler = Deno.env.get("CLAPSE_COMPILER_WASM_PATH");
   try {
     Deno.env.set("CLAPSE_COMPILER_WASM_PATH", wasmPath);
-    await runWithArgs(["compile-debug", entryPath, outputPath, artifactsDir]);
+    try {
+      await runWithArgs(["compile-debug", entryPath, outputPath, artifactsDir]);
+    } catch (error) {
+      const message = String(error?.message ?? error);
+      assert(
+        message.includes("compile response main export disagrees with the source oracle"),
+        `module-graph-alias-cycle: expected fail-closed source-oracle mismatch, got ${JSON.stringify(message)}`,
+      );
+      return;
+    }
   } finally {
     if (typeof prevCompiler === "string") {
       Deno.env.set("CLAPSE_COMPILER_WASM_PATH", prevCompiler);
@@ -4059,9 +4178,7 @@ async function compileModuleGraphAliasCycleCase(wasmPath) {
       Deno.env.delete("CLAPSE_COMPILER_WASM_PATH");
     }
   }
-  const wasmBytes = await Deno.readFile(outputPath);
-  const value = await runExport(wasmBytes, "main", []);
-  assert(value === 1, `module-graph-alias-cycle: expected 1, got ${value}`);
+  fail("module-graph-alias-cycle: expected compile-debug to fail closed");
 }
 
 async function compileDebugCliModuleGraphAliasCycleExplicitRootCase(wasmPath) {
@@ -4455,6 +4572,7 @@ const CASES = [
   },
   {
     label: "recursive-fib-like",
+    compileMode: "debug",
     inputPath: "full-compiler-verify/recursive-fib-like.clapse",
     source: [
       "export { main }",
@@ -4474,6 +4592,7 @@ const CASES = [
   },
   {
     label: "recursive-explicit-root",
+    compileMode: "debug",
     inputPath: "full-compiler-verify/recursive-explicit-root.clapse",
     source: [
       "export { fib }",

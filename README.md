@@ -542,7 +542,11 @@ LSP currently provides:
 - compile diagnostics
 - hover for `--|` doc comments on declarations (including class/instance
   `where` method lines)
-- no inlay hints
+- local value hover for signature-derived params, `let` values/call results,
+  case binders, and signed record projection chains
+- completion, including hole-aware suggestions like `_ "hello"` and `inc _`
+  based on the expected type at the hole position
+- source-side `let`/local type inlay hints in the explorer
 
 ## Benchmarking
 
@@ -573,6 +577,19 @@ closure/env + struct-field + wrapper/uncurry):
 ```bash
 just bench-wasm-compare-all 2000000 20000
 ```
+
+Native Rust baseline comparison for the current wasm fixtures:
+
+```bash
+just bench-rust-compare 2000000 20000
+```
+
+This compiles the current Clapse benchmark fixtures to wasm, benchmarks them
+with the same tagged argument stream/checksum logic as the wasm runner, and
+compares them against optimized Rust baselines implementing the same programs.
+The harness now fails if the Rust and Clapse checksums diverge. Current cases
+include the numeric hand/abstraction pair and a parser-style request scorer in
+[`examples/bench_wasm_http_request_parser.clapse`](/home/mewhhaha/src/clapse/examples/bench_wasm_http_request_parser.clapse).
 
 ## WASM runtime support
 
@@ -688,6 +705,32 @@ uses JS only for keyboard input + sprite rendering.
 ## Examples
 
 See `examples/README.md`.
+
+## Explorer
+
+Run the local explorer with:
+
+```bash
+just explorer
+```
+
+Then open [http://localhost:36627](http://localhost:36627).
+
+This is a single local HTML page (`explorer.html`) served by
+`scripts/explorer.mjs`. It stays intentionally narrow:
+- editable Clapse source
+- preset-aware host-side sample input, including real JS request objects for
+  arg-taking examples
+- live `main(...)` sample result next to the source pane
+- source-side local LSP hover tooltips plus `let`/local type inlay hints
+- auto-recompile on source edits
+- `collapsed_ir.txt` from `compile-debug`
+- WAT decompiled from the compiled wasm output
+- a few built-in presets
+- local syntax highlighting for Clapse and WAT
+
+It replaces the old deployment-oriented explorer path; there is no separate
+GH Pages explorer flow anymore.
 
 Key examples:
 

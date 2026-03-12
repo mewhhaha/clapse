@@ -32,6 +32,12 @@ compile-debug input output='out/module.wasm' artifacts='out':
 compile_debug input output='out/module.wasm' artifacts='out':
   just compile-debug {{input}} {{output}} {{artifacts}}
 
+explorer port='36627':
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/explorer.mjs --port {{port}}
+
+bench-rust-compare iterations='2000000' warmup='20000':
+  CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" deno run -A scripts/bench-rust-compare.mjs {{iterations}} {{warmup}}
+
 format file: clapse-bin
   CLAPSE_COMPILER_WASM_PATH="${CLAPSE_COMPILER_WASM_PATH:-artifacts/latest/clapse_compiler.wasm}" ./artifacts/bin/clapse format {{file}}
 

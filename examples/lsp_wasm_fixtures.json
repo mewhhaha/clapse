@@ -134,6 +134,58 @@
       }
     },
     {
+      "name": "hole_completion_head_matches_argument_type",
+      "source": "shout : string -> string\nshout x = x\nlen : string -> i64\nlen x = 0\ninc : i64 -> i64\ninc x = x\nmain = _ \"hello\"\n",
+      "hover": {
+        "line": 6,
+        "character": 7
+      },
+      "hoverExpectation": null,
+      "expectedDiagnostics": 0,
+      "completion": {
+        "line": 6,
+        "character": 7
+      },
+      "completionExpectation": {
+        "minCount": 2,
+        "containsLabel": "shout"
+      }
+    },
+    {
+      "name": "hole_completion_argument_position_uses_expected_type",
+      "source": "inc : i64 -> i64\ninc x = x\nanswer : i64\nanswer = 1\nmain = inc _\n",
+      "hover": {
+        "line": 4,
+        "character": 11
+      },
+      "hoverExpectation": null,
+      "expectedDiagnostics": 0,
+      "completion": {
+        "line": 4,
+        "character": 11
+      },
+      "completionExpectation": {
+        "containsLabel": "answer"
+      }
+    },
+    {
+      "name": "hole_completion_plain_value_uses_enclosing_return_type",
+      "source": "main : i64 -> i64\nmain x = let y = x in _\n",
+      "hover": {
+        "line": 1,
+        "character": 24
+      },
+      "hoverExpectation": null,
+      "expectedDiagnostics": 0,
+      "completion": {
+        "line": 1,
+        "character": 24
+      },
+      "completionExpectation": {
+        "containsLabel": "y"
+      }
+    },
+    {
       "name": "where_method_hover_contains_doc",
       "source": "class Functor f where\n  --| Map over a functor value.\n  fmap : (a -> b) -> f a -> f b\nmain x = x\n",
       "hover": {
