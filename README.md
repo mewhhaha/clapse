@@ -599,7 +599,12 @@ the measured gap is plain JS↔Wasm call overhead before attributing it to Claps
 lowering quality, plus a `*-net` row for each case that subtracts the measured
 boundary-only cost from the end-to-end Clapse number. The third argument is the
 number of repeated samples, and the harness reports the median so one noisy run
-does not dominate the result.
+does not dominate the result. When
+`.tmp/wasm-native-bench/target/release/wasm-native-bench` exists, the report
+also includes a `clapse-wasmi` row for each case so you can compare the same
+generated wasm under a native `wasmi` host instead of the JS-hosted runtime,
+plus `*-native-net` rows that subtract the native `wasmi` boundary-only cost
+from those runs.
 
 ## WASM runtime support
 

@@ -54,9 +54,12 @@ the current wasm compiler unless explicitly marked `skip`.
     as part of correctness; the benchmark must fail if Rust and Clapse diverge.
     The output now includes a `wasm-boundary-only` row to separate JS↔Wasm call
     overhead from the generated program cost, plus `*-net` rows that subtract
-    that boundary-only cost from each Clapse benchmark. The harness also takes
-    a median across repeated samples (`just bench-rust-compare iterations warmup repeats`)
-    so single noisy runs do not drive optimization decisions.
+    that boundary-only cost from each Clapse benchmark. If the local
+    `.tmp/wasm-native-bench` runner is built, the report also includes a
+    `clapse-wasmi` row per case plus `*-native-net` rows that subtract the
+    native `wasmi` boundary-only cost. The harness also takes a median across
+    repeated samples (`just bench-rust-compare iterations warmup repeats`) so
+    single noisy runs do not drive optimization decisions.
 13. Treat `tree-sitter-clapse/queries/highlights.scm` generated marker region as
     grammar-managed: update `docs/clapse-language/references/grammar.ebnf`
     first, regenerate with `just gen-ts-highlights`, and do not hand-edit lines

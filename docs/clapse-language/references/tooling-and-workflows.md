@@ -512,7 +512,10 @@ if the Rust and Clapse checksums diverge. It also prints a
 the generated Clapse program cost, plus `*-net` rows that subtract that
 boundary-only cost from each Clapse case. It accepts `iterations`, `warmup`,
 and `repeats`, and reports the median sample so one noisy run does not skew the
-comparison. The current coverage is:
+comparison. If `.tmp/wasm-native-bench/target/release/wasm-native-bench` is
+present, the same table also includes a `clapse-wasmi` row for each case. The
+table also emits `*-native-net` rows that subtract the native `wasmi`
+boundary-only cost. The current coverage is:
 
 - `examples/bench_wasm_hand.clapse`
 - `examples/bench_wasm_abstraction.clapse`

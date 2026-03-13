@@ -56,6 +56,10 @@ function usage() {
     "",
     "Benchmarks the current Clapse wasm output against optimized native Rust",
     "baselines for the current benchmark fixtures.",
+    "",
+    "Also reports a native wasmi run when",
+    "  .tmp/wasm-native-bench/target/release/wasm-native-bench",
+    "is available.",
   ].join("\n");
 }
 
@@ -169,14 +173,18 @@ async function benchWasmCase(wasmPath, iterations, warmup, exportName = "main") 
   };
 }
 
-async function benchWasmBoundaryOnly(iterations, warmup) {
-  const wasmBytes = new Uint8Array([
+function makeBoundaryOnlyWasmBytes() {
+  return new Uint8Array([
     0x00,0x61,0x73,0x6d,0x01,0x00,0x00,0x00,
     0x01,0x06,0x01,0x60,0x01,0x7f,0x01,0x7f,
     0x03,0x02,0x01,0x00,
     0x07,0x0f,0x01,0x0b,0x62,0x6f,0x75,0x6e,0x64,0x61,0x72,0x79,0x5f,0x69,0x64,0x00,0x00,
     0x0a,0x06,0x01,0x04,0x00,0x20,0x00,0x0b,
   ]);
+}
+
+async function benchWasmBoundaryOnly(iterations, warmup) {
+  const wasmBytes = makeBoundaryOnlyWasmBytes();
   const instance = await WebAssembly.instantiate(wasmBytes);
   const fn = instance.instance.exports.boundary_id;
   if (typeof fn !== "function") {
@@ -398,6 +406,35 @@ function adjustedNsPerCall(totalNsPerCall, boundaryNsPerCall) {
   return adjusted > 0 ? adjusted : 0;
 }
 
+const WASMI_BENCH_BINARY =
+  `${Deno.cwd()}/.tmp/wasm-native-bench/target/release/wasm-native-bench`;
+
+async function benchWasmCaseWasmi(wasmPath, iterations, warmup, exportName = "main") {
+  const out = await new Deno.Command(WASMI_BENCH_BINARY, {
+    args: [wasmPath, exportName, String(iterations), String(warmup)],
+  }).output();
+  if (!out.success) {
+    throw new Error(
+      `wasmi benchmark failed: ${new TextDecoder().decode(out.stderr).trim() || "unknown error"}`,
+    );
+  }
+  const text = new TextDecoder().decode(out.stdout);
+  const result = {};
+  for (const line of text.split(/\r?\n/u)) {
+    const [key, rawValue] = line.split(":", 2);
+    if (!key || rawValue === undefined) {
+      continue;
+    }
+    result[key.trim()] = rawValue.trim();
+  }
+  return {
+    elapsedMs: Number(result.elapsed_ms),
+    nsPerCall: Number(result.ns_per_call),
+    opsPerSec: Number(result.ops_per_sec),
+    checksum: Number(result.checksum),
+  };
+}
+
 async function main() {
   const args = cliArgs();
   if (args.includes("--help") || args.includes("-h")) {
@@ -424,9 +461,27 @@ async function main() {
       "vs rust".padStart(10),
     ].join(" "));
     console.log("-".repeat(92));
+    const hasWasmiBench = await Deno.stat(WASMI_BENCH_BINARY).then(
+      () => true,
+      () => false,
+    );
+    if (!hasWasmiBench) {
+      throw new Error(
+        `native wasmi benchmark binary not found at ${WASMI_BENCH_BINARY}; run 'cargo build --release --manifest-path .tmp/wasm-native-bench/Cargo.toml'`,
+      );
+    }
     const boundaryOnly = medianResult(
       await Promise.all(
         Array.from({ length: repeats }, () => benchWasmBoundaryOnly(iterations, warmup)),
+      ),
+    );
+    const wasmiBoundaryPath = `${tmpDir}/boundary-only.wasm`;
+    await Deno.writeFile(wasmiBoundaryPath, makeBoundaryOnlyWasmBytes());
+    const wasmiBoundaryOnly = medianResult(
+      await Promise.all(
+        Array.from({ length: repeats }, () =>
+          benchWasmCaseWasmi(wasmiBoundaryPath, iterations, warmup, "boundary_id")
+        ),
       ),
     );
     console.log([
@@ -435,6 +490,14 @@ async function main() {
       boundaryOnly.nsPerCall.toFixed(2).padStart(12),
       boundaryOnly.opsPerSec.toFixed(2).padStart(14),
       String(boundaryOnly.checksum).padStart(12),
+      "n/a".padStart(10),
+    ].join(" "));
+    console.log([
+      "wasm-boundary-only".padEnd(22),
+      "clapse-wasmi".padEnd(14),
+      wasmiBoundaryOnly.nsPerCall.toFixed(2).padStart(12),
+      wasmiBoundaryOnly.opsPerSec.toFixed(2).padStart(14),
+      String(wasmiBoundaryOnly.checksum).padStart(12),
       "n/a".padStart(10),
     ].join(" "));
     for (const benchmarkCase of CASES) {
@@ -462,7 +525,15 @@ async function main() {
           Array.from({ length: repeats }, () => benchWasmCase(wasmPath, iterations, warmup)),
         ),
       );
+      const wasmiResult = medianResult(
+        await Promise.all(
+          Array.from({ length: repeats }, () =>
+            benchWasmCaseWasmi(wasmPath, iterations, warmup)
+          ),
+        ),
+      );
       const adjustedNs = adjustedNsPerCall(wasmResult.nsPerCall, boundaryOnly.nsPerCall);
+      const adjustedWasmiNs = adjustedNsPerCall(wasmiResult.nsPerCall, wasmiBoundaryOnly.nsPerCall);
       console.log([
         benchmarkCase.id.padEnd(22),
         "clapse-wasm".padEnd(14),
@@ -470,6 +541,22 @@ async function main() {
         wasmResult.opsPerSec.toFixed(2).padStart(14),
         String(wasmResult.checksum).padStart(12),
         formatRatio(wasmResult.nsPerCall, rustResult.nsPerCall).padStart(10),
+      ].join(" "));
+      console.log([
+        `${benchmarkCase.id}-native`.padEnd(22),
+        "clapse-wasmi".padEnd(14),
+        wasmiResult.nsPerCall.toFixed(2).padStart(12),
+        wasmiResult.opsPerSec.toFixed(2).padStart(14),
+        String(wasmiResult.checksum).padStart(12),
+        formatRatio(wasmiResult.nsPerCall, rustResult.nsPerCall).padStart(10),
+      ].join(" "));
+      console.log([
+        `${benchmarkCase.id}-native-net`.padEnd(22),
+        "clapse-wasmi".padEnd(14),
+        adjustedWasmiNs.toFixed(2).padStart(12),
+        (adjustedWasmiNs > 0 ? (1_000_000_000 / adjustedWasmiNs) : 0).toFixed(2).padStart(14),
+        String(wasmiResult.checksum).padStart(12),
+        formatRatio(adjustedWasmiNs, rustResult.nsPerCall).padStart(10),
       ].join(" "));
       console.log([
         `${benchmarkCase.id}-net`.padEnd(22),
@@ -481,7 +568,12 @@ async function main() {
       ].join(" "));
       if (wasmResult.checksum !== rustResult.checksum) {
         throw new Error(
-          `${benchmarkCase.id}: checksum mismatch (clapse=${wasmResult.checksum}, rust=${rustResult.checksum})`,
+          `${benchmarkCase.id}: checksum mismatch (clapse=${wasmResult.checksum}, wasmi=${wasmiResult.checksum}, rust=${rustResult.checksum})`,
+        );
+      }
+      if (wasmiResult.checksum !== rustResult.checksum) {
+        throw new Error(
+          `${benchmarkCase.id}: checksum mismatch (clapse=${wasmResult.checksum}, wasmi=${wasmiResult.checksum}, rust=${rustResult.checksum})`,
         );
       }
     }
