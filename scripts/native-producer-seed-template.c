@@ -2947,6 +2947,7 @@ static EvalConst eval_root_extended(
 #define MAX_RAW_EMIT_EXPR_BINDINGS 64u
 #define MAX_RAW_EMIT_INLINE_DEPTH 8u
 #define MAX_RAW_EMIT_CTOR_BINDINGS 64u
+#define MAX_RAW_EMIT_CALL_SITES 128u
 #define MISSING_CTOR_BINDING 0xffffffffu
 
 static void init_ctor_binding_array(uint32_t *bindings, uint32_t count) {
@@ -2992,7 +2993,19 @@ typedef struct {
   uint32_t expr_count;
   RawCtorBinding ctor_bindings[MAX_RAW_EMIT_CTOR_BINDINGS];
   uint32_t ctor_binding_count;
+  uint32_t call_site_starts[MAX_RAW_EMIT_CALL_SITES];
+  uint32_t call_site_ends[MAX_RAW_EMIT_CALL_SITES];
+  uint32_t call_site_targets[MAX_RAW_EMIT_CALL_SITES];
+  uint32_t call_site_count;
 } RawEmitEnv;
+
+static int append_raw_recorded_call_instr(
+  RawEmitEnv *env,
+  uint8_t *buf,
+  uint32_t cap,
+  uint32_t *at,
+  uint32_t function_index
+);
 
 static int raw_emit_expr_to_wasm(
   Segment source,
@@ -3541,8 +3554,13 @@ static int raw_emit_bound_apply_wasm(
             return 0;
           }
         }
-        return raw_emit_append_byte(out, cursor, limit, 0x10u) &&
-          raw_emit_append_var_u32(out, cursor, limit, (uint32_t) env->function_index_by_decl[decl_index]);
+        return append_raw_recorded_call_instr(
+          env,
+          out,
+          limit,
+          cursor,
+          (uint32_t) env->function_index_by_decl[decl_index]
+        );
       }
     }
   }
@@ -6824,8 +6842,13 @@ static int raw_emit_expr_to_wasm(
                 return 0;
               }
             }
-            return raw_emit_append_byte(out, cursor, limit, 0x10u) &&
-              raw_emit_append_var_u32(out, cursor, limit, (uint32_t) env->function_index_by_decl[decl_index]);
+            return append_raw_recorded_call_instr(
+              env,
+              out,
+              limit,
+              cursor,
+              (uint32_t) env->function_index_by_decl[decl_index]
+            );
           }
         }
         return raw_emit_bound_apply_wasm(
@@ -6870,6 +6893,8 @@ static uint32_t encode_var_s32_bytes(int32_t value, uint8_t *out) {
 #define MAX_PHASE1_EMIT_EXPR_BINDINGS 64u
 #define MAX_PHASE1_EMIT_INLINE_DEPTH 8u
 #define MAX_PHASE1_EMIT_CTOR_BINDINGS 64u
+#define MAX_PHASE1_EMIT_EXPR_CACHE 64u
+#define MAX_PHASE1_EMIT_CALL_SITES 128u
 
 typedef struct {
   NameSpan ctor_name;
@@ -6897,10 +6922,37 @@ typedef struct {
   uint32_t inline_count;
   Phase1CtorBinding ctor_bindings[MAX_PHASE1_EMIT_CTOR_BINDINGS];
   uint32_t ctor_binding_count;
+  uint32_t cache_hashes[MAX_PHASE1_EMIT_EXPR_CACHE];
+  uint32_t cache_local_indices[MAX_PHASE1_EMIT_EXPR_CACHE];
+  uint32_t cache_count;
+  uint32_t seen_hashes[MAX_PHASE1_EMIT_EXPR_CACHE];
+  uint32_t seen_count;
+  uint32_t call_site_starts[MAX_PHASE1_EMIT_CALL_SITES];
+  uint32_t call_site_ends[MAX_PHASE1_EMIT_CALL_SITES];
+  uint32_t call_site_targets[MAX_PHASE1_EMIT_CALL_SITES];
+  uint32_t call_site_count;
   uint32_t local_count;
   uint32_t param_count;
   uint32_t next_local_index;
 } Phase1EmitEnv;
+
+static int append_phase1_recorded_call_instr(
+  Phase1EmitEnv *env,
+  uint8_t *buf,
+  uint32_t cap,
+  uint32_t *at,
+  uint32_t function_index
+);
+static int parse_apply_span(
+  Segment source,
+  uint32_t start,
+  uint32_t end,
+  NameSpan *head_out,
+  uint32_t *arg_starts,
+  uint32_t *arg_ends,
+  uint32_t max_args,
+  uint32_t *argc_out
+);
 
 static int roots_have_unknown_names(FnDecl *decls, uint32_t decl_count, NameSpan *roots, uint32_t roots_count);
 static void seed_reachable(FnDecl *decls, uint32_t decl_count, NameSpan *roots, uint32_t roots_count, int *reachable);
@@ -6918,6 +6970,24 @@ static int bind_emit_expr_name_with_ctor(
   uint32_t expr_start,
   uint32_t expr_end,
   uint32_t ctor_binding
+);
+static int lookup_emit_expr_binding(
+  Phase1EmitEnv *env,
+  NameSpan name,
+  uint32_t *out_start,
+  uint32_t *out_end,
+  uint32_t *out_ctor_binding
+);
+static int phase1_find_rightmost_binary_operator(
+  Segment source,
+  uint32_t start,
+  uint32_t end,
+  const char **ops,
+  const uint8_t *opcodes,
+  uint32_t op_count,
+  uint32_t *split_at_out,
+  uint32_t *op_len_out,
+  uint8_t *opcode_out
 );
 static int capture_constructor_binding(
   Phase1EmitEnv *env,
@@ -7171,9 +7241,74 @@ static int append_local_set_instr(uint8_t *buf, uint32_t cap, uint32_t *at, uint
     append_buf_var_u32(buf, cap, at, local_index);
 }
 
+static int append_local_tee_instr(uint8_t *buf, uint32_t cap, uint32_t *at, uint32_t local_index) {
+  return append_buf_u8(buf, cap, at, 0x22u) &&
+    append_buf_var_u32(buf, cap, at, local_index);
+}
+
 static int append_call_instr(uint8_t *buf, uint32_t cap, uint32_t *at, uint32_t function_index) {
   return append_buf_u8(buf, cap, at, 0x10u) &&
     append_buf_var_u32(buf, cap, at, function_index);
+}
+
+static int append_phase1_recorded_call_instr(
+  Phase1EmitEnv *env,
+  uint8_t *buf,
+  uint32_t cap,
+  uint32_t *at,
+  uint32_t function_index
+) {
+  uint32_t imm_start = 0u;
+  uint32_t imm_end = 0u;
+  if (!append_buf_u8(buf, cap, at, 0x10u)) {
+    return 0;
+  }
+  imm_start = *at;
+  if (!append_buf_var_u32(buf, cap, at, function_index)) {
+    return 0;
+  }
+  imm_end = *at;
+  if (env != NULL && env->call_site_count != 0xffffffffu) {
+    if (env->call_site_count >= MAX_PHASE1_EMIT_CALL_SITES) {
+      env->call_site_count = 0xffffffffu;
+      return 1;
+    }
+    env->call_site_starts[env->call_site_count] = imm_start;
+    env->call_site_ends[env->call_site_count] = imm_end;
+    env->call_site_targets[env->call_site_count] = function_index;
+    env->call_site_count += 1u;
+  }
+  return 1;
+}
+
+static int append_raw_recorded_call_instr(
+  RawEmitEnv *env,
+  uint8_t *buf,
+  uint32_t cap,
+  uint32_t *at,
+  uint32_t function_index
+) {
+  uint32_t imm_start = 0u;
+  uint32_t imm_end = 0u;
+  if (!append_buf_u8(buf, cap, at, 0x10u)) {
+    return 0;
+  }
+  imm_start = *at;
+  if (!append_buf_var_u32(buf, cap, at, function_index)) {
+    return 0;
+  }
+  imm_end = *at;
+  if (env != NULL && env->call_site_count != 0xffffffffu) {
+    if (env->call_site_count >= MAX_RAW_EMIT_CALL_SITES) {
+      env->call_site_count = 0xffffffffu;
+      return 1;
+    }
+    env->call_site_starts[env->call_site_count] = imm_start;
+    env->call_site_ends[env->call_site_count] = imm_end;
+    env->call_site_targets[env->call_site_count] = function_index;
+    env->call_site_count += 1u;
+  }
+  return 1;
 }
 
 static int is_name_token_boundary_before(Segment source, uint32_t at, uint32_t start) {
@@ -7207,6 +7342,93 @@ static int match_keyword_at(Segment source, uint32_t at, uint32_t start, uint32_
     is_name_token_boundary_after(source, at + len, end);
 }
 
+static int rewrite_function_blob_call_indices(
+  uint8_t *input,
+  uint32_t input_len,
+  uint32_t *call_starts,
+  uint32_t *call_ends,
+  uint32_t *call_targets,
+  uint32_t call_count,
+  int *new_index_by_old,
+  uint8_t *out,
+  uint32_t out_cap,
+  uint32_t *out_len
+) {
+  uint32_t src = 0u;
+  uint32_t dst = 0u;
+  for (uint32_t i = 0u; i < call_count; i += 1u) {
+    uint32_t start = call_starts[i];
+    uint32_t end = call_ends[i];
+    if (end < start || start < src || end > input_len) {
+      return 0;
+    }
+    while (src < start) {
+      if (!append_buf_u8(out, out_cap, &dst, input[src])) {
+        return 0;
+      }
+      src += 1u;
+    }
+    if ((int32_t) call_targets[i] < 0 || new_index_by_old[call_targets[i]] < 0) {
+      return 0;
+    }
+    if (!append_buf_var_u32(out, out_cap, &dst, (uint32_t) new_index_by_old[call_targets[i]])) {
+      return 0;
+    }
+    src = end;
+  }
+  while (src < input_len) {
+    if (!append_buf_u8(out, out_cap, &dst, input[src])) {
+      return 0;
+    }
+    src += 1u;
+  }
+  *out_len = dst;
+  return 1;
+}
+
+static uint32_t collect_live_functions_from_calls(
+  uint32_t total_functions,
+  uint32_t roots_start,
+  uint32_t roots_count,
+  uint32_t *call_counts,
+  uint32_t *call_targets_ptrs,
+  uint8_t *live,
+  uint32_t *order
+) {
+  uint32_t stack[MAX_FN_DECLS + MAX_ROOTS];
+  uint32_t stack_count = 0u;
+  uint32_t live_count = 0u;
+  for (uint32_t i = 0u; i < total_functions; i += 1u) {
+    live[i] = 0u;
+  }
+  for (uint32_t i = 0u; i < roots_count; i += 1u) {
+    stack[stack_count] = roots_start + i;
+    stack_count += 1u;
+  }
+  while (stack_count > 0u) {
+    uint32_t current = stack[stack_count - 1u];
+    stack_count -= 1u;
+    if (current >= total_functions || live[current]) {
+      continue;
+    }
+    live[current] = 1u;
+    order[live_count] = current;
+    live_count += 1u;
+    uint32_t call_count = call_counts[current];
+    uint32_t call_targets_ptr = call_targets_ptrs[current];
+    uint32_t *targets = call_targets_ptr == 0u
+      ? NULL
+      : (uint32_t *) (uintptr_t) call_targets_ptr;
+    for (uint32_t i = 0u; i < call_count; i += 1u) {
+      if (targets[i] < total_functions && !live[targets[i]]) {
+        stack[stack_count] = targets[i];
+        stack_count += 1u;
+      }
+    }
+  }
+  return live_count;
+}
+
 static int lookup_emit_local_index(Phase1EmitEnv *env, NameSpan name, uint32_t *out_index) {
   for (uint32_t i = env->local_count; i > 0u; i -= 1u) {
     uint32_t at = i - 1u;
@@ -7216,6 +7438,437 @@ static int lookup_emit_local_index(Phase1EmitEnv *env, NameSpan name, uint32_t *
     }
   }
   return 0;
+}
+
+static uint32_t phase1_mix_cache_hash(uint32_t seed, uint32_t value) {
+  return (seed ^ value) * 16777619u;
+}
+
+static int phase1_expr_is_expensive(
+  Phase1EmitEnv *env,
+  uint32_t start,
+  uint32_t end,
+  uint32_t depth
+);
+static int phase1_cache_key_for_expr(
+  Phase1EmitEnv *env,
+  uint32_t start,
+  uint32_t end,
+  uint32_t depth,
+  uint32_t *out_hash
+);
+
+static int phase1_decl_body_is_expensive(
+  Phase1EmitEnv *env,
+  int decl_index,
+  uint32_t depth
+) {
+  if (decl_index < 0 || depth > 16u) {
+    return 0;
+  }
+  FnDecl decl = env->decls[(uint32_t) decl_index];
+  uint32_t expr_end = decl_expression_end(env->source, env->decls, env->decl_count, (uint32_t) decl_index);
+  return phase1_expr_is_expensive(env, decl.body_start, expr_end, depth + 1u);
+}
+
+static int phase1_expr_is_expensive(
+  Phase1EmitEnv *env,
+  uint32_t start,
+  uint32_t end,
+  uint32_t depth
+) {
+  if (depth > 16u) {
+    return 0;
+  }
+  start = skip_expr_ws(env->source, start, end);
+  end = trim_expr_end(env->source, start, end);
+  if (start >= end) {
+    return 0;
+  }
+  if (span_matches_keyword(env->source, start, end, "let") ||
+      span_matches_keyword(env->source, start, end, "if") ||
+      span_matches_keyword(env->source, start, end, "case")) {
+    return 1;
+  }
+  if (span_is_wrapped_parens(env->source, start, end)) {
+    return phase1_expr_is_expensive(env, start + 1u, end - 1u, depth + 1u);
+  }
+  {
+    static const char *bool_ops[] = {"&&", "||"};
+    static const uint8_t bool_codes[] = {0x71u, 0x72u};
+    static const char *cmp_ops[] = {"==", "!=", "<=", ">=", "<", ">"};
+    static const uint8_t cmp_codes[] = {0x46u, 0x47u, 0x4cu, 0x4eu, 0x48u, 0x4au};
+    static const char *dotted_ops[] = {"+.", "-.", "*.", "/.", "%."};
+    static const uint8_t dotted_codes[] = {0x6au, 0x6bu, 0x6cu, 0x6du, 0x6fu};
+    static const char *add_ops[] = {"+", "-"};
+    static const uint8_t add_codes[] = {0x6au, 0x6bu};
+    static const char *mul_ops[] = {"*", "/", "%"};
+    static const uint8_t mul_codes[] = {0x6cu, 0x6du, 0x6fu};
+    uint32_t split_at = 0u;
+    uint32_t op_len = 0u;
+    uint8_t opcode = 0u;
+    if (phase1_find_rightmost_binary_operator(
+          env->source, start, end, bool_ops, bool_codes, 2u, &split_at, &op_len, &opcode) ||
+        phase1_find_rightmost_binary_operator(
+          env->source, start, end, cmp_ops, cmp_codes, 6u, &split_at, &op_len, &opcode) ||
+        phase1_find_rightmost_binary_operator(
+          env->source, start, end, dotted_ops, dotted_codes, 5u, &split_at, &op_len, &opcode) ||
+        phase1_find_rightmost_binary_operator(
+          env->source, start, end, add_ops, add_codes, 2u, &split_at, &op_len, &opcode) ||
+        phase1_find_rightmost_binary_operator(
+          env->source, start, end, mul_ops, mul_codes, 3u, &split_at, &op_len, &opcode)) {
+      if (opcode == 0x6du || opcode == 0x6fu) {
+        return 1;
+      }
+      return phase1_expr_is_expensive(env, start, split_at, depth + 1u) ||
+        phase1_expr_is_expensive(env, split_at + op_len, end, depth + 1u);
+    }
+  }
+  {
+    NameSpan head = missing_name_span();
+    uint32_t arg_starts[MAX_EVAL_ARGS] = {0};
+    uint32_t arg_ends[MAX_EVAL_ARGS] = {0};
+    uint32_t argc = 0u;
+    if (parse_apply_span(
+          env->source,
+          start,
+          end,
+          &head,
+          arg_starts,
+          arg_ends,
+          MAX_EVAL_ARGS,
+          &argc) &&
+        head.ok &&
+        argc > 0u) {
+      int decl_index = find_decl_index_by_name(env->decls, env->decl_count, head);
+      if (decl_index >= 0 && phase1_decl_body_is_expensive(env, decl_index, depth + 1u)) {
+        return 1;
+      }
+      for (uint32_t i = 0u; i < argc; i += 1u) {
+        if (phase1_expr_is_expensive(env, arg_starts[i], arg_ends[i], depth + 1u)) {
+          return 1;
+        }
+      }
+    }
+  }
+  return 0;
+}
+
+static int phase1_cache_key_for_expr(
+  Phase1EmitEnv *env,
+  uint32_t start,
+  uint32_t end,
+  uint32_t depth,
+  uint32_t *out_hash
+) {
+  if (depth > 16u) {
+    return 0;
+  }
+  start = skip_expr_ws(env->source, start, end);
+  end = trim_expr_end(env->source, start, end);
+  if (start >= end) {
+    return 0;
+  }
+  if (span_matches_keyword(env->source, start, end, "let") ||
+      span_matches_keyword(env->source, start, end, "if") ||
+      span_matches_keyword(env->source, start, end, "case")) {
+    return 0;
+  }
+  if (span_is_wrapped_parens(env->source, start, end)) {
+    return phase1_cache_key_for_expr(env, start + 1u, end - 1u, depth + 1u, out_hash);
+  }
+  {
+    int32_t value = 0;
+    uint32_t next = start;
+    if (parse_signed_int_literal(env->source, start, end, &value, &next) &&
+        next == end) {
+      uint32_t hash = 2166136261u;
+      hash = phase1_mix_cache_hash(hash, 0x11u);
+      hash = phase1_mix_cache_hash(hash, (uint32_t) value);
+      *out_hash = hash;
+      return 1;
+    }
+  }
+  {
+    uint32_t next = start;
+    NameSpan name = parse_simple_name_token(env->source, start, end, &next);
+    if (name.ok && next == end) {
+      uint32_t local_index = 0u;
+      if (lookup_emit_local_index(env, name, &local_index)) {
+        uint32_t hash = 2166136261u;
+        hash = phase1_mix_cache_hash(hash, 0x22u);
+        hash = phase1_mix_cache_hash(hash, local_index);
+        *out_hash = hash;
+        return 1;
+      }
+      {
+        uint32_t bound_start = 0u;
+        uint32_t bound_end = 0u;
+        if (lookup_emit_expr_binding(env, name, &bound_start, &bound_end, NULL)) {
+          return phase1_cache_key_for_expr(env, bound_start, bound_end, depth + 1u, out_hash);
+        }
+      }
+      return 0;
+    }
+  }
+  {
+    NameSpan head = missing_name_span();
+    uint32_t arg_starts[MAX_EVAL_ARGS] = {0};
+    uint32_t arg_ends[MAX_EVAL_ARGS] = {0};
+    uint32_t argc = 0u;
+    if (parse_apply_span(
+          env->source,
+          start,
+          end,
+          &head,
+          arg_starts,
+          arg_ends,
+          MAX_EVAL_ARGS,
+          &argc) &&
+        head.ok &&
+        argc > 0u) {
+      uint32_t hash = 2166136261u;
+      hash = phase1_mix_cache_hash(hash, 0x44u);
+      hash = phase1_mix_cache_hash(hash, head.len);
+      {
+        uint8_t *bytes = (uint8_t *) (uintptr_t) head.ptr;
+        for (uint32_t i = 0u; i < head.len; i += 1u) {
+          hash = phase1_mix_cache_hash(hash, bytes[i]);
+        }
+      }
+      hash = phase1_mix_cache_hash(hash, argc);
+      for (uint32_t i = 0u; i < argc; i += 1u) {
+        uint32_t arg_hash = 0u;
+        if (!phase1_cache_key_for_expr(env, arg_starts[i], arg_ends[i], depth + 1u, &arg_hash)) {
+          return 0;
+        }
+        hash = phase1_mix_cache_hash(hash, arg_hash);
+      }
+      *out_hash = hash;
+      return 1;
+    }
+  }
+  {
+    static const char *bool_ops[] = {"&&", "||"};
+    static const uint8_t bool_codes[] = {0x71u, 0x72u};
+    static const char *cmp_ops[] = {"==", "!=", "<=", ">=", "<", ">"};
+    static const uint8_t cmp_codes[] = {0x46u, 0x47u, 0x4cu, 0x4eu, 0x48u, 0x4au};
+    static const char *dotted_ops[] = {"+.", "-.", "*.", "/.", "%."};
+    static const uint8_t dotted_codes[] = {0x6au, 0x6bu, 0x6cu, 0x6du, 0x6fu};
+    static const char *add_ops[] = {"+", "-"};
+    static const uint8_t add_codes[] = {0x6au, 0x6bu};
+    static const char *mul_ops[] = {"*", "/", "%"};
+    static const uint8_t mul_codes[] = {0x6cu, 0x6du, 0x6fu};
+    uint32_t split_at = 0u;
+    uint32_t op_len = 0u;
+    uint8_t opcode = 0u;
+    if (!phase1_find_rightmost_binary_operator(
+          env->source,
+          start,
+          end,
+          bool_ops,
+          bool_codes,
+          2u,
+          &split_at,
+          &op_len,
+          &opcode) &&
+        !phase1_find_rightmost_binary_operator(
+          env->source,
+          start,
+          end,
+          cmp_ops,
+          cmp_codes,
+          6u,
+          &split_at,
+          &op_len,
+          &opcode) &&
+        !phase1_find_rightmost_binary_operator(
+          env->source,
+          start,
+          end,
+          dotted_ops,
+          dotted_codes,
+          5u,
+          &split_at,
+          &op_len,
+          &opcode) &&
+        !phase1_find_rightmost_binary_operator(
+          env->source,
+          start,
+          end,
+          add_ops,
+          add_codes,
+          2u,
+          &split_at,
+          &op_len,
+          &opcode) &&
+        !phase1_find_rightmost_binary_operator(
+          env->source,
+          start,
+          end,
+          mul_ops,
+          mul_codes,
+          3u,
+          &split_at,
+          &op_len,
+          &opcode)) {
+      return 0;
+    }
+    {
+      uint32_t left_hash = 0u;
+      uint32_t right_hash = 0u;
+      if (!phase1_cache_key_for_expr(env, start, split_at, depth + 1u, &left_hash) ||
+          !phase1_cache_key_for_expr(env, split_at + op_len, end, depth + 1u, &right_hash)) {
+        return 0;
+      }
+      uint32_t hash = 2166136261u;
+      hash = phase1_mix_cache_hash(hash, 0x33u);
+      hash = phase1_mix_cache_hash(hash, opcode);
+      hash = phase1_mix_cache_hash(hash, left_hash);
+      hash = phase1_mix_cache_hash(hash, right_hash);
+      *out_hash = hash;
+      return 1;
+    }
+  }
+}
+
+static int lookup_emit_expr_cache_local(
+  Phase1EmitEnv *env,
+  uint32_t hash,
+  uint32_t *out_local_index
+) {
+  for (uint32_t i = env->cache_count; i > 0u; i -= 1u) {
+    uint32_t at = i - 1u;
+    if (env->cache_hashes[at] == hash) {
+      *out_local_index = env->cache_local_indices[at];
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int cache_emit_expr_local(
+  Phase1EmitEnv *env,
+  uint32_t hash,
+  uint32_t local_index
+) {
+  if (env->cache_count >= MAX_PHASE1_EMIT_EXPR_CACHE) {
+    return 0;
+  }
+  env->cache_hashes[env->cache_count] = hash;
+  env->cache_local_indices[env->cache_count] = local_index;
+  env->cache_count += 1u;
+  return 1;
+}
+
+static int lookup_emit_expr_seen(
+  Phase1EmitEnv *env,
+  uint32_t hash
+) {
+  for (uint32_t i = env->seen_count; i > 0u; i -= 1u) {
+    if (env->seen_hashes[i - 1u] == hash) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int record_emit_expr_seen(
+  Phase1EmitEnv *env,
+  uint32_t hash
+) {
+  if (env->seen_count >= MAX_PHASE1_EMIT_EXPR_CACHE) {
+    return 0;
+  }
+  env->seen_hashes[env->seen_count] = hash;
+  env->seen_count += 1u;
+  return 1;
+}
+
+static int maybe_cache_emitted_expr(
+  Phase1EmitEnv *env,
+  uint32_t start,
+  uint32_t end,
+  uint8_t *buf,
+  uint32_t cap,
+  uint32_t *at
+) {
+  int allow_second_use_application_cache = 0;
+  {
+    static const char *dotted_ops[] = {"+.", "-.", "*.", "/.", "%."};
+    static const uint8_t dotted_codes[] = {0x6au, 0x6bu, 0x6cu, 0x6du, 0x6fu};
+    static const char *mul_ops[] = {"*", "/", "%"};
+    static const uint8_t mul_codes[] = {0x6cu, 0x6du, 0x6fu};
+    uint32_t split_at = 0u;
+    uint32_t op_len = 0u;
+    uint8_t opcode = 0u;
+    int matched = phase1_find_rightmost_binary_operator(
+      env->source,
+      start,
+      end,
+      dotted_ops,
+      dotted_codes,
+      5u,
+      &split_at,
+      &op_len,
+      &opcode
+    ) || phase1_find_rightmost_binary_operator(
+      env->source,
+      start,
+      end,
+      mul_ops,
+      mul_codes,
+      3u,
+      &split_at,
+      &op_len,
+      &opcode
+    );
+    if (!matched || (opcode != 0x6du && opcode != 0x6fu)) {
+      NameSpan head = missing_name_span();
+      uint32_t arg_starts[MAX_EVAL_ARGS] = {0};
+      uint32_t arg_ends[MAX_EVAL_ARGS] = {0};
+      uint32_t argc = 0u;
+      if (!(parse_apply_span(
+              env->source,
+              start,
+              end,
+              &head,
+              arg_starts,
+              arg_ends,
+              MAX_EVAL_ARGS,
+              &argc) &&
+            head.ok &&
+            argc > 0u &&
+            phase1_expr_is_expensive(env, start, end, 0u))) {
+        return 1;
+      }
+      allow_second_use_application_cache = 1;
+    }
+  }
+  uint32_t cache_hash = 0u;
+  uint32_t cached_local_index = 0u;
+  if (!phase1_cache_key_for_expr(env, start, end, 0u, &cache_hash)) {
+    return 1;
+  }
+  if (lookup_emit_expr_cache_local(env, cache_hash, &cached_local_index)) {
+    return 1;
+  }
+  if (allow_second_use_application_cache) {
+    if (!lookup_emit_expr_seen(env, cache_hash)) {
+      record_emit_expr_seen(env, cache_hash);
+      return 1;
+    }
+  } else {
+    return 1;
+  }
+  if (env->cache_count >= MAX_PHASE1_EMIT_EXPR_CACHE ||
+      env->next_local_index >= 0xffffffffu) {
+    return 1;
+  }
+  uint32_t local_index = env->next_local_index;
+  env->next_local_index += 1u;
+  return append_local_tee_instr(buf, cap, at, local_index) &&
+    cache_emit_expr_local(env, cache_hash, local_index);
 }
 
 static int lookup_emit_expr_binding(
@@ -8640,7 +9293,13 @@ static int emit_named_apply_wasm(
           return 0;
         }
       }
-      return append_call_instr(buf, cap, at, (uint32_t) env->function_index_by_decl[decl_index]);
+      return append_phase1_recorded_call_instr(
+        env,
+        buf,
+        cap,
+        at,
+        (uint32_t) env->function_index_by_decl[decl_index]
+      );
     }
   }
   return 0;
@@ -10153,6 +10812,14 @@ static int emit_expr_wasm(
   if (start >= end) {
     return 0;
   }
+  {
+    uint32_t cache_hash = 0u;
+    uint32_t cached_local_index = 0u;
+    if (phase1_cache_key_for_expr(env, start, end, 0u, &cache_hash) &&
+        lookup_emit_expr_cache_local(env, cache_hash, &cached_local_index)) {
+      return append_local_get_instr(buf, cap, at, cached_local_index);
+    }
+  }
   if (span_matches_keyword(env->source, start, end, "let")) {
     uint32_t saved_local_count = env->local_count;
     if (emit_let_expr_wasm(env, start, end, buf, cap, at, depth + 1u)) {
@@ -10178,38 +10845,41 @@ static int emit_expr_wasm(
     static const char *bool_ops[] = {"&&", "||"};
     static const uint8_t bool_codes[] = {0x71u, 0x72u};
     if (emit_binary_expr_wasm(env, start, end, buf, cap, at, depth + 1u, bool_ops, bool_codes, 2u)) {
-      return 1;
+      return maybe_cache_emitted_expr(env, start, end, buf, cap, at);
     }
   }
   {
     static const char *cmp_ops[] = {"==", "!=", "<=", ">=", "<", ">"};
     static const uint8_t cmp_codes[] = {0x46u, 0x47u, 0x4cu, 0x4eu, 0x48u, 0x4au};
     if (emit_binary_expr_wasm(env, start, end, buf, cap, at, depth + 1u, cmp_ops, cmp_codes, 6u)) {
-      return 1;
+      return maybe_cache_emitted_expr(env, start, end, buf, cap, at);
     }
   }
   {
     static const char *dotted_ops[] = {"+.", "-.", "*.", "/.", "%."};
     static const uint8_t dotted_codes[] = {0x6au, 0x6bu, 0x6cu, 0x6du, 0x6fu};
     if (emit_binary_expr_wasm(env, start, end, buf, cap, at, depth + 1u, dotted_ops, dotted_codes, 5u)) {
-      return 1;
+      return maybe_cache_emitted_expr(env, start, end, buf, cap, at);
     }
   }
   {
     static const char *add_ops[] = {"+", "-"};
     static const uint8_t add_codes[] = {0x6au, 0x6bu};
     if (emit_binary_expr_wasm(env, start, end, buf, cap, at, depth + 1u, add_ops, add_codes, 2u)) {
-      return 1;
+      return maybe_cache_emitted_expr(env, start, end, buf, cap, at);
     }
   }
   {
     static const char *mul_ops[] = {"*", "/", "%"};
     static const uint8_t mul_codes[] = {0x6cu, 0x6du, 0x6fu};
     if (emit_binary_expr_wasm(env, start, end, buf, cap, at, depth + 1u, mul_ops, mul_codes, 3u)) {
-      return 1;
+      return maybe_cache_emitted_expr(env, start, end, buf, cap, at);
     }
   }
-  return emit_prefix_apply_wasm(env, start, end, buf, cap, at, depth + 1u);
+  if (emit_prefix_apply_wasm(env, start, end, buf, cap, at, depth + 1u)) {
+    return maybe_cache_emitted_expr(env, start, end, buf, cap, at);
+  }
+  return 0;
 }
 
 static Segment build_phase1_dynamic_executable_wasm_base64(
@@ -10291,6 +10961,24 @@ static Segment build_phase1_dynamic_executable_wasm_base64(
 
   uint32_t function_type_indexes[MAX_FN_DECLS + MAX_ROOTS];
   uint32_t total_functions = reachable_count + roots_count;
+  uint32_t function_blob_ptrs[MAX_FN_DECLS + MAX_ROOTS];
+  uint32_t function_blob_lens[MAX_FN_DECLS + MAX_ROOTS];
+  uint32_t function_call_starts_ptrs[MAX_FN_DECLS + MAX_ROOTS];
+  uint32_t function_call_ends_ptrs[MAX_FN_DECLS + MAX_ROOTS];
+  uint32_t function_call_targets_ptrs[MAX_FN_DECLS + MAX_ROOTS];
+  uint32_t function_call_counts[MAX_FN_DECLS + MAX_ROOTS];
+  uint8_t live_functions[MAX_FN_DECLS + MAX_ROOTS];
+  uint32_t live_order[MAX_FN_DECLS + MAX_ROOTS];
+  int new_index_by_old[MAX_FN_DECLS + MAX_ROOTS];
+  for (uint32_t i = 0u; i < total_functions; i += 1u) {
+    function_blob_ptrs[i] = 0u;
+    function_blob_lens[i] = 0u;
+    function_call_starts_ptrs[i] = 0u;
+    function_call_ends_ptrs[i] = 0u;
+    function_call_targets_ptrs[i] = 0u;
+    function_call_counts[i] = 0u;
+    new_index_by_old[i] = -1;
+  }
   for (uint32_t i = 0u; i < reachable_count; i += 1u) {
     uint32_t arity = decl_param_count(source, decls[reachable_indices[i]]);
     if (!ensure_type_for_arity(
@@ -10498,23 +11186,48 @@ static Segment build_phase1_dynamic_executable_wasm_base64(
         return missing_segment();
       }
     }
-    if (!append_buf_var_u32(code_payload, code_cap, &code_at, local_decl_at + body_at)) {
-      return missing_segment();
-    }
-    for (uint32_t b = 0u; b < local_decl_at; b += 1u) {
-      if (!append_buf_u8(code_payload, code_cap, &code_at, local_decl_bytes[b])) {
+    {
+      uint32_t blob_len = local_decl_at + body_at;
+      uint32_t blob_ptr = alloc_bytes(blob_len == 0u ? 1u : blob_len, 1u);
+      if (blob_ptr == 0u) {
         return missing_segment();
       }
-    }
-    for (uint32_t b = 0u; b < body_at; b += 1u) {
-      if (!append_buf_u8(code_payload, code_cap, &code_at, body_buf[b])) {
-        return missing_segment();
+      uint8_t *blob = (uint8_t *) (uintptr_t) blob_ptr;
+      for (uint32_t b = 0u; b < local_decl_at; b += 1u) {
+        blob[b] = local_decl_bytes[b];
+      }
+      for (uint32_t b = 0u; b < body_at; b += 1u) {
+        blob[local_decl_at + b] = body_buf[b];
+      }
+      function_blob_ptrs[i] = blob_ptr;
+      function_blob_lens[i] = blob_len;
+      function_call_counts[i] = env.call_site_count;
+      if (env.call_site_count != 0xffffffffu && env.call_site_count > 0u) {
+        uint32_t starts_ptr = alloc_bytes(env.call_site_count * sizeof(uint32_t), sizeof(uint32_t));
+        uint32_t ends_ptr = alloc_bytes(env.call_site_count * sizeof(uint32_t), sizeof(uint32_t));
+        uint32_t targets_ptr = alloc_bytes(env.call_site_count * sizeof(uint32_t), sizeof(uint32_t));
+        if (starts_ptr == 0u || ends_ptr == 0u || targets_ptr == 0u) {
+          return missing_segment();
+        }
+        uint32_t *starts = (uint32_t *) (uintptr_t) starts_ptr;
+        uint32_t *ends = (uint32_t *) (uintptr_t) ends_ptr;
+        uint32_t *targets = (uint32_t *) (uintptr_t) targets_ptr;
+        for (uint32_t c = 0u; c < env.call_site_count; c += 1u) {
+          starts[c] = local_decl_at + env.call_site_starts[c];
+          ends[c] = local_decl_at + env.call_site_ends[c];
+          targets[c] = env.call_site_targets[c];
+        }
+        function_call_starts_ptrs[i] = starts_ptr;
+        function_call_ends_ptrs[i] = ends_ptr;
+        function_call_targets_ptrs[i] = targets_ptr;
       }
     }
   }
 
   for (uint32_t i = 0u; i < roots_count; i += 1u) {
     uint32_t body_at = 0u;
+    uint32_t call_imm_start = 0u;
+    uint32_t call_imm_end = 0u;
     int decl_index = find_decl_index_by_name(decls, decl_count, roots[i]);
     if (decl_index < 0 || function_index_by_decl[decl_index] < 0) {
       return missing_segment();
@@ -10525,20 +11238,180 @@ static Segment build_phase1_dynamic_executable_wasm_base64(
         return missing_segment();
       }
     }
-    if (!append_call_instr(body_buf, body_cap, &body_at, (uint32_t) function_index_by_decl[decl_index]) ||
-        !append_i32_const_instr(body_buf, body_cap, &body_at, 2) ||
+    if (!append_buf_u8(body_buf, body_cap, &body_at, 0x10u)) {
+      return missing_segment();
+    }
+    call_imm_start = body_at;
+    if (!append_buf_var_u32(body_buf, body_cap, &body_at, (uint32_t) function_index_by_decl[decl_index])) {
+      return missing_segment();
+    }
+    call_imm_end = body_at;
+    if (!append_i32_const_instr(body_buf, body_cap, &body_at, 2) ||
         !append_buf_u8(body_buf, body_cap, &body_at, 0x6cu) ||
         !append_i32_const_instr(body_buf, body_cap, &body_at, 1) ||
         !append_buf_u8(body_buf, body_cap, &body_at, 0x6au) ||
         !append_buf_u8(body_buf, body_cap, &body_at, 0x0bu)) {
       return missing_segment();
     }
-    if (!append_buf_var_u32(code_payload, code_cap, &code_at, body_at + 1u) ||
-        !append_buf_u8(code_payload, code_cap, &code_at, 0x00u)) {
+    {
+      uint32_t blob_len = body_at + 1u;
+      uint32_t blob_ptr = alloc_bytes(blob_len, 1u);
+      if (blob_ptr == 0u) {
+        return missing_segment();
+      }
+      uint8_t *blob = (uint8_t *) (uintptr_t) blob_ptr;
+      blob[0] = 0x00u;
+      for (uint32_t b = 0u; b < body_at; b += 1u) {
+        blob[1u + b] = body_buf[b];
+      }
+      function_blob_ptrs[reachable_count + i] = blob_ptr;
+      function_blob_lens[reachable_count + i] = blob_len;
+      function_call_counts[reachable_count + i] = 1u;
+      {
+        uint32_t starts_ptr = alloc_bytes(sizeof(uint32_t), sizeof(uint32_t));
+        uint32_t ends_ptr = alloc_bytes(sizeof(uint32_t), sizeof(uint32_t));
+        uint32_t targets_ptr = alloc_bytes(sizeof(uint32_t), sizeof(uint32_t));
+        if (starts_ptr == 0u || ends_ptr == 0u || targets_ptr == 0u) {
+          return missing_segment();
+        }
+        ((uint32_t *) (uintptr_t) starts_ptr)[0] = 1u + call_imm_start;
+        ((uint32_t *) (uintptr_t) ends_ptr)[0] = 1u + call_imm_end;
+        ((uint32_t *) (uintptr_t) targets_ptr)[0] = (uint32_t) function_index_by_decl[decl_index];
+        function_call_starts_ptrs[reachable_count + i] = starts_ptr;
+        function_call_ends_ptrs[reachable_count + i] = ends_ptr;
+        function_call_targets_ptrs[reachable_count + i] = targets_ptr;
+      }
+    }
+  }
+
+  int any_call_graph_overflow = 0;
+  for (uint32_t i = 0u; i < total_functions; i += 1u) {
+    if (function_call_counts[i] == 0xffffffffu) {
+      any_call_graph_overflow = 1;
+      break;
+    }
+  }
+  uint32_t live_count = 0u;
+  if (any_call_graph_overflow) {
+    for (uint32_t i = 0u; i < total_functions; i += 1u) {
+      live_functions[i] = 1u;
+      live_order[i] = i;
+    }
+    live_count = total_functions;
+  } else {
+    live_count = collect_live_functions_from_calls(
+      total_functions,
+      reachable_count,
+      roots_count,
+      function_call_counts,
+      function_call_targets_ptrs,
+      live_functions,
+      live_order
+    );
+  }
+  if (live_count == 0u) {
+    return missing_segment();
+  }
+  uint32_t next_live_index = 0u;
+  for (uint32_t old_index = 0u; old_index < total_functions; old_index += 1u) {
+    if (!live_functions[old_index]) {
+      continue;
+    }
+    new_index_by_old[old_index] = (int) next_live_index;
+    next_live_index += 1u;
+  }
+
+  function_at = 0u;
+  if (!append_buf_var_u32(function_payload, func_cap, &function_at, live_count)) {
+    return missing_segment();
+  }
+  for (uint32_t old_index = 0u; old_index < total_functions; old_index += 1u) {
+    if (!live_functions[old_index]) {
+      continue;
+    }
+    if (!append_buf_var_u32(function_payload, func_cap, &function_at, function_type_indexes[old_index])) {
       return missing_segment();
     }
-    for (uint32_t b = 0u; b < body_at; b += 1u) {
-      if (!append_buf_u8(code_payload, code_cap, &code_at, body_buf[b])) {
+  }
+
+  export_at = 0u;
+  if (!append_buf_var_u32(export_payload, export_cap, &export_at, roots_count + 1u) ||
+      !append_buf_var_u32(export_payload, export_cap, &export_at, 6u)) {
+    return missing_segment();
+  }
+  if (!append_buf_u8(export_payload, export_cap, &export_at, 'm') ||
+      !append_buf_u8(export_payload, export_cap, &export_at, 'e') ||
+      !append_buf_u8(export_payload, export_cap, &export_at, 'm') ||
+      !append_buf_u8(export_payload, export_cap, &export_at, 'o') ||
+      !append_buf_u8(export_payload, export_cap, &export_at, 'r') ||
+      !append_buf_u8(export_payload, export_cap, &export_at, 'y') ||
+      !append_buf_u8(export_payload, export_cap, &export_at, 0x02u) ||
+      !append_buf_u8(export_payload, export_cap, &export_at, 0x00u)) {
+    return missing_segment();
+  }
+  for (uint32_t i = 0u; i < roots_count; i += 1u) {
+    uint32_t old_index = reachable_count + i;
+    if (new_index_by_old[old_index] < 0) {
+      return missing_segment();
+    }
+    if (!append_buf_var_u32(export_payload, export_cap, &export_at, roots[i].len)) {
+      return missing_segment();
+    }
+    {
+      uint8_t *name_bytes = (uint8_t *) (uintptr_t) roots[i].ptr;
+      for (uint32_t j = 0u; j < roots[i].len; j += 1u) {
+        if (!append_buf_u8(export_payload, export_cap, &export_at, name_bytes[j])) {
+          return missing_segment();
+        }
+      }
+    }
+    if (!append_buf_u8(export_payload, export_cap, &export_at, 0x00u) ||
+        !append_buf_var_u32(export_payload, export_cap, &export_at, (uint32_t) new_index_by_old[old_index])) {
+      return missing_segment();
+    }
+  }
+
+  code_at = 0u;
+  if (!append_buf_var_u32(code_payload, code_cap, &code_at, live_count)) {
+    return missing_segment();
+  }
+  for (uint32_t old_index = 0u; old_index < total_functions; old_index += 1u) {
+    if (!live_functions[old_index]) {
+      continue;
+    }
+    uint8_t *blob = (uint8_t *) (uintptr_t) function_blob_ptrs[old_index];
+    uint32_t blob_len = function_blob_lens[old_index];
+    uint32_t patched_len = blob_len;
+    uint32_t call_count = function_call_counts[old_index];
+    if (call_count > 0u) {
+      uint32_t *starts = (uint32_t *) (uintptr_t) function_call_starts_ptrs[old_index];
+      uint32_t *ends = (uint32_t *) (uintptr_t) function_call_ends_ptrs[old_index];
+      uint32_t *targets = (uint32_t *) (uintptr_t) function_call_targets_ptrs[old_index];
+      uint32_t patch_ptr = alloc_bytes(blob_len == 0u ? 1u : blob_len, 1u);
+      if (patch_ptr == 0u) {
+        return missing_segment();
+      }
+      if (!rewrite_function_blob_call_indices(
+            blob,
+            blob_len,
+            starts,
+            ends,
+            targets,
+            call_count,
+            new_index_by_old,
+            (uint8_t *) (uintptr_t) patch_ptr,
+            blob_len,
+            &patched_len)) {
+        return missing_segment();
+      }
+      blob = (uint8_t *) (uintptr_t) patch_ptr;
+      blob_len = patched_len;
+    }
+    if (!append_buf_var_u32(code_payload, code_cap, &code_at, blob_len)) {
+      return missing_segment();
+    }
+    for (uint32_t b = 0u; b < blob_len; b += 1u) {
+      if (!append_buf_u8(code_payload, code_cap, &code_at, blob[b])) {
         return missing_segment();
       }
     }

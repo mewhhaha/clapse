@@ -510,7 +510,9 @@ baselines using the same argument stream and checksum logic. The harness fails
 if the Rust and Clapse checksums diverge. It also prints a
 `wasm-boundary-only` row so the report separates plain JS↔Wasm call cost from
 the generated Clapse program cost, plus `*-net` rows that subtract that
-boundary-only cost from each Clapse case. The current coverage is:
+boundary-only cost from each Clapse case. It accepts `iterations`, `warmup`,
+and `repeats`, and reports the median sample so one noisy run does not skew the
+comparison. The current coverage is:
 
 - `examples/bench_wasm_hand.clapse`
 - `examples/bench_wasm_abstraction.clapse`

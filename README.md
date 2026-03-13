@@ -581,7 +581,7 @@ just bench-wasm-compare-all 2000000 20000
 Native Rust baseline comparison for the current wasm fixtures:
 
 ```bash
-just bench-rust-compare 2000000 20000
+just bench-rust-compare 2000000 20000 5
 ```
 
 This compiles the current Clapse benchmark fixtures to wasm, benchmarks them
@@ -597,7 +597,9 @@ and [`examples/bench_wasm_wrapper_uncurry_abstraction.clapse`](/home/mewhhaha/sr
 The output also includes a `wasm-boundary-only` row so you can see how much of
 the measured gap is plain JS↔Wasm call overhead before attributing it to Clapse
 lowering quality, plus a `*-net` row for each case that subtracts the measured
-boundary-only cost from the end-to-end Clapse number.
+boundary-only cost from the end-to-end Clapse number. The third argument is the
+number of repeated samples, and the harness reports the median so one noisy run
+does not dominate the result.
 
 ## WASM runtime support
 

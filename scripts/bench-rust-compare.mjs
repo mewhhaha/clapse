@@ -47,11 +47,12 @@ function usage() {
     "Clapse vs Rust benchmark",
     "",
     "Usage:",
-    "  deno run -A scripts/bench-rust-compare.mjs [iterations] [warmup]",
+    "  deno run -A scripts/bench-rust-compare.mjs [iterations] [warmup] [repeats]",
     "",
     "Defaults:",
     "  iterations = 2000000",
     "  warmup = 20000",
+    "  repeats = 5",
     "",
     "Benchmarks the current Clapse wasm output against optimized native Rust",
     "baselines for the current benchmark fixtures.",
@@ -72,6 +73,11 @@ function parseNonNegativeInt(raw, label) {
     throw new Error(`${label} must be a non-negative integer, got: ${raw}`);
   }
   return n;
+}
+
+function medianResult(results) {
+  const sorted = [...results].sort((left, right) => left.nsPerCall - right.nsPerCall);
+  return sorted[(sorted.length / 2) | 0];
 }
 
 function makeTaggedArgPools(arity) {
@@ -400,12 +406,14 @@ async function main() {
   }
   const iterations = args[0] === undefined ? 2_000_000 : parsePositiveInt(args[0], "iterations");
   const warmup = args[1] === undefined ? 20_000 : parseNonNegativeInt(args[1], "warmup");
+  const repeats = args[2] === undefined ? 5 : parsePositiveInt(args[2], "repeats");
   const tmpDir = await Deno.makeTempDir({ dir: "/tmp", prefix: "clapse-rust-bench-" });
   try {
     const rustBinary = await compileRustBaseline(tmpDir);
     console.log("benchmark: clapse vs rust");
     console.log(`iterations: ${iterations}`);
     console.log(`warmup: ${warmup}`);
+    console.log(`repeats: ${repeats}`);
     console.log("");
     console.log([
       "case".padEnd(22),
@@ -416,7 +424,11 @@ async function main() {
       "vs rust".padStart(10),
     ].join(" "));
     console.log("-".repeat(92));
-    const boundaryOnly = await benchWasmBoundaryOnly(iterations, warmup);
+    const boundaryOnly = medianResult(
+      await Promise.all(
+        Array.from({ length: repeats }, () => benchWasmBoundaryOnly(iterations, warmup)),
+      ),
+    );
     console.log([
       "wasm-boundary-only".padEnd(22),
       "clapse-wasm".padEnd(14),
@@ -426,11 +438,15 @@ async function main() {
       "n/a".padStart(10),
     ].join(" "));
     for (const benchmarkCase of CASES) {
-      const rustResult = await benchRustBinary(
-        rustBinary,
-        benchmarkCase.rustCase,
-        iterations,
-        warmup,
+      const rustResult = medianResult(
+        await Promise.all(
+          Array.from({ length: repeats }, () => benchRustBinary(
+            rustBinary,
+            benchmarkCase.rustCase,
+            iterations,
+            warmup,
+          )),
+        ),
       );
       console.log([
         `${benchmarkCase.id}-rust`.padEnd(22),
@@ -441,7 +457,11 @@ async function main() {
         "1.00x".padStart(10),
       ].join(" "));
       const wasmPath = await compileClapseCase(tmpDir, benchmarkCase.clapseInputPath);
-      const wasmResult = await benchWasmCase(wasmPath, iterations, warmup);
+      const wasmResult = medianResult(
+        await Promise.all(
+          Array.from({ length: repeats }, () => benchWasmCase(wasmPath, iterations, warmup)),
+        ),
+      );
       const adjustedNs = adjustedNsPerCall(wasmResult.nsPerCall, boundaryOnly.nsPerCall);
       console.log([
         benchmarkCase.id.padEnd(22),
