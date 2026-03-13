@@ -17,7 +17,7 @@ async function walkMarkdownFiles(root) {
   return out;
 }
 
-function extractClapseFences(path, source) {
+function extractClapFences(path, source) {
   const lines = source.split(/\r?\n/u);
   const out = [];
   let inFence = false;
@@ -30,7 +30,7 @@ function extractClapseFences(path, source) {
       if (!m) continue;
       const lang = (m[1] ?? "").toLowerCase();
       const rest = (m[2] ?? "").toLowerCase();
-      if (lang === "clapse" && !rest.includes("skip")) {
+      if (lang === "clap" && !rest.includes("skip")) {
         inFence = true;
         fenceStart = i + 1;
         buf = [];
@@ -54,22 +54,22 @@ function extractClapseFences(path, source) {
 }
 
 async function runCompile(snippet, idx, wasmPath) {
-  const dir = await Deno.makeTempDir({ prefix: "clapse-docs-" });
-  const inputPath = `${dir}/doc_${idx}.clapse`;
+  const dir = await Deno.makeTempDir({ prefix: "clap-docs-" });
+  const inputPath = `${dir}/doc_${idx}.clap`;
   const outputPath = `${dir}/doc_${idx}.wasm`;
   await Deno.writeTextFile(inputPath, snippet.source);
   const run = await new Deno.Command("deno", {
     args: [
       "run",
       "-A",
-      "scripts/run-clapse-compiler-wasm.mjs",
+      "scripts/run-clap-compiler-wasm.mjs",
       "compile",
       inputPath,
       outputPath,
     ],
     env: {
       ...Deno.env.toObject(),
-      CLAPSE_COMPILER_WASM_PATH: wasmPath,
+      CLAP_COMPILER_WASM_PATH: wasmPath,
     },
     stdout: "piped",
     stderr: "piped",
@@ -83,16 +83,16 @@ async function runCompile(snippet, idx, wasmPath) {
 }
 
 async function main() {
-  const wasmPath = Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ??
-    "artifacts/latest/clapse_compiler.wasm";
+  const wasmPath = Deno.env.get("CLAP_COMPILER_WASM_PATH") ??
+    "artifacts/latest/clap_compiler.wasm";
   const files = await walkMarkdownFiles("docs");
   const snippets = [];
   for (const file of files.sort()) {
     const source = await Deno.readTextFile(file);
-    snippets.push(...extractClapseFences(file, source));
+    snippets.push(...extractClapFences(file, source));
   }
   if (snippets.length === 0) {
-    console.log("docs validation: no clapse code fences found");
+    console.log("docs validation: no clap code fences found");
     return;
   }
   for (let i = 0; i < snippets.length; i += 1) {

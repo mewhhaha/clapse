@@ -5,7 +5,7 @@ const PREC = {
 };
 
 module.exports = grammar({
-  name: "clapse",
+  name: "clap",
 
   extras: ($) => [$.comment],
 

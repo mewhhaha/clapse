@@ -1,7 +1,7 @@
 #!/usr/bin/env deno run
 
 const DEFAULT_GRAMMAR_PATH = "docs/clapse-language/references/grammar.ebnf";
-const DEFAULT_QUERY_PATH = "tree-sitter-clapse/queries/highlights.scm";
+const DEFAULT_QUERY_PATH = "tree-sitter-clap/queries/highlights.scm";
 const BEGIN_MARKER = "; BEGIN GENERATED-HIGHLIGHTS FROM_EBNF";
 const END_MARKER = "; END GENERATED-HIGHLIGHTS FROM_EBNF";
 

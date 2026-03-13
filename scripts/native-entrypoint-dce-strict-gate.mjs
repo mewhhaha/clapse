@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 
-import { runWithArgs } from "./run-clapse-compiler-wasm.mjs";
+import { runWithArgs } from "./run-clap-compiler-wasm.mjs";
 
 function assert(condition, message) {
   if (!condition) {
@@ -10,13 +10,13 @@ function assert(condition, message) {
 
 async function run() {
   const tmpDir = await Deno.makeTempDir({
-    prefix: "clapse-native-entrypoint-dce-strict-gate-",
+    prefix: "clap-native-entrypoint-dce-strict-gate-",
   });
   try {
     const deadFnMarker = `native-entrypoint-dce-strict-gate-${crypto.randomUUID()}`;
     const deadOperatorMarker =
       `native-entrypoint-dce-operator-gate-${crypto.randomUUID()}`;
-    const inputPath = `${tmpDir}/gate.clapse`;
+    const inputPath = `${tmpDir}/gate.clap`;
     const outputPath = `${tmpDir}/gate.wasm`;
     const artifactsDir = `${tmpDir}/artifacts`;
     const source = [

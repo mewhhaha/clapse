@@ -1,7 +1,7 @@
 #!/usr/bin/env deno run
 
 const DEFAULT_EBNF_PATH = "docs/clapse-language/references/grammar.ebnf";
-const DEFAULT_TREE_SITTER_GRAMMAR_PATH = "tree-sitter-clapse/grammar.js";
+const DEFAULT_TREE_SITTER_GRAMMAR_PATH = "tree-sitter-clap/grammar.js";
 
 const ALLOWED_TREE_SITTER_KEYWORD_EXTRAS = new Set([
   "in",

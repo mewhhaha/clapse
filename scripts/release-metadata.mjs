@@ -7,7 +7,7 @@ const decoder = new TextDecoder();
 function parseArgs(argv) {
   const out = {
     releaseId: "",
-    clapseVersion: "",
+    clapVersion: "",
     compilerWasm: "",
     compilerDts: "",
     cliBin: "",
@@ -23,7 +23,7 @@ function parseArgs(argv) {
     const val = argv[i + 1];
     if (!val) break;
     if (key === "--release-id") out.releaseId = val;
-    if (key === "--clapse-version") out.clapseVersion = val;
+    if (key === "--clap-version") out.clapVersion = val;
     if (key === "--compiler-wasm") out.compilerWasm = val;
     if (key === "--compiler-dts") out.compilerDts = val;
     if (key === "--cli-bin") {
@@ -61,8 +61,8 @@ async function hasPath(path) {
 }
 
 function defaultCompilerWasmPath() {
-  return Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ??
-    "artifacts/latest/clapse_compiler.wasm";
+  return Deno.env.get("CLAP_COMPILER_WASM_PATH") ??
+    "artifacts/latest/clap_compiler.wasm";
 }
 
 function parseVersion(versionText) {
@@ -116,8 +116,8 @@ async function main() {
 
   const versionText = await Deno.readTextFile("VERSION");
   const sourceVersion = parseVersion(versionText);
-  const clapseVersion = cfg.clapseVersion.length > 0
-    ? cfg.clapseVersion
+  const clapVersion = cfg.clapVersion.length > 0
+    ? cfg.clapVersion
     : sourceVersion;
   const sourceDateEpoch = Deno.env.get("SOURCE_DATE_EPOCH");
   const builtAtUtc = sourceDateEpoch
@@ -128,7 +128,7 @@ async function main() {
   const manifest = {
     schema_version: 1,
     release_id: cfg.releaseId,
-    clapse_version: clapseVersion,
+    clap_version: clapVersion,
     source_version: sourceVersion,
     built_at_utc: builtAtUtc,
     platform: `${Deno.build.os}-${Deno.build.arch}`,
@@ -137,8 +137,8 @@ async function main() {
         /^deno\s+/u,
         "",
       ) ?? "",
-      clapse_compiler_wasm_path: defaultCompilerWasmPath(),
-      clapse_compiler_wasm_exists: (await hasPath(defaultCompilerWasmPath())),
+      clap_compiler_wasm_path: defaultCompilerWasmPath(),
+      clap_compiler_wasm_exists: (await hasPath(defaultCompilerWasmPath())),
     },
     git: {
       commit: await runOutput("git", ["rev-parse", "HEAD"]),

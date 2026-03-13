@@ -3,7 +3,7 @@
 function parseArgs(argv) {
   const out = {
     fixtures: "examples/formatter_golden_fixtures.json",
-    cmd: "deno run -A scripts/run-clapse-compiler-wasm.mjs --",
+    cmd: "deno run -A scripts/run-clap-compiler-wasm.mjs --",
     out: "out/formatter-golden-fixtures",
   };
 
@@ -171,7 +171,7 @@ async function main() {
     const format = await runFormatter(cfg.cmd, inputText);
     const actualText = format.ok ? format.stdout : "";
     const outputMatch = actualText === expectedText;
-    const outputPath = `${cfg.out}/files/${name}.actual.clapse`;
+    const outputPath = `${cfg.out}/files/${name}.actual.clap`;
     await Deno.writeTextFile(outputPath, actualText);
 
     const pass = format.ok && outputMatch;

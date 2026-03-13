@@ -1,19 +1,19 @@
-use-grammars = { only = ["clapse"] }
+use-grammars = { only = ["clap"] }
 
 [[language]]
-name = "clapse"
-scope = "source.clapse"
-file-types = ["clapse"]
+name = "clap"
+scope = "source.clap"
+file-types = ["clap"]
 comment-token = "--"
-language-servers = ["clapse"]
-grammar = "clapse"
-roots = ["clapse.cabal"]
-formatter = { command = "/home/mewhhaha/src/clapse/artifacts/bin/clapse", args = ["format", "--stdin"] }
+language-servers = ["clap"]
+grammar = "clap"
+roots = ["clap.cabal"]
+formatter = { command = "/home/mewhhaha/src/clapse/artifacts/bin/clap", args = ["format", "--stdin"] }
 
 [[grammar]]
-name = "clapse"
-source = { path = "/home/mewhhaha/src/clapse/tree-sitter-clapse" }
+name = "clap"
+source = { path = "/home/mewhhaha/src/clapse/tree-sitter-clap" }
 
-[language-server.clapse]
-command = "/home/mewhhaha/src/clapse/artifacts/bin/clapse"
+[language-server.clap]
+command = "/home/mewhhaha/src/clapse/artifacts/bin/clap"
 args = ["lsp", "--stdio"]

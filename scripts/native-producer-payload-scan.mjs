@@ -2,9 +2,9 @@
 
 import { callCompilerWasmRaw, decodeWasmBase64 } from "./wasm-compiler-abi.mjs";
 
-const DEFAULT_COMPILER_WASM_PATH = "artifacts/latest/clapse_compiler.wasm";
+const DEFAULT_COMPILER_WASM_PATH = "artifacts/latest/clap_compiler.wasm";
 const DEFAULT_SAMPLES = 200;
-const REQUIRED_SOURCE_VERSION_ENV = "CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED";
+const REQUIRED_SOURCE_VERSION_ENV = "CLAP_NATIVE_SOURCE_VERSION_REQUIRED";
 const EXPECTED_COMPILE_CONTRACT_VERSION = "native-v1";
 
 function usage() {
@@ -127,7 +127,7 @@ async function runSample(wasmPath, index) {
   const response = await callCompilerWasmRaw(wasmPath, {
     command: "compile",
     compile_mode: "kernel-native",
-    input_path: `examples/native_producer_payload_scan_${index}.clapse`,
+    input_path: `examples/native_producer_payload_scan_${index}.clap`,
     input_source: source,
     plugin_wasm_paths: [],
   });
@@ -146,7 +146,7 @@ async function runSample(wasmPath, index) {
     ? artifacts["lowered_ir.txt"]
     : "";
   const shape = await wasmShapeFromBase64(response.wasm_base64);
-  const rawContract = response.__clapse_contract;
+  const rawContract = response.__clap_contract;
   const contract = rawContract && typeof rawContract === "object" &&
       !Array.isArray(rawContract)
     ? rawContract

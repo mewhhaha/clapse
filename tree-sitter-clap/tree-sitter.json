@@ -1,12 +1,12 @@
 {
   "grammars": [
     {
-      "name": "clapse",
-      "camelcase": "Clapse",
-      "scope": "source.clapse",
+      "name": "clap",
+      "camelcase": "Clap",
+      "scope": "source.clap",
       "path": ".",
       "file-types": [
-        "clapse"
+        "clap"
       ],
       "highlights": "queries/highlights.scm"
     }
@@ -14,6 +14,6 @@
   "metadata": {
     "version": "0.1.0",
     "license": "MIT",
-    "description": "Tree-sitter grammar for the clapse language."
+    "description": "Tree-sitter grammar for the clap language."
   }
 }

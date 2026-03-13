@@ -4,9 +4,9 @@ set -euo pipefail
 grammar_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 repo_root="$(cd "$grammar_dir/.." && pwd)"
 helix_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/helix"
-runtime_query="$helix_config_dir/runtime/queries/clapse/highlights.scm"
+runtime_query="$helix_config_dir/runtime/queries/clap/highlights.scm"
 languages_toml="$helix_config_dir/languages.toml"
-source_file="$repo_root/lib/compiler/prelude.clapse"
+source_file="$repo_root/lib/compiler/prelude.clap"
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 config_file="$tmpdir/tree-sitter-config.json"
@@ -23,13 +23,13 @@ if [[ ! -s "$languages_toml" ]]; then
   exit 1
 fi
 
-if ! grep -q 'name = "clapse"' "$languages_toml"; then
-  echo "highlight-helix-runtime-smoke: clapse language entry missing in $languages_toml" >&2
+if ! grep -q 'name = "clap"' "$languages_toml"; then
+  echo "highlight-helix-runtime-smoke: clap language entry missing in $languages_toml" >&2
   exit 1
 fi
 
-if ! grep -q 'file-types = \["clapse"\]' "$languages_toml"; then
-  echo "highlight-helix-runtime-smoke: clapse file-type mapping missing in $languages_toml" >&2
+if ! grep -q 'file-types = \["clap"\]' "$languages_toml"; then
+  echo "highlight-helix-runtime-smoke: clap file-type mapping missing in $languages_toml" >&2
   exit 1
 fi
 
@@ -52,7 +52,7 @@ fi
 
 capture_count="$(grep -c "capture:" "$captures_file" || true)"
 if (( capture_count < 300 )); then
-  echo "highlight-helix-runtime-smoke: too few runtime captures for prelude.clapse (got $capture_count, expected >= 300)" >&2
+  echo "highlight-helix-runtime-smoke: too few runtime captures for prelude.clap (got $capture_count, expected >= 300)" >&2
   exit 1
 fi
 
@@ -63,7 +63,7 @@ for scope in keyword function constant.numeric.integer; do
   fi
 done
 
-health_output="$(hx --health clapse)"
+health_output="$(hx --health clap)"
 
 check_health_field() {
   local label="$1"

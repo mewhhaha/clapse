@@ -1,10 +1,10 @@
 # Getting Started
 
-This document uses executable Clapse examples.
+This document uses executable Clap examples.
 
 ## Simple function
 
-```clapse skip
+```clap skip
 --| Add one to an integer.
 inc x = x + 1
 
@@ -13,7 +13,7 @@ main n = inc n
 
 ## Tagged booleans
 
-```clapse skip
+```clap skip
 literal bool = true<1> | false<0>
 
 --| Convert bool to i64 payload.
@@ -28,7 +28,7 @@ main x = to_i64 (case x == 0 of
 
 ## String wrapper
 
-```clapse skip
+```clap skip
 literal string = string<slice u8>
 
 --| Wrap a byte slice as string.

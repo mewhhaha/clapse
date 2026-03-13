@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Clapse Explorer</title>
+    <title>Clap Explorer</title>
     <style>
       :root {
         --bg: #0e1116;
@@ -491,7 +491,7 @@
     <div class="shell">
       <div class="topbar">
         <div class="title">
-          <h1>Clapse Explorer</h1>
+          <h1>Clap Explorer</h1>
           <p>Source in, collapsed IR and WAT out. No extras.</p>
         </div>
         <div class="controls">
@@ -506,7 +506,7 @@
           <div class="panel-head">
             <h2>Source</h2>
             <div class="panel-meta">
-              <span id="source-meta">Editable Clapse</span>
+              <span id="source-meta">Editable Clap</span>
             </div>
           </div>
           <div class="source-panel-body">
@@ -1018,7 +1018,7 @@ main = factorial 6
       }
 
       function setSourceMeta(preset) {
-        const parts = ["Editable Clapse"];
+        const parts = ["Editable Clap"];
         if (preset?.sampleRequest && typeof preset.encodeRequest === "function") {
           parts.push("main(request)");
         } else {

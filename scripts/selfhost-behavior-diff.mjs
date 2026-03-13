@@ -2,7 +2,7 @@
 
 function parseArgs(argv) {
   const defaultCompilerCommand =
-    "deno run -A scripts/run-clapse-compiler-wasm.mjs --";
+    "deno run -A scripts/run-clap-compiler-wasm.mjs --";
   const out = {
     manifest: "examples/selfhost_behavior_corpus.json",
     leftName: "wasm",
@@ -41,7 +41,7 @@ function shQuote(s) {
 function scenarioKey(s) {
   const args = Array.isArray(s.args) ? s.args.join("_") : "";
   return `${s.entry}__${s.export ?? "main"}__${args}`.replaceAll("/", "__")
-    .replaceAll(".clapse", "");
+    .replaceAll(".clap", "");
 }
 
 async function runShell(cmd) {
@@ -115,10 +115,10 @@ async function main() {
   for (const s of scenarios) {
     const key = scenarioKey(s);
     const outLeft = `${cfg.out}/left/${
-      s.entry.replaceAll("/", "__").replaceAll(".clapse", "")
+      s.entry.replaceAll("/", "__").replaceAll(".clap", "")
     }.wasm`;
     const outRight = `${cfg.out}/right/${
-      s.entry.replaceAll("/", "__").replaceAll(".clapse", "")
+      s.entry.replaceAll("/", "__").replaceAll(".clap", "")
     }.wasm`;
     await ensureDir(`${cfg.out}/left`);
     await ensureDir(`${cfg.out}/right`);

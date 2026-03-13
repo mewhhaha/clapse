@@ -1,6 +1,6 @@
-# Clapse
+# Clap 👏
 
-Clapse is a toy pure functional language focused on aggressive reduction and
+Clap is a toy pure functional language focused on aggressive reduction and
 collapse into minimal WASM-oriented code.
 
 ## Design goals
@@ -14,7 +14,7 @@ collapse into minimal WASM-oriented code.
 ## Architecture
 
 - JS/TS is the host I/O boundary: it resolves CLI args, environment, and
-  file I/O, then dispatches JSON request payloads into the Clapse kernel.
+  file I/O, then dispatches JSON request payloads into the Clap kernel.
 - Kernel semantics live in Wasm and return normalized JSON responses; JS/TS should
   not own compiler semantics.
 - Kernel module map (current):
@@ -59,9 +59,9 @@ Module directives:
 - `export { name1, name2 }` sets explicit wasm exports for the entry module.
 - When `export` is omitted in the entry module, all entry-module functions are
   exported.
-- `just clapse-bin && ./artifacts/bin/clapse compile <entry.clapse> [output.wasm]` resolves
+- `just clap-bin && ./artifacts/bin/clap compile <entry.clap> [output.wasm]` resolves
   quoted module specifiers to source files (for example `"util/math"` ->
-  `util/math.clapse`), merges modules, rewrites imported names to qualified
+  `util/math.clap`), merges modules, rewrites imported names to qualified
   internal symbols, then compiles a single optimized wasm module.
 - Compile also emits a TypeScript sidecar (`<output path with .d.ts extension>`)
   derived from collapsed IR exports (`name` + `arity`) so JS/TS interop can type
@@ -70,20 +70,20 @@ Module directives:
 Unified CLI frontend:
 
 ```bash
-just clapse-bin
-./artifacts/bin/clapse compile examples/wasm_main.clapse out/wasm_main.wasm
-./artifacts/bin/clapse format --write examples/wasm_main.clapse
-./artifacts/bin/clapse format --stdin
-./artifacts/bin/clapse lsp --stdio
+just clap-bin
+./artifacts/bin/clap compile examples/wasm_main.clap out/wasm_main.wasm
+./artifacts/bin/clap format --write examples/wasm_main.clap
+./artifacts/bin/clap format --stdin
+./artifacts/bin/clap lsp --stdio
 ```
 
 - `compile`/`selfhost-artifacts`/`format`/`lsp` route through compiler-wasm mode
   by default.
-  - compiler wasm is resolved from `CLAPSE_COMPILER_WASM_PATH`, then
-    `out/clapse_compiler.wasm`.
-  - transitional bridge artifact (`out/clapse_compiler_bridge.wasm`) is only
-    allowed when `CLAPSE_ALLOW_BRIDGE=1`.
-  - set `CLAPSE_DEBUG_STACK=1` to print full JS/Wasm stack traces on runtime
+  - compiler wasm is resolved from `CLAP_COMPILER_WASM_PATH`, then
+    `out/clap_compiler.wasm`.
+  - transitional bridge artifact (`out/clap_compiler_bridge.wasm`) is only
+    allowed when `CLAP_ALLOW_BRIDGE=1`.
+  - set `CLAP_DEBUG_STACK=1` to print full JS/Wasm stack traces on runtime
     failures.
 - `bench` currently routes through the wasm runner behind the same deno
   frontend.
@@ -91,12 +91,12 @@ just clapse-bin
 Wasm stack debug helper:
 
 ```bash
-CLAPSE_DEBUG_STACK=1 ./artifacts/bin/clapse format lib/compiler/prelude.clapse 2> /tmp/clapse.stack
-deno run -A scripts/wasm-stack-map.mjs --wasm artifacts/latest/clapse_compiler.wasm < /tmp/clapse.stack
+CLAP_DEBUG_STACK=1 ./artifacts/bin/clap format lib/compiler/prelude.clap 2> /tmp/clap.stack
+deno run -A scripts/wasm-stack-map.mjs --wasm artifacts/latest/clap_compiler.wasm < /tmp/clap.stack
 ```
 
 `scripts/wasm-stack-map.mjs` now reports name provenance as `function_name_source`
-(`name-section`, `clapse.funcmap`, or `unresolved`) in both header and offset
+(`name-section`, `clap.funcmap`, or `unresolved`) in both header and offset
 records.
 
 Compiler integrity pipeline:
@@ -465,7 +465,7 @@ instance monad_rules Maybe where
 - `monad`
 
 Each kind enforces a required method set and required law-name set
-(`Clapse.Laws`).
+(`Clap.Laws`).
 
 ### Rewrite derivation model
 
@@ -480,11 +480,11 @@ keeping runtime pure and minimal.
 
 ## Compilation pipeline
 
-1. Parse source (`Clapse.Syntax`).
+1. Parse source (`Clap.Syntax`).
 2. Derive and apply class/law/instance rewrites (compile-time normalization).
-3. Lower to stack ops (`Clapse.Lowering`).
-4. Collapse to normalized stack-free IR + verify (`Clapse.CollapseIR`).
-5. Emit WASM (`Clapse.Wasm`).
+3. Lower to stack ops (`Clap.Lowering`).
+4. Collapse to normalized stack-free IR + verify (`Clap.CollapseIR`).
+5. Emit WASM (`Clap.Wasm`).
 
 Collapsed IR includes currying normalization, immediate-apply collapse,
 constant-argument direct-call specialization, small non-recursive inlining,
@@ -505,12 +505,12 @@ normalization (`VSelfTailCall`).
 Single executable provides compiler + formatter + LSP:
 
 ```bash
-just clapse-bin
-./artifacts/bin/clapse format <file>
-./artifacts/bin/clapse format --write <file>
-./artifacts/bin/clapse format --stdin
-./artifacts/bin/clapse compile <input.clapse> [output.wasm]
-./artifacts/bin/clapse lsp --stdio
+just clap-bin
+./artifacts/bin/clap format <file>
+./artifacts/bin/clap format --write <file>
+./artifacts/bin/clap format --stdin
+./artifacts/bin/clap compile <input.clap> [output.wasm]
+./artifacts/bin/clap lsp --stdio
 ```
 
 `compile` writes the wasm file at the requested output path and a `.d.ts`
@@ -584,27 +584,42 @@ Native Rust baseline comparison for the current wasm fixtures:
 just bench-rust-compare 2000000 20000 5
 ```
 
-This compiles the current Clapse benchmark fixtures to wasm, benchmarks them
+This compiles the current Clap benchmark fixtures to wasm, benchmarks them
 with the same tagged argument stream/checksum logic as the wasm runner, and
 compares them against optimized Rust baselines implementing the same programs.
-The harness now fails if the Rust and Clapse checksums diverge. Current cases
+The harness now fails if the Rust and Clap checksums diverge. Current cases
 include the numeric hand/abstraction pair, a parser-style request scorer in
-[`examples/bench_wasm_http_request_parser.clapse`](/home/mewhhaha/src/clapse/examples/bench_wasm_http_request_parser.clapse),
+[`examples/bench_wasm_http_request_parser.clap`](/home/mewhhaha/src/clapse/examples/bench_wasm_http_request_parser.clap),
 and three abstraction-heavy standalone programs:
-[`examples/bench_wasm_closure_env_abstraction.clapse`](/home/mewhhaha/src/clapse/examples/bench_wasm_closure_env_abstraction.clapse),
-[`examples/bench_wasm_struct_field_abstraction.clapse`](/home/mewhhaha/src/clapse/examples/bench_wasm_struct_field_abstraction.clapse),
-and [`examples/bench_wasm_wrapper_uncurry_abstraction.clapse`](/home/mewhhaha/src/clapse/examples/bench_wasm_wrapper_uncurry_abstraction.clapse).
+[`examples/bench_wasm_closure_env_abstraction.clap`](/home/mewhhaha/src/clapse/examples/bench_wasm_closure_env_abstraction.clap),
+[`examples/bench_wasm_struct_field_abstraction.clap`](/home/mewhhaha/src/clapse/examples/bench_wasm_struct_field_abstraction.clap),
+and [`examples/bench_wasm_wrapper_uncurry_abstraction.clap`](/home/mewhhaha/src/clapse/examples/bench_wasm_wrapper_uncurry_abstraction.clap).
 The output also includes a `wasm-boundary-only` row so you can see how much of
-the measured gap is plain JS↔Wasm call overhead before attributing it to Clapse
+the measured gap is plain JSâWasm call overhead before attributing it to Clap
 lowering quality, plus a `*-net` row for each case that subtracts the measured
-boundary-only cost from the end-to-end Clapse number. The third argument is the
+boundary-only cost from the end-to-end Clap number. The third argument is the
 number of repeated samples, and the harness reports the median so one noisy run
 does not dominate the result. When
 `.tmp/wasm-native-bench/target/release/wasm-native-bench` exists, the report
-also includes a `clapse-wasmi` row for each case so you can compare the same
+also includes a `clap-wasmi` row for each case so you can compare the same
 generated wasm under a native `wasmi` host instead of the JS-hosted runtime,
 plus `*-native-net` rows that subtract the native `wasmi` boundary-only cost
 from those runs.
+
+Source-owned optimizer benchmark gate for the same representative fixture set:
+
+```bash
+just native-source-owned-optimization-benchmark-gate 20000 2000 1
+```
+
+This compiles the benchmark fixtures through the source-owned `compile_mode:
+"native-debug"` path and requires compiler-returned optimizer artifacts:
+`codegen_ir.txt` and `optimizer_stats.json`. The gate proves source-owned
+function/helper pruning, decompiles the emitted wasm to WAT for structural
+inspection, and verifies checksum parity against both the Rust baseline and the
+two wasm hosts (`clap-wasm` and `clap-wasmi`). Use
+`baseline_wasm=/path/to/compiler.wasm` when you want a strict before/after
+comparison against another compiler artifact.
 
 ## WASM runtime support
 
@@ -650,7 +665,7 @@ Current backend supports:
 Deno runtime smoke:
 
 ```bash
-./artifacts/bin/clapse compile examples/wasm_main.clapse out/wasm_main.wasm
+./artifacts/bin/clap compile examples/wasm_main.clap out/wasm_main.wasm
 deno run -A scripts/run-wasm.mjs out/wasm_main.wasm main 7
 ```
 
@@ -703,7 +718,7 @@ just life-time 160 100 120 1
 ```
 
 Then open `http://localhost:8080/examples/game_of_life.html`. The browser demo
-keeps simulation transitions in Clapse (`LifeState`, `LifeEvent`, `apply_event`)
+keeps simulation transitions in Clap (`LifeState`, `LifeEvent`, `apply_event`)
 while JS handles rendering/timing/input and reads generation/alive-count from
 wasm state.
 
@@ -714,7 +729,7 @@ just mario-serve 8080
 ```
 
 Then open `http://localhost:8080/examples/mario_ecs.html`. This demo keeps tiny
-ECS-like updates pure in Clapse (`MarioState`, `MarioEvent`, `apply_event`) and
+ECS-like updates pure in Clap (`MarioState`, `MarioEvent`, `apply_event`) and
 uses JS only for keyboard input + sprite rendering.
 
 ## Examples
@@ -733,7 +748,7 @@ Then open [http://localhost:36627](http://localhost:36627).
 
 This is a single local HTML page (`explorer.html`) served by
 `scripts/explorer.mjs`. It stays intentionally narrow:
-- editable Clapse source
+- editable Clap source
 - preset-aware host-side sample input, including real JS request objects for
   arg-taking examples
 - live `main(...)` sample result next to the source pane
@@ -742,87 +757,87 @@ This is a single local HTML page (`explorer.html`) served by
 - `collapsed_ir.txt` from `compile-debug`
 - WAT decompiled from the compiled wasm output
 - a few built-in presets
-- local syntax highlighting for Clapse and WAT
+- local syntax highlighting for Clap and WAT
 
 It replaces the old deployment-oriented explorer path; there is no separate
 GH Pages explorer flow anymore.
 
 Key examples:
 
-- `examples/bootstrap_phase1_frontend_primitives.clapse`
-- `examples/bootstrap_phase2_core_data_structures.clapse`
-- `examples/bootstrap_phase3_entry.clapse`
-- `examples/bootstrap_phase4_parser_pilot.clapse`
-- `examples/bootstrap_phase5_dispatch_pilot.clapse`
-- `examples/bootstrap_phase6_entry.clapse`
-- `examples/bootstrap_phase7_host_capability_pilot.clapse`
-- `examples/bootstrap_phase8_pattern_and_operators.clapse`
-- `lib/compiler/kernel.clapse`
-- `examples/bootstrap_phase10_frontend_lexer.clapse`
-- `examples/bootstrap_phase11_parser_combinator_pilot.clapse`
-- `examples/parser_layout_pain_points.clapse`
-- `examples/bootstrap6/router.clapse`
-- `examples/util/math.clapse`
-- `examples/util/base.clapse`
-- `examples/util/slice_scan.clapse`
-- `examples/util/string_slice.clapse`
-- `examples/util/json.clapse`
-- `examples/class_arithmetic_rewrites.clapse`
-- `examples/class_algebra_rewrites.clapse`
-- `examples/traits_ord_slice.clapse`
-- `examples/monads_maybe_either.clapse`
-- `examples/case_of.clapse`
-- `examples/operators.clapse`
-- `examples/http_request_parser.clapse`
-- `examples/let_bindings.clapse`
-- `examples/data.clapse`
-- `examples/strings.clapse`
-- `examples/wasm_linear_memory_helpers.clapse`
-- `examples/interop_slice.clapse`
+- `examples/bootstrap_phase1_frontend_primitives.clap`
+- `examples/bootstrap_phase2_core_data_structures.clap`
+- `examples/bootstrap_phase3_entry.clap`
+- `examples/bootstrap_phase4_parser_pilot.clap`
+- `examples/bootstrap_phase5_dispatch_pilot.clap`
+- `examples/bootstrap_phase6_entry.clap`
+- `examples/bootstrap_phase7_host_capability_pilot.clap`
+- `examples/bootstrap_phase8_pattern_and_operators.clap`
+- `lib/compiler/kernel.clap`
+- `examples/bootstrap_phase10_frontend_lexer.clap`
+- `examples/bootstrap_phase11_parser_combinator_pilot.clap`
+- `examples/parser_layout_pain_points.clap`
+- `examples/bootstrap6/router.clap`
+- `examples/util/math.clap`
+- `examples/util/base.clap`
+- `examples/util/slice_scan.clap`
+- `examples/util/string_slice.clap`
+- `examples/util/json.clap`
+- `examples/class_arithmetic_rewrites.clap`
+- `examples/class_algebra_rewrites.clap`
+- `examples/traits_ord_slice.clap`
+- `examples/monads_maybe_either.clap`
+- `examples/case_of.clap`
+- `examples/operators.clap`
+- `examples/http_request_parser.clap`
+- `examples/let_bindings.clap`
+- `examples/data.clap`
+- `examples/strings.clap`
+- `examples/wasm_linear_memory_helpers.clap`
+- `examples/interop_slice.clap`
 - `examples/interop_slice.mjs`
-- `examples/game_of_life.clapse`
+- `examples/game_of_life.clap`
 - `examples/game_of_life.html`
-- `examples/mario_ecs.clapse`
+- `examples/mario_ecs.clap`
 - `examples/mario_ecs.html`
 - `examples/mario_ecs.mjs`
 - `examples/assets/sprite_regions.md`
-- `examples/wasm_main.clapse`
-- `examples/bench_wasm_hand.clapse`
-- `examples/bench_wasm_abstraction.clapse`
-- `examples/bench_wasm_closure_env_hand.clapse`
-- `examples/bench_wasm_closure_env_abstraction.clapse`
-- `examples/bench_wasm_struct_field_hand.clapse`
-- `examples/bench_wasm_struct_field_abstraction.clapse`
-- `examples/bench_wasm_wrapper_uncurry_hand.clapse`
-- `examples/bench_wasm_wrapper_uncurry_abstraction.clapse`
-- `examples/bench_wasm_slice_set_reuse.clapse`
-- `examples/bench_wasm_slice_set_copy.clapse`
-- `examples/wasm_struct_has_tag.clapse`
-- `examples/wasm_struct_has_tag_false.clapse`
-- `examples/wasm_struct_get_ok.clapse`
-- `examples/wasm_struct_get_mismatch.clapse`
+- `examples/wasm_main.clap`
+- `examples/bench_wasm_hand.clap`
+- `examples/bench_wasm_abstraction.clap`
+- `examples/bench_wasm_closure_env_hand.clap`
+- `examples/bench_wasm_closure_env_abstraction.clap`
+- `examples/bench_wasm_struct_field_hand.clap`
+- `examples/bench_wasm_struct_field_abstraction.clap`
+- `examples/bench_wasm_wrapper_uncurry_hand.clap`
+- `examples/bench_wasm_wrapper_uncurry_abstraction.clap`
+- `examples/bench_wasm_slice_set_reuse.clap`
+- `examples/bench_wasm_slice_set_copy.clap`
+- `examples/wasm_struct_has_tag.clap`
+- `examples/wasm_struct_has_tag_false.clap`
+- `examples/wasm_struct_get_ok.clap`
+- `examples/wasm_struct_get_mismatch.clap`
 
 Self-host bootstrap checkpoint (`1/2/3/4/5/6/7/8/9/10/11`) now has concrete fixtures:
 
 1. Frontend primitives: `data` constructors + `case` matching
-   (`examples/bootstrap_phase1_frontend_primitives.clapse`)
+   (`examples/bootstrap_phase1_frontend_primitives.clap`)
 2. Core data structures: recursive `List` with `Nil`/`Cons`
-   (`examples/bootstrap_phase2_core_data_structures.clapse`)
+   (`examples/bootstrap_phase2_core_data_structures.clap`)
 3. Module graph: dotted imports/exports across transitive modules
-   (`examples/bootstrap_phase3_entry.clapse`, `examples/util/*.clapse`)
-4. Parser pilot: assignment-like byte-slice parser in Clapse
-   (`examples/bootstrap_phase4_parser_pilot.clapse`)
+   (`examples/bootstrap_phase3_entry.clap`, `examples/util/*.clap`)
+4. Parser pilot: assignment-like byte-slice parser in Clap
+   (`examples/bootstrap_phase4_parser_pilot.clap`)
 5. Dispatch pilot: enum-code decode + ADT route dispatch
-   (`examples/bootstrap_phase5_dispatch_pilot.clapse`)
+   (`examples/bootstrap_phase5_dispatch_pilot.clap`)
 6. Module dispatch pilot: routed decode/dispatch split across entry and imported
-   module (`examples/bootstrap_phase6_entry.clapse`,
-   `examples/bootstrap6/router.clapse`)
+   module (`examples/bootstrap_phase6_entry.clap`,
+   `examples/bootstrap6/router.clap`)
 7. Host capability pilot: host import compilation path for time capability
-   (`examples/bootstrap_phase7_host_capability_pilot.clapse`)
+   (`examples/bootstrap_phase7_host_capability_pilot.clap`)
 8. Syntax/behavior pilot: guards + operators + constructor-pattern case
-   (`examples/bootstrap_phase8_pattern_and_operators.clapse`)
-9. Native compiler ABI kernel: exported `clapse_run` response path in Clapse
-   source (`lib/compiler/kernel.clapse`)
+   (`examples/bootstrap_phase8_pattern_and_operators.clap`)
+9. Native compiler ABI kernel: exported `clap_run` response path in Clap
+   source (`lib/compiler/kernel.clap`)
    - command dispatch now handles `compile`/`format`/`selfhost-artifacts`
      request shapes at protocol level
    - command detection now uses request-byte scanning for `"command":"..."`
@@ -836,8 +851,8 @@ Self-host bootstrap checkpoint (`1/2/3/4/5/6/7/8/9/10/11`) now has concrete fixt
    - `compile` now expects `input_source` only (legacy `source` fallback was
      removed for strict request-shape parity)
    - `compile` currently returns a structured "not implemented yet" error
-10. Frontend lexer pilot: token-class scanner and keyword recognizer in Clapse
-    source (`examples/bootstrap_phase10_frontend_lexer.clapse`)
+10. Frontend lexer pilot: token-class scanner and keyword recognizer in Clap
+    source (`examples/bootstrap_phase10_frontend_lexer.clap`)
 11. Parser-combinator pilot: parsec-style state-threaded primitives with
     `Monad`/`Applicative`/`Alternative`-style operators (`>>=`, `<$>`, `<*>`,
     `<|>`) plus `many`/`some`/`sepBy` for top-level declaration-shape parsing
@@ -856,7 +871,7 @@ Self-host bootstrap checkpoint (`1/2/3/4/5/6/7/8/9/10/11`) now has concrete fixt
     tagging for plain vs guarded declaration lines in artifact mode;
     emits deterministic declaration artifacts via three exports:
     combined (`main`), aggregate stats (`main_stats`), and order stream (`main_stream`)
-    (`examples/bootstrap_phase11_parser_combinator_pilot.clapse`)
+    (`examples/bootstrap_phase11_parser_combinator_pilot.clap`)
 
 Fast bootstrap gate:
 
@@ -886,7 +901,7 @@ Self-host differential artifacts/parity gates:
 
 ```bash
 # emit parse/type/lower/collapse/export/wasm stats artifacts for one entry module
-deno run -A scripts/run-clapse-compiler-wasm.mjs -- selfhost-artifacts examples/bootstrap_phase6_entry.clapse out/selfhost-artifacts
+deno run -A scripts/run-clap-compiler-wasm.mjs -- selfhost-artifacts examples/bootstrap_phase6_entry.clap out/selfhost-artifacts
 
 # compare left/right compiler engines over corpus manifest
 deno run -A scripts/selfhost-diff.mjs --manifest examples/selfhost_corpus.txt --out out/selfhost-diff
@@ -904,7 +919,7 @@ deno run -A scripts/selfhost-compile-strategy-report.mjs --manifest examples/sel
 deno run -A scripts/formatter-idempotence-corpus.mjs --manifest examples/compiler_source_corpus.txt --out out/formatter-idempotence
 
 # wasm LSP fixtures (diagnostics + hover request path)
-CLAPSE_ALLOW_BRIDGE=1 CLAPSE_COMPILER_WASM_PATH=out/clapse_compiler_bridge.wasm deno run -A scripts/lsp-wasm-fixtures.mjs
+CLAP_ALLOW_BRIDGE=1 CLAP_COMPILER_WASM_PATH=out/clap_compiler_bridge.wasm deno run -A scripts/lsp-wasm-fixtures.mjs
 
 # stage A/B/C bootstrap orchestration + report
 deno run -A scripts/selfhost-bootstrap-abc.mjs --manifest examples/selfhost_corpus.txt --behavior-manifest examples/selfhost_behavior_corpus.json --out out/selfhost-bootstrap
@@ -916,13 +931,13 @@ just selfhost-check
 just selfhost-check-strict
 
 # strict gate with explicit engine commands
-SELFHOST_LEFT_CMD='CLAPSE_COMPILER_WASM_PATH=out/clapse_compiler.wasm deno run -A scripts/run-clapse-compiler-wasm.mjs --' \
-SELFHOST_RIGHT_CMD='CLAPSE_COMPILER_WASM_PATH=out/clapse_compiler.wasm deno run -A scripts/run-clapse-compiler-wasm.mjs --' \
+SELFHOST_LEFT_CMD='CLAP_COMPILER_WASM_PATH=out/clap_compiler.wasm deno run -A scripts/run-clap-compiler-wasm.mjs --' \
+SELFHOST_RIGHT_CMD='CLAP_COMPILER_WASM_PATH=out/clap_compiler.wasm deno run -A scripts/run-clap-compiler-wasm.mjs --' \
 just selfhost-check-strict
 ```
 
 Strict bootstrap now also rejects compiler corpus entries that import
-`host.clapse` (enforced via `--forbid-host-clapse-imports 1` in
+`host.clap` (enforced via `--forbid-host-clap-imports 1` in
 `selfhost-bootstrap-abc-strict`).
 
 Manifest consistency guard:
@@ -961,13 +976,13 @@ deno run -A scripts/selfhost-bench.mjs --manifest examples/selfhost_behavior_cor
 
 Wasm compiler runner:
 
-- `scripts/run-clapse-compiler-wasm.mjs` is the strict right-engine entrypoint.
+- `scripts/run-clap-compiler-wasm.mjs` is the strict right-engine entrypoint.
 - Strict parity gates require `engine-mode` to report a wasm mode (`wasm-native`
   or `wasm-bridge`; `wasm` checks accept both for compatibility).
 - Required environment:
 
 ```bash
-CLAPSE_COMPILER_WASM_PATH=out/clapse_compiler.wasm
+CLAP_COMPILER_WASM_PATH=out/clap_compiler.wasm
 ```
 
 Compile and `selfhost-artifacts` are strict wasm execution paths.
@@ -976,30 +991,30 @@ commands fail immediately.
 
 Current phase9 kernel wiring:
 
-- `lib/compiler/kernel.clapse` imports `host.clapse` and
+- `lib/compiler/kernel.clap` imports `host.clap` and
   routes `compile` and `selfhost-artifacts` requests through
-  `clapse_host_run`.
+  `clap_host_run`.
 - This keeps strict wasm-right parity free of fixture substitution while the
-  full compiler-in-clapse pipeline is still being completed.
+  full compiler-in-clap pipeline is still being completed.
 
 Runner ABI contract:
 
 - compiler wasm must export `memory` or `__memory`
 - compiler wasm must export
-  `clapse_run(request_slice_handle: i32) -> response_slice_handle: i32`
+  `clap_run(request_slice_handle: i32) -> response_slice_handle: i32`
 - request/response payloads are UTF-8 JSON stored in slice descriptors
 - supported commands: `compile`, `selfhost-artifacts`, `engine-mode`
 
 Expected JSON payloads:
 
 ```json
-{ "command": "compile", "input_path": "path.clapse", "input_source": "..." }
+{ "command": "compile", "input_path": "path.clap", "input_source": "..." }
 ```
 
 ```json
 {
   "command": "selfhost-artifacts",
-  "input_path": "path.clapse",
+  "input_path": "path.clap",
   "input_source": "..."
 }
 ```
@@ -1039,33 +1054,33 @@ Selfhost-artifacts response:
 ```
 
 ```bash
-CLAPSE_COMPILER_WASM_PATH=out/clapse_compiler.wasm just selfhost-check-wasm
+CLAP_COMPILER_WASM_PATH=out/clap_compiler.wasm just selfhost-check-wasm
 ```
 
 Bridge artifact for immediate strict-path validation:
 
 ```bash
 just selfhost-build-wasm-bridge
-CLAPSE_ALLOW_BRIDGE=1 \
+CLAP_ALLOW_BRIDGE=1 \
 just selfhost-check-wasm-bridge
 ```
 
 `selfhost-check-wasm-bridge` runs strict wasm-right parity using a minimal wasm
-binary that exports `clapse_run`/`memory` and forwards requests through host
+binary that exports `clap_run`/`memory` and forwards requests through host
 capability imports. This validates the runner path end-to-end while the full
-compiler-in-clapse wasm artifact is still in progress.
+compiler-in-clap wasm artifact is still in progress.
 
 Strict gates can be wired explicitly:
 
 ```bash
-SELFHOST_LEFT_CMD='CLAPSE_COMPILER_WASM_PATH=out/clapse_compiler.wasm deno run -A scripts/run-clapse-compiler-wasm.mjs --' \
-SELFHOST_RIGHT_CMD='CLAPSE_COMPILER_WASM_PATH=out/clapse_compiler.wasm deno run -A scripts/run-clapse-compiler-wasm.mjs --' \
+SELFHOST_LEFT_CMD='CLAP_COMPILER_WASM_PATH=out/clap_compiler.wasm deno run -A scripts/run-clap-compiler-wasm.mjs --' \
+SELFHOST_RIGHT_CMD='CLAP_COMPILER_WASM_PATH=out/clap_compiler.wasm deno run -A scripts/run-clap-compiler-wasm.mjs --' \
 just selfhost-check-strict
 ```
 
 ## Self-hosting roadmap (remaining)
 
-Goal: compile Clapse with Clapse (Haskell becomes bootstrap host only, then
+Goal: compile Clap with Clap (Haskell becomes bootstrap host only, then
 optional fallback).
 
 1. Define stable compiler IR/ABI contract
@@ -1076,16 +1091,16 @@ optional fallback).
   region semantics).
 - Add golden serialization/parity tests for IR and exported wasm API metadata.
 
-2. Build compiler frontend in Clapse
+2. Build compiler frontend in Clap
 
-- Implement tokenizer + parser in Clapse for current syntax subset (modules,
+- Implement tokenizer + parser in Clap for current syntax subset (modules,
   data, case, let, operators, signatures, attributes).
 - Keep Haskell parser as oracle; add differential tests (same source =>
   equivalent AST/normalized form).
-- Acceptance: Clapse parser can parse and format phase fixtures + example
+- Acceptance: Clap parser can parse and format phase fixtures + example
   corpus.
 
-3. Build type + rewrite pipeline in Clapse
+3. Build type + rewrite pipeline in Clap
 
 - Implement inference/checking for current core types and class/law/instance
   rewrite derivation.
@@ -1093,7 +1108,7 @@ optional fallback).
   implementation.
 - Acceptance: type/rewrite outputs match Haskell for corpus fixtures.
 
-4. Build lowering + collapse pipeline in Clapse
+4. Build lowering + collapse pipeline in Clap
 
 - Port lowering (closures, currying, case desugaring) and collapse passes
   (normalize, inline, specialize, prune, tail-opt, region/slice/escape passes).
@@ -1101,18 +1116,18 @@ optional fallback).
 - Acceptance: collapsed IR for fixtures is equivalent (modulo temp
   renaming/order where valid).
 
-5. Build wasm emitter in Clapse
+5. Build wasm emitter in Clap
 
 - Port wasm codegen (numeric builtins, closures, struct helpers, slice/region
   ops, exports).
 - Keep wasm behavior parity via runtime smoke tests and differential execution.
 - Acceptance: generated wasm passes existing smoke/tests and benchmark harness.
 
-6. Add self-host bootstrap stages (compiler-in-clapse)
+6. Add self-host bootstrap stages (compiler-in-clap)
 
-- Stage A: compile Clapse compiler sources with Haskell compiler into wasm
+- Stage A: compile Clap compiler sources with Haskell compiler into wasm
   artifact.
-- Stage B: run compiled clapse-compiler wasm to compile examples and phase
+- Stage B: run compiled clap-compiler wasm to compile examples and phase
   fixtures.
 - Stage C: compare Stage B outputs vs Haskell compiler outputs (exports,
   behavior, perf envelope).
@@ -1122,8 +1137,8 @@ optional fallback).
 
 - Keep thin host runner (Rust or Deno) for file IO, process args, and host
   capability bridging.
-- Clapse compiler logic remains pure and wasm-executed.
-- Acceptance: `clapse` CLI uses wasm compiler path by default behind a flag,
+- Clap compiler logic remains pure and wasm-executed.
+- Acceptance: `clap` CLI uses wasm compiler path by default behind a flag,
   then becomes default.
 
 8. Cutover and deprecate Haskell backend path
@@ -1136,8 +1151,8 @@ optional fallback).
 
 Recommended immediate next execution order:
 
-1. Add AST parity test fixtures (Haskell parser vs clapse parser prototype).
-2. Implement minimal Clapse parser module that covers bootstrap phases 1-11.
+1. Add AST parity test fixtures (Haskell parser vs clap parser prototype).
+2. Implement minimal Clap parser module that covers bootstrap phases 1-11.
 3. Add Stage A/B driver script to compile and run compiler-wasm against example
    corpus.
 
@@ -1155,7 +1170,7 @@ AI-first language documentation lives as a skill at:
 
 ## Tree-sitter and Helix
 
-- Grammar: `tree-sitter-clapse/`
+- Grammar: `tree-sitter-clap/`
 - Helix local setup: `just install`
 - Sync local grammar path: `./scripts/setup-helix-local.sh`
 - Tree-sitter includes reliable `let ... in ...` expression/binding parsing
@@ -1240,7 +1255,7 @@ Implemented now:
 - tree-sitter grammar + highlight/textobject/indent/tags/rainbow query set
 - Deno wasm runtime benchmark harness (`scripts/bench-wasm.mjs`) and `just`
   benchmark targets
-- browser canvas Game of Life demo driven by Clapse-compiled wasm rule function
+- browser canvas Game of Life demo driven by Clap-compiled wasm rule function
 
 Not implemented yet:
 

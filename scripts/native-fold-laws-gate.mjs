@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 
-import { runWithArgs } from "./run-clapse-compiler-wasm.mjs";
+import { runWithArgs } from "./run-clap-compiler-wasm.mjs";
 
 function assert(condition, message) {
   if (!condition) {
@@ -18,10 +18,10 @@ function hasSyntheticArtifactMarkers(value) {
 
 async function run() {
   const tmpDir = await Deno.makeTempDir({
-    prefix: "clapse-native-fold-laws-gate-",
+    prefix: "clap-native-fold-laws-gate-",
   });
   try {
-    const inputPath = `${tmpDir}/fold_law_fixture.clapse`;
+    const inputPath = `${tmpDir}/fold_law_fixture.clap`;
     const outputPath = `${tmpDir}/fold_law_fixture.wasm`;
     const artifactsDir = `${tmpDir}/fold-law-artifacts`;
     const source = [

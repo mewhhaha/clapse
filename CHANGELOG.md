@@ -1,4 +1,4 @@
-# Revision history for clapse
+# Revision history for clap
 
 ## 0.1.0.4 -- 2026-02-25
 

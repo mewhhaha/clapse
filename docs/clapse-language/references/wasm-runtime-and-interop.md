@@ -55,7 +55,7 @@ The struct field/tag operations are now emitted in-module:
   - mutable byte-slice descriptors with a pointer+length pair and owned payload bytes
   - linear records for struct/closure data.
 - `slice_new_u8 n` allocates `n` bytes in linear memory and returns a fresh descriptor.
-- `runtime.alloc_slice_u8` is the JS-side path used for foreign-owned input buffers; it produces a slice descriptor that points into wasm memory so subsequent Clapse slice operations can use direct loads/stores.
+- `runtime.alloc_slice_u8` is the JS-side path used for foreign-owned input buffers; it produces a slice descriptor that points into wasm memory so subsequent Clap slice operations can use direct loads/stores.
 - In the collapse rewrite path, COW also uses fresh `slice_new_u8` allocations to allocate replacement descriptors.
 - `struct`/`closure` creation emits descriptor+payload inline and uses fixed-size headers for validation/runtime checks.
 - Runtime ownership at this layer is represented by descriptor replacement on COW and descriptor reuse on linear chains; there is no host-side allocator ownership bookkeeping for rewrite decisions.
@@ -66,7 +66,7 @@ The struct field/tag operations are now emitted in-module:
 - Memory regions can be reset only via the explicit region API (`region_mark`, `region_reset`) where a backend chooses to allocate from region-managed memory.
 - `region_reset` is kept as an effectful runtime intrinsic and is not elided by DCE even when its descriptor result is dead, because it participates in deterministic lifetime fencing.
 - `memcpy_u8`/`memset_u8` are pure transformations from byte-level memory access perspective only in IR form; at runtime they still lower to memory side-effecting operations and must remain ordered.
-- There is no host-side GC or sweeping hook for Clapse values; ownership and lifetime are enforced by compile-time rewrite decisions plus explicit region resets.
+- There is no host-side GC or sweeping hook for Clap values; ownership and lifetime are enforced by compile-time rewrite decisions plus explicit region resets.
 - Reclamation in practice means replacing uses of a descriptor with a fresh one in COW
   paths and allowing normal function-scope lifetime drop when chains end.
 - Reclaim does not include per-object deallocation; only explicit region fences can shrink allocator scope.
@@ -120,7 +120,7 @@ The struct field/tag operations are now emitted in-module:
 - JS runtime can render decoded results through helper runtime functions.
 - Runtime instantiation requires either `__memory` or `memory` exports.
 - JS can allocate packed byte slices through `runtime.alloc_slice_u8(...)` (writes descriptor+payload into wasm linear memory).
-- Clapse source can read slice data through:
+- Clap source can read slice data through:
   - `slice_len : slice byte -> i64`
   - `slice_get_u8 : slice byte -> i64 -> i64` (current backend numeric model)
   - `slice_set_u8 : slice byte -> i64 -> i64 -> slice byte`
@@ -128,7 +128,7 @@ The struct field/tag operations are now emitted in-module:
   - `str_to_slice : string -> slice byte` (bridge/view)
   - `slice_to_string : slice byte -> string` (bridge/view)
   - `str_eq : string -> string -> bool` (bytewise content equality)
-- Clapse source also exposes low-level linear-memory builtins:
+- Clap source also exposes low-level linear-memory builtins:
   - `slice_new_u8 : i64 -> slice byte`
   - `slice_data_ptr : slice byte -> i64`
   - `slice_len_raw : slice byte -> i64`
@@ -159,7 +159,7 @@ The struct field/tag operations are now emitted in-module:
 
 ## Buffer/Slice Direction (Current)
 
-Clapse keeps `[]` as an abstract collection syntax and uses explicit slice intrinsics for JS interop.
+Clap keeps `[]` as an abstract collection syntax and uses explicit slice intrinsics for JS interop.
 
 - `[]` still lowers to `collection_empty` / `collection_extend`
 - compiler prelude defaults route `CollectionLiteral List` through `build`/`foldr`
@@ -171,7 +171,7 @@ Clapse keeps `[]` as an abstract collection syntax and uses explicit slice intri
 
 Current Game of Life demo computes state transitions in wasm via `LifeState` + `step_state` and keeps rendering/timing in JS.
 
-To move most simulation logic into Clapse, add:
+To move most simulation logic into Clap, add:
 
 1. bulk slice/memory traversal intrinsics in backend/runtime (beyond per-byte getters)
 2. stable packed-memory ABI contract
@@ -179,5 +179,5 @@ To move most simulation logic into Clapse, add:
 
 Current practical split for the included Game of Life demo:
 
-- Clapse owns state transition functions (`init_state`, `step_state`, `state_current`, `state_generation`).
+- Clap owns state transition functions (`init_state`, `step_state`, `state_current`, `state_generation`).
 - JS supplies packed board slices and handles rendering/timing/input.

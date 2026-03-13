@@ -1,0 +1,4 @@
+# path|min_captures|required_scopes
+lib/compiler/prelude.clap|430|keyword,type.definition,function,keyword.operator,constant.builtin.boolean
+lib/compiler/parser.clap|500|keyword,type.definition,function,keyword.operator
+examples/game_of_life.clap|120|keyword,function,keyword.operator

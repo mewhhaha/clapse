@@ -22,7 +22,7 @@ import "prelude" { foldl, Filterable }
 
 Use consistent indentation for guarded clauses and `let` blocks.
 
-```clapse
+```clap
 main x =
   let selected = x + 1
   in selected

@@ -18,11 +18,11 @@ function setDiff(a, b) {
 async function listExpectedEntryExamples() {
   const skip = new Set([
     // Intentional non-compiling trait-catalog fixture (contains placeholder symbol references).
-    "examples/traits.clapse",
+    "examples/traits.clap",
   ]);
   const out = [];
   for await (const e of Deno.readDir("examples")) {
-    if (e.isFile && e.name.endsWith(".clapse")) {
+    if (e.isFile && e.name.endsWith(".clap")) {
       const path = `examples/${e.name}`;
       if (!skip.has(path)) out.push(path);
     }

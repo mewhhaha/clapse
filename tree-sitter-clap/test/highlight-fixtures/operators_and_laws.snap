@@ -1,4 +1,4 @@
-test/highlight-fixtures/operators_and_laws.clapse
+test/highlight-fixtures/operators_and_laws.clap
     pattern: 62, capture: 17 - keyword, start: (0, 0), end: (0, 6), text: `infixl`
     pattern: 96, capture: 17 - keyword, start: (0, 0), end: (0, 6), text: `infixl`
     pattern:  2, capture: 2 - constant.numeric.integer, start: (0, 7), end: (0, 8), text: `1`

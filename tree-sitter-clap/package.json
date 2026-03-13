@@ -1,13 +1,13 @@
 {
-  "name": "tree-sitter-clapse",
+  "name": "tree-sitter-clap",
   "version": "0.1.0",
-  "description": "Tree-sitter grammar for the clapse language.",
+  "description": "Tree-sitter grammar for the clap language.",
   "license": "MIT",
   "main": "grammar.js",
   "keywords": [
     "parser",
     "tree-sitter",
-    "clapse"
+    "clap"
   ],
   "scripts": {
     "generate": "tree-sitter generate",
@@ -18,9 +18,9 @@
   },
   "tree-sitter": [
     {
-      "scope": "source.clapse",
+      "scope": "source.clap",
       "file-types": [
-        "clapse"
+        "clap"
       ],
       "highlights": "queries/highlights.scm"
     }

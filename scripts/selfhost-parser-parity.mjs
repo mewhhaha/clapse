@@ -2,7 +2,7 @@
 
 function parseArgs(argv) {
   const defaultCompilerCommand =
-    "deno run -A scripts/run-clapse-compiler-wasm.mjs --";
+    "deno run -A scripts/run-clap-compiler-wasm.mjs --";
   const out = {
     manifest: "examples/selfhost_parser_corpus.txt",
     leftName: "left",
@@ -47,7 +47,7 @@ function shQuote(s) {
 function stableName(path) {
   return path
     .replaceAll("/", "__")
-    .replaceAll(".clapse", "");
+    .replaceAll(".clap", "");
 }
 
 function modeMatches(expected, actual) {

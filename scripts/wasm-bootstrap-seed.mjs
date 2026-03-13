@@ -1,12 +1,17 @@
 const MIN_STABLE_SEED_BYTES = 4096;
 const EXPECTED_COMPILE_CONTRACT_VERSION = "native-v1";
 const DEFAULT_SOURCE_VERSION = "wasm-bootstrap-seed-2026-03-01-r1";
-const WASM_SEED_ENV = "CLAPSE_USE_WASM_BOOTSTRAP_SEED";
-const LEGACY_TS_SEED_ENV = "CLAPSE_USE_TS_BOOTSTRAP_SEED";
-const DISABLE_FALLBACK_ENV = "CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK";
-const SEED_ABI_EXPORTS = [{ name: "clapse_run", arity: 1 }];
+const WASM_SEED_ENV = "CLAP_USE_WASM_BOOTSTRAP_SEED";
+import {
+  compilerRunExportRequirementText,
+  hasCompilerRunExport,
+} from "./compiler-abi-compat.mjs";
+
+const LEGACY_TS_SEED_ENV = "CLAP_USE_TS_BOOTSTRAP_SEED";
+const DISABLE_FALLBACK_ENV = "CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK";
+const SEED_ABI_EXPORTS = [{ name: "clap_run", arity: 1 }];
 const SEED_PUBLIC_EXPORTS = [];
-const SEED_DTS = "export declare function clapse_run(request_handle: number): number;\n";
+const SEED_DTS = "export declare function clap_run(request_handle: number): number;\n";
 
 const COMPILE_DEBUG_MODES = new Set([
   "kernel-native",
@@ -95,7 +100,7 @@ function assertCompileRequestShape(requestObject) {
 function hasRequiredCompilerAbiExports(exportNames) {
   const hasMemory = exportNames.includes("memory") ||
     exportNames.includes("__memory");
-  return hasMemory && exportNames.includes("clapse_run");
+  return hasMemory && hasCompilerRunExport(exportNames);
 }
 
 function assertCompilerAbiBytes(bytes) {
@@ -116,7 +121,7 @@ function assertCompilerAbiBytes(bytes) {
   );
   if (!hasRequiredCompilerAbiExports(exportNames)) {
     throw new Error(
-      `wasm-bootstrap-seed: seed wasm missing compiler ABI exports (required: memory/__memory + clapse_run; got ${exportNames.join(",")})`,
+      `wasm-bootstrap-seed: seed wasm missing compiler ABI exports (required: memory/__memory + ${compilerRunExportRequirementText()}; got ${exportNames.join(",")})`,
     );
   }
 }
@@ -136,13 +141,13 @@ async function resolveSeedWasmBytes(requestObject, options) {
   if (nonEmptyString(options.seedWasmPath)) {
     return await Deno.readFile(options.seedWasmPath);
   }
-  const fromEnv = String(Deno.env.get("CLAPSE_WASM_BOOTSTRAP_SEED_WASM_PATH") ??
+  const fromEnv = String(Deno.env.get("CLAP_WASM_BOOTSTRAP_SEED_WASM_PATH") ??
     "").trim();
   if (fromEnv.length > 0) {
     return await Deno.readFile(fromEnv);
   }
   throw new Error(
-    "wasm-bootstrap-seed: missing trusted seed wasm input (provide request.seed_wasm_base64, options.seedWasmPath, options.seedWasmBytes, or CLAPSE_WASM_BOOTSTRAP_SEED_WASM_PATH)",
+    "wasm-bootstrap-seed: missing trusted seed wasm input (provide request.seed_wasm_base64, options.seedWasmPath, options.seedWasmBytes, or CLAP_WASM_BOOTSTRAP_SEED_WASM_PATH)",
   );
 }
 
@@ -188,7 +193,7 @@ export async function buildWasmSeedCompileResponse(
         "collapsed_ir",
       ),
     },
-    __clapse_contract: {
+    __clap_contract: {
       source_version: nonEmptyString(options.sourceVersion)
         ? options.sourceVersion
         : DEFAULT_SOURCE_VERSION,

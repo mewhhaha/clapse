@@ -1,6 +1,6 @@
 # Self-hosting Roadmap
 
-Goal: compile the Clapse compiler with Clapse-generated WASM so Haskell is only the bootstrap host during transition.
+Goal: compile the Clap compiler with Clap-generated WASM so Haskell is only the bootstrap host during transition.
 
 ## Current checkpoint
 
@@ -29,19 +29,19 @@ Acceptance gates:
 - ABI roundtrip tests for closure/data/slice values.
 - Explicit compatibility note in `README.md` for any ABI-visible change.
 
-### Milestone 2: Frontend parser/formatter in Clapse
+### Milestone 2: Frontend parser/formatter in Clap
 
 Deliverables:
-- Clapse tokenizer/parser module covering current language surface used by examples and bootstrap corpus.
+- Clap tokenizer/parser module covering current language surface used by examples and bootstrap corpus.
 - Source span tracking for diagnostics.
 - Formatter-compatible normalized parse output.
 
 Acceptance gates:
-- Differential parser parity: Haskell parser vs Clapse parser on example corpus.
+- Differential parser parity: Haskell parser vs Clap parser on example corpus.
 - Formatter roundtrip stability (`format` twice yields identical output).
 - LSP parse diagnostics remain equivalent on corpus.
 
-### Milestone 3: Type + class/law rewrite engine in Clapse
+### Milestone 3: Type + class/law rewrite engine in Clap
 
 Deliverables:
 - Inference/checking for current data/functions/signatures/constraints.
@@ -53,22 +53,22 @@ Acceptance gates:
 - Differential rewrite parity on corpus.
 - No regressions in class/law/instance rewrite tests.
 
-### Milestone 4: Lowering + collapse passes in Clapse
+### Milestone 4: Lowering + collapse passes in Clap
 
 Deliverables:
-- Closure/currying/case/let lowering in Clapse.
+- Closure/currying/case/let lowering in Clap.
 - Pass pipeline parity for normalize/inline/specialize/prune/tail/region/slice.
-- Verifier invariants implemented in Clapse.
+- Verifier invariants implemented in Clap.
 
 Acceptance gates:
 - Collapsed IR equivalence against Haskell pipeline (allowing only alpha-renaming and stable reorder rules).
 - Existing collapse/optimizer tests pass on both pipelines.
 - Performance bars for abstraction-collapse fixtures remain within target envelope.
 
-### Milestone 5: WASM emission in Clapse
+### Milestone 5: WASM emission in Clap
 
 Deliverables:
-- Clapse-side emitter for current WASM target features in use.
+- Clap-side emitter for current WASM target features in use.
 - Export metadata generation parity (`.d.ts` contract parity).
 - Runtime import contract parity.
 
@@ -80,7 +80,7 @@ Acceptance gates:
 ### Milestone 6: Stage A/B/C bootstrap
 
 Deliverables:
-- Stage A: Haskell compiler compiles Clapse compiler sources to wasm artifact.
+- Stage A: Haskell compiler compiles Clap compiler sources to wasm artifact.
 - Stage B: compiler-wasm compiles corpus.
 - Stage C: compare Stage B outputs to Haskell outputs (IR + behavior + perf envelope).
 
@@ -99,7 +99,7 @@ Deliverables:
 - Default compiler path uses compiler-wasm.
 
 Acceptance gates:
-- `clapse compile`, `clapse format`, `clapse lsp` operational through wrapper.
+- `clap compile`, `clap format`, `clap lsp` operational through wrapper.
 - Cold-start and steady-state latency measured and documented.
 
 ### Milestone 8: Haskell path deprecation

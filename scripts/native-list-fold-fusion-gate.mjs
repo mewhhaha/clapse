@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 
-import { runWithArgs } from "./run-clapse-compiler-wasm.mjs";
+import { runWithArgs } from "./run-clap-compiler-wasm.mjs";
 
 function assert(condition, message) {
   if (!condition) {
@@ -22,7 +22,7 @@ function extractMainLine(collapsedIr) {
 
 async function run() {
   const tmpDir = await Deno.makeTempDir({
-    prefix: "clapse-native-list-fold-fusion-gate-",
+    prefix: "clap-native-list-fold-fusion-gate-",
   });
   try {
     const sourceText = [
@@ -35,7 +35,7 @@ async function run() {
       "main = foldl f z (fmap g xs)",
       "",
     ].join("\n");
-    const inputPath = `${tmpDir}/fold-fusion.clapse`;
+    const inputPath = `${tmpDir}/fold-fusion.clap`;
     await Deno.writeTextFile(inputPath, sourceText);
 
     const baselineArtifacts = `${tmpDir}/baseline-artifacts`;

@@ -2,7 +2,7 @@
 
 import { callCompilerWasmRaw, decodeWasmBase64 } from "./wasm-compiler-abi.mjs";
 import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
-import { buildDemandDrivenCompileInput } from "./run-clapse-compiler-wasm.mjs";
+import { buildDemandDrivenCompileInput } from "./run-clap-compiler-wasm.mjs";
 
 function assert(condition, message) {
   if (!condition) {
@@ -11,12 +11,12 @@ function assert(condition, message) {
 }
 
 function resolveCompilerWasmPath() {
-  const fromEnv = String(Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "")
+  const fromEnv = String(Deno.env.get("CLAP_COMPILER_WASM_PATH") ?? "")
     .trim();
   if (fromEnv.length > 0) {
     return fromEnv;
   }
-  return "artifacts/latest/clapse_compiler.wasm";
+  return "artifacts/latest/clap_compiler.wasm";
 }
 
 function isObject(value) {
@@ -103,10 +103,10 @@ function buildCompileRequest(inputPath, source, entrypointExports = null) {
 async function run() {
   const wasmPath = resolveCompilerWasmPath();
   const tmpDir = await Deno.makeTempDir({
-    prefix: "clapse-native-entrypoint-exports-dce-gate-",
+    prefix: "clap-native-entrypoint-exports-dce-gate-",
   });
   try {
-    const inputPath = `${tmpDir}/entrypoint_exports_gate.clapse`;
+    const inputPath = `${tmpDir}/entrypoint_exports_gate.clap`;
     const deadMarker = `native-entrypoint-exports-dead-${crypto.randomUUID()}`;
     const operatorMarker = `native-entrypoint-exports-op-${crypto.randomUUID()}`;
     const source = [
@@ -171,7 +171,7 @@ async function run() {
       forbiddenDefs: ["main", "keep"],
     });
 
-    const preludeInputPath = `${tmpDir}/entrypoint_exports_prelude_gate.clapse`;
+    const preludeInputPath = `${tmpDir}/entrypoint_exports_prelude_gate.clap`;
     const preludeBoolDeadMarker =
       `native-entrypoint-exports-prelude-bool-${crypto.randomUUID()}`;
     const preludeMaybeDeadMarker =

@@ -6,15 +6,15 @@ import { callCompilerWasm, decodeWasmBase64 } from "./wasm-compiler-abi.mjs";
 const DEFAULT_OUT_WASM = "artifacts/strict-native/seed.wasm";
 const DEFAULT_OUT_META = "artifacts/strict-native/seed.meta.json";
 const DEFAULT_BOOTSTRAP_STRICT_SEED = "artifacts/strict-native/seed.wasm";
-const DEFAULT_INPUT_PATH = "lib/compiler/kernel.clapse";
+const DEFAULT_INPUT_PATH = "lib/compiler/kernel.clap";
 const DEFAULT_COMPILE_MODE = "kernel-native";
 const MIN_OUTPUT_BYTES = 4096;
 const DEFAULT_PROBE_HOPS = 1;
 const DEFAULT_BOOTSTRAP_HELP =
-  "CLAPSE_BOOTSTRAP_COMPILER_WASM_PATH | CLAPSE_COMPILER_WASM_PATH | CLAPSE_BOOTSTRAP_STRICT_NATIVE_SEED_PATH | artifacts/strict-native/seed.wasm";
+  "CLAP_BOOTSTRAP_COMPILER_WASM_PATH | CLAP_COMPILER_WASM_PATH | CLAP_BOOTSTRAP_STRICT_NATIVE_SEED_PATH | artifacts/strict-native/seed.wasm";
 const REQUIRE_NO_BOUNDARY_FALLBACK_ENV =
-  "CLAPSE_STRICT_NATIVE_REQUIRE_NO_BOUNDARY_FALLBACK";
-const REQUIRED_SOURCE_VERSION_ENV = "CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED";
+  "CLAP_STRICT_NATIVE_REQUIRE_NO_BOUNDARY_FALLBACK";
+const REQUIRED_SOURCE_VERSION_ENV = "CLAP_NATIVE_SOURCE_VERSION_REQUIRED";
 const EXPECTED_COMPILE_CONTRACT_VERSION = "native-v1";
 const PRODUCER_CONTRACT_KEYS = new Set([
   "source_version",
@@ -34,7 +34,7 @@ function usage() {
     `  --compile-mode <mode>     compile mode for seed build (default: ${DEFAULT_COMPILE_MODE})`,
     `  --probe-hops <n>          selfhost probe compile hops (default: ${DEFAULT_PROBE_HOPS})`,
     "  --require-source-version <token>",
-    `                           require compile responses to report __clapse_contract.source_version=<token> (env: ${REQUIRED_SOURCE_VERSION_ENV})`,
+    `                           require compile responses to report __clap_contract.source_version=<token> (env: ${REQUIRED_SOURCE_VERSION_ENV})`,
     "  --require-no-boundary-fallback",
     `                           fail when kernel compile uses JS ABI tiny-output fallback (env: ${REQUIRE_NO_BOUNDARY_FALLBACK_ENV}=1)`,
     "  --no-meta                 skip metadata output",
@@ -63,7 +63,7 @@ function isNonEmptyFile(path) {
 
 function resolveDefaultBootstrapWasm() {
   const strictSeedFromEnv = String(
-    Deno.env.get("CLAPSE_BOOTSTRAP_STRICT_NATIVE_SEED_PATH") ?? "",
+    Deno.env.get("CLAP_BOOTSTRAP_STRICT_NATIVE_SEED_PATH") ?? "",
   ).trim();
   const strictSeedPath = strictSeedFromEnv.length > 0
     ? strictSeedFromEnv
@@ -79,8 +79,8 @@ function parseArgs(argv) {
   let outWasm = DEFAULT_OUT_WASM;
   let outMeta = DEFAULT_OUT_META;
   const bootstrapFromEnv = String(
-    Deno.env.get("CLAPSE_BOOTSTRAP_COMPILER_WASM_PATH") ??
-      Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ??
+    Deno.env.get("CLAP_BOOTSTRAP_COMPILER_WASM_PATH") ??
+      Deno.env.get("CLAP_COMPILER_WASM_PATH") ??
       "",
   ).trim();
   let bootstrapWasm = bootstrapFromEnv.length > 0
@@ -90,7 +90,7 @@ function parseArgs(argv) {
   let compileMode = DEFAULT_COMPILE_MODE;
   let probeHops = Number.parseInt(
     String(
-      Deno.env.get("CLAPSE_STRICT_NATIVE_SEED_PROBE_HOPS") ??
+      Deno.env.get("CLAP_STRICT_NATIVE_SEED_PROBE_HOPS") ??
         DEFAULT_PROBE_HOPS,
     ),
     10,
@@ -217,7 +217,7 @@ function boolEnvFlag(name, defaultValue = false) {
 }
 
 function contractMeta(response) {
-  const raw = response?.__clapse_contract;
+  const raw = response?.__clap_contract;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return {};
   }
@@ -251,7 +251,7 @@ function parseProducerContract(response, context, requireSourceVersion) {
   const sourceVersion = contract.source_version;
   if (!nonEmptyString(sourceVersion)) {
     throw new Error(
-      `${context}: missing __clapse_contract.source_version`,
+      `${context}: missing __clap_contract.source_version`,
     );
   }
   const compileContractVersion = contract.compile_contract_version;
@@ -364,9 +364,9 @@ function ensureCompilerOutputAbi(wasmBytes, exportNames) {
       })`,
     );
   }
-  if (!exportNames.includes("clapse_run")) {
+  if (!exportNames.includes("clap_run")) {
     throw new Error(
-      `seed compile output missing clapse_run export (exports: ${
+      `seed compile output missing clap_run export (exports: ${
         exportNames.join(", ")
       })`,
     );
@@ -570,17 +570,17 @@ async function probeSelfhostCompile(
           }`,
         };
       }
-      if (!finalExports.includes("clapse_run")) {
+      if (!finalExports.includes("clap_run")) {
         return {
           ok: false,
-          reason: `hop-${hop}-compile-output-missing-clapse_run-export: ${
+          reason: `hop-${hop}-compile-output-missing-clap_run-export: ${
             finalExports.join(",")
           }`,
         };
       }
       if (hop < probeHops) {
         const nextCompilerPath = await Deno.makeTempFile({
-          prefix: "clapse-strict-native-hop-",
+          prefix: "clap-strict-native-hop-",
           suffix: ".wasm",
         });
         await Deno.writeFile(nextCompilerPath, finalBytes);
@@ -625,7 +625,7 @@ async function main() {
   const inputSource = await Deno.readTextFile(opts.inputPath);
 
   const tempDir = await Deno.makeTempDir({
-    prefix: "clapse-strict-native-seed-",
+    prefix: "clap-strict-native-seed-",
   });
   const selectedMode = "native-bootstrap-compile";
   let selectedWasmBytes;

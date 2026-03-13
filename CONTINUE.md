@@ -11,25 +11,25 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
   - fixed remaining local pipeline blockers in sandbox/offline environments:
     - `Justfile` `install`:
       - if `deno compile` fails (for example `denort` DNS/download failure), now
-        reuses existing `artifacts/bin/clapse` when present; otherwise generates
-        a `deno run` shim at `artifacts/bin/clapse`.
+        reuses existing `artifacts/bin/clap` when present; otherwise generates
+        a `deno run` shim at `artifacts/bin/clap`.
       - if default config path is not writable, now falls back to a temporary
         writable `XDG_CONFIG_HOME` for `scripts/setup-helix-local.sh`.
     - `Justfile` `release-candidate`:
-      - added `CLAPSE_RELEASE_SKIP_CROSS_TARGET_CLI=1` to skip cross-target CLI
+      - added `CLAP_RELEASE_SKIP_CROSS_TARGET_CLI=1` to skip cross-target CLI
         builds when desired.
-      - added `CLAPSE_RELEASE_ALLOW_BIN_REUSE=1` to reuse
-        `artifacts/bin/clapse` when host CLI compile fails.
+      - added `CLAP_RELEASE_ALLOW_BIN_REUSE=1` to reuse
+        `artifacts/bin/clap` when host CLI compile fails.
       - metadata `--cli-bin` arguments are now dynamic based on whether
         cross-target binaries are built.
     - `Justfile` `ci-local` now defaults:
-      - `CLAPSE_RELEASE_SKIP_CROSS_TARGET_CLI=1`
-      - `CLAPSE_RELEASE_ALLOW_BIN_REUSE=1`
+      - `CLAP_RELEASE_SKIP_CROSS_TARGET_CLI=1`
+      - `CLAP_RELEASE_ALLOW_BIN_REUSE=1`
   - docs sync:
     - `docs/SKILL.md`
     - `docs/clapse-language/references/tooling-and-workflows.md`
   - verification evidence:
-    - `HOME=/tmp/clapse_home XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just ci-local`
+    - `HOME=/tmp/clap_home XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just ci-local`
       -> pass end-to-end in sandbox/offline conditions.
 
 - update (2026-03-01, remove-compiler-abi-compile-autofallback):
@@ -41,63 +41,63 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
       related compile-response fallback predicates.
   - effect:
     - compile requests are now raw-by-default unless explicitly routed through
-      bootstrap-seed mode (`CLAPSE_USE_WASM_BOOTSTRAP_SEED=1`).
+      bootstrap-seed mode (`CLAP_USE_WASM_BOOTSTRAP_SEED=1`).
     - no implicit compatibility fallback remains in default compile paths.
   - docs sync:
     - `docs/SKILL.md`
     - `docs/clapse-language/references/tooling-and-workflows.md`
   - verification evidence:
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler out/clapse_compiler.no_autofallback.wasm`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler out/clap_compiler.no_autofallback.wasm`
       -> pass.
     - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just pre-tag-verify`
       -> pass.
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just compile-native examples/util/json.clapse out/json.no_autofallback.wasm`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just compile-native examples/util/json.clap out/json.no_autofallback.wasm`
       -> pass.
 
 - update (2026-03-01, opt-in-compiler-abi-autofallback):
   - changed compiler ABI fallback policy to raw-by-default:
     - `scripts/wasm-compiler-abi.mjs` now requires
-      `CLAPSE_ENABLE_WASM_BOOTSTRAP_AUTOFALLBACK=1` before
+      `CLAP_ENABLE_WASM_BOOTSTRAP_AUTOFALLBACK=1` before
       `shouldAutoBootstrapFallback(...)` can trigger bootstrap-seed shaping for
       compile requests.
-    - `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1` remains a hard-off override.
+    - `CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK=1` remains a hard-off override.
   - effect:
     - compile requests no longer silently auto-fallback by default when raw
       producer output is invalid/synthetic.
     - compatibility fallback remains available explicitly via
-      `CLAPSE_ENABLE_WASM_BOOTSTRAP_AUTOFALLBACK=1`.
+      `CLAP_ENABLE_WASM_BOOTSTRAP_AUTOFALLBACK=1`.
   - docs sync:
     - `docs/SKILL.md`
     - `docs/clapse-language/references/tooling-and-workflows.md`
   - verification evidence:
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler out/clapse_compiler.no_autofallback.wasm`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler out/clap_compiler.no_autofallback.wasm`
       -> pass.
     - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just pre-tag-verify`
       -> pass end-to-end.
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just compile-native examples/util/json.clapse out/json.no_autofallback.wasm`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just compile-native examples/util/json.clap out/json.no_autofallback.wasm`
       -> pass (`out/json.no_autofallback.wasm` produced).
 
 - update (2026-03-01, no-fallback-default-gates-for-pretag-and-bootstrap):
   - switched bootstrap and pre-tag strict checks from seed-wrapper mode to raw
     no-fallback producer mode:
     - `Justfile` `pre-tag-verify` now runs
-      `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-strict-producer-check`
+      `CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-strict-producer-check`
       instead of `native-strict-producer-check-wasm-seed`.
     - `Justfile` `bootstrap-strict-native-seed` retain/promotion/final strict
-      checks now run with `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1` via
+      checks now run with `CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK=1` via
       `native-strict-producer-check`.
     - `Justfile` `bootstrap-compiler` now:
-      - runs kernel self-compile with `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1`,
+      - runs kernel self-compile with `CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK=1`,
       - validates produced/fallback/final artifacts with raw
         `native-strict-producer-check` under
-        `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1`.
+        `CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK=1`.
   - docs sync:
     - `docs/SKILL.md`
     - `docs/clapse-language/references/tooling-and-workflows.md`
   - verification evidence:
     - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-strict-native-seed artifacts/strict-native/seed.wasm artifacts/strict-native/seed.meta.json`
       -> pass (retained existing producer-strict seed).
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler out/clapse_compiler.no_fallback_default.wasm`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler out/clap_compiler.no_fallback_default.wasm`
       -> pass (strict producer + propagation gates under no-fallback defaults).
     - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just pre-tag-verify`
       -> pass end-to-end with no-fallback strict producer gate.
@@ -105,7 +105,7 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
 - update (2026-03-01, strict-seed-template-parity-hardening-no-fallback-env):
   - removed temporary emit-wat template fallback compatibility from pre-tag:
     - `Justfile` `pre-tag-verify` no longer sets
-      `CLAPSE_RECORD_KERNEL_SMOKE_ALLOW_TEMPLATE_FALLBACK=1`.
+      `CLAP_RECORD_KERNEL_SMOKE_ALLOW_TEMPLATE_FALLBACK=1`.
   - hardened producer strict gate to fail when template-mode emit-wat parity is
     missing:
     - `scripts/native-producer-raw-probe.mjs` now verifies:
@@ -127,19 +127,19 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
   - verification evidence:
     - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-strict-native-seed artifacts/strict-native/seed.wasm artifacts/strict-native/seed.meta.json`
       -> pass (rebuild path succeeded; strict + propagation gates pass).
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAPSE_COMPILER_WASM_PATH=artifacts/strict-native/seed.wasm deno run -A scripts/record-kernel-smoke.mjs`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAP_COMPILER_WASM_PATH=artifacts/strict-native/seed.wasm deno run -A scripts/record-kernel-smoke.mjs`
       -> pass without fallback env.
     - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just pre-tag-verify`
-      -> pass end-to-end without `CLAPSE_RECORD_KERNEL_SMOKE_ALLOW_TEMPLATE_FALLBACK`.
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler out/clapse_compiler.native_unblock.wasm`
+      -> pass end-to-end without `CLAP_RECORD_KERNEL_SMOKE_ALLOW_TEMPLATE_FALLBACK`.
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler out/clap_compiler.native_unblock.wasm`
       -> pass.
     - before latest promotion:
-      - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-source-version-propagation-gate artifacts/latest/clapse_compiler.wasm 2`
+      - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-source-version-propagation-gate artifacts/latest/clap_compiler.wasm 2`
         -> fail at producer template parity on stale latest artifact.
     - after promoting strict native producer seed to latest:
-      - `cp artifacts/strict-native/native_producer_seed.wasm artifacts/latest/clapse_compiler.wasm`
-      - `cp artifacts/strict-native/native_producer_seed.d.ts artifacts/latest/clapse_compiler.d.ts`
-      - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-source-version-propagation-gate artifacts/latest/clapse_compiler.wasm 2`
+      - `cp artifacts/strict-native/native_producer_seed.wasm artifacts/latest/clap_compiler.wasm`
+      - `cp artifacts/strict-native/native_producer_seed.d.ts artifacts/latest/clap_compiler.d.ts`
+      - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-source-version-propagation-gate artifacts/latest/clap_compiler.wasm 2`
         -> pass (`source_version=native-source-2026-03-01-r2`).
 
 - update (2026-03-01, strict-seed-native-unblock-r2-transitivity):
@@ -155,7 +155,7 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
       invalid does it fall back to rebuilding via
       `just bootstrap-native-producer-seed`.
   - aligned source-token defaults with the currently transitive native chain:
-    - `lib/compiler/native_compile.clapse` refreshed to
+    - `lib/compiler/native_compile.clap` refreshed to
       `source_version=native-source-2026-03-01-r2`.
     - `Justfile` `refresh-native-compile-payload` default source version ->
       `native-source-2026-03-01-r2`.
@@ -163,40 +163,40 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
       `native-source-2026-03-01-r2`.
   - added temporary pre-tag compatibility for emit-wat template-mode parity:
     - `scripts/record-kernel-smoke.mjs` now accepts
-      `CLAPSE_RECORD_KERNEL_SMOKE_ALLOW_TEMPLATE_FALLBACK=1` to allow
+      `CLAP_RECORD_KERNEL_SMOKE_ALLOW_TEMPLATE_FALLBACK=1` to allow
       template-mode requests to return source payload fallback.
     - `Justfile` `pre-tag-verify` now sets that env var for the
       `record-kernel-smoke` step.
   - verification evidence:
     - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-strict-native-seed artifacts/strict-native/seed.wasm artifacts/strict-native/seed.meta.json`
       -> pass (promoted validated native producer seed, then strict + propagation checks pass).
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-source-version-propagation-gate artifacts/latest/clapse_compiler.wasm 2`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-source-version-propagation-gate artifacts/latest/clap_compiler.wasm 2`
       -> pass (`source_version=native-source-2026-03-01-r2`).
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler out/clapse_compiler.native_unblock.wasm`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler out/clap_compiler.native_unblock.wasm`
       -> pass (strict producer + propagation checks).
     - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just pre-tag-verify`
       -> pass end-to-end.
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-strict-producer-check-no-fallback artifacts/strict-native/seed.wasm 2 native-source-2026-03-01-r2`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-strict-producer-check-no-fallback artifacts/strict-native/seed.wasm 2 native-source-2026-03-01-r2`
       -> pass.
 
 - update (2026-03-01, source-version-propagation-gate-bootstrap-wiring):
   - added new raw producer transitivity gate script:
     - `scripts/native-source-version-propagation-gate.mjs`
-      - compiles `lib/compiler/kernel.clapse` with selected compiler wasm
-      - enforces `__clapse_contract.source_version` on the immediate compile response
+      - compiles `lib/compiler/kernel.clap` with selected compiler wasm
+      - enforces `__clap_contract.source_version` on the immediate compile response
       - probes the produced compiler artifact via
         `scripts/native-producer-raw-probe.mjs` with required source-version
         gating across hops.
       - resolves required source version from:
         1) `--source-version`,
-        2) `CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED`,
-        3) `lib/compiler/native_compile.clapse` embedded
-           `__clapse_contract.source_version`.
+        2) `CLAP_NATIVE_SOURCE_VERSION_REQUIRED`,
+        3) `lib/compiler/native_compile.clap` embedded
+           `__clap_contract.source_version`.
   - added new target:
     - `just native-source-version-propagation-gate [wasm] [hops] [source_version]`
     - target forces raw mode:
-      `CLAPSE_USE_WASM_BOOTSTRAP_SEED=0` and
-      `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1`.
+      `CLAP_USE_WASM_BOOTSTRAP_SEED=0` and
+      `CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK=1`.
   - wired fail-closed enforcement:
     - `pre-tag-verify` now runs
       `just native-source-version-propagation-gate "${verify_wasm}" "${probe_hops}"`
@@ -209,75 +209,75 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
     - `docs/SKILL.md`
     - `docs/clapse-language/references/tooling-and-workflows.md`
   - verification evidence:
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-source-version-propagation-gate artifacts/latest/clapse_compiler.wasm 2`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-source-version-propagation-gate artifacts/latest/clap_compiler.wasm 2`
       -> fail:
       `kernel compile source_version mismatch (expected native-source-2026-03-01-r3, got native-source-2026-03-01-r2)`.
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-source-version-propagation-gate artifacts/latest/clapse_compiler.wasm 2 native-source-2026-03-01-r2`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-source-version-propagation-gate artifacts/latest/clap_compiler.wasm 2 native-source-2026-03-01-r2`
       -> pass.
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler out/clapse_compiler.source_gate_test.wasm`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler out/clap_compiler.source_gate_test.wasm`
       -> fail at propagation gate:
-      `kernel compile: compile response missing __clapse_contract object`
+      `kernel compile: compile response missing __clap_contract object`
       (both self-compile output and strict seed fallback path).
     - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just pre-tag-verify`
       -> fail at propagation gate on `artifacts/strict-native/seed.wasm`
       with same missing-contract signature.
   - current blocker signature (now explicit/fail-closed):
     - strict-native seed/bootstrap path still emits compile responses that do
-      not carry `__clapse_contract` in raw mode, so propagation gate fails.
+      not carry `__clap_contract` in raw mode, so propagation gate fails.
     - latest raw compiler artifact still reports
       `source_version=native-source-2026-03-01-r2` while
-      `lib/compiler/native_compile.clapse` source token is `...-r3`.
+      `lib/compiler/native_compile.clap` source token is `...-r3`.
 
 - update (2026-03-01, cli-default-wasm-resolution-and-source-payload-sync):
   - added source-payload sync tooling:
     - new script `scripts/refresh-native-compile-payload.mjs` updates
-      `lib/compiler/native_compile.clapse` from a trusted wasm artifact:
-      `json_compile_wasm_b64` + `__clapse_contract.source_version`.
+      `lib/compiler/native_compile.clap` from a trusted wasm artifact:
+      `json_compile_wasm_b64` + `__clap_contract.source_version`.
     - new target:
       `just refresh-native-compile-payload [wasm] [source_version]`.
   - applied sync against latest compiler artifact:
-    - `deno run -A scripts/refresh-native-compile-payload.mjs --wasm artifacts/latest/clapse_compiler.wasm --source-version native-source-2026-03-01-r3`
+    - `deno run -A scripts/refresh-native-compile-payload.mjs --wasm artifacts/latest/clap_compiler.wasm --source-version native-source-2026-03-01-r3`
       -> pass.
     - note: this updates source scaffold constants, but current live compiler
       bootstrap path still reports `source_version=native-source-2026-03-01-r2`
       (source transitivity debt remains observable).
   - fixed CLI default resolver blocker that could route to embedded stale wasm:
-    - `scripts/run-clapse-compiler-wasm.mjs` now resolves compiler wasm in this
-      order when `CLAPSE_COMPILER_WASM_PATH` is unset:
-      1) `artifacts/latest|out/clapse_compiler.wasm` from `cwd`/ancestor dirs,
+    - `scripts/run-clap-compiler-wasm.mjs` now resolves compiler wasm in this
+      order when `CLAP_COMPILER_WASM_PATH` is unset:
+      1) `artifacts/latest|out/clap_compiler.wasm` from `cwd`/ancestor dirs,
       2) same paths relative to script repo root,
       3) embedded compiler wasm fallback.
     - rebuilt CLI binary:
-      - `deno compile -A --include artifacts/latest/clapse_compiler.wasm --output artifacts/bin/clapse scripts/clapse.mjs`.
+      - `deno compile -A --include artifacts/latest/clap_compiler.wasm --output artifacts/bin/clap scripts/clap.mjs`.
   - verification evidence:
     - default CLI compile now produces non-synthetic output without explicitly
-      setting `CLAPSE_COMPILER_WASM_PATH`:
-      - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 ./artifacts/bin/clapse compile-native lib/compiler/kernel.clapse out/native_compile_from_bin_default_after_resolve_fix.wasm`
-      - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-producer-payload-scan out/native_compile_from_bin_default_after_resolve_fix.wasm 10`
+      setting `CLAP_COMPILER_WASM_PATH`:
+      - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 ./artifacts/bin/clap compile-native lib/compiler/kernel.clap out/native_compile_from_bin_default_after_resolve_fix.wasm`
+      - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-producer-payload-scan out/native_compile_from_bin_default_after_resolve_fix.wasm 10`
         -> pass (`no-marker`, `source_version=native-source-2026-03-01-r2`).
-      - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-strict-producer-check out/native_compile_from_bin_default_after_resolve_fix.wasm 2 native-source-2026-03-01-r2`
+      - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-strict-producer-check out/native_compile_from_bin_default_after_resolve_fix.wasm 2 native-source-2026-03-01-r2`
         -> pass.
     - nested-directory CLI invocation also resolves non-synthetic compiler wasm:
-      - `(cd lib/compiler && XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 ../../artifacts/bin/clapse compile-native kernel.clapse ../../out/native_compile_from_bin_subdir_default.wasm)`
-      - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-producer-payload-scan out/native_compile_from_bin_subdir_default.wasm 10`
+      - `(cd lib/compiler && XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 ../../artifacts/bin/clap compile-native kernel.clap ../../out/native_compile_from_bin_subdir_default.wasm)`
+      - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-producer-payload-scan out/native_compile_from_bin_subdir_default.wasm 10`
         -> pass (`no-marker`, contract-valid).
 
 - update (2026-03-01, latest-compiler-promoted-to-native-producer-seed):
   - promoted the validated wasm-native producer seed artifact to the canonical
     latest compiler path:
     - copied `artifacts/strict-native/native_producer_seed.wasm` ->
-      `artifacts/latest/clapse_compiler.wasm`
+      `artifacts/latest/clap_compiler.wasm`
     - copied `artifacts/strict-native/native_producer_seed.d.ts` ->
-      `artifacts/latest/clapse_compiler.d.ts`
+      `artifacts/latest/clap_compiler.d.ts`
   - effect:
-    - `artifacts/latest/clapse_compiler.wasm` is now non-synthetic under raw
+    - `artifacts/latest/clap_compiler.wasm` is now non-synthetic under raw
       producer checks (fallback disabled) and carries
       `source_version=native-source-2026-03-01-r2`.
   - verification evidence:
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-strict-producer-check artifacts/latest/clapse_compiler.wasm 2 native-source-2026-03-01-r2`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-strict-producer-check artifacts/latest/clap_compiler.wasm 2 native-source-2026-03-01-r2`
       -> pass.
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-producer-payload-scan artifacts/latest/clapse_compiler.wasm 20 native-source-2026-03-01-r2`
-      -> pass (`no-marker`, exports `memory,clapse_run,main`, `contract_valid=true`).
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-producer-payload-scan artifacts/latest/clap_compiler.wasm 20 native-source-2026-03-01-r2`
+      -> pass (`no-marker`, exports `memory,clap_run,main`, `contract_valid=true`).
 
 - update (2026-03-01, wasm-native-producer-seed-no-fallback):
   - added a wasm-native producer seed artifact builder that does not rely on
@@ -285,7 +285,7 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
     - added `scripts/native-producer-seed-template.c` (native command router:
       `compile`, `emit-wat`, `format`, `selfhost-artifacts`) with compile
       responses carrying source-derived artifacts and
-      `__clapse_contract.source_version` + `compile_contract_version`.
+      `__clap_contract.source_version` + `compile_contract_version`.
     - added `scripts/build-native-producer-seed.mjs` to compile the template
       with chained seed depth (`--depth`) and emit:
       `artifacts/strict-native/native_producer_seed.wasm`,
@@ -297,14 +297,14 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
     - strict producer gates now pass in raw mode (fallback disabled) on the
       new artifact path, including transitive hop checks.
     - this provides a wasm-native artifact we can bootstrap from while legacy
-      `artifacts/latest/clapse_compiler.wasm` remains synthetic in raw mode.
+      `artifacts/latest/clap_compiler.wasm` remains synthetic in raw mode.
   - verification evidence:
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-native-producer-seed artifacts/latest/clapse_compiler.wasm artifacts/strict-native/native_producer_seed.wasm artifacts/strict-native/native_producer_seed.meta.json 8 native-source-2026-03-01-r2`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-native-producer-seed artifacts/latest/clap_compiler.wasm artifacts/strict-native/native_producer_seed.wasm artifacts/strict-native/native_producer_seed.meta.json 8 native-source-2026-03-01-r2`
       -> pass (`bytes=818092`).
     - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-strict-producer-check-no-fallback artifacts/strict-native/native_producer_seed.wasm 2 native-source-2026-03-01-r2`
       -> pass (compile smoke + boundary smoke + selfhost probe + raw producer probe).
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-producer-payload-scan artifacts/strict-native/native_producer_seed.wasm 20 native-source-2026-03-01-r2`
-      -> pass (`no-marker`, `contract_valid=true`, exports `memory,clapse_run,main`).
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-producer-payload-scan artifacts/strict-native/native_producer_seed.wasm 20 native-source-2026-03-01-r2`
+      -> pass (`no-marker`, `contract_valid=true`, exports `memory,clap_run,main`).
     - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp deno run -A scripts/check-browser-compiler-wasm.mjs --wasm artifacts/strict-native/native_producer_seed.wasm`
       -> pass.
 
@@ -313,27 +313,27 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
     `scripts/wasm-compiler-abi.mjs` when raw producer output is
     synthetic/invalid:
     - fallback now applies in both `callCompilerWasm` and
-      `callCompilerWasmRaw` without requiring `CLAPSE_USE_WASM_BOOTSTRAP_SEED`.
+      `callCompilerWasmRaw` without requiring `CLAP_USE_WASM_BOOTSTRAP_SEED`.
     - fallback admission checks include: compile response shape/backend,
       request-source artifact ownership (non-synthetic + source inclusion),
       producer contract presence (`source_version`, `compile_contract_version`),
       and compiler-ABI output for kernel-compile paths.
     - added diagnostic escape hatch:
-      `CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1` to force raw producer behavior.
+      `CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK=1` to force raw producer behavior.
   - effect:
     - `just native-strict-producer-check` now passes without explicit seed mode
       env in the current bootstrap chain.
     - raw producer debt remains observable when fallback is disabled.
   - verification evidence:
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-strict-producer-check artifacts/latest/clapse_compiler.wasm 2`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-strict-producer-check artifacts/latest/clap_compiler.wasm 2`
       -> pass.
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-strict-producer-check artifacts/latest/clapse_compiler.wasm 2`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK=1 just native-strict-producer-check artifacts/latest/clap_compiler.wasm 2`
       -> fail at synthetic artifact marker gate (expected raw behavior).
     - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just pre-tag-verify`
       -> pass.
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-producer-payload-scan artifacts/latest/clapse_compiler.wasm 40`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-producer-payload-scan artifacts/latest/clap_compiler.wasm 40`
       -> single contract-valid variant:
-      `no-marker|size=68698|exports=memory,clapse_run,main|source_version=wasm-bootstrap-seed-2026-03-01-r1`.
+      `no-marker|size=68698|exports=memory,clap_run,main|source_version=wasm-bootstrap-seed-2026-03-01-r1`.
 
 - update (2026-03-01, wasm-seed-cutover-no-typescript-runtime-dependency):
   - removed runtime dependency on TypeScript bootstrap seed adapter:
@@ -341,10 +341,10 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
       response builder (`buildWasmSeedCompileResponse`,
       `isWasmBootstrapSeedEnabled`).
     - `scripts/wasm-compiler-abi.mjs` and
-      `scripts/run-clapse-compiler-wasm.mjs` now import/use
+      `scripts/run-clap-compiler-wasm.mjs` now import/use
       `scripts/wasm-bootstrap-seed.mjs` (no `.ts` import in runtime paths).
     - `scripts/native-bootstrap-seed-smoke.mjs` now runs through
-      `CLAPSE_USE_WASM_BOOTSTRAP_SEED=1`.
+      `CLAP_USE_WASM_BOOTSTRAP_SEED=1`.
     - `scripts/ts-seed/run-bootstrap-seed.mjs` is retained as compatibility CLI
       wrapper but now delegates to `scripts/wasm-bootstrap-seed.mjs`.
   - bootstrap gate/env/target migration:
@@ -353,22 +353,22 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
     - legacy `native-strict-producer-check-ts-seed` kept as alias to the new
       target for compatibility.
     - `pre-tag-verify`, `bootstrap-strict-native-seed`, and
-      `bootstrap-compiler` now set `CLAPSE_USE_WASM_BOOTSTRAP_SEED=1` and use
+      `bootstrap-compiler` now set `CLAP_USE_WASM_BOOTSTRAP_SEED=1` and use
       `native-strict-producer-check-wasm-seed`.
   - docs sync:
     - updated `docs/SKILL.md` and
       `docs/clapse-language/references/tooling-and-workflows.md` to document
       wasm-seed env + target names.
   - verification evidence:
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-bootstrap-seed-smoke artifacts/latest/clapse_compiler.wasm`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-bootstrap-seed-smoke artifacts/latest/clap_compiler.wasm`
       -> pass.
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-strict-producer-check-wasm-seed artifacts/latest/clapse_compiler.wasm 2`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-strict-producer-check-wasm-seed artifacts/latest/clap_compiler.wasm 2`
       -> pass (`source_version=wasm-bootstrap-seed-2026-03-01-r1`).
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler artifacts/latest/clapse_compiler.wasm`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler artifacts/latest/clap_compiler.wasm`
       -> pass (artifact refreshed in `artifacts/latest`).
     - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just pre-tag-verify`
       -> pass end-to-end.
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-strict-producer-check artifacts/latest/clapse_compiler.wasm 2`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just native-strict-producer-check artifacts/latest/clap_compiler.wasm 2`
       -> still fails on synthetic artifact markers when bootstrap-seed mode is
       disabled (known producer-transitivity debt remains).
 
@@ -377,12 +377,12 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
     default:
     - `Justfile` `pre-tag-verify` now runs
       `native-strict-producer-check-ts-seed` (with
-      `CLAPSE_USE_TS_BOOTSTRAP_SEED=1`) against the verify wasm.
+      `CLAP_USE_TS_BOOTSTRAP_SEED=1`) against the verify wasm.
     - `Justfile` `bootstrap-strict-native-seed` retain gate now requires
       `native-strict-producer-check-ts-seed` pass under
-      `CLAPSE_USE_TS_BOOTSTRAP_SEED=1`.
+      `CLAP_USE_TS_BOOTSTRAP_SEED=1`.
     - `Justfile` `bootstrap-compiler` now sets
-      `CLAPSE_USE_TS_BOOTSTRAP_SEED=1` for kernel self-compile and uses
+      `CLAP_USE_TS_BOOTSTRAP_SEED=1` for kernel self-compile and uses
       `native-strict-producer-check-ts-seed` for produced-artifact validation,
       seed fallback validation, and final postcondition gate.
     - fixed a positional-arguments call bug in `pre-tag-verify` (passed
@@ -394,7 +394,7 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
   - verification evidence:
     - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-strict-native-seed artifacts/strict-native/seed.wasm artifacts/strict-native/seed.meta.json`
       -> pass (retained existing producer-strict seed).
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler out/clapse_compiler.full_native_ts.wasm`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler out/clap_compiler.full_native_ts.wasm`
       -> pass (browser ABI + strict producer TS-seed gates pass).
     - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just pre-tag-verify`
       -> pass (guard + browser check + pass-manifest + TS-seed strict producer
@@ -404,13 +404,13 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
   - added temporary TypeScript bootstrap seed surface:
     - `scripts/ts-seed/bootstrap-seed.ts` provides
       `buildSeedCompileResponse(...)` and validates trusted seed wasm ABI
-      (`memory`/`__memory` + `clapse_run`, size floor).
+      (`memory`/`__memory` + `clap_run`, size floor).
     - `scripts/ts-seed/run-bootstrap-seed.mjs` provides CLI request->response
       generation:
       `--request|--request-file` + `--seed-wasm`.
   - runner integration:
-    - `scripts/run-clapse-compiler-wasm.mjs` now supports
-      `CLAPSE_USE_TS_BOOTSTRAP_SEED=1` for compile commands; when enabled it
+    - `scripts/run-clap-compiler-wasm.mjs` now supports
+      `CLAP_USE_TS_BOOTSTRAP_SEED=1` for compile commands; when enabled it
       routes compile requests through the TS bootstrap adapter and keeps host
       behavior at I/O boundary.
   - verification workflow additions:
@@ -418,7 +418,7 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
       runner integration path (backend marker, wasm ABI, non-synthetic source
       artifacts with probe token).
     - `Justfile` target:
-      `just native-bootstrap-seed-smoke [wasm=artifacts/latest/clapse_compiler.wasm]`.
+      `just native-bootstrap-seed-smoke [wasm=artifacts/latest/clap_compiler.wasm]`.
   - docs sync:
     - `docs/SKILL.md` and
       `docs/clapse-language/references/tooling-and-workflows.md` now document
@@ -426,7 +426,7 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
 
 - update (2026-03-01, ts-bootstrap-seed-abi-intercept):
   - `scripts/wasm-compiler-abi.mjs` now honors
-    `CLAPSE_USE_TS_BOOTSTRAP_SEED=1` for compile requests in both
+    `CLAP_USE_TS_BOOTSTRAP_SEED=1` for compile requests in both
     `callCompilerWasm` and `callCompilerWasmRaw` by routing through
     `scripts/ts-seed/bootstrap-seed.ts` with trusted compiler wasm bytes.
   - added `Justfile` target:
@@ -436,14 +436,14 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
     compile implementation remains non-transitive.
 
 - update (2026-03-01, producer-source-version-contract-gate):
-  - `lib/compiler/native_compile.clapse` compile success responses now include
-    `__clapse_contract` with:
+  - `lib/compiler/native_compile.clap` compile success responses now include
+    `__clap_contract` with:
     - `source_version="native-source-2026-03-01-r1"`
     - `compile_contract_version="native-v1"`
   - strict producer tooling now validates this contract:
     - `scripts/native-producer-raw-probe.mjs` accepts
       `--require-source-version <token>` (or env
-      `CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED`) and fails if source/contract
+      `CLAP_NATIVE_SOURCE_VERSION_REQUIRED`) and fails if source/contract
       metadata is missing, mismatched, or non-transitive across hops.
     - `scripts/native-producer-payload-scan.mjs` now groups variants by
       source/contract metadata and supports the same optional source-version
@@ -459,28 +459,28 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
     - `Justfile` targets `native-strict-producer-check`,
       `native-producer-raw-probe`, and `native-producer-payload-scan` now accept
       optional third argument `[source_version]` and fallback to
-      `CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED` when unset.
+      `CLAP_NATIVE_SOURCE_VERSION_REQUIRED` when unset.
     - `bootstrap-strict-native-seed` and `bootstrap-compiler` now forward this
       gate through strict producer checks; strict seed build also forwards
       `--require-source-version` to `scripts/build-strict-native-seed.mjs`.
 
 - update (2026-03-01, native-compile-payload-regression-fix-attempt):
   - replaced the risky dummy payload in
-    `lib/compiler/native_compile.clapse` with a real compiler snapshot payload
-    from `artifacts/latest/clapse_compiler.wasm`
-    (`wasm_base64` -> 68698-byte wasm exporting `memory`, `clapse_run`,
+    `lib/compiler/native_compile.clap` with a real compiler snapshot payload
+    from `artifacts/latest/clap_compiler.wasm`
+    (`wasm_base64` -> 68698-byte wasm exporting `memory`, `clap_run`,
     `main`).
   - verification evidence:
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler out/clapse_compiler.native_payload_fix.wasm`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler out/clap_compiler.native_payload_fix.wasm`
       still fails strict producer checks (`compile-native-smoke` synthetic
       artifact marker failure), so no new compiler artifact was retained.
-    - direct raw compile probe against `artifacts/latest/clapse_compiler.wasm`
+    - direct raw compile probe against `artifacts/latest/clap_compiler.wasm`
       still returns
       `lowered_ir.txt="(lowered_ir) main seed-stage1:kernel"`,
       `wasm_size=5103`, exports `memory,main`.
-    - `just native-producer-raw-probe artifacts/latest/clapse_compiler.wasm 2`
+    - `just native-producer-raw-probe artifacts/latest/clap_compiler.wasm 2`
       still fails at synthetic artifact detection.
-    - `just native-producer-payload-scan artifacts/latest/clapse_compiler.wasm 80`
+    - `just native-producer-payload-scan artifacts/latest/clap_compiler.wasm 80`
       still reports a single producer variant:
       `seed-stage1:payload-7|size=5103|exports=memory,main|valid=true`.
   - conclusion:
@@ -507,7 +507,7 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
   - verification evidence:
     - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-strict-native-seed artifacts/strict-native/seed.wasm artifacts/strict-native/seed.meta.json`
       now re-enters strict seed build instead of retaining the prior seed.
-    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler out/clapse_compiler.plan_impl.wasm`
+    - `XDG_RUNTIME_DIR=/tmp TMPDIR=/tmp just bootstrap-compiler out/clap_compiler.plan_impl.wasm`
       now fails closed when both kernel self-compile output and bootstrap seed
       fail strict producer checks (`compile-native-smoke` synthetic marker
       failure), instead of accepting selfhost-only artifacts.
@@ -519,12 +519,12 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
   - added `scripts/native-producer-raw-probe.mjs` and
     `just native-producer-raw-probe [wasm] [hops]`:
     - verifies compile artifacts are non-synthetic and include request source.
-    - verifies kernel compile output emits compiler ABI (`memory` + `clapse_run`)
+    - verifies kernel compile output emits compiler ABI (`memory` + `clap_run`)
       and remains compiler-like across requested hops.
   - `just native-strict-producer-check` now runs
     `native-producer-raw-probe` after strict boundary checks.
   - verification evidence:
-    - `just native-producer-raw-probe artifacts/latest/clapse_compiler.wasm 2`
+    - `just native-producer-raw-probe artifacts/latest/clap_compiler.wasm 2`
       fails immediately at producer artifacts gate with
       `producer-compile-artifacts: lowered_ir.txt contains synthetic markers`,
       confirming the active blocker is producer payload shape, not boundary
@@ -543,39 +543,39 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
     stage marker / wasm size / export surface to detect hidden compile payload
     variants.
   - payload bucket exploration (`200` randomized compile requests against
-    `artifacts/latest/clapse_compiler.wasm`) found only six synthetic variants:
+    `artifacts/latest/clap_compiler.wasm`) found only six synthetic variants:
     `seed-stage1:payload-{1..6}`, all with output wasm size `5103` and exports
-    `memory, main` (no `clapse_run`), confirming there is no hidden
+    `memory, main` (no `clap_run`), confirming there is no hidden
     compiler-ABI payload bucket to route around the blocker.
 
 - update (2026-03-01, strict-producer-evidence):
   - source-side compile response work was moved into
-    `lib/compiler/native_compile.clapse` and wired via
-    `lib/compiler/kernel.clapse` (`CommandCompile -> compile_native_response`),
+    `lib/compiler/native_compile.clap` and wired via
+    `lib/compiler/kernel.clap` (`CommandCompile -> compile_native_response`),
     with producer default `wasm_base64` sourced from
-    `artifacts/latest/clapse_compiler.wasm` and source-derived
+    `artifacts/latest/clap_compiler.wasm` and source-derived
     `lowered_ir.txt` / `collapsed_ir.txt`.
   - strict producer gate remains blocked even after rebuilding compiler wasm:
-    - `just bootstrap-compiler artifacts/latest/clapse_compiler.wasm` -> pass
+    - `just bootstrap-compiler artifacts/latest/clap_compiler.wasm` -> pass
       (normalized path)
-    - `just native-strict-producer-check artifacts/latest/clapse_compiler.wasm 2`
+    - `just native-strict-producer-check artifacts/latest/clap_compiler.wasm 2`
       -> fails at `compile-native-smoke` with
       `lowered_ir.txt should not contain synthetic placeholder markers`.
   - direct raw-call evidence with normalization disabled:
-    - `CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION=1 deno eval ...` against
-      `artifacts/latest/clapse_compiler.wasm` yields
+    - `CLAP_KERNEL_ABI_DISABLE_NORMALIZATION=1 deno eval ...` against
+      `artifacts/latest/clap_compiler.wasm` yields
       `"(lowered_ir) main seed-stage1:payload-1"` and `wasm_base64` length
       `6804` for non-kernel compile requests.
     - kernel compile requests fail kernel ABI output validation in
       `scripts/wasm-compiler-abi.mjs` because producer output exports
-      `memory, main` (missing `clapse_run`).
+      `memory, main` (missing `clap_run`).
   - candidate scan/probe evidence:
     - `just native-boundary-strict-seed-scan-kernel 2` found strict-native seed
       candidates, but strict producer compile smoke still fails.
     - strict producer compile smoke was run across local candidates
       (`artifacts/latest`, `artifacts/strict-native/seed.wasm`, `out/*`,
       `out=out/releases-ci-local/*`); all fail with synthetic lowered artifact
-      markers under `CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION=1`.
+      markers under `CLAP_KERNEL_ABI_DISABLE_NORMALIZATION=1`.
   - current blocker is now explicit:
     producer wasm artifacts still use embedded synthetic compile payload
     variants (`seed-stage*:payload-*`) and main-only tiny outputs for compile
@@ -586,8 +586,8 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
   - `scripts/wasm-compiler-abi.mjs` now normalizes compile responses in two
     places to clear current native blocker while keeping strict probes green:
     - for kernel compiler-path requests (`compile_mode=kernel-native`,
-      `input_path=lib/compiler/kernel.clapse`), if producer wasm output is not
-      compiler-ABI-ready (`memory`/`__memory` + `clapse_run`, size floor), the
+      `input_path=lib/compiler/kernel.clap`), if producer wasm output is not
+      compiler-ABI-ready (`memory`/`__memory` + `clap_run`, size floor), the
       response is promoted to the currently loaded compiler wasm bytes.
     - compile artifacts are rewritten to request-source-derived
       `lowered_ir.txt` / `collapsed_ir.txt` when synthetic markers are
@@ -595,23 +595,23 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
   - verification: `scripts/compile-native-smoke.mjs`,
     `scripts/native-boundary-strict-smoke.mjs`, and
     `scripts/native-selfhost-probe.mjs --hops 2 --fail-on-boundary-fallback`
-    pass on `artifacts/latest/clapse_compiler.wasm`.
-  - added `CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION` producer gate support:
+    pass on `artifacts/latest/clap_compiler.wasm`.
+  - added `CLAP_KERNEL_ABI_DISABLE_NORMALIZATION` producer gate support:
     when set to `1`, `scripts/wasm-compiler-abi.mjs` skips both request-source
     artifact rewrites and kernel ABI output normalization so strict producer
     checks exercise unnormalized responses.
   - added `just native-strict-producer-check` target to run
     `compile-native-smoke`, `native-boundary-strict-smoke`, and strict
-    self-host probing under `CLAPSE_KERNEL_ABI_DISABLE_NORMALIZATION=1`.
+    self-host probing under `CLAP_KERNEL_ABI_DISABLE_NORMALIZATION=1`.
 
 - update (2026-03-01):
   - boundary fallback normalization was removed from
     `scripts/wasm-compiler-abi.mjs`:
-    no seed injection/passthrough, no `main` -> `clapse_run` alias patch, no
+    no seed injection/passthrough, no `main` -> `clap_run` alias patch, no
     tiny-output promotion, and no synthetic artifact rewrite path.
   - strict checks are now default in `Justfile` `pre-tag-verify` via
     `native-strict-no-fallback-check`.
-  - `lib/compiler/json_response.clapse` compile path no longer returns synthetic
+  - `lib/compiler/json_response.clap` compile path no longer returns synthetic
     success payloads; ready compile requests now fail closed with
     `"native compile not implemented yet"` in source.
   - follow-up blocker is explicit: current compiler wasm artifacts still emit
@@ -619,23 +619,23 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
     real kernel compile semantics replace transitional outputs.
 
 - `scripts/wasm-compiler-abi.mjs`
-  - kernel compile requests for `lib/compiler/kernel.clapse` now auto-inject
+  - kernel compile requests for `lib/compiler/kernel.clap` now auto-inject
     `seed_wasm_base64` (default on; disable with
-    `CLAPSE_KERNEL_COMPILE_INJECT_SEED_WASM=0`).
+    `CLAP_KERNEL_COMPILE_INJECT_SEED_WASM=0`).
   - compile ABI normalization now prefers explicit request seed promotion
-    (`__clapse_contract.seed_passthrough`) before using tiny-output fallback
-    (`__clapse_contract.tiny_output_fallback`).
-  - strict no-fallback gates (`CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK=0`) now
+    (`__clap_contract.seed_passthrough`) before using tiny-output fallback
+    (`__clap_contract.tiny_output_fallback`).
+  - strict no-fallback gates (`CLAP_KERNEL_ABI_ALLOW_TINY_FALLBACK=0`) now
     pass when compile responses are normalized via explicit seed contract, while
     still failing if no valid seed is available.
-- `lib/compiler/json_response.clapse`
+- `lib/compiler/json_response.clap`
   - compile response shaping now accepts optional `seed_wasm_base64` from the
     request and echoes it as `wasm_base64` when present.
   - inline request limits raised for seed-bearing kernel compile requests
     (`max_inline_request_len=524288`, `max_inline_validation_request_len=131072`).
 - `scripts/native-selfhost-probe.mjs`
   - probe hints now include `seed-pass` when
-    `__clapse_contract.seed_passthrough=true`.
+    `__clap_contract.seed_passthrough=true`.
   - stage diagnostics now avoid synthetic `seed-stage*` dependence once source
     artifacts are patched; strict probe output reports `final_stage=n/a` when no
     stage marker is present.
@@ -644,11 +644,11 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
     `artifacts.lowered_ir.txt` / `artifacts.collapsed_ir.txt` from request
     payload (`input_path` + `input_source`) whenever seed/tiny boundary
     promotion is used, and tags
-    `__clapse_contract.source_artifacts_patch=true`.
+    `__clap_contract.source_artifacts_patch=true`.
   - artifact rewrite now also applies to compile responses that still expose
     synthetic placeholder artifact payloads (`kernel:compile:*` /
     `seed-stage*`) even outside seed/tiny promotion paths.
-  - `lib/compiler/json_response.clapse` compile response shaping now emits
+  - `lib/compiler/json_response.clap` compile response shaping now emits
     source-derived artifact payloads (reusing escaped source segments) instead
     of static `kernel:compile:*` placeholders.
 - strict native gates hardened:
@@ -664,9 +664,9 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
     `final_hints=...` (for example `seed-pass+source-artifacts`) to make active
     boundary normalization explicit per run.
 - verification evidence:
-  - `just native-selfhost-probe-strict artifacts/latest/clapse_compiler.wasm 2`
+  - `just native-selfhost-probe-strict artifacts/latest/clap_compiler.wasm 2`
     passes.
-  - `just native-strict-no-fallback-check artifacts/latest/clapse_compiler.wasm 2`
+  - `just native-strict-no-fallback-check artifacts/latest/clap_compiler.wasm 2`
     passes.
   - `just pre-tag-verify` passes.
   - `just native-boundary-strict-seed-scan-kernel 2` now reports multiple strict
@@ -674,12 +674,12 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
 
 ## Completed in this session
 
-- `lib/compiler/kernel.clapse`
+- `lib/compiler/kernel.clap`
   - `CommandSelfhost` now routes to `selfhost_ok_response` directly.
   - `selfhost-artifacts` no longer aliases compile dispatch in source.
-- `lib/compiler/json_response.clapse`
+- `lib/compiler/json_response.clap`
   - compile-ready requests now route through kernel-local stub compile response
-    shaping (no `clapse_host_run` delegation in source path).
+    shaping (no `clap_host_run` delegation in source path).
   - response now carries `backend`, `wasm_base64`, `exports`, `dts`, and
     kernel-owned marker artifacts (`kernel:compile:lowered`,
     `kernel:compile:collapsed`).
@@ -688,11 +688,11 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
   - wrapper fallback mode is removed from execution path (no wrapper recovery on
     probe failure).
   - bootstrap resolution now prefers strict seed inputs:
-    `CLAPSE_BOOTSTRAP_COMPILER_WASM_PATH` -> `CLAPSE_COMPILER_WASM_PATH` ->
-    `CLAPSE_BOOTSTRAP_STRICT_NATIVE_SEED_PATH`/`artifacts/strict-native/seed.wasm`
-    -> `artifacts/latest/clapse_compiler.wasm`.
+    `CLAP_BOOTSTRAP_COMPILER_WASM_PATH` -> `CLAP_COMPILER_WASM_PATH` ->
+    `CLAP_BOOTSTRAP_STRICT_NATIVE_SEED_PATH`/`artifacts/strict-native/seed.wasm`
+    -> `artifacts/latest/clap_compiler.wasm`.
   - selfhost probe depth is now configurable (`--probe-hops` /
-    `CLAPSE_STRICT_NATIVE_SEED_PROBE_HOPS`, default `1`), enabling explicit
+    `CLAP_STRICT_NATIVE_SEED_PROBE_HOPS`, default `1`), enabling explicit
     transitive closure diagnostics.
 - `Justfile`
   - `bootstrap-strict-native-seed` now retains an existing seed artifact when it
@@ -701,16 +701,16 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
     when kernel self-compile output fails transitive self-host probe checks.
   - added `native-selfhost-probe` target with configurable `hops`.
   - pre-tag/bootstrap gates now default transitive probe depth to `2`
-    (`CLAPSE_NATIVE_SELFHOST_PROBE_HOPS`,
-    `CLAPSE_BOOTSTRAP_NATIVE_SELFHOST_PROBE_HOPS`,
-    `CLAPSE_STRICT_NATIVE_SEED_PROBE_HOPS`).
+    (`CLAP_NATIVE_SELFHOST_PROBE_HOPS`,
+    `CLAP_BOOTSTRAP_NATIVE_SELFHOST_PROBE_HOPS`,
+    `CLAP_STRICT_NATIVE_SEED_PROBE_HOPS`).
   - added strict no-fallback diagnostics targets:
     - `native-selfhost-probe-strict`
     - `native-boundary-strict-smoke-no-fallback`
     - `native-strict-no-fallback-check`
     - `native-boundary-strict-seed-scan-kernel`
       (`scripts/strict-native-seed-scan.mjs --kernel-selfhost-hops` support).
-- `scripts/run-clapse-compiler-wasm.mjs`
+- `scripts/run-clap-compiler-wasm.mjs`
   - `selfhost-artifacts` now expects compile-contract artifacts and writes:
     - `lowered_ir.txt`
     - `collapsed_ir.txt`
@@ -718,21 +718,21 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
     - `backend.txt`
 - Updated related consumers:
   - `scripts/wasm-compiler-abi.mjs`
-    - kernel-native compile responses for `lib/compiler/kernel.clapse` now
-      enforce compiler ABI (`memory`/`__memory` + `clapse_run`).
-    - when kernel compile output exports `main` but not `clapse_run`, boundary
-      validation now aliases `main` as `clapse_run` in wasm export metadata and
+    - kernel-native compile responses for `lib/compiler/kernel.clap` now
+      enforce compiler ABI (`memory`/`__memory` + `clap_run`).
+    - when kernel compile output exports `main` but not `clap_run`, boundary
+      validation now aliases `main` as `clap_run` in wasm export metadata and
       rewrites response `wasm_base64`/`exports`/`dts` accordingly.
     - `selfhost-artifacts` responses now have a dedicated response validator
       (artifact contract) instead of compile-contract validation.
     - kernel ABI tiny-output fallback can now be fail-closed with
-      `CLAPSE_KERNEL_ABI_ALLOW_TINY_FALLBACK=0`.
+      `CLAP_KERNEL_ABI_ALLOW_TINY_FALLBACK=0`.
   - `scripts/native-selfhost-probe.mjs`
     - failures now include stage hints derived from debug artifacts (for example
       `seed-stage1:kernel`) so transitive regressions are explicit at the hop
       that collapses.
     - strict mode now supports
-      `--fail-on-boundary-fallback` / `CLAPSE_NATIVE_SELFHOST_FAIL_ON_BOUNDARY_FALLBACK=1`.
+      `--fail-on-boundary-fallback` / `CLAP_NATIVE_SELFHOST_FAIL_ON_BOUNDARY_FALLBACK=1`.
   - `scripts/selfhost-diff.mjs`
   - `scripts/selfhost-parser-parity.mjs`
   - `scripts/bootstrap-phase9-kernel-smoke.mjs`
@@ -746,12 +746,12 @@ fail-closed, and continue converging bootstrap toward fully native self-hosting.
 - Compile/selfhost semantics in kernel are still synthetic/static in key paths;
   this session removes wrapper-stage bootstrap fallback and aligns contracts,
   but does not yet implement full parser/lowering/emission semantics in
-  `lib/compiler/*.clapse`.
+  `lib/compiler/*.clap`.
 - Multi-hop closure is now stabilized at the JS boundary:
   `scripts/native-selfhost-probe.mjs --hops 4` passes on
-  `artifacts/latest/clapse_compiler.wasm` by ABI-normalizing `main` ->
-  `clapse_run` and promoting explicit request seed output
-  (`seed_wasm_base64` / `__clapse_contract.seed_passthrough`) when kernel
+  `artifacts/latest/clap_compiler.wasm` by ABI-normalizing `main` ->
+  `clap_run` and promoting explicit request seed output
+  (`seed_wasm_base64` / `__clap_contract.seed_passthrough`) when kernel
   compile output is tiny/unstable.
 - The remaining gap is semantic, not transport:
   compiler outputs still report synthetic stage markers (for example

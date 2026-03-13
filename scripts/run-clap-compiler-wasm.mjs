@@ -3,7 +3,7 @@
 import { cliArgs, failWithError } from "./runtime-env.mjs";
 import { runLspServer } from "./lsp-wasm.mjs";
 import {
-  appendClapseFuncMap,
+  appendClapFuncMap,
   callCompilerWasm,
   decodeWasmBase64,
   validateCompilerWasmAbi,
@@ -14,7 +14,7 @@ import {
 } from "./wasm-bootstrap-seed.mjs";
 
 const REPO_ROOT_URL = new URL("../", import.meta.url);
-const PROJECT_CONFIG_FILE = "clapse.json";
+const PROJECT_CONFIG_FILE = "clap.json";
 
 function toPath(url) {
   return decodeURIComponent(url.pathname);
@@ -123,7 +123,7 @@ function normalizePluginDirs(value, configDir) {
   return normalizeSearchDirs(value, configDir);
 }
 
-function parseClapseProjectConfig(rawText, configDir) {
+function parseClapProjectConfig(rawText, configDir) {
   if (typeof rawText !== "string" || rawText.length === 0) {
     return { moduleSearchDirs: [], pluginDirs: [] };
   }
@@ -142,7 +142,7 @@ function parseClapseProjectConfig(rawText, configDir) {
   };
 }
 
-async function readClapseProjectConfig(startPath = "") {
+async function readClapProjectConfig(startPath = "") {
   const start = normalizePath(startPath || Deno.cwd());
   let dir = pathDir(start);
   if (dir.length === 0 || !start.includes("/")) {
@@ -162,7 +162,7 @@ async function readClapseProjectConfig(startPath = "") {
     const configPath = joinPath(candidate, PROJECT_CONFIG_FILE);
     try {
       const rawText = await Deno.readTextFile(configPath);
-      const parsed = parseClapseProjectConfig(rawText, candidate);
+      const parsed = parseClapProjectConfig(rawText, candidate);
       return {
         moduleSearchDirs: parsed.moduleSearchDirs,
         pluginDirs: parsed.pluginDirs,
@@ -179,7 +179,7 @@ async function readClapseProjectConfig(startPath = "") {
   return { moduleSearchDirs: [], pluginDirs: [] };
 }
 
-async function collectClapseFilesRecursively(
+async function collectClapFilesRecursively(
   rootDir,
   out = [],
   seen = new Set(),
@@ -201,10 +201,10 @@ async function collectClapseFilesRecursively(
   for (const entry of entries) {
     const child = `${normalized}/${entry.name}`;
     if (entry.isDirectory) {
-      await collectClapseFilesRecursively(child, out, seen);
+      await collectClapFilesRecursively(child, out, seen);
       continue;
     }
-    if (entry.isFile && child.endsWith(".clapse")) {
+    if (entry.isFile && child.endsWith(".clap")) {
       out.push(child);
     }
   }
@@ -1331,7 +1331,7 @@ async function resolveModuleImport(moduleName, moduleSearchDirs) {
   for (const dir of moduleSearchDirs) {
     const normalizedDir = normalizePath(dir);
     for (const candidateName of moduleNames) {
-      const moduleSuffix = `${candidateName}.clapse`;
+      const moduleSuffix = `${candidateName}.clap`;
       const candidate = toAbsolutePath(
         normalizePath(`${normalizedDir}/${moduleSuffix}`),
       );
@@ -1362,27 +1362,27 @@ async function resolveQuotedImportSpecifier(
     seen.add(normalized);
     candidates.push(normalized);
   };
-  const addMaybeClapseCandidate = (path) => {
+  const addMaybeClapCandidate = (path) => {
     addCandidate(path);
-    if (!String(path).endsWith(".clapse")) {
-      addCandidate(`${path}.clapse`);
+    if (!String(path).endsWith(".clap")) {
+      addCandidate(`${path}.clap`);
     }
   };
 
   if (spec.startsWith("./") || spec.startsWith("../") || spec.startsWith("/")) {
     const baseDir = pathDir(currentSourcePath);
     if (spec.startsWith("/")) {
-      addMaybeClapseCandidate(spec);
+      addMaybeClapCandidate(spec);
     } else {
-      addMaybeClapseCandidate(joinPath(baseDir, spec));
+      addMaybeClapCandidate(joinPath(baseDir, spec));
     }
   } else if (Array.isArray(moduleSearchDirs) && moduleSearchDirs.length > 0) {
     for (const dir of moduleSearchDirs) {
       const normalizedDir = normalizePath(dir);
-      addMaybeClapseCandidate(`${normalizedDir}/${spec}`);
+      addMaybeClapCandidate(`${normalizedDir}/${spec}`);
       const specAsPath = spec.replace(/\./gu, "/");
       if (specAsPath !== spec) {
-        addMaybeClapseCandidate(`${normalizedDir}/${specAsPath}`);
+        addMaybeClapCandidate(`${normalizedDir}/${specAsPath}`);
       }
     }
   }
@@ -1392,7 +1392,7 @@ async function resolveQuotedImportSpecifier(
       "compiler/prelude",
     ]);
     if (preludeAliases.has(spec)) {
-      addCandidate(toPath(new URL("lib/compiler/prelude.clapse", REPO_ROOT_URL)));
+      addCandidate(toPath(new URL("lib/compiler/prelude.clap", REPO_ROOT_URL)));
     }
   }
 
@@ -1425,8 +1425,8 @@ function parseModuleSourceInfo(sourceText, sourcePath) {
   const source = String(sourceText);
   const lines = source.split(/\r?\n/);
   const sourceBase = sourcePath.split("/").pop() ?? "";
-  let moduleName = sourceBase.endsWith(".clapse")
-    ? sourceBase.slice(0, sourceBase.length - ".clapse".length)
+  let moduleName = sourceBase.endsWith(".clap")
+    ? sourceBase.slice(0, sourceBase.length - ".clap".length)
     : sourceBase;
   const importEntries = [];
   const exportNames = [];
@@ -1696,7 +1696,7 @@ export async function buildDemandDrivenCompileInput(
   options = {},
 ) {
   const projectConfig = options.projectConfig ??
-    await readClapseProjectConfig(entryPath);
+    await readClapProjectConfig(entryPath);
   const moduleSearchDirs = Array.isArray(projectConfig.moduleSearchDirs)
     ? projectConfig.moduleSearchDirs
     : [];
@@ -2276,7 +2276,7 @@ function assertNoKnownUnsupportedDemandDrivenPreludeHelpers(
 
 async function compilePluginsWasm(wasmPath, inputPath, options = {}) {
   const projectConfig = options.projectConfig ??
-    await readClapseProjectConfig(inputPath);
+    await readClapProjectConfig(inputPath);
   const { pluginDirs } = projectConfig;
   if (pluginDirs.length === 0) {
     return [];
@@ -2287,14 +2287,14 @@ async function compilePluginsWasm(wasmPath, inputPath, options = {}) {
   const pluginSources = [];
   const seen = new Set();
   for (const pluginDir of pluginDirs) {
-    await collectClapseFilesRecursively(pluginDir, pluginSources, seen);
+    await collectClapFilesRecursively(pluginDir, pluginSources, seen);
   }
   const uniqueSources = [...new Set(pluginSources)]
     .sort((a, b) => a.localeCompare(b, "en"));
   const pluginWasmPaths = [];
   for (const sourcePath of uniqueSources) {
-    const outputPath = sourcePath.endsWith(".clapse")
-      ? sourcePath.replace(/\.clapse$/u, ".wasm")
+    const outputPath = sourcePath.endsWith(".clap")
+      ? sourcePath.replace(/\.clap$/u, ".wasm")
       : `${sourcePath}.wasm`;
     const overrideSource = sourceOverrides.get(toAbsolutePath(sourcePath));
     await compileViaWasm(wasmPath, sourcePath, outputPath, {
@@ -2318,15 +2318,15 @@ async function fileExists(path) {
 
 async function materializeEmbeddedCompilerWasm() {
   const embeddedCandidates = [
-    new URL("../artifacts/latest/clapse_compiler.wasm", import.meta.url),
-    new URL("../out/clapse_compiler.wasm", import.meta.url),
+    new URL("../artifacts/latest/clap_compiler.wasm", import.meta.url),
+    new URL("../out/clap_compiler.wasm", import.meta.url),
   ];
   for (const candidateUrl of embeddedCandidates) {
     try {
       const wasmBytes = await Deno.readFile(candidateUrl);
       if (wasmBytes.length === 0) continue;
       const tmpPath = await Deno.makeTempFile({
-        prefix: "clapse-embedded-compiler-",
+        prefix: "clap-embedded-compiler-",
         suffix: ".wasm",
       });
       await Deno.writeFile(tmpPath, wasmBytes);
@@ -2347,8 +2347,8 @@ function collectCompilerWasmCandidatesFromCwd() {
   }
   while (dir.length > 0 && !seenDirs.has(dir)) {
     seenDirs.add(dir);
-    candidates.push(joinPath(dir, "artifacts/latest/clapse_compiler.wasm"));
-    candidates.push(joinPath(dir, "out/clapse_compiler.wasm"));
+    candidates.push(joinPath(dir, "artifacts/latest/clap_compiler.wasm"));
+    candidates.push(joinPath(dir, "out/clap_compiler.wasm"));
     const parent = pathDir(dir);
     if (parent === dir || parent.length === 0) {
       break;
@@ -2359,14 +2359,14 @@ function collectCompilerWasmCandidatesFromCwd() {
 }
 
 async function resolveCompilerWasmPath() {
-  const fromEnv = Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "";
+  const fromEnv = Deno.env.get("CLAP_COMPILER_WASM_PATH") ?? "";
   if (fromEnv.length > 0) {
     return fromEnv;
   }
   const candidates = [
     ...collectCompilerWasmCandidatesFromCwd(),
-    toPath(new URL("artifacts/latest/clapse_compiler.wasm", REPO_ROOT_URL)),
-    toPath(new URL("out/clapse_compiler.wasm", REPO_ROOT_URL)),
+    toPath(new URL("artifacts/latest/clap_compiler.wasm", REPO_ROOT_URL)),
+    toPath(new URL("out/clap_compiler.wasm", REPO_ROOT_URL)),
   ];
   for (const candidate of candidates) {
     if (await fileExists(candidate)) {
@@ -2379,16 +2379,16 @@ async function resolveCompilerWasmPath() {
 function usage() {
   return [
     "Usage:",
-    "  deno run -A scripts/run-clapse-compiler-wasm.mjs <clapse-args...>",
+    "  deno run -A scripts/run-clap-compiler-wasm.mjs <clap-args...>",
     "",
     "Supported commands:",
-    "  compile <input.clapse> [output.wasm] [--entrypoint-export <name>] [--entrypoint-exports <csv>]",
-    "  compile-native <input.clapse> [output.wasm] [--entrypoint-export <name>] [--entrypoint-exports <csv>] (alias: compile_native)",
-    "  compile-native-debug <input.clapse> [output.wasm] [artifacts-dir] [--entrypoint-export <name>] [--entrypoint-exports <csv>] (alias: compile_native_debug)",
-    "  compile-debug <input.clapse> [output.wasm] [artifacts-dir] [--entrypoint-export <name>] [--entrypoint-exports <csv>] (alias: compile_debug)",
-    "  emit-wat <input.clapse> [output.wat]",
-    "  parse <input.clapse> [out-dir]",
-    "  selfhost-artifacts <input.clapse> <out-dir>",
+    "  compile <input.clap> [output.wasm] [--entrypoint-export <name>] [--entrypoint-exports <csv>]",
+    "  compile-native <input.clap> [output.wasm] [--entrypoint-export <name>] [--entrypoint-exports <csv>] (alias: compile_native)",
+    "  compile-native-debug <input.clap> [output.wasm] [artifacts-dir] [--entrypoint-export <name>] [--entrypoint-exports <csv>] (alias: compile_native_debug)",
+    "  compile-debug <input.clap> [output.wasm] [artifacts-dir] [--entrypoint-export <name>] [--entrypoint-exports <csv>] (alias: compile_debug)",
+    "  emit-wat <input.clap> [output.wat]",
+    "  parse <input.clap> [out-dir]",
+    "  selfhost-artifacts <input.clap> <out-dir>",
     "  format <file>",
     "  format --write <file>",
     "  format --stdin",
@@ -2396,18 +2396,18 @@ function usage() {
     "  engine-mode",
     "",
     "Compiler wasm resolution:",
-    "  1) CLAPSE_COMPILER_WASM_PATH",
-    "  2) artifacts/latest|out/clapse_compiler.wasm from cwd/ancestor dirs",
-    "  3) artifacts/latest|out/clapse_compiler.wasm relative to script repo root",
-    "  4) embedded compiler wasm bundled in the clapse binary",
+    "  1) CLAP_COMPILER_WASM_PATH",
+    "  2) artifacts/latest|out/clap_compiler.wasm from cwd/ancestor dirs",
+    "  3) artifacts/latest|out/clap_compiler.wasm relative to script repo root",
+    "  4) embedded compiler wasm bundled in the clap binary",
     "",
     "Required compiler wasm ABI:",
     "  export memory or __memory",
-    "  export clapse_run(request_slice_handle: i32) -> response_slice_handle: i32",
+    "  export clap_run(request_slice_handle: i32) -> response_slice_handle: i32",
     "  Request and response are UTF-8 JSON in slice descriptors.",
     "",
     "Temporary bootstrap seed mode:",
-    "  Set CLAPSE_USE_WASM_BOOTSTRAP_SEED=1 to route compile requests through",
+    "  Set CLAP_USE_WASM_BOOTSTRAP_SEED=1 to route compile requests through",
     "  scripts/wasm-bootstrap-seed.mjs using a trusted seed wasm payload.",
     "",
     "Entrypoint reachability pruning:",
@@ -2415,7 +2415,7 @@ function usage() {
     "  shape. Request payload keeps `entrypoint_exports` if provided and falls",
     "  back to source exports then `main` when unset.",
     "  Unknown explicit roots now fail compile with an error.",
-    "  `CLAPSE_ENTRYPOINT_DCE` and `CLAPSE_INTERNAL_ENTRYPOINT_DCE` are",
+    "  `CLAP_ENTRYPOINT_DCE` and `CLAP_INTERNAL_ENTRYPOINT_DCE` are",
     "  legacy toggles and do not affect compile request shaping.",
   ].join("\n");
 }
@@ -2610,22 +2610,22 @@ function decodeSelfhostArtifactsResponse(response, inputPath) {
 }
 
 function shouldInjectFuncMapInFixedPointArtifacts() {
-  const raw = String(Deno.env.get("CLAPSE_DEBUG_FUNC_MAP") ?? "").trim()
+  const raw = String(Deno.env.get("CLAP_DEBUG_FUNC_MAP") ?? "").trim()
     .toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes";
 }
 
 function isCompilerKernelPath(inputPath) {
   const normalized = String(inputPath).replaceAll("\\", "/");
-  return normalized === "lib/compiler/kernel.clapse" ||
-    normalized.endsWith("/lib/compiler/kernel.clapse");
+  return normalized === "lib/compiler/kernel.clap" ||
+    normalized.endsWith("/lib/compiler/kernel.clap");
 }
 
 async function writeCompileArtifacts(outputPath, response, options = {}) {
   let wasmBytes = decodeWasmBase64(response.wasm_base64);
   if (shouldInjectFuncMapInFixedPointArtifacts()) {
     try {
-      wasmBytes = appendClapseFuncMap(wasmBytes);
+      wasmBytes = appendClapFuncMap(wasmBytes);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`compile artifact funcmap injection failed: ${msg}`);
@@ -2769,14 +2769,14 @@ async function compileViaWasm(wasmPath, inputPath, outputPath, options = {}) {
   if (isNativeCompileMode && isKernelCompile) {
     if (decodedWasmBytes.length < 4096) {
       throw new Error(
-        `compile response for ${inputPath} is a stub artifact; configure a native clapse compiler wasm and remove stub fallback mode`,
+        `compile response for ${inputPath} is a stub artifact; configure a native clap compiler wasm and remove stub fallback mode`,
       );
     }
   }
   if (isNativeCompileMode && isKernelCompile) {
     if (isKnownStubCompileArtifact(decodedWasmBytes, decodedResponse)) {
       throw new Error(
-        `compile response for ${inputPath} is a known placeholder stub artifact; configure a native clapse compiler wasm and remove stub fallback mode`,
+        `compile response for ${inputPath} is a known placeholder stub artifact; configure a native clap compiler wasm and remove stub fallback mode`,
       );
     }
   }
@@ -2922,7 +2922,7 @@ function decodeParseResponse(response, ctx) {
 
 async function emitWatViaWasm(wasmPath, args) {
   if (args.length < 2 || args.length > 3) {
-    throw new Error("usage: emit-wat <input.clapse> [output.wat]");
+    throw new Error("usage: emit-wat <input.clap> [output.wat]");
   }
   const inputPath = args[1];
   const inputSource = await Deno.readTextFile(inputPath);
@@ -3044,8 +3044,8 @@ function buildFormatterStackMapHint(wasmPath, err) {
   const offsetCsv = offsets.join(",");
   return [
     "",
-    `[clapse] formatter wasm stack offsets: ${offsetCsv}`,
-    `[clapse] map with: deno run -A scripts/wasm-stack-map.mjs --wasm ${
+    `[clap] formatter wasm stack offsets: ${offsetCsv}`,
+    `[clap] map with: deno run -A scripts/wasm-stack-map.mjs --wasm ${
       JSON.stringify(wasmPath)
     } --offsets ${offsetCsv}`,
   ].join("\n");
@@ -3149,24 +3149,24 @@ export async function runWithArgs(rawArgs = cliArgs()) {
   }
   if (wasmPath.length === 0) {
     throw new Error(
-      "compiler-wasm engine requires CLAPSE_COMPILER_WASM_PATH, embedded compiler wasm, or artifacts/latest|out compiler wasm files",
+      "compiler-wasm engine requires CLAP_COMPILER_WASM_PATH, embedded compiler wasm, or artifacts/latest|out compiler wasm files",
     );
   }
   if (!(await fileExists(wasmPath))) {
     throw new Error(
-      `compiler-wasm path not found: ${wasmPath}. Set CLAPSE_COMPILER_WASM_PATH to an existing artifact.`,
+      `compiler-wasm path not found: ${wasmPath}. Set CLAP_COMPILER_WASM_PATH to an existing artifact.`,
     );
   }
   await validateCompilerWasmAbi(wasmPath);
   if (args[0] === "compile") {
     const parsed = parseCompileCommandArgs(args.slice(1));
     if (parsed.positionals.length < 1 || parsed.positionals.length > 2) {
-      throw new Error("usage: compile <input.clapse> [output.wasm]");
+      throw new Error("usage: compile <input.clap> [output.wasm]");
     }
     const inputPath = parsed.positionals[0];
     const outputPath = parsed.positionals[1] ??
-      inputPath.replace(/\.clapse$/u, ".wasm");
-    const projectConfig = await readClapseProjectConfig(inputPath);
+      inputPath.replace(/\.clap$/u, ".wasm");
+    const projectConfig = await readClapProjectConfig(inputPath);
     const demandDrivenBase = await buildDemandDrivenCompileInput(
       inputPath,
       parsed.entrypointExports,
@@ -3175,7 +3175,7 @@ export async function runWithArgs(rawArgs = cliArgs()) {
     const demandDriven = isCompilerKernelPath(inputPath)
       ? { ...demandDrivenBase, entrypointExports: [] }
       : demandDrivenBase;
-    const compileEngine = String(Deno.env.get("CLAPSE_COMPILE_ENGINE") ?? "")
+    const compileEngine = String(Deno.env.get("CLAP_COMPILE_ENGINE") ?? "")
       .trim()
       .toLowerCase();
     if (
@@ -3183,7 +3183,7 @@ export async function runWithArgs(rawArgs = cliArgs()) {
       compileEngine !== "kernel-native"
     ) {
       throw new Error(
-        `unsupported CLAPSE_COMPILE_ENGINE=${compileEngine}; set kernel-native or unset CLAPSE_COMPILE_ENGINE`,
+        `unsupported CLAP_COMPILE_ENGINE=${compileEngine}; set kernel-native or unset CLAP_COMPILE_ENGINE`,
       );
     }
     await compileViaWasm(wasmPath, inputPath, outputPath, {
@@ -3197,12 +3197,12 @@ export async function runWithArgs(rawArgs = cliArgs()) {
   if (args[0] === "compile-native") {
     const parsed = parseCompileCommandArgs(args.slice(1));
     if (parsed.positionals.length < 1 || parsed.positionals.length > 2) {
-      throw new Error("usage: compile-native <input.clapse> [output.wasm]");
+      throw new Error("usage: compile-native <input.clap> [output.wasm]");
     }
     const inputPath = parsed.positionals[0];
     const outputPath = parsed.positionals[1] ??
-      inputPath.replace(/\.clapse$/u, ".wasm");
-    const projectConfig = await readClapseProjectConfig(inputPath);
+      inputPath.replace(/\.clap$/u, ".wasm");
+    const projectConfig = await readClapProjectConfig(inputPath);
     const demandDrivenBase = await buildDemandDrivenCompileInput(
       inputPath,
       parsed.entrypointExports,
@@ -3223,16 +3223,16 @@ export async function runWithArgs(rawArgs = cliArgs()) {
     const parsed = parseCompileCommandArgs(args.slice(1));
     if (parsed.positionals.length < 1 || parsed.positionals.length > 3) {
       throw new Error(
-        "usage: compile-native-debug <input.clapse> [output.wasm] [artifacts-dir]",
+        "usage: compile-native-debug <input.clap> [output.wasm] [artifacts-dir]",
       );
     }
     const inputPath = parsed.positionals[0];
     const outputPath = parsed.positionals[1] ??
-      inputPath.replace(/\.clapse$/u, ".wasm");
+      inputPath.replace(/\.clap$/u, ".wasm");
     const defaultArtifactsDir = pathDir(outputPath);
     const artifactsDir = parsed.positionals[2] ??
       (defaultArtifactsDir.length > 0 ? defaultArtifactsDir : ".");
-    const projectConfig = await readClapseProjectConfig(inputPath);
+    const projectConfig = await readClapProjectConfig(inputPath);
     const demandDrivenBase = await buildDemandDrivenCompileInput(
       inputPath,
       parsed.entrypointExports,
@@ -3255,16 +3255,16 @@ export async function runWithArgs(rawArgs = cliArgs()) {
     const parsed = parseCompileCommandArgs(args.slice(1));
     if (parsed.positionals.length < 1 || parsed.positionals.length > 3) {
       throw new Error(
-        "usage: compile-debug <input.clapse> [output.wasm] [artifacts-dir]",
+        "usage: compile-debug <input.clap> [output.wasm] [artifacts-dir]",
       );
     }
     const inputPath = parsed.positionals[0];
     const outputPath = parsed.positionals[1] ??
-      inputPath.replace(/\.clapse$/u, ".wasm");
+      inputPath.replace(/\.clap$/u, ".wasm");
     const defaultArtifactsDir = pathDir(outputPath);
     const artifactsDir = parsed.positionals[2] ??
       (defaultArtifactsDir.length > 0 ? defaultArtifactsDir : ".");
-    const projectConfig = await readClapseProjectConfig(inputPath);
+    const projectConfig = await readClapProjectConfig(inputPath);
     const demandDrivenBase = await buildDemandDrivenCompileInput(
       inputPath,
       parsed.entrypointExports,
@@ -3289,7 +3289,7 @@ export async function runWithArgs(rawArgs = cliArgs()) {
   }
   if (args[0] === "parse") {
     if (args.length < 2 || args.length > 3) {
-      throw new Error("usage: parse <input.clapse> [out-dir]");
+      throw new Error("usage: parse <input.clap> [out-dir]");
     }
     await parseViaWasm(wasmPath, args[1], args[2] ?? ".");
     return;
@@ -3302,13 +3302,13 @@ export async function runWithArgs(rawArgs = cliArgs()) {
     if (args.length > 2 || (args.length === 2 && args[1] !== "--stdio")) {
       throw new Error("usage: lsp [--stdio]");
     }
-    Deno.env.set("CLAPSE_COMPILER_WASM_PATH", wasmPath);
+    Deno.env.set("CLAP_COMPILER_WASM_PATH", wasmPath);
     await runLspServer();
     return;
   }
   if (args[0] === "selfhost-artifacts") {
     if (args.length !== 3) {
-      throw new Error("usage: selfhost-artifacts <input.clapse> <out-dir>");
+      throw new Error("usage: selfhost-artifacts <input.clap> <out-dir>");
     }
     await writeSelfhostArtifactsViaWasm(wasmPath, args[1], args[2]);
     return;

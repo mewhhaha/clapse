@@ -9,7 +9,7 @@ const PRODUCER_CONTRACT_KEYS = new Set([
 ]);
 
 function contractMeta(response) {
-  const raw = response?.__clapse_contract;
+  const raw = response?.__clap_contract;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return {};
   }
@@ -36,9 +36,9 @@ function boundaryFallbackContractKeys(response) {
 
 function resolveWasmPath() {
   const candidates = [
-    Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "",
-    "artifacts/latest/clapse_compiler.wasm",
-    "out/clapse_compiler.wasm",
+    Deno.env.get("CLAP_COMPILER_WASM_PATH") ?? "",
+    "artifacts/latest/clap_compiler.wasm",
+    "out/clap_compiler.wasm",
   ];
   for (const candidate of candidates) {
     if (candidate.length === 0) {
@@ -54,7 +54,7 @@ function resolveWasmPath() {
     }
   }
   throw new Error(
-    "native-boundary-strict-smoke: missing compiler wasm (set CLAPSE_COMPILER_WASM_PATH or provide artifacts/latest|out compiler wasm)",
+    "native-boundary-strict-smoke: missing compiler wasm (set CLAP_COMPILER_WASM_PATH or provide artifacts/latest|out compiler wasm)",
   );
 }
 
@@ -74,7 +74,7 @@ async function runCompileSmoke(wasmPath) {
   const response = await callCompilerWasm(wasmPath, {
     command: "compile",
     compile_mode: "kernel-native",
-    input_path: "examples/native_boundary_strict_smoke.clapse",
+    input_path: "examples/native_boundary_strict_smoke.clap",
     input_source: inputSource,
     plugin_wasm_paths: [],
   }, {
@@ -119,7 +119,7 @@ async function runEmitWatSmoke(wasmPath) {
   const response = await callCompilerWasm(wasmPath, {
     command: "emit-wat",
     emit_wat_mode: "source-data",
-    input_path: "examples/native_boundary_emit_wat.clapse",
+    input_path: "examples/native_boundary_emit_wat.clap",
     input_source: `${marker} = 42\n`,
   });
   assert(

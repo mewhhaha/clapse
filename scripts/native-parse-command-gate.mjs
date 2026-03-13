@@ -14,15 +14,15 @@ async function fileExists(path) {
 }
 
 const wasmPath = String(
-  Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ??
-    "artifacts/latest/clapse_compiler.wasm",
+  Deno.env.get("CLAP_COMPILER_WASM_PATH") ??
+    "artifacts/latest/clap_compiler.wasm",
 ).trim();
 const inputPath = String(
-  Deno.args[0] ?? "examples/bootstrap_phase3_entry.clapse",
+  Deno.args[0] ?? "examples/bootstrap_phase3_entry.clap",
 ).trim();
 
 if (wasmPath.length === 0) {
-  fail("native-parse-command-gate: missing CLAPSE_COMPILER_WASM_PATH");
+  fail("native-parse-command-gate: missing CLAP_COMPILER_WASM_PATH");
 }
 if (!(await fileExists(wasmPath))) {
   fail(`native-parse-command-gate: wasm not found: ${wasmPath}`);

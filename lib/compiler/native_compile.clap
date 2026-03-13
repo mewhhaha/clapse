@@ -28,9 +28,11 @@ data ParseRequestTag = ParseRequestMissingSource | ParseRequestReady
 data WritePair = WritePair a b
 
 json_compile_prefix = str_to_slice "{\"ok\":true,\"backend\":\"kernel-native\",\"wasm_base64\":\""
-json_compile_middle = str_to_slice "\",\"public_exports\":[{\"name\":\"main\",\"arity\":1}],\"abi_exports\":[{\"name\":\"clapse_run\",\"arity\":1}],\"dts\":\"export declare function main(arg0: number): number;\nexport declare function clapse_run(request_handle: number): number;\n\",\"artifacts\":{\"lowered_ir.txt\":\""
+json_compile_middle = str_to_slice "\",\"public_exports\":[{\"name\":\"main\",\"arity\":1}],\"abi_exports\":[{\"name\":\"clap_run\",\"arity\":1}],\"dts\":\"export declare function main(arg0: number): number;\nexport declare function clap_run(request_handle: number): number;\n\",\"artifacts\":{\"lowered_ir.txt\":\""
 json_compile_middle_lowered_to_collapsed = str_to_slice "\",\"collapsed_ir.txt\":\""
-json_compile_suffix = str_to_slice "\",\"__clapse_contract\":{\"source_version\":\"native-source-2026-03-01-r2\",\"compile_contract_version\":\"native-v1\"}}"
+json_compile_middle_collapsed_to_codegen = str_to_slice "\",\"codegen_ir.txt\":\""
+json_compile_middle_codegen_to_stats = str_to_slice "\",\"optimizer_stats.json\":\""
+json_compile_suffix = str_to_slice "\",\"__clap_contract\":{\"source_version\":\"native-source-2026-03-01-r2\",\"compile_contract_version\":\"native-v1\"}}"
 compile_phase1_non_main_root_error = "compile phase1 unsupported for requested entrypoint exports"
 json_compile_dynamic_middle_a = str_to_slice "\",\"public_exports\":"
 json_compile_dynamic_middle_b = str_to_slice ",\"abi_exports\":[],\"dts\":\""
@@ -70,6 +72,7 @@ literal_main = str_to_slice "main"
 
 compile_lowered_prefix = str_to_slice "(lowered_ir)\nphase: kernel-native-phase1\nkind: normalized-source\n"
 compile_collapsed_prefix = str_to_slice "(collapsed_ir)\nphase: kernel-native-phase1\nkind: normalized-source\n"
+compile_codegen_prefix = str_to_slice "(codegen_ir)\nphase: kernel-native-phase1\nkind: function-plan\n"
 
 is_space = scan_is_space_byte
 is_ascii_lower b = (b >= 97) && (b <= 122)
@@ -375,6 +378,8 @@ build_dynamic_compile_response_with_wasm_b64
       defs = parse_top_defs source_handle source_start source_end Nil
       public_exports_segment = build_public_exports_json_segment request_handle ownership_mode source_handle source_start source_len defs roots
       dts_segment = build_dts_segment request_handle ownership_mode source_handle source_start source_len defs roots
+      codegen_segment = build_source_optimizer_codegen_segment request_handle ownership_mode source_handle source_start source_len roots
+      optimizer_stats_segment = build_source_optimizer_stats_segment request_handle ownership_mode source_handle source_start source_len roots
       wasm_b64_handle = case wasm_b64_segment of
         SourceSegment x _ _ -> x
       wasm_b64_start = case wasm_b64_segment of
@@ -393,18 +398,35 @@ build_dynamic_compile_response_with_wasm_b64
         SourceSegment _ x _ -> x
       dts_len = case dts_segment of
         SourceSegment _ _ x -> x
+      codegen_handle = case codegen_segment of
+        SourceSegment x _ _ -> x
+      codegen_start = case codegen_segment of
+        SourceSegment _ x _ -> x
+      codegen_len = case codegen_segment of
+        SourceSegment _ _ x -> x
+      optimizer_stats_handle = case optimizer_stats_segment of
+        SourceSegment x _ _ -> x
+      optimizer_stats_start = case optimizer_stats_segment of
+        SourceSegment _ x _ -> x
+      optimizer_stats_len = case optimizer_stats_segment of
+        SourceSegment _ _ x -> x
       prefix_len = slice_len json_compile_prefix
       middle_a_len = slice_len json_compile_dynamic_middle_a
       middle_b_len = slice_len json_compile_dynamic_middle_b
       middle_c_len = slice_len json_compile_dynamic_middle_c
       middle_d_len = slice_len json_compile_middle_lowered_to_collapsed
+      middle_e_len = slice_len json_compile_middle_collapsed_to_codegen
+      middle_f_len = slice_len json_compile_middle_codegen_to_stats
       suffix_len = slice_len json_compile_suffix
       dts_extra = json_escape_extra_len dts_handle dts_start dts_len 0 0
       lowered_extra = json_escape_extra_len lowered_source_handle lowered_source_start lowered_source_len 0 0
       collapsed_extra = json_escape_extra_len collapsed_source_handle collapsed_source_start collapsed_source_len 0 0
+      codegen_extra = json_escape_extra_len codegen_handle codegen_start codegen_len 0 0
+      optimizer_stats_extra = json_escape_extra_len optimizer_stats_handle optimizer_stats_start optimizer_stats_len 0 0
       total_len =
         prefix_len + wasm_b64_len + middle_a_len + public_exports_len + middle_b_len + dts_len + dts_extra +
         middle_c_len + lowered_source_len + lowered_extra + middle_d_len + collapsed_source_len + collapsed_extra +
+        middle_e_len + codegen_len + codegen_extra + middle_f_len + optimizer_stats_len + optimizer_stats_extra +
         suffix_len
       out = slice_new_u8 total_len
       out1 = copy_slice_literal request_handle ownership_mode out 0 json_compile_prefix
@@ -425,9 +447,17 @@ build_dynamic_compile_response_with_wasm_b64
       out9 = copy_slice_literal request_handle ownership_mode out8 collapsed_at json_compile_middle_lowered_to_collapsed
       collapsed_json_at = collapsed_at + middle_d_len
       out10 = json_copy_escaped_segment request_handle ownership_mode collapsed_source_handle collapsed_source_start collapsed_source_len 0 out9 collapsed_json_at
-      suffix_at = collapsed_json_at + collapsed_source_len + collapsed_extra
-      out11 = copy_slice_literal request_handle ownership_mode out10 suffix_at json_compile_suffix
-  in SourceSegment out11 0 total_len
+      codegen_at = collapsed_json_at + collapsed_source_len + collapsed_extra
+      out11 = copy_slice_literal request_handle ownership_mode out10 codegen_at json_compile_middle_collapsed_to_codegen
+      codegen_json_at = codegen_at + middle_e_len
+      out12 = json_copy_escaped_segment request_handle ownership_mode codegen_handle codegen_start codegen_len 0 out11 codegen_json_at
+      optimizer_stats_at = codegen_json_at + codegen_len + codegen_extra
+      out13 = copy_slice_literal request_handle ownership_mode out12 optimizer_stats_at json_compile_middle_codegen_to_stats
+      optimizer_stats_json_at = optimizer_stats_at + middle_f_len
+      out14 = json_copy_escaped_segment request_handle ownership_mode optimizer_stats_handle optimizer_stats_start optimizer_stats_len 0 out13 optimizer_stats_json_at
+      suffix_at = optimizer_stats_json_at + optimizer_stats_len + optimizer_stats_extra
+      out15 = copy_slice_literal request_handle ownership_mode out14 suffix_at json_compile_suffix
+  in SourceSegment out15 0 total_len
 
 phase1_dynamic_stub_supports_roots roots =
   case roots of
@@ -531,6 +561,214 @@ build_dts_segment_impl request_handle ownership_mode source_handle defs roots ou
             WritePair _ x -> x
           out5 = write_literal_bytes request_handle ownership_mode out4 cursor4 "): number;\n"
       in build_dts_segment_impl request_handle ownership_mode source_handle defs rest out5 (cursor4 + 11)
+
+max_nonnegative_difference left right =
+  case left > right of
+    true -> left - right
+    _ -> 0
+
+name_ref_member target names =
+  case names of
+    Nil -> false
+    Cons name rest ->
+      case name_ref_eq target name of
+        true -> true
+        _ -> name_ref_member target rest
+
+count_reachable_fn_infos fn_infos reachable =
+  case fn_infos of
+    Nil -> 0
+    Cons fn_info rest ->
+      case fn_info of
+        FnInfo fn_name _ _ ->
+          case name_ref_member fn_name reachable of
+            true -> 1 + count_reachable_fn_infos rest reachable
+            _ -> count_reachable_fn_infos rest reachable
+
+count_reachable_non_root_fn_infos fn_infos reachable roots =
+  case fn_infos of
+    Nil -> 0
+    Cons fn_info rest ->
+      case fn_info of
+        FnInfo fn_name _ _ ->
+          case name_ref_member fn_name reachable of
+            true ->
+              case name_ref_member fn_name roots of
+                true -> count_reachable_non_root_fn_infos rest reachable roots
+                _ -> 1 + count_reachable_non_root_fn_infos rest reachable roots
+            _ -> count_reachable_non_root_fn_infos rest reachable roots
+
+write_codegen_name_lines request_handle ownership_mode fn_infos reachable out cursor =
+  case fn_infos of
+    Nil -> WritePair out cursor
+    Cons fn_info rest ->
+      case fn_info of
+        FnInfo fn_name _ _ ->
+          case name_ref_member fn_name reachable of
+            true ->
+              let out1 = write_literal_bytes request_handle ownership_mode out cursor "- "
+                  pair_name = write_name_ref_bytes request_handle ownership_mode out1 (cursor + 2) fn_name
+                  out2 = case pair_name of
+                    WritePair x _ -> x
+                  cursor2 = case pair_name of
+                    WritePair _ x -> x
+                  out3 = slice_set_u8 out2 cursor2 10
+              in write_codegen_name_lines request_handle ownership_mode rest reachable out3 (cursor2 + 1)
+            _ -> write_codegen_name_lines request_handle ownership_mode rest reachable out cursor
+
+write_root_name_lines request_handle ownership_mode roots out cursor =
+  case roots of
+    Nil -> WritePair out cursor
+    Cons root rest ->
+      let out1 = write_literal_bytes request_handle ownership_mode out cursor "- "
+          pair_name = write_name_ref_bytes request_handle ownership_mode out1 (cursor + 2) root
+          out2 = case pair_name of
+            WritePair x _ -> x
+          cursor2 = case pair_name of
+            WritePair _ x -> x
+          out3 = slice_set_u8 out2 cursor2 10
+      in write_root_name_lines request_handle ownership_mode rest out3 (cursor2 + 1)
+
+build_source_optimizer_codegen_segment request_handle ownership_mode source_handle source_start source_len roots =
+  let source_end = source_start + source_len
+      fn_infos = collect_function_infos source_handle source_start source_end
+      seeded = seed_reachable_from_roots roots fn_infos Nil
+      reachable = expand_reachable_fixpoint fn_infos source_handle seeded
+      baseline_function_count = count_reachable_fn_infos fn_infos reachable
+      baseline_helper_count = count_reachable_non_root_fn_infos fn_infos reachable roots
+      optimized_function_count = list_len roots
+      optimized_helper_count = 0
+      lit_baseline_fn = str_to_slice "baseline_function_count: "
+      lit_baseline_helper = str_to_slice "baseline_helper_count: "
+      lit_optimized_fn = str_to_slice "optimized_function_count: "
+      lit_optimized_helper = str_to_slice "optimized_helper_count: "
+      lit_baseline_names = str_to_slice "\nbaseline_functions:\n"
+      lit_optimized_names = str_to_slice "\nemitted_functions:\n"
+      prefix_len = slice_len compile_codegen_prefix
+      cap = (source_len * 4) + 512
+      out = slice_new_u8 cap
+      out1 = copy_slice_literal request_handle ownership_mode out 0 compile_codegen_prefix
+      cursor1 = prefix_len
+      out2 = copy_slice_literal request_handle ownership_mode out1 cursor1 lit_baseline_fn
+      cursor2 = cursor1 + (slice_len lit_baseline_fn)
+      pair_baseline = write_nonnegative_int_ascii request_handle ownership_mode out2 cursor2 baseline_function_count
+      out3 = case pair_baseline of
+        WritePair x _ -> x
+      cursor3 = case pair_baseline of
+        WritePair _ x -> x
+      out4 = slice_set_u8 out3 cursor3 10
+      out5 = copy_slice_literal request_handle ownership_mode out4 (cursor3 + 1) lit_baseline_helper
+      cursor5 = (cursor3 + 1) + (slice_len lit_baseline_helper)
+      pair_helper = write_nonnegative_int_ascii request_handle ownership_mode out5 cursor5 baseline_helper_count
+      out6 = case pair_helper of
+        WritePair x _ -> x
+      cursor6 = case pair_helper of
+        WritePair _ x -> x
+      out7 = slice_set_u8 out6 cursor6 10
+      out8 = copy_slice_literal request_handle ownership_mode out7 (cursor6 + 1) lit_optimized_fn
+      cursor8 = (cursor6 + 1) + (slice_len lit_optimized_fn)
+      pair_opt_fn = write_nonnegative_int_ascii request_handle ownership_mode out8 cursor8 optimized_function_count
+      out9 = case pair_opt_fn of
+        WritePair x _ -> x
+      cursor9 = case pair_opt_fn of
+        WritePair _ x -> x
+      out10 = slice_set_u8 out9 cursor9 10
+      out11 = copy_slice_literal request_handle ownership_mode out10 (cursor9 + 1) lit_optimized_helper
+      cursor11 = (cursor9 + 1) + (slice_len lit_optimized_helper)
+      pair_opt_helper = write_nonnegative_int_ascii request_handle ownership_mode out11 cursor11 optimized_helper_count
+      out12 = case pair_opt_helper of
+        WritePair x _ -> x
+      cursor12 = case pair_opt_helper of
+        WritePair _ x -> x
+      out13 = copy_slice_literal request_handle ownership_mode out12 (cursor12 + 1) lit_baseline_names
+      cursor13 = (cursor12 + 1) + (slice_len lit_baseline_names)
+      baseline_names = write_codegen_name_lines request_handle ownership_mode fn_infos reachable out13 cursor13
+      out14 = case baseline_names of
+        WritePair x _ -> x
+      cursor14 = case baseline_names of
+        WritePair _ x -> x
+      out15 = copy_slice_literal request_handle ownership_mode out14 cursor14 lit_optimized_names
+      cursor15 = cursor14 + (slice_len lit_optimized_names)
+      optimized_names = write_root_name_lines request_handle ownership_mode roots out15 cursor15
+      out16 = case optimized_names of
+        WritePair x _ -> x
+      cursor16 = case optimized_names of
+        WritePair _ x -> x
+  in SourceSegment out16 0 cursor16
+
+build_source_optimizer_stats_segment request_handle ownership_mode source_handle source_start source_len roots =
+  let source_end = source_start + source_len
+      fn_infos = collect_function_infos source_handle source_start source_end
+      seeded = seed_reachable_from_roots roots fn_infos Nil
+      reachable = expand_reachable_fixpoint fn_infos source_handle seeded
+      baseline_function_count = count_reachable_fn_infos fn_infos reachable
+      export_count = list_len roots
+      baseline_helper_count = count_reachable_non_root_fn_infos fn_infos reachable roots
+      optimized_function_count = export_count
+      optimized_helper_count = 0
+      helper_ref_before = baseline_helper_count
+      helper_ref_after = 0
+      lit_prefix = str_to_slice "{\"status\":\"ready\",\"source_owned\":true,\"baseline_function_count\":"
+      lit_baseline_helper = str_to_slice ",\"baseline_helper_count\":"
+      lit_optimized_fn = str_to_slice ",\"optimized_function_count\":"
+      lit_optimized_helper = str_to_slice ",\"optimized_helper_count\":"
+      lit_export = str_to_slice ",\"export_count\":"
+      lit_helper_before = str_to_slice ",\"baseline_helper_ref_count\":"
+      lit_helper_after = str_to_slice ",\"optimized_helper_ref_count\":"
+      lit_suffix = str_to_slice "}"
+      cap = (source_len * 2) + 512
+      out = slice_new_u8 cap
+      out1 = copy_slice_literal request_handle ownership_mode out 0 lit_prefix
+      cursor1 = slice_len lit_prefix
+      pair_baseline = write_nonnegative_int_ascii request_handle ownership_mode out1 cursor1 baseline_function_count
+      out2 = case pair_baseline of
+        WritePair x _ -> x
+      cursor2 = case pair_baseline of
+        WritePair _ x -> x
+      out3 = copy_slice_literal request_handle ownership_mode out2 cursor2 lit_baseline_helper
+      cursor3 = cursor2 + (slice_len lit_baseline_helper)
+      pair_helper = write_nonnegative_int_ascii request_handle ownership_mode out3 cursor3 baseline_helper_count
+      out4 = case pair_helper of
+        WritePair x _ -> x
+      cursor4 = case pair_helper of
+        WritePair _ x -> x
+      out5 = copy_slice_literal request_handle ownership_mode out4 cursor4 lit_optimized_fn
+      cursor5 = cursor4 + (slice_len lit_optimized_fn)
+      pair_opt_fn = write_nonnegative_int_ascii request_handle ownership_mode out5 cursor5 optimized_function_count
+      out6 = case pair_opt_fn of
+        WritePair x _ -> x
+      cursor6 = case pair_opt_fn of
+        WritePair _ x -> x
+      out7 = copy_slice_literal request_handle ownership_mode out6 cursor6 lit_optimized_helper
+      cursor7 = cursor6 + (slice_len lit_optimized_helper)
+      pair_opt_helper = write_nonnegative_int_ascii request_handle ownership_mode out7 cursor7 optimized_helper_count
+      out8 = case pair_opt_helper of
+        WritePair x _ -> x
+      cursor8 = case pair_opt_helper of
+        WritePair _ x -> x
+      out9 = copy_slice_literal request_handle ownership_mode out8 cursor8 lit_export
+      cursor9 = cursor8 + (slice_len lit_export)
+      pair_export = write_nonnegative_int_ascii request_handle ownership_mode out9 cursor9 export_count
+      out10 = case pair_export of
+        WritePair x _ -> x
+      cursor10 = case pair_export of
+        WritePair _ x -> x
+      out11 = copy_slice_literal request_handle ownership_mode out10 cursor10 lit_helper_before
+      cursor11 = cursor10 + (slice_len lit_helper_before)
+      pair_ref_before = write_nonnegative_int_ascii request_handle ownership_mode out11 cursor11 helper_ref_before
+      out12 = case pair_ref_before of
+        WritePair x _ -> x
+      cursor12 = case pair_ref_before of
+        WritePair _ x -> x
+      out13 = copy_slice_literal request_handle ownership_mode out12 cursor12 lit_helper_after
+      cursor13 = cursor12 + (slice_len lit_helper_after)
+      pair_ref_after = write_nonnegative_int_ascii request_handle ownership_mode out13 cursor13 helper_ref_after
+      out14 = case pair_ref_after of
+        WritePair x _ -> x
+      cursor14 = case pair_ref_after of
+        WritePair _ x -> x
+      out15 = copy_slice_literal request_handle ownership_mode out14 cursor14 lit_suffix
+  in SourceSegment out15 0 (cursor14 + (slice_len lit_suffix))
 
 write_dts_args request_handle ownership_mode out cursor arg_index arity =
   case arg_index == arity of

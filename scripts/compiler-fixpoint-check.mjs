@@ -2,29 +2,29 @@
 
 import { failWithError } from "./runtime-env.mjs";
 
-const DEFAULT_COMPILER_WASM = "artifacts/latest/clapse_compiler.wasm";
-const DEFAULT_COMPILER_DTS = "artifacts/latest/clapse_compiler.d.ts";
+const DEFAULT_COMPILER_WASM = "artifacts/latest/clap_compiler.wasm";
+const DEFAULT_COMPILER_DTS = "artifacts/latest/clap_compiler.d.ts";
 const DEFAULT_MAX_COMPILER_BYTES = 67_108_864;
 
 function resolveCompilerWasmPath() {
-  const fromEnv = String(Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "").trim();
+  const fromEnv = String(Deno.env.get("CLAP_COMPILER_WASM_PATH") ?? "").trim();
   return fromEnv.length > 0 ? fromEnv : DEFAULT_COMPILER_WASM;
 }
 
 function resolveCompilerDtsPath() {
-  const fromEnv = String(Deno.env.get("CLAPSE_COMPILER_DTS_PATH") ?? "").trim();
+  const fromEnv = String(Deno.env.get("CLAP_COMPILER_DTS_PATH") ?? "").trim();
   return fromEnv.length > 0 ? fromEnv : DEFAULT_COMPILER_DTS;
 }
 
 function resolveMaxCompilerBytes() {
-  const raw = String(Deno.env.get("CLAPSE_MAX_COMPILER_WASM_BYTES") ?? "").trim();
+  const raw = String(Deno.env.get("CLAP_MAX_COMPILER_WASM_BYTES") ?? "").trim();
   if (raw.length === 0) {
     return DEFAULT_MAX_COMPILER_BYTES;
   }
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     throw new Error(
-      `invalid CLAPSE_MAX_COMPILER_WASM_BYTES value '${raw}'`,
+      `invalid CLAP_MAX_COMPILER_WASM_BYTES value '${raw}'`,
     );
   }
   return parsed;
@@ -64,7 +64,7 @@ async function runStrictSeedRebuild(
     cwd: Deno.cwd(),
     env: {
       ...Deno.env.toObject(),
-      CLAPSE_MAX_COMPILER_WASM_BYTES: String(maxCompilerBytes),
+      CLAP_MAX_COMPILER_WASM_BYTES: String(maxCompilerBytes),
     },
     stdout: "piped",
     stderr: "piped",
@@ -91,7 +91,7 @@ async function main() {
   }
   const tempDir = await Deno.makeTempDir({
     dir: requestedTempDir.length > 0 ? requestedTempDir : undefined,
-    prefix: "clapse-fixpoint-",
+    prefix: "clap-fixpoint-",
   });
   const rebuiltWasmPath = `${tempDir}/rebuilt.wasm`;
   const rebuiltMetaPath = `${tempDir}/rebuilt.meta.json`;

@@ -98,7 +98,7 @@ async function compileWithWasmRunner(entry, outputPath) {
     args: [
       "run",
       "-A",
-      "scripts/run-clapse-compiler-wasm.mjs",
+      "scripts/run-clap-compiler-wasm.mjs",
       "--",
       "compile",
       entry,
@@ -180,7 +180,7 @@ async function main() {
     const sourceSha256 = await sha256Hex(sourceBytes);
     const outWasm = await Deno.makeTempFile({
       suffix: ".wasm",
-      prefix: "clapse_native_fixture_",
+      prefix: "clap_native_fixture_",
       dir: "/tmp",
     });
     try {

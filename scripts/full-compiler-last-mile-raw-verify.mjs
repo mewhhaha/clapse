@@ -15,8 +15,8 @@ function assert(condition, message) {
 }
 
 function resolveCompilerWasmPath() {
-  const fromEnv = String(Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "").trim();
-  return fromEnv.length > 0 ? fromEnv : "artifacts/latest/clapse_compiler.wasm";
+  const fromEnv = String(Deno.env.get("CLAP_COMPILER_WASM_PATH") ?? "").trim();
+  return fromEnv.length > 0 ? fromEnv : "artifacts/latest/clap_compiler.wasm";
 }
 
 function decodeTaggedInt(raw) {
@@ -83,7 +83,7 @@ async function compileCase(wasmPath, testCase) {
 const CASES = [
   {
     label: "last-mile-same-line-ctor-let-pattern",
-    inputPath: "full-compiler-last-mile-raw-verify/same-line-ctor-let-pattern.clapse",
+    inputPath: "full-compiler-last-mile-raw-verify/same-line-ctor-let-pattern.clap",
     source: [
       "export { main }",
       "",
@@ -99,7 +99,7 @@ const CASES = [
   },
   {
     label: "last-mile-helper-returned-simple-constructor-field",
-    inputPath: "full-compiler-last-mile-raw-verify/helper-returned-simple-constructor-field.clapse",
+    inputPath: "full-compiler-last-mile-raw-verify/helper-returned-simple-constructor-field.clap",
     source: [
       "export { main }",
       "",
@@ -116,7 +116,7 @@ const CASES = [
   },
   {
     label: "last-mile-helper-returned-multiline-let-constructor-field",
-    inputPath: "full-compiler-last-mile-raw-verify/helper-returned-multiline-let-constructor-field.clapse",
+    inputPath: "full-compiler-last-mile-raw-verify/helper-returned-multiline-let-constructor-field.clap",
     source: [
       "export { main }",
       "",
@@ -137,7 +137,7 @@ const CASES = [
   },
   {
     label: "last-mile-nested-constructor-helper-chain",
-    inputPath: "full-compiler-last-mile-raw-verify/nested-constructor-helper-chain.clapse",
+    inputPath: "full-compiler-last-mile-raw-verify/nested-constructor-helper-chain.clap",
     source: [
       "export { main }",
       "",
@@ -163,7 +163,7 @@ const CASES = [
   },
   {
     label: "last-mile-http-parser-reduced",
-    inputPath: "full-compiler-last-mile-raw-verify/http-parser-reduced.clapse",
+    inputPath: "full-compiler-last-mile-raw-verify/http-parser-reduced.clap",
     source: [
       "export { main }",
       "",
@@ -189,7 +189,7 @@ const CASES = [
   },
   {
     label: "last-mile-maybe-bind-reduced",
-    inputPath: "full-compiler-last-mile-raw-verify/maybe-bind-reduced.clapse",
+    inputPath: "full-compiler-last-mile-raw-verify/maybe-bind-reduced.clap",
     source: [
       "export { main }",
       "",
@@ -213,7 +213,7 @@ const CASES = [
   },
   {
     label: "last-mile-either-bind-reduced",
-    inputPath: "full-compiler-last-mile-raw-verify/either-bind-reduced.clapse",
+    inputPath: "full-compiler-last-mile-raw-verify/either-bind-reduced.clap",
     source: [
       "export { main }",
       "",

@@ -5,9 +5,9 @@ import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
 
 function resolveWasmPath() {
   const candidates = [
-    Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "",
-    "artifacts/latest/clapse_compiler.wasm",
-    "out/clapse_compiler.wasm",
+    Deno.env.get("CLAP_COMPILER_WASM_PATH") ?? "",
+    "artifacts/latest/clap_compiler.wasm",
+    "out/clap_compiler.wasm",
   ];
   for (const candidate of candidates) {
     if (candidate.length === 0) {
@@ -23,7 +23,7 @@ function resolveWasmPath() {
     }
   }
   throw new Error(
-    "record-kernel-smoke: missing compiler wasm (set CLAPSE_COMPILER_WASM_PATH or provide artifacts/latest/out compiler wasm)",
+    "record-kernel-smoke: missing compiler wasm (set CLAP_COMPILER_WASM_PATH or provide artifacts/latest/out compiler wasm)",
   );
 }
 
@@ -57,7 +57,7 @@ async function compileSource(wasmPath, inputPath, inputSource, compileMode = "")
 async function emitWatSource(wasmPath, inputSource, emitMode) {
   const request = {
     command: "emit-wat",
-    input_path: "examples/emit_wat_source_probe.clapse",
+    input_path: "examples/emit_wat_source_probe.clap",
     input_source: inputSource,
   };
   if (emitMode.length > 0) {
@@ -81,7 +81,7 @@ async function emitWatSource(wasmPath, inputSource, emitMode) {
 
 async function run() {
   const allowTemplateFallback = boolEnvFlag(
-    "CLAPSE_RECORD_KERNEL_SMOKE_ALLOW_TEMPLATE_FALLBACK",
+    "CLAP_RECORD_KERNEL_SMOKE_ALLOW_TEMPLATE_FALLBACK",
     false,
   );
   const wasmPath = resolveWasmPath();
@@ -92,7 +92,7 @@ async function run() {
     "main x = default_options.allow",
     "",
   ].join("\n");
-  const response = await compileSource(wasmPath, "examples/record_kernel_smoke.clapse", source);
+  const response = await compileSource(wasmPath, "examples/record_kernel_smoke.clap", source);
   assert(response && typeof response === "object", "record-kernel-smoke: invalid compile response");
   assert(response.ok === true, `record-kernel-smoke: compile failed: ${String(response?.error ?? "unknown")}`);
   assert(
@@ -101,7 +101,7 @@ async function run() {
   );
   const nativeResponse = await compileSource(
     wasmPath,
-    "examples/record_kernel_smoke_native.clapse",
+    "examples/record_kernel_smoke_native.clap",
     source,
     "kernel-native",
   );

@@ -9,12 +9,12 @@ function assert(condition, message) {
 }
 
 function resolveCompilerWasmPath() {
-  const fromEnv = String(Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "")
+  const fromEnv = String(Deno.env.get("CLAP_COMPILER_WASM_PATH") ?? "")
     .trim();
   if (fromEnv.length > 0) {
     return fromEnv;
   }
-  return "artifacts/latest/clapse_compiler.wasm";
+  return "artifacts/latest/clap_compiler.wasm";
 }
 
 function isObject(value) {
@@ -70,10 +70,10 @@ function buildCompileRequest(inputPath, source, extra = {}) {
 async function run() {
   const wasmPath = resolveCompilerWasmPath();
   const tmpDir = await Deno.makeTempDir({
-    prefix: "clapse-native-ir-liveness-size-gate-",
+    prefix: "clap-native-ir-liveness-size-gate-",
   });
   try {
-    const inputPath = `${tmpDir}/gate.clapse`;
+    const inputPath = `${tmpDir}/gate.clap`;
     const deadMarker = `native-ir-liveness-dead-${crypto.randomUUID()}`;
     const source = [
       "export { main, helper }",

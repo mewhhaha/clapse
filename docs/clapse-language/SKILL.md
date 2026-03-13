@@ -1,13 +1,13 @@
 ---
-name: clapse-language
-description: AI-first reference for Clapse syntax, type/data model, purity and rewrite laws, lowering/collapse optimization pipeline, WASM runtime ABI, JS interop boundaries, and tooling workflows. Use when implementing, reviewing, debugging, or planning Clapse language/compiler/runtime changes, writing examples/tests/docs, or answering "how does Clapse do X?" with repo-accurate behavior.
+name: clap-language
+description: AI-first reference for Clap syntax, type/data model, purity and rewrite laws, lowering/collapse optimization pipeline, WASM runtime ABI, JS interop boundaries, and tooling workflows. Use when implementing, reviewing, debugging, or planning Clap language/compiler/runtime changes, writing examples/tests/docs, or answering "how does Clap do X?" with repo-accurate behavior.
 ---
 
-# Clapse Language
+# Clap Language
 
 ## Overview
 
-Use this skill to keep Clapse language decisions and implementations aligned with the current repository behavior. Load only the reference files needed for the active task, then verify assumptions in code before editing.
+Use this skill to keep Clap language decisions and implementations aligned with the current repository behavior. Load only the reference files needed for the active task, then verify assumptions in code before editing.
 
 ## Workflow
 
@@ -41,7 +41,7 @@ Use for runtime value encoding, imports, closures/struct/string layout, JS inter
 Use for CLI/Just workflows, LSP/formatter behavior, tree-sitter/Helix integration, and validation command sequences.
 
 - `references/self-hosting-roadmap.md`
-Use for the execution checklist to move from Haskell-hosted compilation to Clapse self-hosting with explicit parity/perf gates.
+Use for the execution checklist to move from Haskell-hosted compilation to Clap self-hosting with explicit parity/perf gates.
 
 ## Fast Validation Commands
 

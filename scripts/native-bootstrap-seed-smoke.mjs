@@ -2,6 +2,10 @@
 
 import { buildWasmSeedCompileResponse } from "./wasm-bootstrap-seed.mjs";
 import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
+import {
+  compilerRunExportRequirementText,
+  hasCompilerRunExport,
+} from "./compiler-abi-compat.mjs";
 
 function assert(condition, message) {
   if (!condition) {
@@ -28,32 +32,32 @@ function resolveWasmPath(argv) {
       return candidate;
     }
   }
-  const envPath = String(Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "").trim();
+  const envPath = String(Deno.env.get("CLAP_COMPILER_WASM_PATH") ?? "").trim();
   if (envPath.length > 0) {
     return envPath;
   }
-  return "artifacts/latest/clapse_compiler.wasm";
+  return "artifacts/latest/clap_compiler.wasm";
 }
 
 async function runRunnerCompileSmoke(wasmPath, sourceText, probeToken) {
   const tmpDir = await Deno.makeTempDir({
-    prefix: "clapse-wasm-bootstrap-seed-",
+    prefix: "clap-wasm-bootstrap-seed-",
   });
-  const inputPath = `${tmpDir}/seed_smoke_input.clapse`;
+  const inputPath = `${tmpDir}/seed_smoke_input.clap`;
   const outputPath = `${tmpDir}/seed_smoke_output.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(inputPath, sourceText);
 
   const env = {
     ...Deno.env.toObject(),
-    CLAPSE_USE_WASM_BOOTSTRAP_SEED: "1",
-    CLAPSE_COMPILER_WASM_PATH: wasmPath,
+    CLAP_USE_WASM_BOOTSTRAP_SEED: "1",
+    CLAP_COMPILER_WASM_PATH: wasmPath,
   };
   const cmd = new Deno.Command(Deno.execPath(), {
     args: [
       "run",
       "-A",
-      "scripts/run-clapse-compiler-wasm.mjs",
+      "scripts/run-clap-compiler-wasm.mjs",
       "compile-native-debug",
       inputPath,
       outputPath,
@@ -68,7 +72,7 @@ async function runRunnerCompileSmoke(wasmPath, sourceText, probeToken) {
     const stderr = new TextDecoder().decode(result.stderr).trim();
     const stdout = new TextDecoder().decode(result.stdout).trim();
     throw new Error(
-      `native-bootstrap-seed-smoke: run-clapse compile-native-debug failed (code=${result.code})\nstdout: ${stdout}\nstderr: ${stderr}`,
+      `native-bootstrap-seed-smoke: run-clap compile-native-debug failed (code=${result.code})\nstdout: ${stdout}\nstderr: ${stderr}`,
     );
   }
 
@@ -87,8 +91,8 @@ async function runRunnerCompileSmoke(wasmPath, sourceText, probeToken) {
     entry.name
   );
   assert(
-    exportNames.includes("clapse_run"),
-    "native-bootstrap-seed-smoke: runner output missing clapse_run export",
+    hasCompilerRunExport(exportNames),
+    `native-bootstrap-seed-smoke: runner output missing ${compilerRunExportRequirementText()} export`,
   );
   assert(
     exportNames.includes("memory") || exportNames.includes("__memory"),
@@ -112,7 +116,7 @@ async function run() {
     {
       command: "compile",
       compile_mode: "kernel-native",
-      input_path: "examples/native_bootstrap_seed_smoke.clapse",
+      input_path: "examples/native_bootstrap_seed_smoke.clap",
       input_source: sourceText,
       plugin_wasm_paths: [],
     },
@@ -138,8 +142,8 @@ async function run() {
     entry.name
   );
   assert(
-    seedExportNames.includes("clapse_run"),
-    "native-bootstrap-seed-smoke: seed response wasm missing clapse_run export",
+    hasCompilerRunExport(seedExportNames),
+    `native-bootstrap-seed-smoke: seed response wasm missing ${compilerRunExportRequirementText()} export`,
   );
   assert(
     seedExportNames.includes("memory") || seedExportNames.includes("__memory"),

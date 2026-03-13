@@ -1,8 +1,8 @@
-# Clapse Language Overview
+# Clap Language Overview
 
 ## Purpose
 
-Clapse is a pure functional toy language that compiles to WASM and prioritizes aggressive compile-time collapse/reduction.
+Clap is a pure functional toy language that compiles to WASM and prioritizes aggressive compile-time collapse/reduction.
 
 ## Core Design Constraints
 
@@ -35,7 +35,7 @@ Clapse is a pure functional toy language that compiles to WASM and prioritizes a
 
 ## Purity and Host Boundary
 
-- Clapse source stays pure.
+- Clap source stays pure.
 - Mutations are expected at host boundaries (for example JS event loop, canvas, IO).
 - WASM runtime values are represented through tagged integers plus linear-memory records/descriptors.
 

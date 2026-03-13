@@ -1,15 +1,15 @@
-# Clapse Self-Hosting Plan
+# Clap Self-Hosting Plan
 
 ## Goal
 
-Make `clapse` fully self-hosted for:
+Make `clap` fully self-hosted for:
 
 1. compiler
 2. formatter
 3. LSP
 
 Meaning:
-- core logic is implemented in Clapse source
+- core logic is implemented in Clap source
 - compiled to wasm
 - hosted by Deno for CLI/stdio/filesystem/process boundary IO
 - Haskell implementation remains bootstrap-only fallback until final cutover
@@ -25,7 +25,7 @@ Meaning:
 - `compile`, `format`, `lsp` routes exist through wasm host wrappers.
 - Phase fixtures exist through `bootstrap_phase9_compiler_kernel`.
 - parser/lowering/collapse/wasm pipelines are still primarily Haskell.
-- Clapse-source utility modules are now present for:
+- Clap-source utility modules are now present for:
   - slice scanning
   - string/slice bridge usage
 - semantic fixes landed:
@@ -43,7 +43,7 @@ Meaning:
   - stdio for LSP transport
   - file reads/writes
   - process exit codes
-- Clapse wasm handles:
+- Clap wasm handles:
   - parse + type + rewrite + lower + collapse + wasm emit
   - formatting
   - LSP document state transforms and diagnostics payload generation
@@ -51,7 +51,7 @@ Meaning:
 ### ABI contract
 
 - single exported entrypoint:
-  - `clapse_run(request_slice_handle: i32) -> response_slice_handle: i32`
+  - `clap_run(request_slice_handle: i32) -> response_slice_handle: i32`
 - UTF-8 JSON request/response over slice descriptors
 - stable commands:
   - `compile`
@@ -82,20 +82,20 @@ Meaning:
 - predictable module import behavior for deeply nested compiler modules
 
 Acceptance:
-- all compiler-in-clapse source files parse/format roundtrip cleanly
+- all compiler-in-clap source files parse/format roundtrip cleanly
 - no fallback rewrite of logic into unnatural forms just to satisfy parser quirks
 
-## 2) Clapse compiler implementation parity
+## 2) Clap compiler implementation parity
 
 ### 2.1 Frontend parity
 
-- Clapse parser in Clapse:
+- Clap parser in Clap:
   - module/import/export
   - attributes
   - data/newtype
   - classes/laws/instances
   - operators/backticks/guards/case
-- Clapse type inference in Clapse:
+- Clap type inference in Clap:
   - builtin signatures
   - constructor helpers
   - string/slice bridge
@@ -107,14 +107,14 @@ Acceptance:
 
 ### 2.2 Lowering/collapse parity
 
-- Lowering IR generation in Clapse
-- Collapse pipeline in Clapse:
+- Lowering IR generation in Clap
+- Collapse pipeline in Clap:
   - currying normalize
   - inline/specialize
   - prune
   - tail-call pass
   - region/slice ownership passes
-- Verifier parity in Clapse
+- Verifier parity in Clap
 
 Acceptance:
 - collapsed IR equivalence on selfhost corpus
@@ -122,7 +122,7 @@ Acceptance:
 
 ### 2.3 Wasm emit parity
 
-- Wasm section/type/import/export/code/data emission in Clapse
+- Wasm section/type/import/export/code/data emission in Clap
 - inline runtime ops:
   - closures
   - structs
@@ -134,7 +134,7 @@ Acceptance:
 - wasm module validates and runs for full corpus
 - export/import/runtime contract unchanged
 
-## 3) Formatter implementation in Clapse
+## 3) Formatter implementation in Clap
 
 ### 3.1 Parser-aware formatter core
 
@@ -154,7 +154,7 @@ Acceptance:
 - formatter corpus green
 - no destructive behavior (no declaration loss)
 
-## 4) LSP implementation in Clapse
+## 4) LSP implementation in Clap
 
 ### 4.1 Protocol scope (phase 1)
 
@@ -220,7 +220,7 @@ Acceptance:
 ### 7.2 Performance targets
 
 - compiler throughput:
-  - compare Haskell vs Clapse-wasm on fixed corpus
+  - compare Haskell vs Clap-wasm on fixed corpus
 - runtime throughput:
   - abstraction-vs-handwritten bars remain within accepted bounds
 - no major regressions from bridge abstractions
@@ -262,45 +262,45 @@ Acceptance:
 ## Milestone A: Language + parser stability for compiler source
 
 - close parser/layout blockers from pain-point list
-- ensure compiler Clapse modules parse/format robustly
+- ensure compiler Clap modules parse/format robustly
 - keep no special runtime semantics
 
 Exit criteria:
 - compiler source modules compile without workaround syntax contortions
 
-## Milestone B: Compiler frontend parity in Clapse
+## Milestone B: Compiler frontend parity in Clap
 
-- parser + type + rewrite in Clapse
+- parser + type + rewrite in Clap
 - artifact diff against Haskell for corpus
 
 Exit criteria:
 - AST/type/rewrite parity accepted
 
-## Milestone C: Lowering/collapse parity in Clapse
+## Milestone C: Lowering/collapse parity in Clap
 
-- lower + collapse + verifier in Clapse
+- lower + collapse + verifier in Clap
 
 Exit criteria:
 - collapsed IR parity accepted
 
-## Milestone D: Wasm emit parity in Clapse
+## Milestone D: Wasm emit parity in Clap
 
-- wasm emitter in Clapse
+- wasm emitter in Clap
 
 Exit criteria:
 - behavior parity and wasm validation green
 
-## Milestone E: Formatter/LSP parity in Clapse
+## Milestone E: Formatter/LSP parity in Clap
 
-- formatter logic in Clapse
-- LSP analysis/rendering in Clapse
+- formatter logic in Clap
+- LSP analysis/rendering in Clap
 
 Exit criteria:
 - editor-facing parity + latency acceptable
 
 ## Milestone F: Cutover
 
-- default all commands to Clapse-wasm engine
+- default all commands to Clap-wasm engine
 - keep explicit fallback only for bootstrap emergency
 
 Exit criteria:
@@ -326,7 +326,7 @@ Exit criteria:
 1. Parser fragility in large compiler modules
 - Mitigation: dedicated parser/formatter corpus and fast regression fixtures
 
-2. Hidden semantic drift between Haskell and Clapse engines
+2. Hidden semantic drift between Haskell and Clap engines
 - Mitigation: artifact + behavior diff gates required on every milestone
 
 3. Performance regressions in wasm compiler engine
@@ -342,10 +342,10 @@ Exit criteria:
 
 1. DONE: Add first-class `slice_eq_u8` builtin (`slice byte -> slice byte -> i64`) as inline-wasm bytewise equality and simplify `string_slice` module to use it.
 2. DONE: Port and lock parser-layout pain-point fixtures from compiler kernels (nested case chains, multiline parenthesized application, and inline case declarations).
-3. DONE: Start Clapse-source parser module parity harness against Haskell parser artifacts (`scripts/selfhost-parser-parity.mjs`, manifest `examples/selfhost_parser_corpus.txt`).
+3. DONE: Start Clap-source parser module parity harness against Haskell parser artifacts (`scripts/selfhost-parser-parity.mjs`, manifest `examples/selfhost_parser_corpus.txt`).
 4. DONE: Add formatter idempotence corpus gate for compiler-source files (`scripts/formatter-idempotence-corpus.mjs`, manifest `examples/compiler_source_corpus.txt`).
-5. DONE: Add initial Clapse-source LSP diagnostics/hover fixture runner through wasm ABI (`scripts/lsp-wasm-fixtures.mjs`, fixtures `examples/lsp_wasm_fixtures.json`).
-6. DONE: Add parser-combinator pilot support for top-level `#[...]` attribute lines and lock regression coverage with `examples/parser_attribute_pain_points.clapse` in parser/formatter corpora.
+5. DONE: Add initial Clap-source LSP diagnostics/hover fixture runner through wasm ABI (`scripts/lsp-wasm-fixtures.mjs`, fixtures `examples/lsp_wasm_fixtures.json`).
+6. DONE: Add parser-combinator pilot support for top-level `#[...]` attribute lines and lock regression coverage with `examples/parser_attribute_pain_points.clap` in parser/formatter corpora.
 7. DONE: Add parser-combinator pilot support for guarded function declaration shape parsing (`name ... | ... = ...`) and malformed-guard rejection fixture in phase11 sample checks.
 8. DONE: Split phase11 declaration artifact function tags into plain vs guarded forms and propagate new counters through stats/stream hashing.
 9. DONE: Add parser-combinator pilot support for multiline plain function declaration blocks (`name ... =` followed by indented RHS lines) and wire it through tagged/untagged phase11 declaration parsing.

@@ -1,7 +1,7 @@
 import "compiler/prelude"
 import "compiler/scan"
 import "compiler/json_response_helpers"
-export { SourceSegment, PrunedSourceResult, native_pruned_source_segment, native_pruned_source_segment_checked, resolve_root_names }
+export { SourceSegment, PrunedSourceResult, NameRef, FnInfo, native_pruned_source_segment, native_pruned_source_segment_checked, resolve_root_names, name_ref_eq, collect_function_infos, seed_reachable_from_roots, expand_reachable_fixpoint }
 
 data NameRef = NameRef a b c
 data MaybeNameRef = MissingName | PresentName a

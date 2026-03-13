@@ -9,12 +9,12 @@ function assert(condition, message) {
 }
 
 function resolveCompilerWasmPath() {
-  const fromEnv = String(Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "")
+  const fromEnv = String(Deno.env.get("CLAP_COMPILER_WASM_PATH") ?? "")
     .trim();
   if (fromEnv.length > 0) {
     return fromEnv;
   }
-  return "artifacts/latest/clapse_compiler.wasm";
+  return "artifacts/latest/clap_compiler.wasm";
 }
 
 function isObject(value) {
@@ -56,10 +56,10 @@ function buildCompileRequest(inputPath, source) {
 async function run() {
   const wasmPath = resolveCompilerWasmPath();
   const tmpDir = await Deno.makeTempDir({
-    prefix: "clapse-native-tail-recursion-gate-",
+    prefix: "clap-native-tail-recursion-gate-",
   });
   try {
-    const selfPath = `${tmpDir}/self_tail.clapse`;
+    const selfPath = `${tmpDir}/self_tail.clap`;
     const selfSource = [
       "export { main, loop, non_tail }",
       "loop n = loop n",
@@ -86,7 +86,7 @@ async function run() {
       "native-tail-recursion-gate: non_tail should not be marked as self tail call",
     );
 
-    const mutualPath = `${tmpDir}/mutual_tail.clapse`;
+    const mutualPath = `${tmpDir}/mutual_tail.clap`;
     const mutualSource = [
       "export { main, even, odd }",
       "even n = odd n",

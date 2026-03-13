@@ -16,11 +16,14 @@ function envFlag(name, defaultValue = false) {
   return normalized === "1" || normalized === "true" || normalized === "yes";
 }
 
-const REQUIRE_CORE_BACKENDS = envFlag("CLAPSE_EXPECT_CORE_LSP_BACKENDS", false);
+const REQUIRE_CORE_BACKENDS = envFlag("CLAP_EXPECT_CORE_LSP_BACKENDS", false);
 
 function getWasmPath() {
   const candidates = [
-    Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "",
+    Deno.env.get("CLAP_COMPILER_WASM_PATH") ?? "",
+    "artifacts/latest/clap_compiler.wasm",
+    "out/clap_compiler.wasm",
+    "artifacts/latest/clapse_compiler.wasm",
     "out/clapse_compiler.wasm",
   ];
   for (const candidate of candidates) {
@@ -33,7 +36,7 @@ function getWasmPath() {
     }
   }
   throw new Error(
-    "wasm LSP mode requires CLAPSE_COMPILER_WASM_PATH or out/clapse_compiler.wasm",
+    "wasm LSP mode requires CLAP_COMPILER_WASM_PATH or a clap_compiler/clapse_compiler wasm artifact in artifacts/latest or out",
   );
 }
 
@@ -445,7 +448,7 @@ async function run() {
 
   const proc = new Deno.Command("deno", {
     args: ["run", "-A", "scripts/lsp-wasm.mjs"],
-    env: { ...Deno.env.toObject(), CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    env: { ...Deno.env.toObject(), CLAP_COMPILER_WASM_PATH: wasmPath },
     stdin: "piped",
     stdout: "piped",
     stderr: "piped",
@@ -616,7 +619,7 @@ async function run() {
           diagnostics: { refreshSupport: true },
         },
       },
-      clientInfo: { name: "clapse-wasm-fixture-runner", version: "0.1.0" },
+      clientInfo: { name: "clap-wasm-fixture-runner", version: "0.1.0" },
     });
 
     await sendNotification("initialized", {});
@@ -656,7 +659,7 @@ async function run() {
       const codeActionExpectation = scenario?.codeActionExpectation;
       const formattingReq = scenario?.formatting;
       const formattingExpectation = scenario?.formattingExpectation;
-      const sourceFile = String(scenario?.sourceFile ?? `main.clapse`);
+      const sourceFile = String(scenario?.sourceFile ?? `main.clap`);
       const projectConfig = scenario?.projectConfig ?? null;
       const projectFiles = scenario?.projectFiles;
       const projectDir = await Deno.makeTempDir({
@@ -670,7 +673,7 @@ async function run() {
       }
       if (projectConfig !== null) {
         await Deno.writeTextFile(
-          `${projectDir}/clapse.json`,
+          `${projectDir}/clap.json`,
           JSON.stringify(projectConfig, null, 2),
         );
       }
@@ -695,7 +698,7 @@ async function run() {
       await sendNotification("textDocument/didOpen", {
         textDocument: {
           uri,
-          languageId: "clapse",
+          languageId: "clap",
           version: 1,
           text: source,
         },
@@ -751,7 +754,7 @@ async function run() {
         });
         completionPass = completionExpectationPass(completionResp, completionExpectation);
         if (completionResp !== null && completionResp !== undefined) {
-          completionBackend = "clapse";
+          completionBackend = "clap";
         }
       }
 
@@ -769,7 +772,7 @@ async function run() {
           signatureHelpExpectation,
         );
         if (signatureHelpResp !== null && signatureHelpResp !== undefined) {
-          signatureBackend = "clapse";
+          signatureBackend = "clap";
         }
       }
 
@@ -784,7 +787,7 @@ async function run() {
           semanticTokensExpectation,
         );
         if (semanticTokensResp !== null && semanticTokensResp !== undefined) {
-          semanticTokensBackend = "clapse";
+          semanticTokensBackend = "clap";
         }
       }
 
@@ -800,7 +803,7 @@ async function run() {
           workspaceSymbolExpectation,
         );
         if (workspaceSymbolResp !== null && workspaceSymbolResp !== undefined) {
-          workspaceSymbolBackend = "clapse";
+          workspaceSymbolBackend = "clap";
         }
       }
 
@@ -832,7 +835,7 @@ async function run() {
         });
         renamePass = renameExpectationPass(renameResp, renameExpectation, uri);
         if (renameResp !== null && typeof renameResp === "object") {
-          renameBackend = "clapse";
+          renameBackend = "clap";
         }
       }
 
@@ -852,7 +855,7 @@ async function run() {
           referencesExpectation,
           uri,
         );
-        referencesBackend = referencesResp === null ? "js" : "clapse";
+        referencesBackend = referencesResp === null ? "js" : "clap";
       }
 
       let documentSymbolsResp = null;

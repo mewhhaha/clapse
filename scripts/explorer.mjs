@@ -2,7 +2,7 @@
 
 import { cliArgs, failWithError, readBinaryFile } from "./runtime-env.mjs";
 import { buildExplorerSourceAnnotations } from "./lsp-wasm.mjs";
-import { runWithArgs } from "./run-clapse-compiler-wasm.mjs";
+import { runWithArgs } from "./run-clap-compiler-wasm.mjs";
 import {
   encodeInt,
   instantiateWithRuntime,
@@ -15,13 +15,13 @@ const DEFAULT_HOST = "127.0.0.1";
 let wabtPromise = null;
 
 function getExplorerWasmPath() {
-  return Deno.env.get("CLAPSE_COMPILER_WASM_PATH")?.trim() ||
-    `${Deno.cwd()}/artifacts/latest/clapse_compiler.wasm`;
+  return Deno.env.get("CLAP_COMPILER_WASM_PATH")?.trim() ||
+    `${Deno.cwd()}/artifacts/latest/clap_compiler.wasm`;
 }
 
 function usage() {
   return [
-    "Clapse explorer server",
+    "Clap explorer server",
     "",
     "Usage:",
     "  deno run -A scripts/explorer.mjs [--port 36627] [--host 127.0.0.1]",
@@ -75,9 +75,9 @@ async function runSampleMain(wasmPath, sampleArg = null) {
 async function inspectSource(sourceText, sampleArg = null, skipSampleRun = false) {
   const tmpDir = await Deno.makeTempDir({
     dir: "/tmp",
-    prefix: "clapse-explorer-",
+    prefix: "clap-explorer-",
   });
-  const inputPath = `${tmpDir}/input.clapse`;
+  const inputPath = `${tmpDir}/input.clap`;
   const wasmPath = `${tmpDir}/module.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   const payload = {

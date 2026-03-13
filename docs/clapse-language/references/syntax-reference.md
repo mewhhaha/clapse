@@ -21,7 +21,7 @@ literal bool = true<1> | false<0>
   during clause selection when a match can be decided without forcing that
   argument.
 - Explicit laziness uses `Lazy` and `force`; laziness is opt-in, not implicit.
-- JS/TS remains an I/O boundary only; language semantics live in the Clapse
+- JS/TS remains an I/O boundary only; language semantics live in the Clap
   kernel.
 
 ## Modules
@@ -438,9 +438,9 @@ in ...
 
 `class_dispatch_default` is defined as `ClassDispatchStatic`, so the default bootstrap path resolves to static method implementations and enables static law simplification after rewrite selection.
 
-This is separate from parser branch selection (`ParserDispatch`), which still governs parser alternatives in `lib/compiler/parser.clapse`.
+This is separate from parser branch selection (`ParserDispatch`), which still governs parser alternatives in `lib/compiler/parser.clap`.
 
-Declaration parsing for `class`, `law`, and `instance` forms in compiler pathways feeds class declarations through the same class dispatch/law pipeline as `lib/compiler/kernel.clapse` using the same dispatch evidence model.
+Declaration parsing for `class`, `law`, and `instance` forms in compiler pathways feeds class declarations through the same class dispatch/law pipeline as `lib/compiler/kernel.clap` using the same dispatch evidence model.
 
 ## Operators
 

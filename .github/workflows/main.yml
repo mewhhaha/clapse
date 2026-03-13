@@ -24,7 +24,7 @@ jobs:
         run: |
           set -euo pipefail
           git lfs install --local
-          git lfs pull --include="artifacts/latest/clapse_compiler.wasm"
+          git lfs pull --include="artifacts/latest/clap_compiler.wasm"
 
       - name: Setup Deno
         uses: denoland/setup-deno@v2
@@ -36,5 +36,5 @@ jobs:
 
       - name: Verify compiler fixpoint
         env:
-          CLAPSE_COMPILER_WASM_PATH: artifacts/latest/clapse_compiler.wasm
+          CLAP_COMPILER_WASM_PATH: artifacts/latest/clap_compiler.wasm
         run: just verify-compiler-fixpoint

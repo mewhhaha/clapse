@@ -1,7 +1,7 @@
 import { callCompilerWasm, decodeWasmBase64 } from "./wasm-compiler-abi.mjs";
 import { decodeInt, encodeInt, instantiateWithRuntime, makeRuntime } from "./wasm-runtime.mjs";
 
-const DEFAULT_COMPILER_WASM_PATH = "artifacts/latest/clapse_compiler.wasm";
+const DEFAULT_COMPILER_WASM_PATH = "artifacts/latest/clap_compiler.wasm";
 
 function assert(condition, message) {
   if (!condition) {
@@ -49,12 +49,12 @@ function testSliceCopyIsolation() {
   assert(copy[0] === 1, "slice copy must not alias live wasm memory");
 }
 
-async function compileAndInstantiateClapse(source) {
+async function compileAndInstantiateClap(source) {
   const compilerWasmPath =
-    Deno.env.get("CLAPSE_COMPILER_WASM_PATH") || DEFAULT_COMPILER_WASM_PATH;
+    Deno.env.get("CLAP_COMPILER_WASM_PATH") || DEFAULT_COMPILER_WASM_PATH;
   const response = await callCompilerWasm(compilerWasmPath, {
     command: "compile",
-    input_path: "memory-model-check.clapse",
+    input_path: "memory-model-check.clap",
     input_source: source,
   });
   assert(response && response.ok === true, "compiler must compile memory-model fixture source");
@@ -76,7 +76,7 @@ function toBigInt(v) {
 }
 
 async function testSliceReuseLinear() {
-  const instance = await compileAndInstantiateClapse(`
+  const instance = await compileAndInstantiateClap(`
 main =
   let s0 = slice_new_u8 64
       s1 = slice_set_u8 s0 0 1
@@ -96,7 +96,7 @@ main =
 }
 
 async function testSliceReuseCopyOnWriteAlias() {
-  const instance = await compileAndInstantiateClapse(`
+  const instance = await compileAndInstantiateClap(`
 main =
   let alias = slice_new_u8 64
       s1 = slice_set_u8 alias 0 1

@@ -94,14 +94,14 @@ async function sha256Hex(bytes) {
 
 async function runWasmSelfhostArtifacts(entry) {
   const outDir = await Deno.makeTempDir({
-    prefix: "clapse_native_selfhost_artifacts_",
+    prefix: "clap_native_selfhost_artifacts_",
     dir: "/tmp",
   });
   const result = await new Deno.Command("deno", {
     args: [
       "run",
       "-A",
-      "scripts/run-clapse-compiler-wasm.mjs",
+      "scripts/run-clap-compiler-wasm.mjs",
       "--",
       "selfhost-artifacts",
       entry,

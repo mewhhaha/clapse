@@ -1,4 +1,4 @@
-# Clapse Grammar (EBNF)
+# Clap Grammar (EBNF)
 
 Program          = { TopLevelDecl } EOF
 TopLevelDecl     = ImportDecl | ExportDecl | TypeDecl | SignatureDecl | ValueDecl

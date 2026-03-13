@@ -1,16 +1,20 @@
 #!/usr/bin/env -S deno run -A
 
 import { callCompilerWasmRaw, decodeWasmBase64 } from "./wasm-compiler-abi.mjs";
+import {
+  compilerRunExportRequirementText,
+  hasCompilerRunExport,
+} from "./compiler-abi-compat.mjs";
 
-const DEFAULT_COMPILER_WASM_PATH = "artifacts/latest/clapse_compiler.wasm";
-const DEFAULT_INPUT_PATH = "lib/compiler/kernel.clapse";
+const DEFAULT_COMPILER_WASM_PATH = "artifacts/latest/clap_compiler.wasm";
+const DEFAULT_INPUT_PATH = "lib/compiler/kernel.clap";
 const DEFAULT_HOPS = 2;
 const DEFAULT_COMPILE_MODE = "kernel-native";
 const MIN_COMPILER_BYTES = 4096;
 const DEFAULT_NATIVE_SEED_META_PATH = "artifacts/strict-native/seed.meta.json";
-const REQUIRED_SOURCE_VERSION_ENV = "CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED";
+const REQUIRED_SOURCE_VERSION_ENV = "CLAP_NATIVE_SOURCE_VERSION_REQUIRED";
 const EXPECTED_COMPILE_CONTRACT_VERSION = "native-v1";
-const NATIVE_SEED_META_PATH_ENV = "CLAPSE_NATIVE_SEED_META_PATH";
+const NATIVE_SEED_META_PATH_ENV = "CLAP_NATIVE_SEED_META_PATH";
 
 function usage() {
   return [
@@ -19,7 +23,7 @@ function usage() {
     "",
     "Compiles kernel source with the selected compiler wasm, then probes the",
     "produced compiler artifact with native-producer-raw-probe while requiring",
-    "__clapse_contract.source_version transitivity.",
+    "__clap_contract.source_version transitivity.",
     "",
     `Env fallback: ${REQUIRED_SOURCE_VERSION_ENV}=<token>`,
   ].join("\n");
@@ -48,7 +52,7 @@ function parseArgs(argv) {
   let hops = DEFAULT_HOPS;
   let sourceVersion = "";
   let outPath = "";
-  let keepTemp = boolEnvFlag("CLAPSE_NATIVE_SOURCE_GATE_KEEP_TEMP", false);
+  let keepTemp = boolEnvFlag("CLAP_NATIVE_SOURCE_GATE_KEEP_TEMP", false);
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--help" || arg === "-h") {
@@ -180,13 +184,13 @@ async function resolveRequiredSourceVersion(
 }
 
 function parseCompileContract(response, context) {
-  const raw = response?.__clapse_contract;
+  const raw = response?.__clap_contract;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    fail(`${context}: compile response missing __clapse_contract object`);
+    fail(`${context}: compile response missing __clap_contract object`);
   }
   const sourceVersion = raw.source_version;
   if (!nonEmptyString(sourceVersion)) {
-    fail(`${context}: compile response missing __clapse_contract.source_version`);
+    fail(`${context}: compile response missing __clap_contract.source_version`);
   }
   const compileContractVersion = raw.compile_contract_version;
   if (compileContractVersion !== EXPECTED_COMPILE_CONTRACT_VERSION) {
@@ -217,9 +221,9 @@ function assertCompilerAbi(moduleBytes, context) {
       `${context}: emitted wasm missing memory export (${exportNames.join(",")})`,
     );
   }
-  if (!exportNames.includes("clapse_run")) {
+  if (!hasCompilerRunExport(exportNames)) {
     fail(
-      `${context}: emitted wasm missing clapse_run export (${
+      `${context}: emitted wasm missing ${compilerRunExportRequirementText()} export (${
         exportNames.join(",")
       })`,
     );
@@ -350,7 +354,7 @@ async function main() {
   let isTempOut = false;
   if (!nonEmptyString(outPath)) {
     outPath = await Deno.makeTempFile({
-      prefix: "clapse-source-version-propagation-",
+      prefix: "clap-source-version-propagation-",
       suffix: ".wasm",
     });
     isTempOut = true;

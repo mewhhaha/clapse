@@ -36,7 +36,7 @@ export function fail(message) {
 export function failWithError(err) {
   if (err instanceof Error) {
     const debugStackRaw = isDeno
-      ? String(Deno.env.get("CLAPSE_DEBUG_STACK") ?? "").toLowerCase()
+      ? String(Deno.env.get("CLAP_DEBUG_STACK") ?? "").toLowerCase()
       : "";
     const debugStackEnabled = debugStackRaw === "1" || debugStackRaw === "true" || debugStackRaw === "yes";
     if (debugStackEnabled && typeof err.stack === "string" && err.stack.length > 0) {

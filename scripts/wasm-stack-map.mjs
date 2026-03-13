@@ -13,13 +13,13 @@ function usage() {
     "Notes:",
     "  - Offsets are the final numeric column from wasm stack frames",
     "    like wasm://wasm/<id>:1:<offset>.",
-    "  - Default wasm path: artifacts/latest/clapse_compiler.wasm",
+    "  - Default wasm path: artifacts/latest/clap_compiler.wasm",
   ].join("\n");
 }
 
 function parseArgs(rawArgs) {
   const out = {
-    wasmPath: "artifacts/latest/clapse_compiler.wasm",
+    wasmPath: "artifacts/latest/clap_compiler.wasm",
     offsets: [],
     help: false,
   };
@@ -252,7 +252,7 @@ function parseNameSection(bytes, start, end) {
 function parseFuncMapSection(bytes, start, end) {
   const secName = readString(bytes, start);
   let p = secName.next;
-  if (secName.value !== "clapse.funcmap") {
+  if (secName.value !== "clap.funcmap") {
     return { matched: false, names: new Map() };
   }
 
@@ -271,7 +271,7 @@ function parseFuncMapSection(bytes, start, end) {
   // Future payload extensions may append metadata; preserve compatibility by
   // parsing only the expected index/name pairs.
   if (p > end) {
-    throw new Error("clapse.funcmap section out of bounds");
+    throw new Error("clap.funcmap section out of bounds");
   }
   return { matched: true, names };
 }
@@ -323,18 +323,18 @@ function parseWasmIndex(bytes) {
           sawFuncMap = true;
           if (!sawNameSection) {
             functionNames = parsedFuncMap.names;
-            functionNameSource = "clapse.funcmap";
+            functionNameSource = "clap.funcmap";
           }
         }
       } catch (_e) {
-        // Ignore malformed clapse.funcmap sections while keeping name-section
+        // Ignore malformed clap.funcmap sections while keeping name-section
         // behavior as-is.
       }
     }
     p = end;
   }
   if (sawFuncMap && !sawNameSection && functionNames.size === 0) {
-    functionNameSource = "clapse.funcmap";
+    functionNameSource = "clap.funcmap";
   }
   return {
     importFunctionCount,

@@ -21,8 +21,8 @@ const DISALLOWED_PATH_PATTERNS = [
 const DISALLOWED_CONTENT_PATTERNS = [
   { name: "\\bcabal\\b", test: (line) => /\bcabal\b/u.test(line) },
   {
-    name: "cabal run clapse",
-    test: (line) => /cabal\s+run\s+clapse\b/u.test(line),
+    name: "cabal run clap",
+    test: (line) => /cabal\s+run\s+clap\b/u.test(line),
   },
 ];
 

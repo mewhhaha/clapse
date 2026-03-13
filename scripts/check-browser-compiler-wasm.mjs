@@ -6,9 +6,9 @@ import {
   inspectCompilerWasmAbi,
 } from "./wasm-compiler-abi.mjs";
 
-const DEFAULT_WASM_PATH = "artifacts/latest/clapse_compiler.wasm";
+const DEFAULT_WASM_PATH = "artifacts/latest/clap_compiler.wasm";
 const DEFAULT_MIN_BYTES = 4096;
-const SMOKE_INPUT_PATH = "_compiler_smoke.clapse";
+const SMOKE_INPUT_PATH = "_compiler_smoke.clap";
 const SMOKE_INPUT_SOURCE = "main x = x";
 
 function usage() {
@@ -18,7 +18,7 @@ function usage() {
     "",
     "Checks:",
     "  - wasm exists and is not tiny",
-    "  - wasm exports browser runtime ABI (memory + clapse_run)",
+    "  - wasm exports browser runtime ABI (memory + clap_run)",
     "  - compile smoke request succeeds in kernel-native mode",
     "  - compile smoke response includes kernel backend + debug artifacts",
     "  - emitted module is valid wasm and exports main",

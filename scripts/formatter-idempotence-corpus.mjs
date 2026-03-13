@@ -2,7 +2,7 @@
 
 function parseArgs(argv) {
   const defaultCompilerCommand =
-    "deno run -A scripts/run-clapse-compiler-wasm.mjs --";
+    "deno run -A scripts/run-clap-compiler-wasm.mjs --";
   const out = {
     manifest: "examples/compiler_source_corpus.txt",
     cmd: defaultCompilerCommand,
@@ -28,7 +28,7 @@ function shQuote(s) {
 function stableName(path) {
   return path
     .replaceAll("/", "__")
-    .replaceAll(".clapse", "");
+    .replaceAll(".clap", "");
 }
 
 function parseManifest(raw) {
@@ -150,8 +150,8 @@ async function main() {
 
     const same = firstOk && secondOk && firstPassText === secondPassText;
 
-    await Deno.writeTextFile(`${out}.formatted-first.clapse`, firstPassText);
-    await Deno.writeTextFile(`${out}.formatted-second.clapse`, secondPassText);
+    await Deno.writeTextFile(`${out}.formatted-first.clap`, firstPassText);
+    await Deno.writeTextFile(`${out}.formatted-second.clap`, secondPassText);
 
     const result = {
       entry,

@@ -1,5 +1,6 @@
 #!/usr/bin/env -S deno run -A
 
+import { getCompilerRunExport } from "./compiler-abi-compat.mjs";
 import { makeRuntime } from "./wasm-runtime.mjs";
 
 const UTF8_ENCODER = new TextEncoder();
@@ -12,12 +13,12 @@ function assert(condition, message) {
 }
 
 function resolveCompilerWasmPath() {
-  const fromEnv = String(Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "")
+  const fromEnv = String(Deno.env.get("CLAP_COMPILER_WASM_PATH") ?? "")
     .trim();
   if (fromEnv.length > 0) {
     return fromEnv;
   }
-  return "artifacts/latest/clapse_compiler.wasm";
+  return "artifacts/latest/clap_compiler.wasm";
 }
 
 function isObject(value) {
@@ -79,8 +80,7 @@ async function callCompilerWasmDirect(path, requestObject) {
   const instance = await WebAssembly.instantiate(module, {});
   const memoryExport = instance.exports.__memory ?? instance.exports.memory;
   assert(memoryExport instanceof WebAssembly.Memory, "compiler wasm missing memory export");
-  const run = instance.exports.clapse_run;
-  assert(typeof run === "function", "compiler wasm missing clapse_run export");
+  const run = getCompilerRunExport(instance);
   runtime.state.memory = memoryExport;
   const heapGlobal = instance.exports.__heap_ptr;
   if (heapGlobal instanceof WebAssembly.Global) {
@@ -136,10 +136,10 @@ async function run() {
   const wasmPath = resolveCompilerWasmPath();
   const deadMarker = `native-temp-pruning-dead-${crypto.randomUUID()}`;
   const tmpDir = await Deno.makeTempDir({
-    prefix: "clapse-native-temp-pruning-gate-",
+    prefix: "clap-native-temp-pruning-gate-",
   });
   try {
-    const inputPath = `${tmpDir}/gate.clapse`;
+    const inputPath = `${tmpDir}/gate.clap`;
     const source = [
       "export { main }",
       "main x =",

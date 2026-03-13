@@ -6,45 +6,45 @@ import {
   nowNs,
   readBinaryFile,
 } from "./runtime-env.mjs";
-import { runWithArgs } from "./run-clapse-compiler-wasm.mjs";
+import { runWithArgs } from "./run-clap-compiler-wasm.mjs";
 import { decodeInt, encodeInt, instantiateWithRuntime } from "./wasm-runtime.mjs";
 
-const CASES = [
+export const CASES = [
   {
     id: "numeric-hand",
-    clapseInputPath: "examples/bench_wasm_hand.clapse",
+    clapInputPath: "examples/bench_wasm_hand.clap",
     rustCase: "numeric",
   },
   {
     id: "numeric-abstraction",
-    clapseInputPath: "examples/bench_wasm_abstraction.clapse",
+    clapInputPath: "examples/bench_wasm_abstraction.clap",
     rustCase: "numeric",
   },
   {
     id: "http-request-parser",
-    clapseInputPath: "examples/bench_wasm_http_request_parser.clapse",
+    clapInputPath: "examples/bench_wasm_http_request_parser.clap",
     rustCase: "http-request-parser",
   },
   {
     id: "closure-env-abstraction",
-    clapseInputPath: "examples/bench_wasm_closure_env_abstraction.clapse",
+    clapInputPath: "examples/bench_wasm_closure_env_abstraction.clap",
     rustCase: "closure-env",
   },
   {
     id: "struct-field-abstraction",
-    clapseInputPath: "examples/bench_wasm_struct_field_abstraction.clapse",
+    clapInputPath: "examples/bench_wasm_struct_field_abstraction.clap",
     rustCase: "struct-field",
   },
   {
     id: "wrapper-uncurry-abstraction",
-    clapseInputPath: "examples/bench_wasm_wrapper_uncurry_abstraction.clapse",
+    clapInputPath: "examples/bench_wasm_wrapper_uncurry_abstraction.clap",
     rustCase: "wrapper-uncurry",
   },
 ];
 
 function usage() {
   return [
-    "Clapse vs Rust benchmark",
+    "Clap vs Rust benchmark",
     "",
     "Usage:",
     "  deno run -A scripts/bench-rust-compare.mjs [iterations] [warmup] [repeats]",
@@ -54,7 +54,7 @@ function usage() {
     "  warmup = 20000",
     "  repeats = 5",
     "",
-    "Benchmarks the current Clapse wasm output against optimized native Rust",
+    "Benchmarks the current Clap wasm output against optimized native Rust",
     "baselines for the current benchmark fixtures.",
     "",
     "Also reports a native wasmi run when",
@@ -137,13 +137,13 @@ function argsForIteration(pools, i) {
   return args;
 }
 
-async function compileClapseCase(tmpDir, inputPath) {
-  const outputPath = `${tmpDir}/${inputPath.split("/").pop()?.replace(/\.clapse$/u, ".wasm") ?? "out.wasm"}`;
+export async function compileClapCase(tmpDir, inputPath) {
+  const outputPath = `${tmpDir}/${inputPath.split("/").pop()?.replace(/\.clap$/u, ".wasm") ?? "out.wasm"}`;
   await runWithArgs(["compile-native", inputPath, outputPath]);
   return outputPath;
 }
 
-async function benchWasmCase(wasmPath, iterations, warmup, exportName = "main") {
+export async function benchWasmCase(wasmPath, iterations, warmup, exportName = "main") {
   const wasmBytes = await readBinaryFile(wasmPath);
   const { instance } = await instantiateWithRuntime(wasmBytes);
   const fn = instance.exports[exportName];
@@ -173,7 +173,7 @@ async function benchWasmCase(wasmPath, iterations, warmup, exportName = "main") 
   };
 }
 
-function makeBoundaryOnlyWasmBytes() {
+export function makeBoundaryOnlyWasmBytes() {
   return new Uint8Array([
     0x00,0x61,0x73,0x6d,0x01,0x00,0x00,0x00,
     0x01,0x06,0x01,0x60,0x01,0x7f,0x01,0x7f,
@@ -183,7 +183,7 @@ function makeBoundaryOnlyWasmBytes() {
   ]);
 }
 
-async function benchWasmBoundaryOnly(iterations, warmup) {
+export async function benchWasmBoundaryOnly(iterations, warmup) {
   const wasmBytes = makeBoundaryOnlyWasmBytes();
   const instance = await WebAssembly.instantiate(wasmBytes);
   const fn = instance.instance.exports.boundary_id;
@@ -210,7 +210,7 @@ async function benchWasmBoundaryOnly(iterations, warmup) {
   };
 }
 
-function rustSource() {
+export function rustSource() {
   return `
 use std::env;
 use std::time::Instant;
@@ -342,7 +342,7 @@ fn main() {
 `.trimStart();
 }
 
-async function compileRustBaseline(tmpDir) {
+export async function compileRustBaseline(tmpDir) {
   const rustPath = `${tmpDir}/baseline.rs`;
   const binaryPath = `${tmpDir}/baseline-rust`;
   await Deno.writeTextFile(rustPath, rustSource());
@@ -368,7 +368,7 @@ async function compileRustBaseline(tmpDir) {
   return binaryPath;
 }
 
-async function benchRustBinary(binaryPath, caseId, iterations, warmup) {
+export async function benchRustBinary(binaryPath, caseId, iterations, warmup) {
   const out = await new Deno.Command(binaryPath, {
     args: [caseId, String(iterations), String(warmup)],
   }).output();
@@ -409,7 +409,7 @@ function adjustedNsPerCall(totalNsPerCall, boundaryNsPerCall) {
 const WASMI_BENCH_BINARY =
   `${Deno.cwd()}/.tmp/wasm-native-bench/target/release/wasm-native-bench`;
 
-async function benchWasmCaseWasmi(wasmPath, iterations, warmup, exportName = "main") {
+export async function benchWasmCaseWasmi(wasmPath, iterations, warmup, exportName = "main") {
   const out = await new Deno.Command(WASMI_BENCH_BINARY, {
     args: [wasmPath, exportName, String(iterations), String(warmup)],
   }).output();
@@ -444,10 +444,10 @@ async function main() {
   const iterations = args[0] === undefined ? 2_000_000 : parsePositiveInt(args[0], "iterations");
   const warmup = args[1] === undefined ? 20_000 : parseNonNegativeInt(args[1], "warmup");
   const repeats = args[2] === undefined ? 5 : parsePositiveInt(args[2], "repeats");
-  const tmpDir = await Deno.makeTempDir({ dir: "/tmp", prefix: "clapse-rust-bench-" });
+  const tmpDir = await Deno.makeTempDir({ dir: "/tmp", prefix: "clap-rust-bench-" });
   try {
     const rustBinary = await compileRustBaseline(tmpDir);
-    console.log("benchmark: clapse vs rust");
+    console.log("benchmark: clap vs rust");
     console.log(`iterations: ${iterations}`);
     console.log(`warmup: ${warmup}`);
     console.log(`repeats: ${repeats}`);
@@ -486,7 +486,7 @@ async function main() {
     );
     console.log([
       "wasm-boundary-only".padEnd(22),
-      "clapse-wasm".padEnd(14),
+      "clap-wasm".padEnd(14),
       boundaryOnly.nsPerCall.toFixed(2).padStart(12),
       boundaryOnly.opsPerSec.toFixed(2).padStart(14),
       String(boundaryOnly.checksum).padStart(12),
@@ -494,7 +494,7 @@ async function main() {
     ].join(" "));
     console.log([
       "wasm-boundary-only".padEnd(22),
-      "clapse-wasmi".padEnd(14),
+      "clap-wasmi".padEnd(14),
       wasmiBoundaryOnly.nsPerCall.toFixed(2).padStart(12),
       wasmiBoundaryOnly.opsPerSec.toFixed(2).padStart(14),
       String(wasmiBoundaryOnly.checksum).padStart(12),
@@ -519,7 +519,7 @@ async function main() {
         String(rustResult.checksum).padStart(12),
         "1.00x".padStart(10),
       ].join(" "));
-      const wasmPath = await compileClapseCase(tmpDir, benchmarkCase.clapseInputPath);
+      const wasmPath = await compileClapCase(tmpDir, benchmarkCase.clapInputPath);
       const wasmResult = medianResult(
         await Promise.all(
           Array.from({ length: repeats }, () => benchWasmCase(wasmPath, iterations, warmup)),
@@ -536,7 +536,7 @@ async function main() {
       const adjustedWasmiNs = adjustedNsPerCall(wasmiResult.nsPerCall, wasmiBoundaryOnly.nsPerCall);
       console.log([
         benchmarkCase.id.padEnd(22),
-        "clapse-wasm".padEnd(14),
+        "clap-wasm".padEnd(14),
         wasmResult.nsPerCall.toFixed(2).padStart(12),
         wasmResult.opsPerSec.toFixed(2).padStart(14),
         String(wasmResult.checksum).padStart(12),
@@ -544,7 +544,7 @@ async function main() {
       ].join(" "));
       console.log([
         `${benchmarkCase.id}-native`.padEnd(22),
-        "clapse-wasmi".padEnd(14),
+        "clap-wasmi".padEnd(14),
         wasmiResult.nsPerCall.toFixed(2).padStart(12),
         wasmiResult.opsPerSec.toFixed(2).padStart(14),
         String(wasmiResult.checksum).padStart(12),
@@ -552,7 +552,7 @@ async function main() {
       ].join(" "));
       console.log([
         `${benchmarkCase.id}-native-net`.padEnd(22),
-        "clapse-wasmi".padEnd(14),
+        "clap-wasmi".padEnd(14),
         adjustedWasmiNs.toFixed(2).padStart(12),
         (adjustedWasmiNs > 0 ? (1_000_000_000 / adjustedWasmiNs) : 0).toFixed(2).padStart(14),
         String(wasmiResult.checksum).padStart(12),
@@ -560,7 +560,7 @@ async function main() {
       ].join(" "));
       console.log([
         `${benchmarkCase.id}-net`.padEnd(22),
-        "clapse-wasm".padEnd(14),
+        "clap-wasm".padEnd(14),
         adjustedNs.toFixed(2).padStart(12),
         (adjustedNs > 0 ? (1_000_000_000 / adjustedNs) : 0).toFixed(2).padStart(14),
         String(wasmResult.checksum).padStart(12),
@@ -568,12 +568,12 @@ async function main() {
       ].join(" "));
       if (wasmResult.checksum !== rustResult.checksum) {
         throw new Error(
-          `${benchmarkCase.id}: checksum mismatch (clapse=${wasmResult.checksum}, wasmi=${wasmiResult.checksum}, rust=${rustResult.checksum})`,
+          `${benchmarkCase.id}: checksum mismatch (clap=${wasmResult.checksum}, wasmi=${wasmiResult.checksum}, rust=${rustResult.checksum})`,
         );
       }
       if (wasmiResult.checksum !== rustResult.checksum) {
         throw new Error(
-          `${benchmarkCase.id}: checksum mismatch (clapse=${wasmResult.checksum}, wasmi=${wasmiResult.checksum}, rust=${rustResult.checksum})`,
+          `${benchmarkCase.id}: checksum mismatch (clap=${wasmResult.checksum}, wasmi=${wasmiResult.checksum}, rust=${rustResult.checksum})`,
         );
       }
     }
@@ -582,4 +582,6 @@ async function main() {
   }
 }
 
-await main().catch(failWithError);
+if (import.meta.main) {
+  await main().catch(failWithError);
+}

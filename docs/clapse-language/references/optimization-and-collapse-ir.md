@@ -15,7 +15,7 @@
 
 ### Unified wasm+IR compile-debug command
 
-`deno run -A scripts/run-clapse-compiler-wasm.mjs compile-debug <input.clapse> [output.wasm] [artifacts-dir]`
+`deno run -A scripts/run-clap-compiler-wasm.mjs compile-debug <input.clap> [output.wasm] [artifacts-dir]`
 
 This runs a unified one-step compile path and emits the same artifacts:
 
@@ -29,7 +29,7 @@ Current kernel-native compile behavior:
 - Boundary normalization for kernel compile responses is removed; native producer
   and kernel compile outputs are expected to satisfy strict contracts at source,
   including source-owned `lowered_ir.txt` / `collapsed_ir.txt`.
-- raw producer artifacts in the legacy `artifacts/latest/clapse_compiler.wasm`
+- raw producer artifacts in the legacy `artifacts/latest/clap_compiler.wasm`
   chain can still be synthetic; strict-native gates reject synthetic markers
   (`kernel:compile:*`, `seed-stage*`) and require request-source inclusion. Use
   `just bootstrap-native-producer-seed` to mint a wasm-native producer seed
@@ -145,7 +145,7 @@ Request-policy pipeline behavior is deterministic and pure:
 - Stage 2 converts staged hints into an `OwnershipRewriteMode` policy
   (`OwnershipRewriteLinear` or `OwnershipRewriteCopyOnWrite`) and passes request
   payload unchanged.
-- `clapse_run` invokes `collapse_pipeline_slice_ownership_mode` explicitly so
+- `clap_run` invokes `collapse_pipeline_slice_ownership_mode` explicitly so
   policy derivation is separate from `collapse_pipeline_run`.
 
 ### Allocation / Deallocation and Ownership Semantics

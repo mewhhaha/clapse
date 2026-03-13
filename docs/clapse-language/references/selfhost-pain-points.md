@@ -1,7 +1,7 @@
 # Self-host Pain Points
 
-This page tracks friction discovered while building the Clapse compiler kernel
-in Clapse itself. The goal is to make missing language/tooling features explicit
+This page tracks friction discovered while building the Clap compiler kernel
+in Clap itself. The goal is to make missing language/tooling features explicit
 so we can close them intentionally.
 
 ## Current pain points (observed)
@@ -46,8 +46,8 @@ so we can close them intentionally.
 
 ## Haskell-first implementations that are sensible now
 
-These are good bootstrap-first changes in Haskell so Clapse sources can express
-compiler logic cleanly, then we can port/replace in Clapse later.
+These are good bootstrap-first changes in Haskell so Clap sources can express
+compiler logic cleanly, then we can port/replace in Clap later.
 
 1. Parser robustness pass for multiline expression grammar.
 
@@ -61,7 +61,7 @@ compiler logic cleanly, then we can port/replace in Clapse later.
 
 3. Add pure slice scanning builtins (or keep as stdlib if sufficient).
 
-- Implemented now as pure module helpers in `examples/util/slice_scan.clapse`:
+- Implemented now as pure module helpers in `examples/util/slice_scan.clap`:
   - `slice_find_u8 bytes needle start -> index_or_minus1`
   - `slice_find_seq_u8 haystack needle start -> index_or_minus1`
 - Remaining decision:
@@ -81,7 +81,7 @@ compiler logic cleanly, then we can port/replace in Clapse later.
   - multiline parenthesized calls
   - long chained let bindings
   - status: implemented via test roundtrip coverage and
-    `examples/parser_layout_pain_points.clapse` in parser/formatter corpus gates.
+    `examples/parser_layout_pain_points.clap` in parser/formatter corpus gates.
 
 ## Rule for new pain points
 
@@ -89,7 +89,7 @@ When we hit a new blocker while self-hosting:
 
 1. add it here with a minimal reproducer,
 2. classify as `language`, `tooling`, or `runtime`,
-3. decide whether to do a Haskell-first bootstrap fix or a Clapse-side
+3. decide whether to do a Haskell-first bootstrap fix or a Clap-side
    workaround,
 4. add/adjust tests before moving on.
 

@@ -36,9 +36,9 @@ static const char BASE64_ALPHABET[] =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 static const char COMPILE_PREFIX[] = "{\"ok\":true,\"backend\":\"kernel-native\",\"wasm_base64\":\"";
-static const char COMPILE_MID_A[] = "\",\"public_exports\":[{\"name\":\"main\",\"arity\":1}],\"abi_exports\":[{\"name\":\"clapse_run\",\"arity\":1}],\"dts\":\"export declare function clapse_run(request_handle: number): number;\\nexport declare function main(arg0: number): number;\\n\",\"artifacts\":{\"lowered_ir.txt\":\"(lowered_ir)\\nphase: kernel-native-phase1\\nkind: normalized-source\\n";
+static const char COMPILE_MID_A[] = "\",\"public_exports\":[{\"name\":\"main\",\"arity\":1}],\"abi_exports\":[{\"name\":\"clap_run\",\"arity\":1}],\"dts\":\"export declare function clap_run(request_handle: number): number;\\nexport declare function main(arg0: number): number;\\n\",\"artifacts\":{\"lowered_ir.txt\":\"(lowered_ir)\\nphase: kernel-native-phase1\\nkind: normalized-source\\n";
 static const char COMPILE_MID_B[] = "\",\"collapsed_ir.txt\":\"(collapsed_ir)\\nphase: kernel-native-phase1\\nkind: normalized-source\\n";
-static const char COMPILE_SUFFIX_A[] = "\"},\"__clapse_contract\":{\"source_version\":\"";
+static const char COMPILE_SUFFIX_A[] = "\"},\"__clap_contract\":{\"source_version\":\"";
 static const char COMPILE_SUFFIX_B[] = "\",\"compile_contract_version\":\"native-v1\"}}";
 static const char COMPILE_DYNAMIC_MID_A[] = "\",\"public_exports\":";
 static const char COMPILE_DYNAMIC_MID_B[] = ",\"abi_exports\":[],\"dts\":\"";
@@ -363,8 +363,8 @@ static int segment_ends_with_literal(Segment seg, const char *literal) {
 }
 
 static int segment_is_kernel_compiler_input_path(Segment seg) {
-  return segment_equals_literal(seg, "lib/compiler/kernel.clapse") ||
-    segment_ends_with_literal(seg, "/lib/compiler/kernel.clapse");
+  return segment_equals_literal(seg, "lib/compiler/kernel.clap") ||
+    segment_ends_with_literal(seg, "/lib/compiler/kernel.clap");
 }
 
 static uint32_t make_slice_response(uint32_t payload_len, uint32_t *payload_out) {
@@ -12978,7 +12978,7 @@ static int validate_request_slice(uint32_t handle, uint32_t *req_ptr_out, uint32
   return 1;
 }
 
-int32_t clapse_run(int32_t request_handle) {
+int32_t clap_run(int32_t request_handle) {
   uint32_t req_ptr = 0u;
   uint32_t req_len = 0u;
   if (!validate_request_slice((uint32_t) request_handle, &req_ptr, &req_len)) {

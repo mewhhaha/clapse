@@ -6,7 +6,7 @@ identifier = "IDENT".
 `;
 
 const GRAMMAR_PATH = Deno.args[0] ?? "docs/clapse-language/references/grammar.ebnf";
-const OUTPUT_PATH = Deno.args[1] ?? "lib/compiler/syntax_cst_generated.clapse";
+const OUTPUT_PATH = Deno.args[1] ?? "lib/compiler/syntax_cst_generated.clap";
 const INPUT_GRAMMAR_PATH = Deno.args[0] ?? "docs/clapse-language/references/grammar.ebnf";
 const FALLBACK_LABEL = "builtin-fallback";
 
@@ -21,7 +21,7 @@ async function main() {
   const grammarText = await readGrammar();
   const grammarRules = parseGrammar(grammarText);
   const sourceLabel = normalizeSourceLabel(INPUT_GRAMMAR_PATH);
-  const generated = emitSyntaxClapse(grammarRules, sourceLabel);
+  const generated = emitSyntaxClap(grammarRules, sourceLabel);
   await Deno.writeTextFile(OUTPUT_PATH, generated);
 }
 
@@ -41,7 +41,7 @@ function normalizeSourceLabel(rawPath) {
   return candidate;
 }
 
-function escapeClapseString(text) {
+function escapeClapString(text) {
   return text
     .replaceAll("\\", "\\\\")
     .replaceAll('"', '\\"')
@@ -122,7 +122,7 @@ function stripLineComment(line) {
   return line;
 }
 
-function emitSyntaxClapse(rules, sourceLabel) {
+function emitSyntaxClap(rules, sourceLabel) {
   const sortedRules = [...rules].map((rule, index) => ({
     ...rule,
     idx: index,
@@ -167,10 +167,10 @@ function emitSyntaxClapse(rules, sourceLabel) {
   const ruleValues = sortedRules.map((rule, ruleIndex) => {
     const ruleType = ruleTypeNames[ruleIndex];
     const valueName = ruleValueNames[ruleIndex];
-    return `${valueName} = CstRule "${escapeClapseString(rule.name)}" (${ruleType} ${exprToClapse(rule.expr)})`;
+    return `${valueName} = CstRule "${escapeClapString(rule.name)}" (${ruleType} ${exprToClap(rule.expr)})`;
   }).join("\n");
 
-  const listExpr = listToClapse(sortedRules.map((_, i) => ruleValueNames[i]));
+  const listExpr = listToClap(sortedRules.map((_, i) => ruleValueNames[i]));
   const rulesBlock = [
     "cst_rule_count = " + sortedRules.length,
     "",
@@ -192,35 +192,35 @@ function emitSyntaxClapse(rules, sourceLabel) {
     ruleData + "\n\n" + rulesBlock + "\n";
 }
 
-function exprToClapse(expr) {
+function exprToClap(expr) {
   switch (expr.kind) {
     case "choice": {
-      const inner = expr.alts.map(exprToClapse);
-      return `CstExprChoice (${listToClapse(inner)})`;
+      const inner = expr.alts.map(exprToClap);
+      return `CstExprChoice (${listToClap(inner)})`;
     }
     case "sequence": {
-      const inner = expr.items.map(exprToClapse);
-      return `CstExprSequence (${listToClapse(inner)})`;
+      const inner = expr.items.map(exprToClap);
+      return `CstExprSequence (${listToClap(inner)})`;
     }
     case "literal":
-      return `CstExprLiteral "${escapeClapseString(expr.value)}"`;
+      return `CstExprLiteral "${escapeClapString(expr.value)}"`;
     case "reference":
-      return `CstExprReference "${escapeClapseString(expr.name)}"`;
+      return `CstExprReference "${escapeClapString(expr.name)}"`;
     case "optional":
-      return `CstExprOptional (${exprToClapse(expr.expr)})`;
+      return `CstExprOptional (${exprToClap(expr.expr)})`;
     case "many":
-      return `CstExprMany (${exprToClapse(expr.expr)})`;
+      return `CstExprMany (${exprToClap(expr.expr)})`;
     case "oneOrMore":
-      return `CstExprOneOrMore (${exprToClapse(expr.expr)})`;
+      return `CstExprOneOrMore (${exprToClap(expr.expr)})`;
     case "group":
-      return `CstExprGroup (${exprToClapse(expr.expr)})`;
+      return `CstExprGroup (${exprToClap(expr.expr)})`;
     case "empty":
     default:
       return "CstExprEmpty";
   }
 }
 
-function listToClapse(items) {
+function listToClap(items) {
   return items.reduceRight((acc, item) => `Cons ${item} (${acc})`, "Nil");
 }
 

@@ -1,24 +1,24 @@
 #!/usr/bin/env -S deno run -A
 
 import { cliArgs, failWithError } from "./runtime-env.mjs";
-import { runWithArgs } from "./run-clapse-compiler-wasm.mjs";
+import { runWithArgs } from "./run-clap-compiler-wasm.mjs";
 
 function usage() {
   return [
-    "clapse (wasm-first frontend)",
+    "clap (wasm-first frontend)",
     "",
     "Usage:",
-    "  clapse [--wasm] <command> [args...]",
-    "  deno run -A scripts/clapse.mjs [--wasm] <command> [args...]",
+    "  clap [--wasm] <command> [args...]",
+    "  deno run -A scripts/clap.mjs [--wasm] <command> [args...]",
     "",
     "Commands:",
-    "  compile <input.clapse> [output.wasm]",
-    "  compile-native <input.clapse> [output.wasm] (alias: compile_native)",
-    "  compile-native-debug <input.clapse> [output.wasm] [artifacts-dir] (alias: compile_native_debug)",
-    "  compile-debug <input.clapse> [output.wasm] [artifacts-dir] (alias: compile_debug)",
-    "  parse <input.clapse> [out-dir]",
-    "  emit-wat <input.clapse> [output.wat]",
-    "  selfhost-artifacts <input.clapse> <out-dir>",
+    "  compile <input.clap> [output.wasm]",
+    "  compile-native <input.clap> [output.wasm] (alias: compile_native)",
+    "  compile-native-debug <input.clap> [output.wasm] [artifacts-dir] (alias: compile_native_debug)",
+    "  compile-debug <input.clap> [output.wasm] [artifacts-dir] (alias: compile_debug)",
+    "  parse <input.clap> [out-dir]",
+    "  emit-wat <input.clap> [output.wat]",
+    "  selfhost-artifacts <input.clap> <out-dir>",
     "  format <file>",
     "  format --write <file>",
     "  format --stdin",
@@ -26,7 +26,7 @@ function usage() {
     "  engine-mode",
     "",
     "Environment:",
-    "  CLAPSE_COMPILER_WASM_PATH=<path>   optional; defaults to artifacts/latest/clapse_compiler.wasm",
+    "  CLAP_COMPILER_WASM_PATH=<path>   optional; defaults to artifacts/latest/clap_compiler.wasm",
     "",
     "Notes:",
     "  Non-wasm execution is deprecated and removed. Use wasm compiler artifacts.",
@@ -59,7 +59,7 @@ async function main() {
   }
   if (args[0] === "bench") {
     throw new Error(
-      "bench command moved out of clapse frontend; run wasm-specific benches directly",
+      "bench command moved out of clap frontend; run wasm-specific benches directly",
     );
   }
   await runWithArgs(args);

@@ -2,15 +2,19 @@
 
 import { callCompilerWasmRaw, decodeWasmBase64 } from "./wasm-compiler-abi.mjs";
 import {
+  compilerRunExportRequirementText,
+  hasCompilerRunExport,
+} from "./compiler-abi-compat.mjs";
+import {
   assertStructuralArtifacts,
   hasSyntheticArtifactMarkers,
 } from "./compile-artifact-contract.mjs";
 
-const DEFAULT_COMPILER_WASM_PATH = "artifacts/latest/clapse_compiler.wasm";
-const DEFAULT_INPUT_PATH = "lib/compiler/kernel.clapse";
+const DEFAULT_COMPILER_WASM_PATH = "artifacts/latest/clap_compiler.wasm";
+const DEFAULT_INPUT_PATH = "lib/compiler/kernel.clap";
 const DEFAULT_HOPS = 1;
 const MIN_COMPILER_BYTES = 4096;
-const REQUIRED_SOURCE_VERSION_ENV = "CLAPSE_NATIVE_SOURCE_VERSION_REQUIRED";
+const REQUIRED_SOURCE_VERSION_ENV = "CLAP_NATIVE_SOURCE_VERSION_REQUIRED";
 const EXPECTED_COMPILE_CONTRACT_VERSION = "native-v1";
 const EMIT_WAT_TEMPLATE_MEMORY_NEEDLE = '(memory (export "__memory") 1)';
 
@@ -21,7 +25,7 @@ function usage() {
     "",
     "Checks (producer-only; no ABI normalization):",
     "  1) compile artifacts are non-synthetic and use structural IR shape",
-    "  2) kernel compile output emits compiler ABI (memory + clapse_run)",
+    `  2) kernel compile output emits compiler ABI (memory + ${compilerRunExportRequirementText()})`,
     "  3) kernel compile output remains compiler-like across N hops",
     "  4) emit-wat source mode echoes request token",
     `  5) emit-wat template mode includes '${EMIT_WAT_TEMPLATE_MEMORY_NEEDLE}'`,
@@ -96,14 +100,14 @@ function parseArgs(argv) {
 }
 
 function parseCompileContract(response, context, requireSourceVersion) {
-  const raw = response?.__clapse_contract;
+  const raw = response?.__clap_contract;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    fail(`${context}: compile response missing __clapse_contract object`);
+    fail(`${context}: compile response missing __clap_contract object`);
   }
   const sourceVersion = raw.source_version;
   if (!nonEmptyString(sourceVersion)) {
     fail(
-      `${context}: compile response missing __clapse_contract.source_version`,
+      `${context}: compile response missing __clap_contract.source_version`,
     );
   }
   const compileContractVersion = raw.compile_contract_version;
@@ -214,9 +218,9 @@ function compilerAbiFromBytes(bytes, context) {
       })`,
     );
   }
-  if (!exportNames.includes("clapse_run")) {
+  if (!hasCompilerRunExport(exportNames)) {
     fail(
-      `${context}: emitted wasm missing clapse_run export (${
+      `${context}: emitted wasm missing ${compilerRunExportRequirementText()} export (${
         exportNames.join(", ")
       })`,
     );
@@ -234,7 +238,7 @@ async function runCompileArtifactsProbe(wasmPath, requireSourceVersion) {
   const response = await callCompilerWasmRaw(wasmPath, {
     command: "compile",
     compile_mode: "kernel-native",
-    input_path: "examples/native_producer_raw_probe.clapse",
+    input_path: "examples/native_producer_raw_probe.clap",
     input_source: sourceText,
     plugin_wasm_paths: [],
   });
@@ -268,7 +272,7 @@ async function runEmitWatProbe(wasmPath) {
   const sourceToken = `native-producer-emit-wat-probe-${crypto.randomUUID()}`;
   const sourceResponse = await callCompilerWasmRaw(wasmPath, {
     command: "emit-wat",
-    input_path: "examples/native_producer_emit_wat_probe.clapse",
+    input_path: "examples/native_producer_emit_wat_probe.clap",
     input_source: `${sourceToken} = 42\n`,
   });
   const sourceWat = assertEmitWatResponse(
@@ -282,7 +286,7 @@ async function runEmitWatProbe(wasmPath) {
   const templateResponse = await callCompilerWasmRaw(wasmPath, {
     command: "emit-wat",
     emit_wat_mode: "template",
-    input_path: "examples/native_producer_emit_wat_template_probe.clapse",
+    input_path: "examples/native_producer_emit_wat_template_probe.clap",
     input_source: `${sourceToken} = 42\n`,
   });
   const templateWat = assertEmitWatResponse(
@@ -386,12 +390,12 @@ async function runKernelHopProbe(
         firstSourceVersion = hopResult.sourceVersion;
       } else if (hopResult.sourceVersion !== firstSourceVersion) {
         fail(
-          `hop ${hop}: __clapse_contract.source_version changed across hops (${firstSourceVersion} -> ${hopResult.sourceVersion})`,
+          `hop ${hop}: __clap_contract.source_version changed across hops (${firstSourceVersion} -> ${hopResult.sourceVersion})`,
         );
       }
       if (hop < hops) {
         const nextPath = await Deno.makeTempFile({
-          prefix: "clapse-native-producer-hop-",
+          prefix: "clap-native-producer-hop-",
           suffix: ".wasm",
         });
         await Deno.writeFile(nextPath, finalBytes);

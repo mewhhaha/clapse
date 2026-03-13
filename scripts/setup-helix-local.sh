@@ -2,17 +2,17 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-grammar_source_dir="$repo_root/tree-sitter-clapse"
-clapse_binary="$repo_root/artifacts/bin/clapse"
+grammar_source_dir="$repo_root/tree-sitter-clap"
+clap_binary="$repo_root/artifacts/bin/clap"
 languages_toml="$repo_root/.helix/languages.toml"
 helix_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/helix"
 runtime_dir="$helix_config_dir/runtime"
-queries_dir="$runtime_dir/queries/clapse"
+queries_dir="$runtime_dir/queries/clap"
 global_languages_toml="$helix_config_dir/languages.toml"
-smoke_xdg_home="$(mktemp -d -t clapse-helix-smoke-XXXXXX)"
+smoke_xdg_home="$(mktemp -d -t clap-helix-smoke-XXXXXX)"
 smoke_helix_config_dir="$smoke_xdg_home/helix"
 smoke_runtime_dir="$smoke_helix_config_dir/runtime"
-smoke_queries_dir="$smoke_runtime_dir/queries/clapse"
+smoke_queries_dir="$smoke_runtime_dir/queries/clap"
 smoke_languages_toml="$smoke_helix_config_dir/languages.toml"
 
 cleanup() {
@@ -35,20 +35,20 @@ sync_grammar_source_path() {
   awk -v grammar_path="$grammar_source_dir" '
     BEGIN {
       in_grammar = 0
-      is_clapse = 0
+      is_clap = 0
       updated = 0
     }
     $0 == "[[grammar]]" {
       in_grammar = 1
-      is_clapse = 0
+      is_clap = 0
     }
-    in_grammar && $0 == "name = \"clapse\"" {
-      is_clapse = 1
+    in_grammar && $0 == "name = \"clap\"" {
+      is_clap = 1
     }
-    in_grammar && is_clapse && $0 ~ /^source = \{ path = "/ {
+    in_grammar && is_clap && $0 ~ /^source = \{ path = "/ {
       $0 = "source = { path = \"" grammar_path "\" }"
       in_grammar = 0
-      is_clapse = 0
+      is_clap = 0
       updated = 1
     }
     { print }
@@ -62,36 +62,36 @@ sync_grammar_source_path() {
   mv "$tmp_file" "$languages_toml"
 }
 
-ensure_global_clapse_language() {
+ensure_global_clap_language() {
   mkdir -p "$helix_config_dir"
   if [[ ! -f "$global_languages_toml" ]]; then
     : > "$global_languages_toml"
   fi
 
-  strip_global_clapse_sections "$global_languages_toml"
+  strip_global_clap_sections "$global_languages_toml"
 
   cat >> "$global_languages_toml" <<EOF
 
 [[language]]
-name = "clapse"
-scope = "source.clapse"
-file-types = ["clapse"]
+name = "clap"
+scope = "source.clap"
+file-types = ["clap"]
 comment-token = "--"
-language-servers = ["clapse"]
-grammar = "clapse"
-formatter = { command = "$clapse_binary", args = ["format", "--stdin"] }
+language-servers = ["clap"]
+grammar = "clap"
+formatter = { command = "$clap_binary", args = ["format", "--stdin"] }
 
-[language-server.clapse]
-command = "$clapse_binary"
+[language-server.clap]
+command = "$clap_binary"
 args = ["lsp", "--stdio"]
 
 [[grammar]]
-name = "clapse"
+name = "clap"
 source = { path = "$grammar_source_dir" }
 EOF
 }
 
-strip_global_clapse_sections() {
+strip_global_clap_sections() {
   local target_file="$1"
   local tmp_file
   tmp_file="$(mktemp)"
@@ -103,10 +103,10 @@ strip_global_clapse_sections() {
       }
 
       emit = 1
-      if (block_type == "language" && block_has_clapse_name) {
+      if (block_type == "language" && block_has_clap_name) {
         emit = 0
       }
-      if (block_type == "grammar" && block_has_clapse_name) {
+      if (block_type == "grammar" && block_has_clap_name) {
         emit = 0
       }
 
@@ -118,24 +118,24 @@ strip_global_clapse_sections() {
 
       in_block = 0
       block_type = ""
-      block_has_clapse_name = 0
+      block_has_clap_name = 0
       block_len = 0
     }
 
     {
       line = $0
 
-      if (skip_language_server_clapse) {
+      if (skip_language_server_clap) {
         if (line ~ /^\[/) {
-          skip_language_server_clapse = 0
+          skip_language_server_clap = 0
         } else {
           next
         }
       }
 
-      if (line ~ /^\[language-server\.clapse(\.|])/ ) {
+      if (line ~ /^\[language-server\.clap(\.|])/ ) {
         flush_block()
-        skip_language_server_clapse = 1
+        skip_language_server_clap = 1
         next
       }
 
@@ -149,15 +149,15 @@ strip_global_clapse_sections() {
       }
 
       if (in_block) {
-        if (line ~ /^name[[:space:]]*=[[:space:]]*"clapse"[[:space:]]*$/) {
-          block_has_clapse_name = 1
+        if (line ~ /^name[[:space:]]*=[[:space:]]*"clap"[[:space:]]*$/) {
+          block_has_clap_name = 1
         }
 
         if (line ~ /^\[/) {
           flush_block()
 
-          if (line ~ /^\[language-server\.clapse(\.|])/ ) {
-            skip_language_server_clapse = 1
+          if (line ~ /^\[language-server\.clap(\.|])/ ) {
+            skip_language_server_clap = 1
             next
           }
 
@@ -193,20 +193,20 @@ write_smoke_languages_toml() {
   mkdir -p "$smoke_helix_config_dir"
   cat > "$smoke_languages_toml" <<EOF
 [[language]]
-name = "clapse"
-scope = "source.clapse"
-file-types = ["clapse"]
+name = "clap"
+scope = "source.clap"
+file-types = ["clap"]
 comment-token = "--"
-language-servers = ["clapse"]
-grammar = "clapse"
-formatter = { command = "$clapse_binary", args = ["format", "--stdin"] }
+language-servers = ["clap"]
+grammar = "clap"
+formatter = { command = "$clap_binary", args = ["format", "--stdin"] }
 
-[language-server.clapse]
-command = "$clapse_binary"
+[language-server.clap]
+command = "$clap_binary"
 args = ["lsp", "--stdio"]
 
 [[grammar]]
-name = "clapse"
+name = "clap"
 source = { path = "$grammar_source_dir" }
 EOF
 }
@@ -214,13 +214,13 @@ EOF
 require_cmd tree-sitter
 require_cmd hx
 
-if [[ ! -x "$clapse_binary" ]]; then
-  echo "missing clapse binary: $clapse_binary (run 'just clapse-bin' or 'just install')" >&2
+if [[ ! -x "$clap_binary" ]]; then
+  echo "missing clap binary: $clap_binary (run 'just clap-bin' or 'just install')" >&2
   exit 1
 fi
 
 sync_grammar_source_path
-ensure_global_clapse_language
+ensure_global_clap_language
 
 (
   cd "$grammar_source_dir"
@@ -243,7 +243,7 @@ done
 
 (
   cd "$repo_root"
-  XDG_CONFIG_HOME="$smoke_xdg_home" hx --grammar build clapse
+  XDG_CONFIG_HOME="$smoke_xdg_home" hx --grammar build clap
 )
 
 for grammar_file in "$smoke_runtime_dir"/grammars/*; do
@@ -256,6 +256,6 @@ if [[ "${RUN_HIGHLIGHT_SNAPSHOT_TESTS:-0}" == "1" ]]; then
   XDG_CONFIG_HOME="$smoke_xdg_home" "$grammar_source_dir/scripts/highlight-helix-runtime-smoke.sh"
 fi
 
-echo "Helix clapse grammar installed."
+echo "Helix clap grammar installed."
 echo "Runtime: $runtime_dir"
-echo "Verify: hx --health clapse"
+echo "Verify: hx --health clap"

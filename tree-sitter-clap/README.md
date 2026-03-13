@@ -1,6 +1,6 @@
-# tree-sitter-clapse
+# tree-sitter-clap
 
-Tree-sitter grammar scaffold for current Clapse syntax.
+Tree-sitter grammar scaffold for current Clap syntax.
 
 ## Covered syntax
 
@@ -84,7 +84,7 @@ npx tree-sitter test
 From the repo root:
 
 ```bash
-cd tree-sitter-clapse
+cd tree-sitter-clap
 tree-sitter generate
 XDG_CACHE_HOME=/tmp tree-sitter test
 ```
@@ -101,5 +101,5 @@ Manual equivalent:
 
 ```bash
 ./scripts/setup-helix-local.sh
-hx --health clapse
+hx --health clap
 ```

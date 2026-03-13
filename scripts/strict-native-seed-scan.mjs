@@ -2,15 +2,16 @@
 
 import { callCompilerWasm } from "./wasm-compiler-abi.mjs";
 import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
+import { hasCompilerRunExport } from "./compiler-abi-compat.mjs";
 
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 const DEFAULT_MARKER = "strict_native_emit_wat_marker";
 const DEFAULT_COMPILE_SOURCE = "main x = x\n";
-const DEFAULT_KERNEL_SELFHOST_INPUT_PATH = "lib/compiler/kernel.clapse";
+const DEFAULT_KERNEL_SELFHOST_INPUT_PATH = "lib/compiler/kernel.clap";
 const DEFAULT_KERNEL_SELFHOST_HOPS = 0;
 const REQUIRE_NO_BOUNDARY_FALLBACK_ENV =
-  "CLAPSE_STRICT_NATIVE_REQUIRE_NO_BOUNDARY_FALLBACK";
-const KERNEL_SELFHOST_HOPS_ENV = "CLAPSE_STRICT_NATIVE_KERNEL_SELFHOST_HOPS";
+  "CLAP_STRICT_NATIVE_REQUIRE_NO_BOUNDARY_FALLBACK";
+const KERNEL_SELFHOST_HOPS_ENV = "CLAP_STRICT_NATIVE_KERNEL_SELFHOST_HOPS";
 const PRODUCER_CONTRACT_KEYS = new Set([
   "source_version",
   "compile_contract_version",
@@ -95,8 +96,10 @@ async function hasCompilerAbi(path) {
     return { ok: false, reason: "invalid-wasm" };
   }
   const exports = WebAssembly.Module.exports(module);
-  const hasRun = exports.some((entry) =>
-    entry.kind === "function" && entry.name === "clapse_run"
+  const hasRun = hasCompilerRunExport(
+    exports.filter((entry) => entry.kind === "function").map((entry) =>
+      entry.name
+    ),
   );
   const hasMemory = exports.some((entry) =>
     entry.kind === "memory" &&
@@ -105,7 +108,7 @@ async function hasCompilerAbi(path) {
   if (!hasRun || !hasMemory) {
     return {
       ok: false,
-      reason: hasRun ? "missing-memory-export" : "missing-clapse_run-export",
+      reason: hasRun ? "missing-memory-export" : "missing-compiler-run-export",
     };
   }
   return { ok: true };
@@ -124,7 +127,7 @@ function boolEnvFlag(name, defaultValue = false) {
 }
 
 function contractMeta(response) {
-  const raw = response?.__clapse_contract;
+  const raw = response?.__clap_contract;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return {};
   }
@@ -167,7 +170,7 @@ function hasCompilerLikeExports(exportNames) {
   }
   const hasMemory = exportNames.includes("memory") ||
     exportNames.includes("__memory");
-  const hasRun = exportNames.includes("clapse_run");
+  const hasRun = hasCompilerRunExport(exportNames);
   return hasMemory && hasRun;
 }
 
@@ -276,7 +279,7 @@ async function probeKernelSelfhostClosure(
       }
       if (hop < hops) {
         const nextCompilerPath = await Deno.makeTempFile({
-          prefix: "clapse-strict-seed-kernel-hop-",
+          prefix: "clap-strict-seed-kernel-hop-",
           suffix: ".wasm",
         });
         await Deno.writeFile(nextCompilerPath, wasmBytes);
@@ -302,7 +305,7 @@ async function probeStrictNative(path, requireNoBoundaryFallback) {
     compileResponse = await callCompilerWasm(path, {
       command: "compile",
       compile_mode: "kernel-native",
-      input_path: "examples/native_boundary_seed_scan.clapse",
+      input_path: "examples/native_boundary_seed_scan.clap",
       input_source: DEFAULT_COMPILE_SOURCE,
       plugin_wasm_paths: [],
     }, {
@@ -372,7 +375,7 @@ async function probeStrictNative(path, requireNoBoundaryFallback) {
     emitResponse = await callCompilerWasm(path, {
       command: "emit-wat",
       emit_wat_mode: "source-data",
-      input_path: "examples/native_boundary_seed_scan_emit_wat.clapse",
+      input_path: "examples/native_boundary_seed_scan_emit_wat.clap",
       input_source: `${DEFAULT_MARKER} = 1\n`,
     });
   } catch (err) {
@@ -490,7 +493,7 @@ function defaultScanRoots(extraRoots, useDefaultRoots) {
       pathJoin(Deno.cwd(), "artifacts"),
       pathJoin(Deno.cwd(), "out"),
       pathJoin(Deno.cwd(), "out=out"),
-      pathJoin(pathJoin(Deno.cwd(), ".."), "clapse2/artifacts/releases"),
+      pathJoin(pathJoin(Deno.cwd(), ".."), "clap2/artifacts/releases"),
     ]
     : [];
   for (const root of extraRoots) {

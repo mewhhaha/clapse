@@ -1,5 +1,10 @@
 import { makeRuntime } from "./wasm-runtime.mjs";
 import {
+  compilerRunExportRequirementText,
+  getCompilerRunExport,
+  hasCompilerRunExport,
+} from "./compiler-abi-compat.mjs";
+import {
   buildWasmSeedCompileResponse,
   isWasmBootstrapSeedEnabled,
 } from "./wasm-bootstrap-seed.mjs";
@@ -252,12 +257,12 @@ function parseWasmFunctionMetadata(bytes) {
   };
 }
 
-function appendClapseFuncMap(wasmBytes) {
+function appendClapFuncMap(wasmBytes) {
   const metadata = parseWasmFunctionMetadata(wasmBytes);
   const totalFunctionCount = metadata.importFunctionCount +
     metadata.functionSectionCount;
   const payload = [];
-  const sectionNameBytes = UTF8_ENCODER.encode("clapse.funcmap");
+  const sectionNameBytes = UTF8_ENCODER.encode("clap.funcmap");
   payload.push(...encodeVarU32(sectionNameBytes.length));
   for (const b of sectionNameBytes) {
     payload.push(b);
@@ -307,7 +312,7 @@ function assertCompilerExports(instance) {
   if (!(memoryExport instanceof WebAssembly.Memory)) {
     throw new Error("compiler wasm must export __memory or memory");
   }
-  assertFn(instance, "clapse_run");
+  getCompilerRunExport(instance);
 }
 
 async function loadCompilerWasm(path) {
@@ -318,7 +323,7 @@ async function loadCompilerWasm(path) {
   if (hostImports.length > 0) {
     const hostImportList = hostImports.map((imp) => imp.name).join(", ");
     throw new Error(
-      `bridge compiler wasm detected (host imports: ${hostImportList}); use clapse_compiler.wasm without host bridge support`,
+      `bridge compiler wasm detected (host imports: ${hostImportList}); use clap_compiler.wasm without host bridge support`,
     );
   }
   const runtime = makeRuntime();
@@ -348,7 +353,7 @@ function compilerSourceVersionProbeRequest() {
   return {
     command: "compile",
     compile_mode: "debug",
-    input_path: "repl/input.clapse",
+    input_path: "repl/input.clap",
     input_source: "identity x = x\nmain = identity 7\n",
     plugin_wasm_paths: [],
     entrypoint_exports: ["main"],
@@ -357,7 +362,7 @@ function compilerSourceVersionProbeRequest() {
 
 async function probeCompilerSourceVersion(instance, runtime) {
   try {
-    const run = assertFn(instance, "clapse_run");
+    const run = getCompilerRunExport(instance);
     const requestBytes = UTF8_ENCODER.encode(JSON.stringify(
       compilerSourceVersionProbeRequest(),
     ));
@@ -368,7 +373,7 @@ async function probeCompilerSourceVersion(instance, runtime) {
     }
     const responseObject = decodeResponseBytes(runtime, responseHandle);
     const sourceVersion = String(
-      responseObject?.__clapse_contract?.source_version ?? "",
+      responseObject?.__clap_contract?.source_version ?? "",
     ).trim();
     return sourceVersion;
   } catch {
@@ -4567,7 +4572,7 @@ function phase1ExecutableWasmBase64ForSource(sourceText, requestObject) {
     ])),
     ...phase1WrapSection(10, phase1WasmCodeSection(bodies)),
   ];
-  return toBase64(appendClapseFuncMap(Uint8Array.from(moduleBytes)));
+  return toBase64(appendClapFuncMap(Uint8Array.from(moduleBytes)));
 }
 
 function phase1ParseExplicitExportNames(sourceText) {
@@ -8524,12 +8529,12 @@ function phase1ResolveQuotedImportPath(importerPath, specifier, virtualSources =
     const resolvedBase = specifier.startsWith("/")
       ? specifier.slice(1)
       : `${baseDir}/${specifier}`;
-    candidates.push(resolvedBase, `${resolvedBase}.clapse`);
+    candidates.push(resolvedBase, `${resolvedBase}.clap`);
   } else {
     let currentDir = phase1Dirname(importerPath);
     while (true) {
       const prefix = currentDir.length > 0 ? `${currentDir}/` : "";
-      candidates.push(`${prefix}${specifier}`, `${prefix}${specifier}.clapse`);
+      candidates.push(`${prefix}${specifier}`, `${prefix}${specifier}.clap`);
       if (currentDir.length === 0) {
         break;
       }
@@ -8543,7 +8548,7 @@ function phase1ResolveQuotedImportPath(importerPath, specifier, virtualSources =
     }
   }
   if (specifier === "prelude" || specifier === "compiler/prelude") {
-    const preludePath = toPath(new URL("lib/compiler/prelude.clapse", REPO_ROOT_URL));
+    const preludePath = toPath(new URL("lib/compiler/prelude.clap", REPO_ROOT_URL));
     const content = phase1ReadTextSourceIfExists(preludePath, virtualSources);
     if (typeof content === "string") {
       return preludePath;
@@ -9481,8 +9486,8 @@ function isCompilerKernelInputPath(requestObject) {
   if (inputPath.length === 0) {
     return false;
   }
-  return inputPath === "lib/compiler/kernel.clapse" ||
-    inputPath.endsWith("/lib/compiler/kernel.clapse");
+  return inputPath === "lib/compiler/kernel.clap" ||
+    inputPath.endsWith("/lib/compiler/kernel.clap");
 }
 
 function isCompilerNativePayloadInputPath(requestObject) {
@@ -9490,16 +9495,16 @@ function isCompilerNativePayloadInputPath(requestObject) {
   if (inputPath.length === 0) {
     return false;
   }
-  return inputPath === "lib/compiler/native_compile.clapse" ||
-    inputPath.endsWith("/lib/compiler/native_compile.clapse") ||
-    inputPath === "lib/compiler/native_compile_reachability.clapse" ||
-    inputPath.endsWith("/lib/compiler/native_compile_reachability.clapse");
+  return inputPath === "lib/compiler/native_compile.clap" ||
+    inputPath.endsWith("/lib/compiler/native_compile.clap") ||
+    inputPath === "lib/compiler/native_compile_reachability.clap" ||
+    inputPath.endsWith("/lib/compiler/native_compile_reachability.clap");
 }
 
 function compileRequestNeedsCompilerAbiOutput(requestObject) {
   const disableSeedShortcut =
     requestObject?.disable_compiler_abi_seed_shortcut === true ||
-    String(Deno.env.get("CLAPSE_DISABLE_COMPILER_ABI_SEED_SHORTCUT") ?? "")
+    String(Deno.env.get("CLAP_DISABLE_COMPILER_ABI_SEED_SHORTCUT") ?? "")
       .trim()
       .toLowerCase() === "1";
   if (disableSeedShortcut) {
@@ -9547,7 +9552,7 @@ function assertCompileArtifactsContract(responseObject) {
 function hasCompilerAbiExports(exportNames) {
   const hasMemory = exportNames.includes("memory") ||
     exportNames.includes("__memory");
-  const hasRun = exportNames.includes("clapse_run");
+  const hasRun = hasCompilerRunExport(exportNames);
   return hasMemory && hasRun;
 }
 
@@ -9589,7 +9594,7 @@ function parseCompileExportList(responseObject, fieldLabel) {
 function deriveCompileExportMetadataFromWasmBase64(wasmBase64) {
   const wasmBytes = decodeWasmBase64(wasmBase64);
   const metadata = parseWasmFunctionMetadata(wasmBytes);
-  const abiNames = new Set(["clapse_run"]);
+  const abiNames = new Set(["clap_run", "clapse_run"]);
   const publicExports = [];
   const abiExports = [];
   const exports = [...metadata.exportNameByIndex.entries()]
@@ -9625,7 +9630,7 @@ function attachCompileContractMetadata(
   }
   return {
     ...responseObject,
-    __clapse_contract: contractMeta,
+    __clap_contract: contractMeta,
   };
 }
 
@@ -9650,7 +9655,7 @@ function assertCompilerAbiOutputContract(responseObject) {
   );
   if (!hasCompilerAbiExports(exportNames)) {
     throw new Error(
-      `compile response for kernel path must emit compiler ABI exports (required: memory + clapse_run; got: ${
+      `compile response for kernel path must emit compiler ABI exports (required: memory + ${compilerRunExportRequirementText()}; got: ${
         exportNames.join(", ")
       })`,
     );
@@ -10110,7 +10115,7 @@ export async function callCompilerWasm(path, requestObject, options = {}) {
   if (isCompileLikeRequest(requestForWire) && isWasmBootstrapSeedEnabled()) {
     if (isKernelNativeCompileRequest(requestForWire)) {
       throw new Error(
-        "kernel-native compile rejects CLAPSE_USE_WASM_BOOTSTRAP_SEED=1; disable seed mode for strict native requests",
+        "kernel-native compile rejects CLAP_USE_WASM_BOOTSTRAP_SEED=1; disable seed mode for strict native requests",
       );
     }
     const seededResponse = await buildWasmSeedCompileResponse(requestForWire, {
@@ -10121,7 +10126,7 @@ export async function callCompilerWasm(path, requestObject, options = {}) {
       withContractMetadata: options.withContractMetadata === true,
     });
   }
-  const run = assertFn(instance, "clapse_run");
+  const run = getCompilerRunExport(instance);
   const requestBytes = UTF8_ENCODER.encode(JSON.stringify(requestForWire));
   const requestHandle = runtime.alloc_slice_u8(requestBytes);
   const responseHandle = run(requestHandle);
@@ -10150,7 +10155,7 @@ export async function callCompilerWasmRaw(path, requestObject, options = {}) {
   const { instance, runtime, wasmBytes } = await loadCompilerWasm(path);
   const requestForWire = prepareCompileLikeRequestForWire(requestObject);
   const validateCompileContract = options.validateCompileContract === true ||
-    String(Deno.env.get("CLAPSE_VALIDATE_RAW_COMPILE_CONTRACT") ?? "") === "1";
+    String(Deno.env.get("CLAP_VALIDATE_RAW_COMPILE_CONTRACT") ?? "") === "1";
   assertNoLegacyExportSyntax(requestForWire);
   assertNoLegacyModuleSyntax(requestForWire);
   assertSupportedCompileMode(requestForWire);
@@ -10172,14 +10177,14 @@ export async function callCompilerWasmRaw(path, requestObject, options = {}) {
   if (isCompileLikeRequest(requestForWire) && isWasmBootstrapSeedEnabled()) {
     if (isKernelNativeCompileRequest(requestForWire)) {
       throw new Error(
-        "kernel-native compile rejects CLAPSE_USE_WASM_BOOTSTRAP_SEED=1; disable seed mode for strict native requests",
+        "kernel-native compile rejects CLAP_USE_WASM_BOOTSTRAP_SEED=1; disable seed mode for strict native requests",
       );
     }
     return await buildWasmSeedCompileResponse(requestForWire, {
       seedWasmBytes: wasmBytes,
     });
   }
-  const run = assertFn(instance, "clapse_run");
+  const run = getCompilerRunExport(instance);
   const requestBytes = UTF8_ENCODER.encode(JSON.stringify(requestForWire));
   const requestHandle = runtime.alloc_slice_u8(requestBytes);
   const responseHandle = run(requestHandle);
@@ -10212,12 +10217,12 @@ export async function inspectCompilerWasmAbi(path) {
   const module = await WebAssembly.compile(wasmBytes);
   const imports = WebAssembly.Module.imports(module);
   const isBridge = imports.some((imp) =>
-    imp.module === "host" && imp.name === "clapse_run"
+    imp.module === "host" && imp.name === "clap_run"
   );
   const instance = await WebAssembly.instantiate(module, {
     host: {
-      clapse_run: (handle) => handle | 0,
-      clapse_host_run: (handle) => handle | 0,
+      clap_run: (handle) => handle | 0,
+      clap_host_run: (handle) => handle | 0,
       read_file: () => 0,
       unix_time_ms: (seed) => seed | 0,
     },
@@ -10233,7 +10238,7 @@ export async function validateCompilerWasmAbi(path) {
   const info = await inspectCompilerWasmAbi(path);
   if (info.mode === "bridge") {
     throw new Error(
-      "bridge compiler wasm is disabled; use a native clapse_compiler.wasm artifact",
+      "bridge compiler wasm is disabled; use a native clap_compiler.wasm artifact",
     );
   }
   return true;
@@ -10246,4 +10251,4 @@ export function decodeWasmBase64(input) {
   return fromBase64(input);
 }
 
-export { appendClapseFuncMap };
+export { appendClapFuncMap };

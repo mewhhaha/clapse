@@ -2,7 +2,7 @@
 
 function parseArgs(argv) {
   const defaultCompilerCommand =
-    "deno run -A scripts/run-clapse-compiler-wasm.mjs --";
+    "deno run -A scripts/run-clap-compiler-wasm.mjs --";
   const out = {
     manifest: "examples/selfhost_corpus.txt",
     behaviorManifest: "examples/selfhost_behavior_corpus.json",
@@ -11,7 +11,7 @@ function parseArgs(argv) {
     requireDistinctEngines: false,
     requireRightEngineMode: "",
     requireExactArtifacts: true,
-    forbidHostClapseImports: false,
+    forbidHostClapImports: false,
     out: "out/selfhost-bootstrap",
     left: defaultCompilerCommand,
     right: defaultCompilerCommand,
@@ -31,8 +31,8 @@ function parseArgs(argv) {
     if (key === "--require-exact-artifacts") {
       out.requireExactArtifacts = val === "1" || val === "true";
     }
-    if (key === "--forbid-host-clapse-imports") {
-      out.forbidHostClapseImports = val === "1" || val === "true";
+    if (key === "--forbid-host-clap-imports") {
+      out.forbidHostClapImports = val === "1" || val === "true";
     }
     if (key === "--out") out.out = val;
     if (key === "--left") out.left = val;
@@ -63,37 +63,37 @@ function extractBehaviorEntries(scenarios) {
     .filter((entry) => typeof entry === "string" && entry.length > 0);
 }
 
-function hasHostClapseImport(sourceText) {
-  return sourceText.includes("import host.clapse");
+function hasHostClapImport(sourceText) {
+  return sourceText.includes("import host.clap");
 }
 
-async function scanEntryFilesForHostClapseImports(entries) {
+async function scanEntryFilesForHostClapImports(entries) {
   const bad = [];
   const seen = new Set();
   for (const entry of entries) {
     if (seen.has(entry)) continue;
     seen.add(entry);
     const text = await Deno.readTextFile(entry);
-    if (hasHostClapseImport(text)) {
+    if (hasHostClapImport(text)) {
       bad.push(entry);
     }
   }
   return bad;
 }
 
-async function enforceNoHostClapseImports(cfg) {
+async function enforceNoHostClapImports(cfg) {
   const manifestEntries = loadManifest(await Deno.readTextFile(cfg.manifest));
   const behaviorScenarios = parseBehaviorManifest(
     await Deno.readTextFile(cfg.behaviorManifest),
   );
   const behaviorEntries = extractBehaviorEntries(behaviorScenarios);
-  const badEntries = await scanEntryFilesForHostClapseImports([
+  const badEntries = await scanEntryFilesForHostClapImports([
     ...manifestEntries,
     ...behaviorEntries,
   ]);
   if (badEntries.length > 0) {
     console.error(
-      "selfhost-bootstrap-abc: forbidden host.clapse import found in entry files",
+      "selfhost-bootstrap-abc: forbidden host.clap import found in entry files",
     );
     for (const entry of badEntries) {
       console.error(`  - ${entry}`);
@@ -116,14 +116,14 @@ async function runShell(cmd) {
 
 async function main() {
   const cfg = parseArgs(Deno.args);
-  if (cfg.forbidHostClapseImports) {
-    await enforceNoHostClapseImports(cfg);
+  if (cfg.forbidHostClapImports) {
+    await enforceNoHostClapImports(cfg);
   }
   await Deno.mkdir(cfg.out, { recursive: true });
 
   console.log("Stage A: ensure wasm compiler");
   const stageA = await runShell(
-    "deno run -A scripts/run-clapse-compiler-wasm.mjs -- engine-mode",
+    "deno run -A scripts/run-clap-compiler-wasm.mjs -- engine-mode",
   );
   if (!stageA.ok) {
     await Deno.writeTextFile(`${cfg.out}/stage_a.stderr.log`, stageA.stderr);
@@ -165,7 +165,7 @@ async function main() {
       require_distinct: cfg.requireDistinctEngines,
       require_right_engine_mode: cfg.requireRightEngineMode,
       require_exact_artifacts: cfg.requireExactArtifacts,
-      forbid_host_clapse_imports: cfg.forbidHostClapseImports,
+      forbid_host_clap_imports: cfg.forbidHostClapImports,
       left_cmd: cfg.left,
       right_cmd: cfg.right,
     },

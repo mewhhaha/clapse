@@ -4,7 +4,7 @@ import {
   callCompilerWasmRaw,
 } from "./wasm-compiler-abi.mjs";
 import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
-import { runWithArgs } from "./run-clapse-compiler-wasm.mjs";
+import { runWithArgs } from "./run-clap-compiler-wasm.mjs";
 import {
   decodeInt,
   instantiateWithRuntime,
@@ -22,11 +22,11 @@ function assert(condition, message) {
 }
 
 function resolveCompilerWasmPath() {
-  const fromEnv = String(Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "").trim();
+  const fromEnv = String(Deno.env.get("CLAP_COMPILER_WASM_PATH") ?? "").trim();
   if (fromEnv.length > 0) {
     return fromEnv;
   }
-  return "artifacts/latest/clapse_compiler.wasm";
+  return "artifacts/latest/clap_compiler.wasm";
 }
 
 function decodeTaggedInt(raw) {
@@ -131,7 +131,7 @@ async function compileCaseViaCliDebug(testCase) {
 async function compileFailureViaCliDebug(testCase, expectedErrorSubstring) {
   const tmpDir = await Deno.makeTempDir({
     dir: "/tmp",
-    prefix: "clapse-full-compiler-verify-debug-fail-",
+    prefix: "clap-full-compiler-verify-debug-fail-",
   });
   try {
     const inputPath = `${tmpDir}/${testCase.inputPath.split("/").pop()}`;
@@ -256,11 +256,11 @@ async function runCli(args, {
   cwd = Deno.cwd(),
   extraEnv = {},
 } = {}) {
-  const cliScriptPath = new URL("./clapse.mjs", import.meta.url).pathname;
+  const cliScriptPath = new URL("./clap.mjs", import.meta.url).pathname;
   const normalizedEnv = { ...extraEnv };
-  if (typeof normalizedEnv.CLAPSE_COMPILER_WASM_PATH === "string") {
-    normalizedEnv.CLAPSE_COMPILER_WASM_PATH = new URL(
-      normalizedEnv.CLAPSE_COMPILER_WASM_PATH,
+  if (typeof normalizedEnv.CLAP_COMPILER_WASM_PATH === "string") {
+    normalizedEnv.CLAP_COMPILER_WASM_PATH = new URL(
+      normalizedEnv.CLAP_COMPILER_WASM_PATH,
       `file://${Deno.cwd()}/`,
     ).pathname;
   }
@@ -283,8 +283,8 @@ async function runCli(args, {
 }
 
 async function compileDebugCliCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-cli-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-cli-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -297,7 +297,7 @@ async function compileDebugCliCase(wasmPath) {
     ].join("\n"),
   );
   await runCli(["compile-debug", inputPath, outputPath, artifactsDir], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "main", []);
@@ -312,8 +312,8 @@ async function compileDebugCliCase(wasmPath) {
 }
 
 async function compileDebugCliExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-cli-root-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-cli-root-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -331,7 +331,7 @@ async function compileDebugCliExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -346,8 +346,8 @@ async function compileDebugCliExplicitRootCase(wasmPath) {
 }
 
 async function compileDebugCliWhereExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-where-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-where-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -368,7 +368,7 @@ async function compileDebugCliWhereExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", [2]);
@@ -383,8 +383,8 @@ async function compileDebugCliWhereExplicitRootCase(wasmPath) {
 }
 
 async function compileDebugCliBareRecordArgExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-record-arg-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-record-arg-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -406,7 +406,7 @@ async function compileDebugCliBareRecordArgExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -421,8 +421,8 @@ async function compileDebugCliBareRecordArgExplicitRootCase(wasmPath) {
 }
 
 async function compileDebugCliFunctionReturnRecordUpdateExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-record-update-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-record-update-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -444,7 +444,7 @@ async function compileDebugCliFunctionReturnRecordUpdateExplicitRootCase(wasmPat
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -459,8 +459,8 @@ async function compileDebugCliFunctionReturnRecordUpdateExplicitRootCase(wasmPat
 }
 
 async function compileDebugCliPreludeAliasCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-prelude-alias-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-prelude-alias-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_main.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -479,7 +479,7 @@ async function compileDebugCliPreludeAliasCase(wasmPath) {
     outputPath,
     artifactsDir,
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "main", []);
@@ -494,8 +494,8 @@ async function compileDebugCliPreludeAliasCase(wasmPath) {
 }
 
 async function compileDebugCliUserInstanceExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-instance-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-instance-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -519,7 +519,7 @@ async function compileDebugCliUserInstanceExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -534,8 +534,8 @@ async function compileDebugCliUserInstanceExplicitRootCase(wasmPath) {
 }
 
 async function compileDebugCliUserClassDefaultExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-class-default-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-default-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -561,7 +561,7 @@ async function compileDebugCliUserClassDefaultExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -576,8 +576,8 @@ async function compileDebugCliUserClassDefaultExplicitRootCase(wasmPath) {
 }
 
 async function compileDebugCliUserClassCrossDefaultExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-class-cross-default-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-cross-default-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -609,7 +609,7 @@ async function compileDebugCliUserClassCrossDefaultExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -624,8 +624,8 @@ async function compileDebugCliUserClassCrossDefaultExplicitRootCase(wasmPath) {
 }
 
 async function compileDebugCliUserClassLawExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-class-law-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-law-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -652,7 +652,7 @@ async function compileDebugCliUserClassLawExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -667,8 +667,8 @@ async function compileDebugCliUserClassLawExplicitRootCase(wasmPath) {
 }
 
 async function compileDebugCliUserInstanceCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-instance-main-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-instance-main-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_main.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -691,7 +691,7 @@ async function compileDebugCliUserInstanceCase(wasmPath) {
     outputPath,
     artifactsDir,
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "main", []);
@@ -706,17 +706,17 @@ async function compileDebugCliUserInstanceCase(wasmPath) {
 }
 
 async function compileDebugCliModuleGraphAliasUserInstanceExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-instance-alias-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-instance-alias-" });
   const projectDir = `${tmpDir}/alias-instance-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/math.clapse`,
+    `${pkgDir}/math.clap`,
     [
       "class plus_rules i where",
       "  addish : i -> i -> i",
@@ -728,7 +728,7 @@ async function compileDebugCliModuleGraphAliasUserInstanceExplicitRootCase(wasmP
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -748,7 +748,7 @@ async function compileDebugCliModuleGraphAliasUserInstanceExplicitRootCase(wasmP
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -765,17 +765,17 @@ async function compileDebugCliModuleGraphAliasUserInstanceExplicitRootCase(wasmP
 async function compileDebugCliModuleGraphAliasUserClassDefaultExplicitRootCase(
   wasmPath,
 ) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-class-default-alias-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-default-alias-" });
   const projectDir = `${tmpDir}/alias-class-default-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/math.clapse`,
+    `${pkgDir}/math.clap`,
     [
       "class plus_rules i where",
       "  sumLike : i -> i -> i",
@@ -789,7 +789,7 @@ async function compileDebugCliModuleGraphAliasUserClassDefaultExplicitRootCase(
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -809,7 +809,7 @@ async function compileDebugCliModuleGraphAliasUserClassDefaultExplicitRootCase(
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -826,17 +826,17 @@ async function compileDebugCliModuleGraphAliasUserClassDefaultExplicitRootCase(
 async function compileDebugCliModuleGraphAliasUserClassCrossDefaultExplicitRootCase(
   wasmPath,
 ) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-class-cross-default-alias-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-cross-default-alias-" });
   const projectDir = `${tmpDir}/alias-class-cross-default-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/math.clapse`,
+    `${pkgDir}/math.clap`,
     [
       "class semiring i where",
       "  plus : i -> i -> i",
@@ -856,7 +856,7 @@ async function compileDebugCliModuleGraphAliasUserClassCrossDefaultExplicitRootC
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -876,7 +876,7 @@ async function compileDebugCliModuleGraphAliasUserClassCrossDefaultExplicitRootC
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -893,17 +893,17 @@ async function compileDebugCliModuleGraphAliasUserClassCrossDefaultExplicitRootC
 async function compileDebugCliModuleGraphAliasUserClassLawExplicitRootCase(
   wasmPath,
 ) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-class-law-alias-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-law-alias-" });
   const projectDir = `${tmpDir}/alias-class-law-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/math.clapse`,
+    `${pkgDir}/math.clap`,
     [
       "class plus_rules i where",
       "  sumLike : i -> i -> i",
@@ -918,7 +918,7 @@ async function compileDebugCliModuleGraphAliasUserClassLawExplicitRootCase(
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -938,7 +938,7 @@ async function compileDebugCliModuleGraphAliasUserClassLawExplicitRootCase(
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -953,17 +953,17 @@ async function compileDebugCliModuleGraphAliasUserClassLawExplicitRootCase(
 }
 
 async function compileDebugCliModuleGraphAliasUserInstanceCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-instance-alias-main-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-instance-alias-main-" });
   const projectDir = `${tmpDir}/alias-instance-main-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/math.clapse`,
+    `${pkgDir}/math.clap`,
     [
       "class plus_rules i where",
       "  addish : i -> i -> i",
@@ -975,7 +975,7 @@ async function compileDebugCliModuleGraphAliasUserInstanceCase(wasmPath) {
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_main.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -994,7 +994,7 @@ async function compileDebugCliModuleGraphAliasUserInstanceCase(wasmPath) {
     artifactsDir,
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "main", []);
@@ -1009,17 +1009,17 @@ async function compileDebugCliModuleGraphAliasUserInstanceCase(wasmPath) {
 }
 
 async function compileDebugCliModuleGraphImportListUserInstanceExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-instance-import-list-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-instance-import-list-" });
   const projectDir = `${tmpDir}/import-list-instance-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/arith.clapse`,
+    `${pkgDir}/arith.clap`,
     [
       "class plus_rules i where",
       "  addish : i -> i -> i",
@@ -1031,7 +1031,7 @@ async function compileDebugCliModuleGraphImportListUserInstanceExplicitRootCase(
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -1051,7 +1051,7 @@ async function compileDebugCliModuleGraphImportListUserInstanceExplicitRootCase(
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -1068,17 +1068,17 @@ async function compileDebugCliModuleGraphImportListUserInstanceExplicitRootCase(
 async function compileDebugCliModuleGraphImportListUserClassDefaultExplicitRootCase(
   wasmPath,
 ) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-class-default-import-list-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-default-import-list-" });
   const projectDir = `${tmpDir}/import-list-class-default-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/arith.clapse`,
+    `${pkgDir}/arith.clap`,
     [
       "class plus_rules i where",
       "  sumLike : i -> i -> i",
@@ -1092,7 +1092,7 @@ async function compileDebugCliModuleGraphImportListUserClassDefaultExplicitRootC
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -1112,7 +1112,7 @@ async function compileDebugCliModuleGraphImportListUserClassDefaultExplicitRootC
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -1129,17 +1129,17 @@ async function compileDebugCliModuleGraphImportListUserClassDefaultExplicitRootC
 async function compileDebugCliModuleGraphImportListUserClassCrossDefaultExplicitRootCase(
   wasmPath,
 ) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-class-cross-default-import-list-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-cross-default-import-list-" });
   const projectDir = `${tmpDir}/import-list-class-cross-default-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/arith.clapse`,
+    `${pkgDir}/arith.clap`,
     [
       "class semiring i where",
       "  plus : i -> i -> i",
@@ -1159,7 +1159,7 @@ async function compileDebugCliModuleGraphImportListUserClassCrossDefaultExplicit
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -1179,7 +1179,7 @@ async function compileDebugCliModuleGraphImportListUserClassCrossDefaultExplicit
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -1194,17 +1194,17 @@ async function compileDebugCliModuleGraphImportListUserClassCrossDefaultExplicit
 }
 
 async function compileDebugCliModuleGraphImportListUserInstanceCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-instance-import-list-main-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-instance-import-list-main-" });
   const projectDir = `${tmpDir}/import-list-instance-main-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/arith.clapse`,
+    `${pkgDir}/arith.clap`,
     [
       "class plus_rules i where",
       "  addish : i -> i -> i",
@@ -1216,7 +1216,7 @@ async function compileDebugCliModuleGraphImportListUserInstanceCase(wasmPath) {
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_main.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -1235,7 +1235,7 @@ async function compileDebugCliModuleGraphImportListUserInstanceCase(wasmPath) {
     artifactsDir,
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "main", []);
@@ -1250,17 +1250,17 @@ async function compileDebugCliModuleGraphImportListUserInstanceCase(wasmPath) {
 }
 
 async function compileDebugCliModuleGraphTypeOnlyImportUserInstanceExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-instance-type-only-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-instance-type-only-" });
   const projectDir = `${tmpDir}/type-only-instance-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "data Pair a b = Pair a b",
       "class plus_rules i where",
@@ -1273,7 +1273,7 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserInstanceExplicitRootC
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -1295,7 +1295,7 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserInstanceExplicitRootC
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -1310,17 +1310,17 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserInstanceExplicitRootC
 }
 
 async function compileDebugCliModuleGraphTypeOnlyImportUserClassDefaultExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-class-default-type-only-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-default-type-only-" });
   const projectDir = `${tmpDir}/type-only-class-default-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "data Pair a b = Pair a b",
       "class plus_rules i where",
@@ -1335,7 +1335,7 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserClassDefaultExplicitR
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -1357,7 +1357,7 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserClassDefaultExplicitR
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -1372,17 +1372,17 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserClassDefaultExplicitR
 }
 
 async function compileDebugCliModuleGraphTypeOnlyImportUserClassLawExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-class-law-type-only-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-law-type-only-" });
   const projectDir = `${tmpDir}/type-only-class-law-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "data Pair a b = Pair a b",
       "class plus_rules i where",
@@ -1398,7 +1398,7 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserClassLawExplicitRootC
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -1420,7 +1420,7 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserClassLawExplicitRootC
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -1435,17 +1435,17 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserClassLawExplicitRootC
 }
 
 async function compileDebugCliModuleGraphTypeOnlyImportUserClassCrossDefaultExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-class-cross-type-only-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-cross-type-only-" });
   const projectDir = `${tmpDir}/type-only-class-cross-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "data Pair a b = Pair a b",
       "class semiring i where",
@@ -1466,7 +1466,7 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserClassCrossDefaultExpl
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -1488,7 +1488,7 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserClassCrossDefaultExpl
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -1503,17 +1503,17 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserClassCrossDefaultExpl
 }
 
 async function compileDebugCliModuleGraphImportListUserClassLawExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-class-law-import-list-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-law-import-list-" });
   const projectDir = `${tmpDir}/import-list-class-law-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "data Pair a b = Pair a b",
       "class plus_rules i where",
@@ -1529,7 +1529,7 @@ async function compileDebugCliModuleGraphImportListUserClassLawExplicitRootCase(
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -1551,7 +1551,7 @@ async function compileDebugCliModuleGraphImportListUserClassLawExplicitRootCase(
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -1566,17 +1566,17 @@ async function compileDebugCliModuleGraphImportListUserClassLawExplicitRootCase(
 }
 
 async function compileDebugCliModuleGraphTypeOnlyImportUserInstanceCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-instance-type-only-main-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-instance-type-only-main-" });
   const projectDir = `${tmpDir}/type-only-instance-main-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "export { Pair, mkPair }",
       "mkPair x y = Pair x y",
@@ -1584,7 +1584,7 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserInstanceCase(wasmPath
     ].join("\n"),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/arith.clapse`,
+    `${pkgDir}/arith.clap`,
     [
       "class plus_rules i where",
       "  addish : i -> i -> i",
@@ -1596,7 +1596,7 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserInstanceCase(wasmPath
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_main.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -1618,7 +1618,7 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserInstanceCase(wasmPath
     artifactsDir,
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "main", []);
@@ -1633,8 +1633,8 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserInstanceCase(wasmPath
 }
 
 async function compileNativeCliAliasCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_native.wasm`;
   const debugOutputPath = `${tmpDir}/case_native_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -1648,14 +1648,14 @@ async function compileNativeCliAliasCase(wasmPath) {
     ].join("\n"),
   );
   await runCli(["compile_native", inputPath, outputPath], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "main", []);
   assert(value === 3,
     `cli-compile-native-alias: expected 3, got ${value}`);
   await runCli(["compile_native_debug", inputPath, debugOutputPath, artifactsDir], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "main", []);
@@ -1670,8 +1670,8 @@ async function compileNativeCliAliasCase(wasmPath) {
 }
 
 async function compileNativeCliAliasExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-root-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-root-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -1689,7 +1689,7 @@ async function compileNativeCliAliasExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -1703,7 +1703,7 @@ async function compileNativeCliAliasExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -1718,8 +1718,8 @@ async function compileNativeCliAliasExplicitRootCase(wasmPath) {
 }
 
 async function compileNativeCliBareRecordArgExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-record-arg-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-record-arg-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -1741,7 +1741,7 @@ async function compileNativeCliBareRecordArgExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -1755,7 +1755,7 @@ async function compileNativeCliBareRecordArgExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -1770,8 +1770,8 @@ async function compileNativeCliBareRecordArgExplicitRootCase(wasmPath) {
 }
 
 async function compileNativeCliFunctionReturnRecordUpdateExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-record-update-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-record-update-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -1793,7 +1793,7 @@ async function compileNativeCliFunctionReturnRecordUpdateExplicitRootCase(wasmPa
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -1807,7 +1807,7 @@ async function compileNativeCliFunctionReturnRecordUpdateExplicitRootCase(wasmPa
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -1822,8 +1822,8 @@ async function compileNativeCliFunctionReturnRecordUpdateExplicitRootCase(wasmPa
 }
 
 async function compileNativeCliUserInstanceExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-instance-root-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-instance-root-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -1847,7 +1847,7 @@ async function compileNativeCliUserInstanceExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -1861,7 +1861,7 @@ async function compileNativeCliUserInstanceExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -1876,8 +1876,8 @@ async function compileNativeCliUserInstanceExplicitRootCase(wasmPath) {
 }
 
 async function compileNativeCliUserClassDefaultExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-class-default-root-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-class-default-root-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -1903,7 +1903,7 @@ async function compileNativeCliUserClassDefaultExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -1917,7 +1917,7 @@ async function compileNativeCliUserClassDefaultExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -1932,8 +1932,8 @@ async function compileNativeCliUserClassDefaultExplicitRootCase(wasmPath) {
 }
 
 async function compileNativeCliUserClassCrossDefaultExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-class-cross-default-root-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-class-cross-default-root-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -1965,7 +1965,7 @@ async function compileNativeCliUserClassCrossDefaultExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -1979,7 +1979,7 @@ async function compileNativeCliUserClassCrossDefaultExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -1994,8 +1994,8 @@ async function compileNativeCliUserClassCrossDefaultExplicitRootCase(wasmPath) {
 }
 
 async function compileNativeCliUserClassLawExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-class-law-root-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-class-law-root-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -2022,7 +2022,7 @@ async function compileNativeCliUserClassLawExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -2036,7 +2036,7 @@ async function compileNativeCliUserClassLawExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -2051,8 +2051,8 @@ async function compileNativeCliUserClassLawExplicitRootCase(wasmPath) {
 }
 
 async function compileNativeCliWhereExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-where-root-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-where-root-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -2073,7 +2073,7 @@ async function compileNativeCliWhereExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", [2]);
@@ -2087,7 +2087,7 @@ async function compileNativeCliWhereExplicitRootCase(wasmPath) {
     "--entrypoint-exports",
     "answer",
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", [2]);
@@ -2102,8 +2102,8 @@ async function compileNativeCliWhereExplicitRootCase(wasmPath) {
 }
 
 async function compileNativeCliUserInstanceCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-instance-main-" });
-  const inputPath = `${tmpDir}/case.clapse`;
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-instance-main-" });
+  const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_main.wasm`;
   const debugOutputPath = `${tmpDir}/case_main_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -2126,7 +2126,7 @@ async function compileNativeCliUserInstanceCase(wasmPath) {
     inputPath,
     outputPath,
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "main", []);
@@ -2138,7 +2138,7 @@ async function compileNativeCliUserInstanceCase(wasmPath) {
     debugOutputPath,
     artifactsDir,
   ], {
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "main", []);
@@ -2153,24 +2153,24 @@ async function compileNativeCliUserInstanceCase(wasmPath) {
 }
 
 async function compileNativeCliModuleGraphAliasExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-module-root-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-module-root-" });
   const projectDir = `${tmpDir}/alias-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/math.clapse`,
+    `${pkgDir}/math.clap`,
     [
       "export { addOne }",
       "addOne x = add x 1",
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -2190,7 +2190,7 @@ async function compileNativeCliModuleGraphAliasExplicitRootCase(wasmPath) {
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -2205,7 +2205,7 @@ async function compileNativeCliModuleGraphAliasExplicitRootCase(wasmPath) {
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -2220,17 +2220,17 @@ async function compileNativeCliModuleGraphAliasExplicitRootCase(wasmPath) {
 }
 
 async function compileNativeCliModuleGraphAliasUserInstanceExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-instance-module-root-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-instance-module-root-" });
   const projectDir = `${tmpDir}/alias-instance-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/math.clapse`,
+    `${pkgDir}/math.clap`,
     [
       "class plus_rules i where",
       "  addish : i -> i -> i",
@@ -2242,7 +2242,7 @@ async function compileNativeCliModuleGraphAliasUserInstanceExplicitRootCase(wasm
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -2262,7 +2262,7 @@ async function compileNativeCliModuleGraphAliasUserInstanceExplicitRootCase(wasm
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -2277,7 +2277,7 @@ async function compileNativeCliModuleGraphAliasUserInstanceExplicitRootCase(wasm
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -2294,17 +2294,17 @@ async function compileNativeCliModuleGraphAliasUserInstanceExplicitRootCase(wasm
 async function compileNativeCliModuleGraphAliasUserClassDefaultExplicitRootCase(
   wasmPath,
 ) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-class-default-module-root-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-class-default-module-root-" });
   const projectDir = `${tmpDir}/alias-class-default-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/math.clapse`,
+    `${pkgDir}/math.clap`,
     [
       "class plus_rules i where",
       "  sumLike : i -> i -> i",
@@ -2318,7 +2318,7 @@ async function compileNativeCliModuleGraphAliasUserClassDefaultExplicitRootCase(
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -2338,7 +2338,7 @@ async function compileNativeCliModuleGraphAliasUserClassDefaultExplicitRootCase(
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -2353,7 +2353,7 @@ async function compileNativeCliModuleGraphAliasUserClassDefaultExplicitRootCase(
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -2370,17 +2370,17 @@ async function compileNativeCliModuleGraphAliasUserClassDefaultExplicitRootCase(
 async function compileNativeCliModuleGraphAliasUserClassCrossDefaultExplicitRootCase(
   wasmPath,
 ) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-class-cross-default-module-root-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-class-cross-default-module-root-" });
   const projectDir = `${tmpDir}/alias-class-cross-default-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/math.clapse`,
+    `${pkgDir}/math.clap`,
     [
       "class semiring i where",
       "  plus : i -> i -> i",
@@ -2400,7 +2400,7 @@ async function compileNativeCliModuleGraphAliasUserClassCrossDefaultExplicitRoot
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -2420,7 +2420,7 @@ async function compileNativeCliModuleGraphAliasUserClassCrossDefaultExplicitRoot
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -2435,7 +2435,7 @@ async function compileNativeCliModuleGraphAliasUserClassCrossDefaultExplicitRoot
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -2452,17 +2452,17 @@ async function compileNativeCliModuleGraphAliasUserClassCrossDefaultExplicitRoot
 async function compileNativeCliModuleGraphAliasUserClassLawExplicitRootCase(
   wasmPath,
 ) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-class-law-module-root-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-class-law-module-root-" });
   const projectDir = `${tmpDir}/alias-class-law-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/math.clapse`,
+    `${pkgDir}/math.clap`,
     [
       "class plus_rules i where",
       "  sumLike : i -> i -> i",
@@ -2477,7 +2477,7 @@ async function compileNativeCliModuleGraphAliasUserClassLawExplicitRootCase(
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -2497,7 +2497,7 @@ async function compileNativeCliModuleGraphAliasUserClassLawExplicitRootCase(
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -2512,7 +2512,7 @@ async function compileNativeCliModuleGraphAliasUserClassLawExplicitRootCase(
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -2527,17 +2527,17 @@ async function compileNativeCliModuleGraphAliasUserClassLawExplicitRootCase(
 }
 
 async function compileNativeCliModuleGraphAliasUserInstanceCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-instance-module-main-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-instance-module-main-" });
   const projectDir = `${tmpDir}/alias-instance-main-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/math.clapse`,
+    `${pkgDir}/math.clap`,
     [
       "class plus_rules i where",
       "  addish : i -> i -> i",
@@ -2549,7 +2549,7 @@ async function compileNativeCliModuleGraphAliasUserInstanceCase(wasmPath) {
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_main.wasm`;
   const debugOutputPath = `${tmpDir}/case_main_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -2568,7 +2568,7 @@ async function compileNativeCliModuleGraphAliasUserInstanceCase(wasmPath) {
     outputPath,
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "main", []);
@@ -2581,7 +2581,7 @@ async function compileNativeCliModuleGraphAliasUserInstanceCase(wasmPath) {
     artifactsDir,
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "main", []);
@@ -2596,24 +2596,24 @@ async function compileNativeCliModuleGraphAliasUserInstanceCase(wasmPath) {
 }
 
 async function compileNativeCliModuleGraphImportListExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-import-root-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-import-root-" });
   const projectDir = `${tmpDir}/import-list-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "export { mkPair, Pair }",
       "mkPair x y = Pair x y",
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -2635,7 +2635,7 @@ async function compileNativeCliModuleGraphImportListExplicitRootCase(wasmPath) {
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -2650,7 +2650,7 @@ async function compileNativeCliModuleGraphImportListExplicitRootCase(wasmPath) {
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -2665,17 +2665,17 @@ async function compileNativeCliModuleGraphImportListExplicitRootCase(wasmPath) {
 }
 
 async function compileNativeCliModuleGraphImportListUserInstanceExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-instance-import-root-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-instance-import-root-" });
   const projectDir = `${tmpDir}/import-list-instance-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/arith.clapse`,
+    `${pkgDir}/arith.clap`,
     [
       "class plus_rules i where",
       "  addish : i -> i -> i",
@@ -2687,7 +2687,7 @@ async function compileNativeCliModuleGraphImportListUserInstanceExplicitRootCase
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -2707,7 +2707,7 @@ async function compileNativeCliModuleGraphImportListUserInstanceExplicitRootCase
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -2722,7 +2722,7 @@ async function compileNativeCliModuleGraphImportListUserInstanceExplicitRootCase
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -2739,17 +2739,17 @@ async function compileNativeCliModuleGraphImportListUserInstanceExplicitRootCase
 async function compileNativeCliModuleGraphImportListUserClassDefaultExplicitRootCase(
   wasmPath,
 ) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-class-default-import-root-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-class-default-import-root-" });
   const projectDir = `${tmpDir}/import-list-class-default-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/arith.clapse`,
+    `${pkgDir}/arith.clap`,
     [
       "class plus_rules i where",
       "  sumLike : i -> i -> i",
@@ -2763,7 +2763,7 @@ async function compileNativeCliModuleGraphImportListUserClassDefaultExplicitRoot
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -2783,7 +2783,7 @@ async function compileNativeCliModuleGraphImportListUserClassDefaultExplicitRoot
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -2798,7 +2798,7 @@ async function compileNativeCliModuleGraphImportListUserClassDefaultExplicitRoot
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -2815,17 +2815,17 @@ async function compileNativeCliModuleGraphImportListUserClassDefaultExplicitRoot
 async function compileNativeCliModuleGraphImportListUserClassCrossDefaultExplicitRootCase(
   wasmPath,
 ) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-class-cross-default-import-root-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-class-cross-default-import-root-" });
   const projectDir = `${tmpDir}/import-list-class-cross-default-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/arith.clapse`,
+    `${pkgDir}/arith.clap`,
     [
       "class semiring i where",
       "  plus : i -> i -> i",
@@ -2845,7 +2845,7 @@ async function compileNativeCliModuleGraphImportListUserClassCrossDefaultExplici
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -2865,7 +2865,7 @@ async function compileNativeCliModuleGraphImportListUserClassCrossDefaultExplici
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -2880,7 +2880,7 @@ async function compileNativeCliModuleGraphImportListUserClassCrossDefaultExplici
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -2895,17 +2895,17 @@ async function compileNativeCliModuleGraphImportListUserClassCrossDefaultExplici
 }
 
 async function compileNativeCliModuleGraphImportListUserInstanceCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-instance-import-main-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-instance-import-main-" });
   const projectDir = `${tmpDir}/import-list-instance-main-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/arith.clapse`,
+    `${pkgDir}/arith.clap`,
     [
       "class plus_rules i where",
       "  addish : i -> i -> i",
@@ -2917,7 +2917,7 @@ async function compileNativeCliModuleGraphImportListUserInstanceCase(wasmPath) {
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_main.wasm`;
   const debugOutputPath = `${tmpDir}/case_main_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -2936,7 +2936,7 @@ async function compileNativeCliModuleGraphImportListUserInstanceCase(wasmPath) {
     outputPath,
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "main", []);
@@ -2949,7 +2949,7 @@ async function compileNativeCliModuleGraphImportListUserInstanceCase(wasmPath) {
     artifactsDir,
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "main", []);
@@ -2964,24 +2964,24 @@ async function compileNativeCliModuleGraphImportListUserInstanceCase(wasmPath) {
 }
 
 async function compileDebugCliModuleGraphAliasExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-debug-cli-module-root-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-cli-module-root-" });
   const projectDir = `${tmpDir}/alias-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/math.clapse`,
+    `${pkgDir}/math.clap`,
     [
       "export { addOne }",
       "addOne x = add x 1",
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
   await Deno.writeTextFile(
@@ -3001,7 +3001,7 @@ async function compileDebugCliModuleGraphAliasExplicitRootCase(wasmPath) {
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -3016,24 +3016,24 @@ async function compileDebugCliModuleGraphAliasExplicitRootCase(wasmPath) {
 }
 
 async function compileDebugCliModuleGraphTypeOnlyImportExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-debug-type-only-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-debug-type-only-" });
   const projectDir = `${tmpDir}/type-only-debug-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "export { mkPair, Pair }",
       "mkPair x y = Pair x y",
       "",
     ].join("\n"),
   );
-  const entryPath = `${pkgDir}/entry.clapse`;
+  const entryPath = `${pkgDir}/entry.clap`;
   await Deno.writeTextFile(
     entryPath,
     [
@@ -3055,7 +3055,7 @@ async function compileDebugCliModuleGraphTypeOnlyImportExplicitRootCase(wasmPath
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -3072,24 +3072,24 @@ async function compileDebugCliModuleGraphTypeOnlyImportExplicitRootCase(wasmPath
 }
 
 async function compileDebugCliModuleGraphImportListExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-debug-import-list-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-debug-import-list-" });
   const projectDir = `${tmpDir}/import-list-debug-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "export { mkPair, Pair }",
       "mkPair x y = Pair x y",
       "",
     ].join("\n"),
   );
-  const entryPath = `${pkgDir}/entry.clapse`;
+  const entryPath = `${pkgDir}/entry.clap`;
   await Deno.writeTextFile(
     entryPath,
     [
@@ -3111,7 +3111,7 @@ async function compileDebugCliModuleGraphImportListExplicitRootCase(wasmPath) {
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -3128,24 +3128,24 @@ async function compileDebugCliModuleGraphImportListExplicitRootCase(wasmPath) {
 }
 
 async function compileModuleGraphImportListCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-verify-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-verify-" });
   const projectDir = `${tmpDir}/import-list-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "export { mkPair, Pair }",
       "mkPair x y = Pair x y",
       "",
     ].join("\n"),
   );
-  const entryPath = `${pkgDir}/entry.clapse`;
+  const entryPath = `${pkgDir}/entry.clap`;
   await Deno.writeTextFile(
     entryPath,
     [
@@ -3159,15 +3159,15 @@ async function compileModuleGraphImportListCase(wasmPath) {
   );
   const outputPath = `${tmpDir}/import-list.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
-  const prevCompiler = Deno.env.get("CLAPSE_COMPILER_WASM_PATH");
+  const prevCompiler = Deno.env.get("CLAP_COMPILER_WASM_PATH");
   try {
-    Deno.env.set("CLAPSE_COMPILER_WASM_PATH", wasmPath);
+    Deno.env.set("CLAP_COMPILER_WASM_PATH", wasmPath);
     await runWithArgs(["compile-debug", entryPath, outputPath, artifactsDir]);
   } finally {
     if (typeof prevCompiler === "string") {
-      Deno.env.set("CLAPSE_COMPILER_WASM_PATH", prevCompiler);
+      Deno.env.set("CLAP_COMPILER_WASM_PATH", prevCompiler);
     } else {
-      Deno.env.delete("CLAPSE_COMPILER_WASM_PATH");
+      Deno.env.delete("CLAP_COMPILER_WASM_PATH");
     }
   }
   const wasmBytes = await Deno.readFile(outputPath);
@@ -3179,24 +3179,24 @@ async function compileModuleGraphImportListCase(wasmPath) {
 }
 
 async function compileModuleGraphImportListExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-verify-root-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-verify-root-" });
   const projectDir = `${tmpDir}/import-list-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "export { mkPair, Pair }",
       "mkPair x y = Pair x y",
       "",
     ].join("\n"),
   );
-  const entryPath = `${pkgDir}/entry.clapse`;
+  const entryPath = `${pkgDir}/entry.clap`;
   await Deno.writeTextFile(
     entryPath,
     [
@@ -3209,9 +3209,9 @@ async function compileModuleGraphImportListExplicitRootCase(wasmPath) {
   );
   const outputPath = `${tmpDir}/import-list-root.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
-  const prevCompiler = Deno.env.get("CLAPSE_COMPILER_WASM_PATH");
+  const prevCompiler = Deno.env.get("CLAP_COMPILER_WASM_PATH");
   try {
-    Deno.env.set("CLAPSE_COMPILER_WASM_PATH", wasmPath);
+    Deno.env.set("CLAP_COMPILER_WASM_PATH", wasmPath);
     await runWithArgs([
       "compile-debug",
       entryPath,
@@ -3222,9 +3222,9 @@ async function compileModuleGraphImportListExplicitRootCase(wasmPath) {
     ]);
   } finally {
     if (typeof prevCompiler === "string") {
-      Deno.env.set("CLAPSE_COMPILER_WASM_PATH", prevCompiler);
+      Deno.env.set("CLAP_COMPILER_WASM_PATH", prevCompiler);
     } else {
-      Deno.env.delete("CLAPSE_COMPILER_WASM_PATH");
+      Deno.env.delete("CLAP_COMPILER_WASM_PATH");
     }
   }
   const wasmBytes = await Deno.readFile(outputPath);
@@ -3236,17 +3236,17 @@ async function compileModuleGraphImportListExplicitRootCase(wasmPath) {
 }
 
 async function compileModuleGraphImportListUserClassLawExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-import-list-class-law-root-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-import-list-class-law-root-" });
   const projectDir = `${tmpDir}/import-list-class-law-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "data Pair a b = Pair a b",
       "class plus_rules i where",
@@ -3262,7 +3262,7 @@ async function compileModuleGraphImportListUserClassLawExplicitRootCase(wasmPath
       "",
     ].join("\n"),
   );
-  const entryPath = `${pkgDir}/entry.clapse`;
+  const entryPath = `${pkgDir}/entry.clap`;
   await Deno.writeTextFile(
     entryPath,
     [
@@ -3275,9 +3275,9 @@ async function compileModuleGraphImportListUserClassLawExplicitRootCase(wasmPath
   );
   const outputPath = `${tmpDir}/import-list-class-law-root.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
-  const prevCompiler = Deno.env.get("CLAPSE_COMPILER_WASM_PATH");
+  const prevCompiler = Deno.env.get("CLAP_COMPILER_WASM_PATH");
   try {
-    Deno.env.set("CLAPSE_COMPILER_WASM_PATH", wasmPath);
+    Deno.env.set("CLAP_COMPILER_WASM_PATH", wasmPath);
     await runWithArgs([
       "compile-debug",
       entryPath,
@@ -3288,9 +3288,9 @@ async function compileModuleGraphImportListUserClassLawExplicitRootCase(wasmPath
     ]);
   } finally {
     if (typeof prevCompiler === "string") {
-      Deno.env.set("CLAPSE_COMPILER_WASM_PATH", prevCompiler);
+      Deno.env.set("CLAP_COMPILER_WASM_PATH", prevCompiler);
     } else {
-      Deno.env.delete("CLAPSE_COMPILER_WASM_PATH");
+      Deno.env.delete("CLAP_COMPILER_WASM_PATH");
     }
   }
   const wasmBytes = await Deno.readFile(outputPath);
@@ -3302,24 +3302,24 @@ async function compileModuleGraphImportListUserClassLawExplicitRootCase(wasmPath
 }
 
 async function compileModuleGraphTypeOnlyImportCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-type-only-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-type-only-" });
   const projectDir = `${tmpDir}/type-only-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "export { mkPair, Pair }",
       "mkPair x y = Pair x y",
       "",
     ].join("\n"),
   );
-  const entryPath = `${pkgDir}/entry.clapse`;
+  const entryPath = `${pkgDir}/entry.clap`;
   await Deno.writeTextFile(
     entryPath,
     [
@@ -3333,15 +3333,15 @@ async function compileModuleGraphTypeOnlyImportCase(wasmPath) {
   );
   const outputPath = `${tmpDir}/type-only.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
-  const prevCompiler = Deno.env.get("CLAPSE_COMPILER_WASM_PATH");
+  const prevCompiler = Deno.env.get("CLAP_COMPILER_WASM_PATH");
   try {
-    Deno.env.set("CLAPSE_COMPILER_WASM_PATH", wasmPath);
+    Deno.env.set("CLAP_COMPILER_WASM_PATH", wasmPath);
     await runWithArgs(["compile-debug", entryPath, outputPath, artifactsDir]);
   } finally {
     if (typeof prevCompiler === "string") {
-      Deno.env.set("CLAPSE_COMPILER_WASM_PATH", prevCompiler);
+      Deno.env.set("CLAP_COMPILER_WASM_PATH", prevCompiler);
     } else {
-      Deno.env.delete("CLAPSE_COMPILER_WASM_PATH");
+      Deno.env.delete("CLAP_COMPILER_WASM_PATH");
     }
   }
   const wasmBytes = await Deno.readFile(outputPath);
@@ -3353,17 +3353,17 @@ async function compileModuleGraphTypeOnlyImportCase(wasmPath) {
 }
 
 async function compileModuleGraphTypeOnlyImportUserClassCrossDefaultExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-type-only-class-cross-root-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-type-only-class-cross-root-" });
   const projectDir = `${tmpDir}/type-only-class-cross-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "data Pair a b = Pair a b",
       "class semiring i where",
@@ -3384,7 +3384,7 @@ async function compileModuleGraphTypeOnlyImportUserClassCrossDefaultExplicitRoot
       "",
     ].join("\n"),
   );
-  const entryPath = `${pkgDir}/entry.clapse`;
+  const entryPath = `${pkgDir}/entry.clap`;
   await Deno.writeTextFile(
     entryPath,
     [
@@ -3397,9 +3397,9 @@ async function compileModuleGraphTypeOnlyImportUserClassCrossDefaultExplicitRoot
   );
   const outputPath = `${tmpDir}/type-only-class-cross-root.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
-  const prevCompiler = Deno.env.get("CLAPSE_COMPILER_WASM_PATH");
+  const prevCompiler = Deno.env.get("CLAP_COMPILER_WASM_PATH");
   try {
-    Deno.env.set("CLAPSE_COMPILER_WASM_PATH", wasmPath);
+    Deno.env.set("CLAP_COMPILER_WASM_PATH", wasmPath);
     await runWithArgs([
       "compile-debug",
       entryPath,
@@ -3410,9 +3410,9 @@ async function compileModuleGraphTypeOnlyImportUserClassCrossDefaultExplicitRoot
     ]);
   } finally {
     if (typeof prevCompiler === "string") {
-      Deno.env.set("CLAPSE_COMPILER_WASM_PATH", prevCompiler);
+      Deno.env.set("CLAP_COMPILER_WASM_PATH", prevCompiler);
     } else {
-      Deno.env.delete("CLAPSE_COMPILER_WASM_PATH");
+      Deno.env.delete("CLAP_COMPILER_WASM_PATH");
     }
   }
   const wasmBytes = await Deno.readFile(outputPath);
@@ -3424,24 +3424,24 @@ async function compileModuleGraphTypeOnlyImportUserClassCrossDefaultExplicitRoot
 }
 
 async function compileNativeCliModuleGraphTypeOnlyImportCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-native-type-only-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-native-type-only-" });
   const projectDir = `${tmpDir}/type-only-native-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "export { mkPair, Pair }",
       "mkPair x y = Pair x y",
       "",
     ].join("\n"),
   );
-  const entryPath = `${pkgDir}/entry.clapse`;
+  const entryPath = `${pkgDir}/entry.clap`;
   await Deno.writeTextFile(
     entryPath,
     [
@@ -3457,7 +3457,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportCase(wasmPath) {
   const artifactsDir = `${tmpDir}/artifacts`;
   await runCli(["compile_native", entryPath, outputPath, "--entrypoint-exports", "answer"], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -3467,7 +3467,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportCase(wasmPath) {
   );
   await runCli(["compile_native_debug", entryPath, debugOutputPath, artifactsDir, "--entrypoint-exports", "answer"], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -3484,17 +3484,17 @@ async function compileNativeCliModuleGraphTypeOnlyImportCase(wasmPath) {
 }
 
 async function compileNativeCliModuleGraphTypeOnlyImportUserInstanceExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-type-only-instance-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-type-only-instance-" });
   const projectDir = `${tmpDir}/type-only-instance-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "data Pair a b = Pair a b",
       "class plus_rules i where",
@@ -3507,7 +3507,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserInstanceExplicitRoot
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -3529,7 +3529,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserInstanceExplicitRoot
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -3544,7 +3544,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserInstanceExplicitRoot
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -3559,17 +3559,17 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserInstanceExplicitRoot
 }
 
 async function compileNativeCliModuleGraphTypeOnlyImportUserClassDefaultExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-type-only-class-default-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-type-only-class-default-" });
   const projectDir = `${tmpDir}/type-only-class-default-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "data Pair a b = Pair a b",
       "class plus_rules i where",
@@ -3584,7 +3584,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserClassDefaultExplicit
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -3606,7 +3606,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserClassDefaultExplicit
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -3621,7 +3621,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserClassDefaultExplicit
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -3636,17 +3636,17 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserClassDefaultExplicit
 }
 
 async function compileNativeCliModuleGraphTypeOnlyImportUserClassLawExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-type-only-class-law-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-type-only-class-law-" });
   const projectDir = `${tmpDir}/type-only-class-law-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "data Pair a b = Pair a b",
       "class plus_rules i where",
@@ -3662,7 +3662,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserClassLawExplicitRoot
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -3684,7 +3684,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserClassLawExplicitRoot
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -3699,7 +3699,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserClassLawExplicitRoot
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -3714,17 +3714,17 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserClassLawExplicitRoot
 }
 
 async function compileNativeCliModuleGraphTypeOnlyImportUserClassCrossDefaultExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-type-only-class-cross-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-type-only-class-cross-" });
   const projectDir = `${tmpDir}/type-only-class-cross-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "data Pair a b = Pair a b",
       "class semiring i where",
@@ -3745,7 +3745,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserClassCrossDefaultExp
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -3767,7 +3767,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserClassCrossDefaultExp
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -3782,7 +3782,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserClassCrossDefaultExp
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -3797,17 +3797,17 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserClassCrossDefaultExp
 }
 
 async function compileNativeCliModuleGraphImportListUserClassLawExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-import-list-class-law-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-import-list-class-law-" });
   const projectDir = `${tmpDir}/import-list-class-law-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "data Pair a b = Pair a b",
       "class plus_rules i where",
@@ -3823,7 +3823,7 @@ async function compileNativeCliModuleGraphImportListUserClassLawExplicitRootCase
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -3845,7 +3845,7 @@ async function compileNativeCliModuleGraphImportListUserClassLawExplicitRootCase
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -3860,7 +3860,7 @@ async function compileNativeCliModuleGraphImportListUserClassLawExplicitRootCase
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -3875,17 +3875,17 @@ async function compileNativeCliModuleGraphImportListUserClassLawExplicitRootCase
 }
 
 async function compileNativeCliModuleGraphTypeOnlyImportUserInstanceCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-native-cli-type-only-instance-main-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-type-only-instance-main-" });
   const projectDir = `${tmpDir}/type-only-instance-main-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/pair.clapse`,
+    `${pkgDir}/pair.clap`,
     [
       "export { Pair, mkPair }",
       "mkPair x y = Pair x y",
@@ -3893,7 +3893,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserInstanceCase(wasmPat
     ].join("\n"),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/arith.clapse`,
+    `${pkgDir}/arith.clap`,
     [
       "class plus_rules i where",
       "  addish : i -> i -> i",
@@ -3905,7 +3905,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserInstanceCase(wasmPat
       "",
     ].join("\n"),
   );
-  const inputPath = `${pkgDir}/entry.clapse`;
+  const inputPath = `${pkgDir}/entry.clap`;
   const outputPath = `${tmpDir}/case_main.wasm`;
   const debugOutputPath = `${tmpDir}/case_main_debug.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -3927,7 +3927,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserInstanceCase(wasmPat
     outputPath,
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "main", []);
@@ -3940,7 +3940,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserInstanceCase(wasmPat
     artifactsDir,
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "main", []);
@@ -3955,24 +3955,24 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserInstanceCase(wasmPat
 }
 
 async function compileModuleGraphAliasCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-alias-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-alias-" });
   const projectDir = `${tmpDir}/alias-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/math.clapse`,
+    `${pkgDir}/math.clap`,
     [
       "export { addOne }",
       "addOne x = add x 1",
       "",
     ].join("\n"),
   );
-  const entryPath = `${pkgDir}/entry.clapse`;
+  const entryPath = `${pkgDir}/entry.clap`;
   await Deno.writeTextFile(
     entryPath,
     [
@@ -3984,15 +3984,15 @@ async function compileModuleGraphAliasCase(wasmPath) {
   );
   const outputPath = `${tmpDir}/alias.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
-  const prevCompiler = Deno.env.get("CLAPSE_COMPILER_WASM_PATH");
+  const prevCompiler = Deno.env.get("CLAP_COMPILER_WASM_PATH");
   try {
-    Deno.env.set("CLAPSE_COMPILER_WASM_PATH", wasmPath);
+    Deno.env.set("CLAP_COMPILER_WASM_PATH", wasmPath);
     await runWithArgs(["compile-debug", entryPath, outputPath, artifactsDir]);
   } finally {
     if (typeof prevCompiler === "string") {
-      Deno.env.set("CLAPSE_COMPILER_WASM_PATH", prevCompiler);
+      Deno.env.set("CLAP_COMPILER_WASM_PATH", prevCompiler);
     } else {
-      Deno.env.delete("CLAPSE_COMPILER_WASM_PATH");
+      Deno.env.delete("CLAP_COMPILER_WASM_PATH");
     }
   }
   const wasmBytes = await Deno.readFile(outputPath);
@@ -4004,24 +4004,24 @@ async function compileModuleGraphAliasCase(wasmPath) {
 }
 
 async function compileModuleGraphAliasExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-alias-root-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-alias-root-" });
   const projectDir = `${tmpDir}/alias-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/math.clapse`,
+    `${pkgDir}/math.clap`,
     [
       "export { addOne }",
       "addOne x = add x 1",
       "",
     ].join("\n"),
   );
-  const entryPath = `${pkgDir}/entry.clapse`;
+  const entryPath = `${pkgDir}/entry.clap`;
   await Deno.writeTextFile(
     entryPath,
     [
@@ -4032,9 +4032,9 @@ async function compileModuleGraphAliasExplicitRootCase(wasmPath) {
   );
   const outputPath = `${tmpDir}/alias-root.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
-  const prevCompiler = Deno.env.get("CLAPSE_COMPILER_WASM_PATH");
+  const prevCompiler = Deno.env.get("CLAP_COMPILER_WASM_PATH");
   try {
-    Deno.env.set("CLAPSE_COMPILER_WASM_PATH", wasmPath);
+    Deno.env.set("CLAP_COMPILER_WASM_PATH", wasmPath);
     await runWithArgs([
       "compile-debug",
       entryPath,
@@ -4045,9 +4045,9 @@ async function compileModuleGraphAliasExplicitRootCase(wasmPath) {
     ]);
   } finally {
     if (typeof prevCompiler === "string") {
-      Deno.env.set("CLAPSE_COMPILER_WASM_PATH", prevCompiler);
+      Deno.env.set("CLAP_COMPILER_WASM_PATH", prevCompiler);
     } else {
-      Deno.env.delete("CLAPSE_COMPILER_WASM_PATH");
+      Deno.env.delete("CLAP_COMPILER_WASM_PATH");
     }
   }
   const wasmBytes = await Deno.readFile(outputPath);
@@ -4059,17 +4059,17 @@ async function compileModuleGraphAliasExplicitRootCase(wasmPath) {
 }
 
 async function compileModuleGraphAliasUserClassDefaultExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-alias-class-default-root-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-alias-class-default-root-" });
   const projectDir = `${tmpDir}/alias-class-default-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/math.clapse`,
+    `${pkgDir}/math.clap`,
     [
       "class plus_rules i where",
       "  sumLike : i -> i -> i",
@@ -4083,7 +4083,7 @@ async function compileModuleGraphAliasUserClassDefaultExplicitRootCase(wasmPath)
       "",
     ].join("\n"),
   );
-  const entryPath = `${pkgDir}/entry.clapse`;
+  const entryPath = `${pkgDir}/entry.clap`;
   await Deno.writeTextFile(
     entryPath,
     [
@@ -4094,9 +4094,9 @@ async function compileModuleGraphAliasUserClassDefaultExplicitRootCase(wasmPath)
   );
   const outputPath = `${tmpDir}/alias-class-default-root.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
-  const prevCompiler = Deno.env.get("CLAPSE_COMPILER_WASM_PATH");
+  const prevCompiler = Deno.env.get("CLAP_COMPILER_WASM_PATH");
   try {
-    Deno.env.set("CLAPSE_COMPILER_WASM_PATH", wasmPath);
+    Deno.env.set("CLAP_COMPILER_WASM_PATH", wasmPath);
     await runWithArgs([
       "compile-debug",
       entryPath,
@@ -4107,9 +4107,9 @@ async function compileModuleGraphAliasUserClassDefaultExplicitRootCase(wasmPath)
     ]);
   } finally {
     if (typeof prevCompiler === "string") {
-      Deno.env.set("CLAPSE_COMPILER_WASM_PATH", prevCompiler);
+      Deno.env.set("CLAP_COMPILER_WASM_PATH", prevCompiler);
     } else {
-      Deno.env.delete("CLAPSE_COMPILER_WASM_PATH");
+      Deno.env.delete("CLAP_COMPILER_WASM_PATH");
     }
   }
   const wasmBytes = await Deno.readFile(outputPath);
@@ -4121,17 +4121,17 @@ async function compileModuleGraphAliasUserClassDefaultExplicitRootCase(wasmPath)
 }
 
 async function compileModuleGraphAliasCycleCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-cycle-alias-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-cycle-alias-" });
   const projectDir = `${tmpDir}/cycle-alias-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/a.clapse`,
+    `${pkgDir}/a.clap`,
     [
       'import "pkg/b" as b',
       "export { main, even }",
@@ -4145,7 +4145,7 @@ async function compileModuleGraphAliasCycleCase(wasmPath) {
     ].join("\n"),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/b.clapse`,
+    `${pkgDir}/b.clap`,
     [
       'import "pkg/a" as a',
       "export { odd }",
@@ -4155,12 +4155,12 @@ async function compileModuleGraphAliasCycleCase(wasmPath) {
       "",
     ].join("\n"),
   );
-  const entryPath = `${pkgDir}/a.clapse`;
+  const entryPath = `${pkgDir}/a.clap`;
   const outputPath = `${tmpDir}/cycle-alias.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
-  const prevCompiler = Deno.env.get("CLAPSE_COMPILER_WASM_PATH");
+  const prevCompiler = Deno.env.get("CLAP_COMPILER_WASM_PATH");
   try {
-    Deno.env.set("CLAPSE_COMPILER_WASM_PATH", wasmPath);
+    Deno.env.set("CLAP_COMPILER_WASM_PATH", wasmPath);
     try {
       await runWithArgs(["compile-debug", entryPath, outputPath, artifactsDir]);
     } catch (error) {
@@ -4173,26 +4173,26 @@ async function compileModuleGraphAliasCycleCase(wasmPath) {
     }
   } finally {
     if (typeof prevCompiler === "string") {
-      Deno.env.set("CLAPSE_COMPILER_WASM_PATH", prevCompiler);
+      Deno.env.set("CLAP_COMPILER_WASM_PATH", prevCompiler);
     } else {
-      Deno.env.delete("CLAPSE_COMPILER_WASM_PATH");
+      Deno.env.delete("CLAP_COMPILER_WASM_PATH");
     }
   }
   fail("module-graph-alias-cycle: expected compile-debug to fail closed");
 }
 
 async function compileDebugCliModuleGraphAliasCycleExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-debug-cycle-alias-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-debug-cycle-alias-" });
   const projectDir = `${tmpDir}/cycle-alias-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/a.clapse`,
+    `${pkgDir}/a.clap`,
     [
       'import "pkg/b" as b',
       "export { even }",
@@ -4202,7 +4202,7 @@ async function compileDebugCliModuleGraphAliasCycleExplicitRootCase(wasmPath) {
       "",
     ].join("\n"),
   );
-  const entryPath = `${pkgDir}/entry.clapse`;
+  const entryPath = `${pkgDir}/entry.clap`;
   await Deno.writeTextFile(
     entryPath,
     [
@@ -4215,7 +4215,7 @@ async function compileDebugCliModuleGraphAliasCycleExplicitRootCase(wasmPath) {
     ].join("\n"),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/b.clapse`,
+    `${pkgDir}/b.clap`,
     [
       'import "pkg/a" as a',
       "export { odd }",
@@ -4236,7 +4236,7 @@ async function compileDebugCliModuleGraphAliasCycleExplicitRootCase(wasmPath) {
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -4253,17 +4253,17 @@ async function compileDebugCliModuleGraphAliasCycleExplicitRootCase(wasmPath) {
 }
 
 async function compileNativeCliModuleGraphAliasCycleExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-native-cycle-alias-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-native-cycle-alias-" });
   const projectDir = `${tmpDir}/cycle-alias-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
   await Deno.mkdir(pkgDir, { recursive: true });
   await Deno.writeTextFile(
-    `${projectDir}/clapse.json`,
+    `${projectDir}/clap.json`,
     JSON.stringify({ include: ["src"] }, null, 2),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/a.clapse`,
+    `${pkgDir}/a.clap`,
     [
       'import "pkg/b" as b',
       "export { even }",
@@ -4273,7 +4273,7 @@ async function compileNativeCliModuleGraphAliasCycleExplicitRootCase(wasmPath) {
       "",
     ].join("\n"),
   );
-  const entryPath = `${pkgDir}/entry.clapse`;
+  const entryPath = `${pkgDir}/entry.clap`;
   await Deno.writeTextFile(
     entryPath,
     [
@@ -4286,7 +4286,7 @@ async function compileNativeCliModuleGraphAliasCycleExplicitRootCase(wasmPath) {
     ].join("\n"),
   );
   await Deno.writeTextFile(
-    `${pkgDir}/b.clapse`,
+    `${pkgDir}/b.clap`,
     [
       'import "pkg/a" as a',
       "export { odd }",
@@ -4307,7 +4307,7 @@ async function compileNativeCliModuleGraphAliasCycleExplicitRootCase(wasmPath) {
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const wasmBytes = await Deno.readFile(outputPath);
   const value = await runExport(wasmBytes, "answer", []);
@@ -4324,7 +4324,7 @@ async function compileNativeCliModuleGraphAliasCycleExplicitRootCase(wasmPath) {
     "answer",
   ], {
     cwd: projectDir,
-    extraEnv: { CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    extraEnv: { CLAP_COMPILER_WASM_PATH: wasmPath },
   });
   const debugWasmBytes = await Deno.readFile(debugOutputPath);
   const debugValue = await runExport(debugWasmBytes, "answer", []);
@@ -4341,32 +4341,32 @@ async function compileNativeCliModuleGraphAliasCycleExplicitRootCase(wasmPath) {
 }
 
 async function compileModuleGraphFailureCase(wasmPath, options) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clapse-full-compiler-fail-" });
+  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-fail-" });
   const projectDir = `${tmpDir}/project`;
   const srcDir = `${projectDir}/src`;
   await Deno.mkdir(srcDir, { recursive: true });
   if (options.projectConfig !== null) {
     await Deno.writeTextFile(
-      `${projectDir}/clapse.json`,
+      `${projectDir}/clap.json`,
       JSON.stringify(options.projectConfig, null, 2),
     );
   }
-  const entryPath = `${srcDir}/entry.clapse`;
+  const entryPath = `${srcDir}/entry.clap`;
   await Deno.writeTextFile(entryPath, options.source);
   const outputPath = `${tmpDir}/out.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
-  const prevCompiler = Deno.env.get("CLAPSE_COMPILER_WASM_PATH");
+  const prevCompiler = Deno.env.get("CLAP_COMPILER_WASM_PATH");
   let thrown = null;
   try {
-    Deno.env.set("CLAPSE_COMPILER_WASM_PATH", wasmPath);
+    Deno.env.set("CLAP_COMPILER_WASM_PATH", wasmPath);
     await runWithArgs(["compile-debug", entryPath, outputPath, artifactsDir]);
   } catch (error) {
     thrown = error;
   } finally {
     if (typeof prevCompiler === "string") {
-      Deno.env.set("CLAPSE_COMPILER_WASM_PATH", prevCompiler);
+      Deno.env.set("CLAP_COMPILER_WASM_PATH", prevCompiler);
     } else {
-      Deno.env.delete("CLAPSE_COMPILER_WASM_PATH");
+      Deno.env.delete("CLAP_COMPILER_WASM_PATH");
     }
   }
   assert(thrown instanceof Error,
@@ -4381,7 +4381,7 @@ async function compileModuleGraphFailureCase(wasmPath, options) {
 const CASES = [
   {
     label: "const-main",
-    inputPath: "full-compiler-verify/const-main.clapse",
+    inputPath: "full-compiler-verify/const-main.clap",
     source: [
       "export { main }",
       "",
@@ -4395,7 +4395,7 @@ const CASES = [
   },
   {
     label: "let-if-main",
-    inputPath: "full-compiler-verify/let-if-main.clapse",
+    inputPath: "full-compiler-verify/let-if-main.clap",
     source: [
       "export { main }",
       "",
@@ -4409,7 +4409,7 @@ const CASES = [
   },
   {
     label: "explicit-nullary-root",
-    inputPath: "full-compiler-verify/explicit-nullary-root.clapse",
+    inputPath: "full-compiler-verify/explicit-nullary-root.clap",
     source: [
       "answer = add 20 22",
       "",
@@ -4421,7 +4421,7 @@ const CASES = [
   },
   {
     label: "explicit-main-root-without-export",
-    inputPath: "full-compiler-verify/explicit-main-root-without-export.clapse",
+    inputPath: "full-compiler-verify/explicit-main-root-without-export.clap",
     source: [
       "main = add 1 2",
       "",
@@ -4433,7 +4433,7 @@ const CASES = [
   },
   {
     label: "explicit-non-nullary-root",
-    inputPath: "full-compiler-verify/explicit-non-nullary-root.clapse",
+    inputPath: "full-compiler-verify/explicit-non-nullary-root.clap",
     source: [
       "answer x = add x 1",
       "",
@@ -4446,7 +4446,7 @@ const CASES = [
   },
   {
     label: "lambda-closure",
-    inputPath: "full-compiler-verify/lambda-closure.clapse",
+    inputPath: "full-compiler-verify/lambda-closure.clap",
     source: [
       "export { main }",
       "",
@@ -4461,7 +4461,7 @@ const CASES = [
   },
   {
     label: "constructor-pattern-case",
-    inputPath: "full-compiler-verify/constructor-pattern-case.clapse",
+    inputPath: "full-compiler-verify/constructor-pattern-case.clap",
     source: [
       "export { main }",
       "",
@@ -4479,7 +4479,7 @@ const CASES = [
   },
   {
     label: "partial-application",
-    inputPath: "full-compiler-verify/partial-application.clapse",
+    inputPath: "full-compiler-verify/partial-application.clap",
     source: [
       "export { main }",
       "",
@@ -4494,7 +4494,7 @@ const CASES = [
   },
   {
     label: "zero-arg-partial-helper-application",
-    inputPath: "full-compiler-verify/zero-arg-partial-helper-application.clapse",
+    inputPath: "full-compiler-verify/zero-arg-partial-helper-application.clap",
     source: [
       "export { main }",
       "",
@@ -4510,7 +4510,7 @@ const CASES = [
   },
   {
     label: "captured-closure",
-    inputPath: "full-compiler-verify/captured-closure.clapse",
+    inputPath: "full-compiler-verify/captured-closure.clap",
     source: [
       "export { main }",
       "",
@@ -4525,7 +4525,7 @@ const CASES = [
   },
   {
     label: "local-let-lambda-application",
-    inputPath: "full-compiler-verify/local-let-lambda-application.clapse",
+    inputPath: "full-compiler-verify/local-let-lambda-application.clap",
     source: [
       "export { main }",
       "",
@@ -4540,7 +4540,7 @@ const CASES = [
   },
   {
     label: "returned-lambda-application",
-    inputPath: "full-compiler-verify/returned-lambda-application.clapse",
+    inputPath: "full-compiler-verify/returned-lambda-application.clap",
     source: [
       "export { main }",
       "",
@@ -4556,7 +4556,7 @@ const CASES = [
   },
   {
     label: "bool-case",
-    inputPath: "full-compiler-verify/bool-case.clapse",
+    inputPath: "full-compiler-verify/bool-case.clap",
     source: [
       "export { main }",
       "",
@@ -4573,7 +4573,7 @@ const CASES = [
   {
     label: "recursive-fib-like",
     compileMode: "debug",
-    inputPath: "full-compiler-verify/recursive-fib-like.clapse",
+    inputPath: "full-compiler-verify/recursive-fib-like.clap",
     source: [
       "export { main }",
       "",
@@ -4593,7 +4593,7 @@ const CASES = [
   {
     label: "recursive-explicit-root",
     compileMode: "debug",
-    inputPath: "full-compiler-verify/recursive-explicit-root.clapse",
+    inputPath: "full-compiler-verify/recursive-explicit-root.clap",
     source: [
       "export { fib }",
       "",
@@ -4612,7 +4612,7 @@ const CASES = [
   },
   {
     label: "list-map-foldl",
-    inputPath: "full-compiler-verify/list-map-foldl.clapse",
+    inputPath: "full-compiler-verify/list-map-foldl.clap",
     source: [
       "export { main }",
       "",
@@ -4627,7 +4627,7 @@ const CASES = [
   },
   {
     label: "higher-order-user-function",
-    inputPath: "full-compiler-verify/higher-order-user-function.clapse",
+    inputPath: "full-compiler-verify/higher-order-user-function.clap",
     source: [
       "export { main }",
       "",
@@ -4643,7 +4643,7 @@ const CASES = [
   },
   {
     label: "nested-constructor-pattern-case",
-    inputPath: "full-compiler-verify/nested-constructor-pattern-case.clapse",
+    inputPath: "full-compiler-verify/nested-constructor-pattern-case.clap",
     source: [
       "export { main }",
       "",
@@ -4660,7 +4660,7 @@ const CASES = [
   },
   {
     label: "constructor-alternative-case",
-    inputPath: "full-compiler-verify/constructor-alternative-case.clapse",
+    inputPath: "full-compiler-verify/constructor-alternative-case.clap",
     source: [
       "export { main }",
       "",
@@ -4678,7 +4678,7 @@ const CASES = [
   },
   {
     label: "custom-constructor-case",
-    inputPath: "full-compiler-verify/custom-constructor-case.clapse",
+    inputPath: "full-compiler-verify/custom-constructor-case.clap",
     source: [
       "export { main }",
       "",
@@ -4696,7 +4696,7 @@ const CASES = [
   },
   {
     label: "valid-newtype-case",
-    inputPath: "full-compiler-verify/valid-newtype-case.clapse",
+    inputPath: "full-compiler-verify/valid-newtype-case.clap",
     source: [
       "export { main }",
       "",
@@ -4713,7 +4713,7 @@ const CASES = [
   },
   {
     label: "newtype-constructor-value-ref",
-    inputPath: "full-compiler-verify/newtype-constructor-value-ref.clapse",
+    inputPath: "full-compiler-verify/newtype-constructor-value-ref.clap",
     source: [
       "export { main }",
       "",
@@ -4731,7 +4731,7 @@ const CASES = [
   },
   {
     label: "newtype-let-pattern-deconstruction",
-    inputPath: "full-compiler-verify/newtype-let-pattern-deconstruction.clapse",
+    inputPath: "full-compiler-verify/newtype-let-pattern-deconstruction.clap",
     source: [
       "export { main }",
       "",
@@ -4747,7 +4747,7 @@ const CASES = [
   },
   {
     label: "newtype-through-fmap",
-    inputPath: "full-compiler-verify/newtype-through-fmap.clapse",
+    inputPath: "full-compiler-verify/newtype-through-fmap.clap",
     source: [
       "export { main }",
       "",
@@ -4768,7 +4768,7 @@ const CASES = [
   },
   {
     label: "newtype-explicit-non-main-root",
-    inputPath: "full-compiler-verify/newtype-explicit-non-main-root.clapse",
+    inputPath: "full-compiler-verify/newtype-explicit-non-main-root.clap",
     source: [
       "newtype Box a = Box a",
       "",
@@ -4784,7 +4784,7 @@ const CASES = [
   },
   {
     label: "constructor-value-ref",
-    inputPath: "full-compiler-verify/constructor-value-ref.clapse",
+    inputPath: "full-compiler-verify/constructor-value-ref.clap",
     source: [
       "export { main }",
       "",
@@ -4803,7 +4803,7 @@ const CASES = [
   },
   {
     label: "custom-constructor-arity-two",
-    inputPath: "full-compiler-verify/custom-constructor-arity-two.clapse",
+    inputPath: "full-compiler-verify/custom-constructor-arity-two.clap",
     source: [
       "export { main }",
       "",
@@ -4821,7 +4821,7 @@ const CASES = [
   },
   {
     label: "constructor-through-fmap",
-    inputPath: "full-compiler-verify/constructor-through-fmap.clapse",
+    inputPath: "full-compiler-verify/constructor-through-fmap.clap",
     source: [
       "export { main }",
       "",
@@ -4841,7 +4841,7 @@ const CASES = [
   },
   {
     label: "list-literal-fold",
-    inputPath: "full-compiler-verify/list-literal-fold.clapse",
+    inputPath: "full-compiler-verify/list-literal-fold.clap",
     source: [
       "export { main }",
       "",
@@ -4855,7 +4855,7 @@ const CASES = [
   },
   {
     label: "qualified-import-alias-call",
-    inputPath: "full-compiler-verify/qualified-import-alias-call.clapse",
+    inputPath: "full-compiler-verify/qualified-import-alias-call.clap",
     source: [
       "import \"math\" as m",
       "export { main }",
@@ -4870,7 +4870,7 @@ const CASES = [
   },
   {
     label: "qualified-prelude-final-segment",
-    inputPath: "full-compiler-verify/qualified-prelude-final-segment.clapse",
+    inputPath: "full-compiler-verify/qualified-prelude-final-segment.clap",
     source: [
       "export { main }",
       "",
@@ -4884,7 +4884,7 @@ const CASES = [
   },
   {
     label: "legacy-list-constructors",
-    inputPath: "full-compiler-verify/legacy-list-constructors.clapse",
+    inputPath: "full-compiler-verify/legacy-list-constructors.clap",
     source: [
       "export { main }",
       "",
@@ -4902,7 +4902,7 @@ const CASES = [
   },
   {
     label: "collection-literal-custom-target",
-    inputPath: "full-compiler-verify/collection-literal-custom-target.clapse",
+    inputPath: "full-compiler-verify/collection-literal-custom-target.clap",
     source: [
       "export { main }",
       "",
@@ -4927,7 +4927,7 @@ const CASES = [
   },
   {
     label: "collection-literal-custom-target-explicit-root",
-    inputPath: "full-compiler-verify/collection-literal-custom-target-explicit-root.clapse",
+    inputPath: "full-compiler-verify/collection-literal-custom-target-explicit-root.clap",
     source: [
       "data Vec a = VecNil | VecCons a (Vec a)",
       "",
@@ -4950,7 +4950,7 @@ const CASES = [
   },
   {
     label: "record-literal-projection",
-    inputPath: "full-compiler-verify/record-literal-projection.clapse",
+    inputPath: "full-compiler-verify/record-literal-projection.clap",
     source: [
       "export { main }",
       "",
@@ -4967,7 +4967,7 @@ const CASES = [
   },
   {
     label: "record-pattern-case",
-    inputPath: "full-compiler-verify/record-pattern-case.clapse",
+    inputPath: "full-compiler-verify/record-pattern-case.clap",
     source: [
       "export { main }",
       "",
@@ -4984,7 +4984,7 @@ const CASES = [
   },
   {
     label: "record-pattern-case-open",
-    inputPath: "full-compiler-verify/record-pattern-case-open.clapse",
+    inputPath: "full-compiler-verify/record-pattern-case-open.clap",
     source: [
       "export { main }",
       "",
@@ -5001,7 +5001,7 @@ const CASES = [
   },
   {
     label: "record-update-projection",
-    inputPath: "full-compiler-verify/record-update-projection.clapse",
+    inputPath: "full-compiler-verify/record-update-projection.clap",
     source: [
       "export { main }",
       "",
@@ -5019,7 +5019,7 @@ const CASES = [
   },
   {
     label: "parameterized-type-alias-record",
-    inputPath: "full-compiler-verify/parameterized-type-alias-record.clapse",
+    inputPath: "full-compiler-verify/parameterized-type-alias-record.clap",
     source: [
       "export { main }",
       "",
@@ -5037,7 +5037,7 @@ const CASES = [
   },
   {
     label: "parameterized-type-alias-record-update",
-    inputPath: "full-compiler-verify/parameterized-type-alias-record-update.clapse",
+    inputPath: "full-compiler-verify/parameterized-type-alias-record-update.clap",
     source: [
       "export { main }",
       "",
@@ -5056,7 +5056,7 @@ const CASES = [
   },
   {
     label: "record-explicit-non-main-root",
-    inputPath: "full-compiler-verify/record-explicit-non-main-root.clapse",
+    inputPath: "full-compiler-verify/record-explicit-non-main-root.clap",
     source: [
       "options = { allow = true, include = Nothing }",
       "",
@@ -5072,7 +5072,7 @@ const CASES = [
   },
   {
     label: "local-record-update-projection",
-    inputPath: "full-compiler-verify/local-record-update-projection.clapse",
+    inputPath: "full-compiler-verify/local-record-update-projection.clap",
     source: [
       "export { main }",
       "",
@@ -5088,7 +5088,7 @@ const CASES = [
   },
   {
     label: "param-record-field-via-parenthesized-record-arg",
-    inputPath: "full-compiler-verify/param-record-field-via-parenthesized-record-arg.clapse",
+    inputPath: "full-compiler-verify/param-record-field-via-parenthesized-record-arg.clap",
     source: [
       "export { main }",
       "",
@@ -5105,7 +5105,7 @@ const CASES = [
   },
   {
     label: "param-record-field-via-bare-record-arg",
-    inputPath: "full-compiler-verify/param-record-field-via-bare-record-arg.clapse",
+    inputPath: "full-compiler-verify/param-record-field-via-bare-record-arg.clap",
     source: [
       "export { main }",
       "",
@@ -5122,7 +5122,7 @@ const CASES = [
   },
   {
     label: "param-record-field-via-bare-record-arg-explicit-root",
-    inputPath: "full-compiler-verify/param-record-field-via-bare-record-arg-explicit-root.clapse",
+    inputPath: "full-compiler-verify/param-record-field-via-bare-record-arg-explicit-root.clap",
     source: [
       "allow_flag options = case options.allow of",
       "  true -> 1",
@@ -5138,7 +5138,7 @@ const CASES = [
   },
   {
     label: "grouped-nested-record-projection",
-    inputPath: "full-compiler-verify/grouped-nested-record-projection.clapse",
+    inputPath: "full-compiler-verify/grouped-nested-record-projection.clap",
     source: [
       "export { main }",
       "",
@@ -5154,7 +5154,7 @@ const CASES = [
   },
   {
     label: "function-return-record-update-projection",
-    inputPath: "full-compiler-verify/function-return-record-update-projection.clapse",
+    inputPath: "full-compiler-verify/function-return-record-update-projection.clap",
     source: [
       "export { main }",
       "",
@@ -5171,7 +5171,7 @@ const CASES = [
   },
   {
     label: "function-return-record-update-projection-explicit-root",
-    inputPath: "full-compiler-verify/function-return-record-update-projection-explicit-root.clapse",
+    inputPath: "full-compiler-verify/function-return-record-update-projection-explicit-root.clap",
     source: [
       "pick_options flag = if flag then { allow = true } else { allow = false }",
       "",
@@ -5187,7 +5187,7 @@ const CASES = [
   },
   {
     label: "parameterized-type-alias-explicit-non-main-root",
-    inputPath: "full-compiler-verify/parameterized-type-alias-explicit-non-main-root.clapse",
+    inputPath: "full-compiler-verify/parameterized-type-alias-explicit-non-main-root.clap",
     source: [
       "type Options a = { allow: bool, include: Maybe a }",
       "default_options = { allow = true, include = Nothing }",
@@ -5204,7 +5204,7 @@ const CASES = [
   },
   {
     label: "let-captured-record-field",
-    inputPath: "full-compiler-verify/let-captured-record-field.clapse",
+    inputPath: "full-compiler-verify/let-captured-record-field.clap",
     source: [
       "export { main }",
       "",
@@ -5221,7 +5221,7 @@ const CASES = [
   },
   {
     label: "let-captured-record-update",
-    inputPath: "full-compiler-verify/let-captured-record-update.clapse",
+    inputPath: "full-compiler-verify/let-captured-record-update.clap",
     source: [
       "export { main }",
       "",
@@ -5238,7 +5238,7 @@ const CASES = [
   },
   {
     label: "where-captured-record-update",
-    inputPath: "full-compiler-verify/where-captured-record-update.clapse",
+    inputPath: "full-compiler-verify/where-captured-record-update.clap",
     source: [
       "export { main }",
       "",
@@ -5258,7 +5258,7 @@ const CASES = [
   },
   {
     label: "parameterized-type-alias-record-update-explicit-non-main-root",
-    inputPath: "full-compiler-verify/parameterized-type-alias-record-update-explicit-non-main-root.clapse",
+    inputPath: "full-compiler-verify/parameterized-type-alias-record-update-explicit-non-main-root.clap",
     source: [
       "type Options a = { allow: bool, include: Maybe a }",
       "default_options = { allow = true, include = Nothing }",
@@ -5276,7 +5276,7 @@ const CASES = [
   },
   {
     label: "boolean-operator-chain",
-    inputPath: "full-compiler-verify/boolean-operator-chain.clapse",
+    inputPath: "full-compiler-verify/boolean-operator-chain.clap",
     source: [
       "export { main }",
       "",
@@ -5292,7 +5292,7 @@ const CASES = [
   },
   {
     label: "list-filter-any",
-    inputPath: "full-compiler-verify/list-filter-any.clapse",
+    inputPath: "full-compiler-verify/list-filter-any.clap",
     source: [
       "export { main }",
       "",
@@ -5310,7 +5310,7 @@ const CASES = [
   },
   {
     label: "list-all",
-    inputPath: "full-compiler-verify/list-all.clapse",
+    inputPath: "full-compiler-verify/list-all.clap",
     source: [
       "export { main }",
       "",
@@ -5324,7 +5324,7 @@ const CASES = [
   },
   {
     label: "filter-alias-foldl",
-    inputPath: "full-compiler-verify/filter-alias-foldl.clapse",
+    inputPath: "full-compiler-verify/filter-alias-foldl.clap",
     source: [
       "export { main }",
       "",
@@ -5338,7 +5338,7 @@ const CASES = [
   },
   {
     label: "foldr-build",
-    inputPath: "full-compiler-verify/foldr-build.clapse",
+    inputPath: "full-compiler-verify/foldr-build.clap",
     source: [
       "export { main }",
       "",
@@ -5352,7 +5352,7 @@ const CASES = [
   },
   {
     label: "foldr-build-explicit-root",
-    inputPath: "full-compiler-verify/foldr-build-explicit-root.clapse",
+    inputPath: "full-compiler-verify/foldr-build-explicit-root.clap",
     source: [
       "answer = foldr add 0 (build (\\cons -> \\nil -> cons 1 (cons 2 nil)))",
       "",
@@ -5364,7 +5364,7 @@ const CASES = [
   },
   {
     label: "boolean-xor-implies",
-    inputPath: "full-compiler-verify/boolean-xor-implies.clapse",
+    inputPath: "full-compiler-verify/boolean-xor-implies.clap",
     source: [
       "export { main }",
       "",
@@ -5379,7 +5379,7 @@ const CASES = [
   },
   {
     label: "any-all-aliases",
-    inputPath: "full-compiler-verify/any-all-aliases.clapse",
+    inputPath: "full-compiler-verify/any-all-aliases.clap",
     source: [
       "export { main }",
       "",
@@ -5396,7 +5396,7 @@ const CASES = [
   },
   {
     label: "any-all-explicit-root",
-    inputPath: "full-compiler-verify/any-all-explicit-root.clapse",
+    inputPath: "full-compiler-verify/any-all-explicit-root.clap",
     source: [
       "xs = [2, 4, 6]",
       "all_even = all (\\x -> eq (mod x 2) 0) xs",
@@ -5411,7 +5411,7 @@ const CASES = [
   },
   {
     label: "constructor-partial-application",
-    inputPath: "full-compiler-verify/constructor-partial-application.clapse",
+    inputPath: "full-compiler-verify/constructor-partial-application.clap",
     source: [
       "export { main }",
       "",
@@ -5430,7 +5430,7 @@ const CASES = [
   },
   {
     label: "guarded-case-of",
-    inputPath: "full-compiler-verify/guarded-case-of.clapse",
+    inputPath: "full-compiler-verify/guarded-case-of.clap",
     source: [
       "export { main }",
       "",
@@ -5447,7 +5447,7 @@ const CASES = [
   },
   {
     label: "guarded-case-of-multi",
-    inputPath: "full-compiler-verify/guarded-case-of-multi.clapse",
+    inputPath: "full-compiler-verify/guarded-case-of-multi.clap",
     source: [
       "export { main }",
       "",
@@ -5465,7 +5465,7 @@ const CASES = [
   },
   {
     label: "guarded-let-binding",
-    inputPath: "full-compiler-verify/guarded-let-binding.clapse",
+    inputPath: "full-compiler-verify/guarded-let-binding.clap",
     source: [
       "export { main }",
       "",
@@ -5484,7 +5484,7 @@ const CASES = [
   },
   {
     label: "guarded-function-clause",
-    inputPath: "full-compiler-verify/guarded-function-clause.clapse",
+    inputPath: "full-compiler-verify/guarded-function-clause.clap",
     source: [
       "export { main }",
       "",
@@ -5500,7 +5500,7 @@ const CASES = [
   },
   {
     label: "function-where-local-def",
-    inputPath: "full-compiler-verify/function-where-local-def.clapse",
+    inputPath: "full-compiler-verify/function-where-local-def.clap",
     source: [
       "export { main }",
       "",
@@ -5518,7 +5518,7 @@ const CASES = [
   },
   {
     label: "function-where-guarded-local-def",
-    inputPath: "full-compiler-verify/function-where-guarded-local-def.clapse",
+    inputPath: "full-compiler-verify/function-where-guarded-local-def.clap",
     source: [
       "export { main }",
       "",
@@ -5537,7 +5537,7 @@ const CASES = [
   },
   {
     label: "function-where-captures-outer-param",
-    inputPath: "full-compiler-verify/function-where-captures-outer-param.clapse",
+    inputPath: "full-compiler-verify/function-where-captures-outer-param.clap",
     source: [
       "export { main }",
       "",
@@ -5555,7 +5555,7 @@ const CASES = [
   },
   {
     label: "function-where-explicit-root",
-    inputPath: "full-compiler-verify/function-where-explicit-root.clapse",
+    inputPath: "full-compiler-verify/function-where-explicit-root.clap",
     source: [
       "answer x =",
       "  inc x",
@@ -5571,7 +5571,7 @@ const CASES = [
   },
   {
     label: "export-curly-root-fallback-order",
-    inputPath: "full-compiler-verify/export-curly-root-fallback-order.clapse",
+    inputPath: "full-compiler-verify/export-curly-root-fallback-order.clap",
     source: [
       "export { answer }",
       "",
@@ -5586,7 +5586,7 @@ const CASES = [
   },
   {
     label: "function-where-guarded-explicit-root",
-    inputPath: "full-compiler-verify/function-where-guarded-explicit-root.clapse",
+    inputPath: "full-compiler-verify/function-where-guarded-explicit-root.clap",
     source: [
       "answer x =",
       "  choose x",
@@ -5603,7 +5603,7 @@ const CASES = [
   },
   {
     label: "function-where-captures-outer-param-explicit-root",
-    inputPath: "full-compiler-verify/function-where-captures-outer-param-explicit-root.clapse",
+    inputPath: "full-compiler-verify/function-where-captures-outer-param-explicit-root.clap",
     source: [
       "answer x =",
       "  add_with_base 1",
@@ -5619,7 +5619,7 @@ const CASES = [
   },
   {
     label: "user-instance-method-dispatch",
-    inputPath: "full-compiler-verify/user-instance-method-dispatch.clapse",
+    inputPath: "full-compiler-verify/user-instance-method-dispatch.clap",
     source: [
       "class plus_rules i where",
       "  addish : i -> i -> i",
@@ -5638,7 +5638,7 @@ const CASES = [
   },
   {
     label: "user-class-default-method",
-    inputPath: "full-compiler-verify/user-class-default-method.clapse",
+    inputPath: "full-compiler-verify/user-class-default-method.clap",
     source: [
       "class plus_rules i where",
       "  sumLike : i -> i -> i",
@@ -5659,7 +5659,7 @@ const CASES = [
   },
   {
     label: "user-class-default-method-explicit-root",
-    inputPath: "full-compiler-verify/user-class-default-method-explicit-root.clapse",
+    inputPath: "full-compiler-verify/user-class-default-method-explicit-root.clap",
     source: [
       "class plus_rules i where",
       "  sumLike : i -> i -> i",
@@ -5679,7 +5679,7 @@ const CASES = [
   },
   {
     label: "user-class-cross-default-method",
-    inputPath: "full-compiler-verify/user-class-cross-default-method.clapse",
+    inputPath: "full-compiler-verify/user-class-cross-default-method.clap",
     source: [
       "class semiring i where",
       "  plus : i -> i -> i",
@@ -5705,7 +5705,7 @@ const CASES = [
   },
   {
     label: "user-class-cross-default-method-explicit-root",
-    inputPath: "full-compiler-verify/user-class-cross-default-method-explicit-root.clapse",
+    inputPath: "full-compiler-verify/user-class-cross-default-method-explicit-root.clap",
     source: [
       "class semiring i where",
       "  plus : i -> i -> i",
@@ -5731,7 +5731,7 @@ const CASES = [
   },
   {
     label: "user-class-law-explicit-root",
-    inputPath: "full-compiler-verify/user-class-law-explicit-root.clapse",
+    inputPath: "full-compiler-verify/user-class-law-explicit-root.clap",
     source: [
       "class plus_rules i where",
       "  sumLike : i -> i -> i",
@@ -5752,7 +5752,7 @@ const CASES = [
   },
   {
     label: "user-instance-method-explicit-root",
-    inputPath: "full-compiler-verify/user-instance-method-explicit-root.clapse",
+    inputPath: "full-compiler-verify/user-instance-method-explicit-root.clap",
     source: [
       "class plus_rules i where",
       "  addish : i -> i -> i",
@@ -5770,7 +5770,7 @@ const CASES = [
   },
   {
     label: "let-pattern-deconstruction",
-    inputPath: "full-compiler-verify/let-pattern-deconstruction.clapse",
+    inputPath: "full-compiler-verify/let-pattern-deconstruction.clap",
     source: [
       "export { main }",
       "",
@@ -5785,7 +5785,7 @@ const CASES = [
   },
   {
     label: "helper-returned-let-pattern-second-field",
-    inputPath: "full-compiler-verify/helper-returned-let-pattern-second-field.clapse",
+    inputPath: "full-compiler-verify/helper-returned-let-pattern-second-field.clap",
     source: [
       "data Pair a b = Pair a b",
       "build_pair x y = Pair x y",
@@ -5800,7 +5800,7 @@ const CASES = [
   },
   {
     label: "multi-scrutinee-case",
-    inputPath: "full-compiler-verify/multi-scrutinee-case.clapse",
+    inputPath: "full-compiler-verify/multi-scrutinee-case.clap",
     source: [
       "export { main }",
       "",
@@ -5818,7 +5818,7 @@ const CASES = [
   },
   {
     label: "literal-pattern-case",
-    inputPath: "full-compiler-verify/literal-pattern-case.clapse",
+    inputPath: "full-compiler-verify/literal-pattern-case.clap",
     source: [
       "export { main }",
       "",
@@ -5835,7 +5835,7 @@ const CASES = [
   },
   {
     label: "char-literal-codepoint",
-    inputPath: "full-compiler-verify/char-literal-codepoint.clapse",
+    inputPath: "full-compiler-verify/char-literal-codepoint.clap",
     source: [
       "export { main }",
       "",
@@ -5849,7 +5849,7 @@ const CASES = [
   },
   {
     label: "char-literal-escape",
-    inputPath: "full-compiler-verify/char-literal-escape.clapse",
+    inputPath: "full-compiler-verify/char-literal-escape.clap",
     source: [
       "export { main }",
       "",
@@ -5863,7 +5863,7 @@ const CASES = [
   },
   {
     label: "custom-symbolic-infix-operator",
-    inputPath: "full-compiler-verify/custom-symbolic-infix-operator.clapse",
+    inputPath: "full-compiler-verify/custom-symbolic-infix-operator.clap",
     source: [
       "export { main }",
       "",
@@ -5879,7 +5879,7 @@ const CASES = [
   },
   {
     label: "multi-root-symbolic-export",
-    inputPath: "full-compiler-verify/multi-root-symbolic-export.clapse",
+    inputPath: "full-compiler-verify/multi-root-symbolic-export.clap",
     source: [
       "infixl 6 +.",
       "+. x y = add x y",
@@ -5897,7 +5897,7 @@ const CASES = [
   },
   {
     label: "multi-root-record-export",
-    inputPath: "full-compiler-verify/multi-root-record-export.clapse",
+    inputPath: "full-compiler-verify/multi-root-record-export.clap",
     source: [
       "type Options a = { allow: bool, include: Maybe a }",
       "default_options = { allow = true, include = Nothing }",
@@ -5921,7 +5921,7 @@ const CASES = [
   },
   {
     label: "multi-root-mixed-record-symbolic-export",
-    inputPath: "full-compiler-verify/multi-root-mixed-record-symbolic-export.clapse",
+    inputPath: "full-compiler-verify/multi-root-mixed-record-symbolic-export.clap",
     source: [
       "type Options a = { allow: bool, include: Maybe a }",
       "default_options = { allow = true, include = Nothing }",
@@ -5948,7 +5948,7 @@ const CASES = [
 const FAILURE_CASES = [
   {
     label: "unknown-entrypoint-root-fail",
-    inputPath: "full-compiler-verify/unknown-entrypoint-root-fail.clapse",
+    inputPath: "full-compiler-verify/unknown-entrypoint-root-fail.clap",
     source: [
       "export { main }",
       "",
@@ -5960,7 +5960,7 @@ const FAILURE_CASES = [
   },
   {
     label: "invalid-newtype-shape-fail",
-    inputPath: "full-compiler-verify/invalid-newtype-shape-fail.clapse",
+    inputPath: "full-compiler-verify/invalid-newtype-shape-fail.clap",
     source: [
       "newtype Pair a = Pair a | Maybe a",
       "",
@@ -5970,7 +5970,7 @@ const FAILURE_CASES = [
   },
   {
     label: "class-fundep-trailing-comma-fail",
-    inputPath: "full-compiler-verify/class-fundep-trailing-comma-fail.clapse",
+    inputPath: "full-compiler-verify/class-fundep-trailing-comma-fail.clap",
     source: [
       "class map_like f a | f -> a, where",
       "  extract : f -> a",
@@ -5983,7 +5983,7 @@ const FAILURE_CASES = [
   },
   {
     label: "case-arm-arity-mismatch-fail",
-    inputPath: "full-compiler-verify/case-arm-arity-mismatch-fail.clapse",
+    inputPath: "full-compiler-verify/case-arm-arity-mismatch-fail.clap",
     source: [
       "data Maybe a = Just a | Nothing",
       "",
@@ -5997,7 +5997,7 @@ const FAILURE_CASES = [
   },
   {
     label: "missing-main-root-fail",
-    inputPath: "full-compiler-verify/missing-main-root-fail.clapse",
+    inputPath: "full-compiler-verify/missing-main-root-fail.clap",
     source: [
       "answer = add 1 2",
       "",
@@ -6006,7 +6006,7 @@ const FAILURE_CASES = [
   },
   {
     label: "ambiguous-user-instance-method-fail",
-    inputPath: "full-compiler-verify/ambiguous-user-instance-method-fail.clapse",
+    inputPath: "full-compiler-verify/ambiguous-user-instance-method-fail.clap",
     source: [
       "class plus_rules i where",
       "  addish : i -> i -> i",
@@ -6025,7 +6025,7 @@ const FAILURE_CASES = [
   },
   {
     label: "ambiguous-user-class-default-method-fail",
-    inputPath: "full-compiler-verify/ambiguous-user-class-default-method-fail.clapse",
+    inputPath: "full-compiler-verify/ambiguous-user-class-default-method-fail.clap",
     source: [
       "class plus_rules i where",
       "  sumLike : i -> i -> i",
@@ -6046,7 +6046,7 @@ const FAILURE_CASES = [
   },
   {
     label: "ambiguous-user-class-cross-default-method-fail",
-    inputPath: "full-compiler-verify/ambiguous-user-class-cross-default-method-fail.clapse",
+    inputPath: "full-compiler-verify/ambiguous-user-class-cross-default-method-fail.clap",
     source: [
       "class semiring i where",
       "  plus : i -> i -> i",
@@ -6074,7 +6074,7 @@ const FAILURE_CASES = [
   },
   {
     label: "legacy-export-syntax-fail",
-    inputPath: "full-compiler-verify/legacy-export-syntax-fail.clapse",
+    inputPath: "full-compiler-verify/legacy-export-syntax-fail.clap",
     source: [
       "export main",
       "",
@@ -6085,7 +6085,7 @@ const FAILURE_CASES = [
   },
   {
     label: "legacy-module-syntax-fail",
-    inputPath: "full-compiler-verify/legacy-module-syntax-fail.clapse",
+    inputPath: "full-compiler-verify/legacy-module-syntax-fail.clap",
     source: [
       "module foo",
       "",
@@ -6098,7 +6098,7 @@ const FAILURE_CASES = [
   },
   {
     label: "unsupported-compile-mode-fail",
-    inputPath: "full-compiler-verify/unsupported-compile-mode-fail.clapse",
+    inputPath: "full-compiler-verify/unsupported-compile-mode-fail.clap",
     compileMode: "kernel-native-unknown",
     source: [
       "export { main }",
@@ -6110,7 +6110,7 @@ const FAILURE_CASES = [
   },
   {
     label: "invalid-plugin-wasm-path-fail",
-    inputPath: "full-compiler-verify/invalid-plugin-wasm-path-fail.clapse",
+    inputPath: "full-compiler-verify/invalid-plugin-wasm-path-fail.clap",
     pluginWasmPaths: ["./does-not-exist-plugin.wasm"],
     source: [
       "export { main }",

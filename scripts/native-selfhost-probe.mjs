@@ -1,13 +1,17 @@
 #!/usr/bin/env -S deno run -A
 
 import { callCompilerWasm, decodeWasmBase64 } from "./wasm-compiler-abi.mjs";
+import {
+  compilerRunExportRequirementText,
+  hasCompilerRunExport,
+} from "./compiler-abi-compat.mjs";
 
-const DEFAULT_COMPILER_WASM_PATH = "artifacts/latest/clapse_compiler.wasm";
-const DEFAULT_INPUT_PATH = "lib/compiler/kernel.clapse";
+const DEFAULT_COMPILER_WASM_PATH = "artifacts/latest/clap_compiler.wasm";
+const DEFAULT_INPUT_PATH = "lib/compiler/kernel.clap";
 const MIN_OUTPUT_BYTES = 4096;
 const DEFAULT_HOPS = 1;
 const FAIL_ON_BOUNDARY_FALLBACK_ENV =
-  "CLAPSE_NATIVE_SELFHOST_FAIL_ON_BOUNDARY_FALLBACK";
+  "CLAP_NATIVE_SELFHOST_FAIL_ON_BOUNDARY_FALLBACK";
 const PRODUCER_CONTRACT_KEYS = new Set([
   "source_version",
   "compile_contract_version",
@@ -21,7 +25,7 @@ function usage() {
     "Checks:",
     "  - compiler wasm can compile kernel source in kernel-native mode",
     "  - compile response is ok with backend=kernel-native",
-    "  - emitted wasm is non-trivial and exports compiler ABI (memory + clapse_run)",
+    `  - emitted wasm is non-trivial and exports compiler ABI (memory + ${compilerRunExportRequirementText()})`,
     "  - optional strict mode fails when boundary fallback contract markers are present",
     "  - repeated for N hops when --hops is set (default 1)",
   ].join("\n");
@@ -66,7 +70,7 @@ function boolEnvFlag(name, defaultValue = false) {
 }
 
 function responseContractMeta(response) {
-  const raw = response?.__clapse_contract;
+  const raw = response?.__clap_contract;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return {};
   }
@@ -211,10 +215,10 @@ function assertCompilerLikeOutput(bytes, hopIndex, stageHint) {
       ),
     );
   }
-  if (!exportNames.includes("clapse_run")) {
+  if (!hasCompilerRunExport(exportNames)) {
     fail(
       formatWithStage(
-        `hop ${hopIndex}: compiled kernel artifact missing clapse_run export (exports: ${
+        `hop ${hopIndex}: compiled kernel artifact missing ${compilerRunExportRequirementText()} export (exports: ${
           exportNames.join(", ")
         })`,
         stageHint,
@@ -331,7 +335,7 @@ async function runProbe(wasmPath, inputPath, hops, failOnBoundaryFallback) {
     finalFallbackHint = hopResult.fallbackHint;
     if (hop < hops) {
       const nextPath = await Deno.makeTempFile({
-        prefix: "clapse-native-selfhost-hop-",
+        prefix: "clap-native-selfhost-hop-",
         suffix: ".wasm",
       });
       await Deno.writeFile(nextPath, finalBytes);

@@ -11,7 +11,7 @@ const UTF8_ENCODER = new TextEncoder();
 
 function parseArgs(argv) {
   const defaultCompilerCommand =
-    "deno run -A scripts/run-clapse-compiler-wasm.mjs --";
+    "deno run -A scripts/run-clap-compiler-wasm.mjs --";
   const out = {
     manifest: "examples/selfhost_corpus.txt",
     leftName: "wasm",
@@ -52,7 +52,7 @@ function shQuote(s) {
 }
 
 function stableName(path) {
-  return path.replaceAll("/", "__").replaceAll(".clapse", "");
+  return path.replaceAll("/", "__").replaceAll(".clap", "");
 }
 
 function fnv1a32Hex(input) {

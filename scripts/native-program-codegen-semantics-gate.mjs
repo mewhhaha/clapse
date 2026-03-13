@@ -6,7 +6,7 @@ import {
   phase1OracleExpectedMainForSource,
 } from "./wasm-compiler-abi.mjs";
 import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
-import { buildDemandDrivenCompileInput } from "./run-clapse-compiler-wasm.mjs";
+import { buildDemandDrivenCompileInput } from "./run-clap-compiler-wasm.mjs";
 import {
   decodeInt,
   instantiateWithRuntime,
@@ -24,11 +24,11 @@ function fail(message) {
 }
 
 function resolveCompilerWasmPath() {
-  const fromEnv = String(Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "").trim();
+  const fromEnv = String(Deno.env.get("CLAP_COMPILER_WASM_PATH") ?? "").trim();
   if (fromEnv.length > 0) {
     return fromEnv;
   }
-  return "artifacts/latest/clapse_compiler.wasm";
+  return "artifacts/latest/clap_compiler.wasm";
 }
 
 function toHex(bytes) {
@@ -159,7 +159,7 @@ function requestForOracle(inputPath, source, entrypointExports = ["main"]) {
 
 function buildKernelPathCompileRequest(source, entrypointExports = ["main"]) {
   return buildCompileRequest(
-    "lib/compiler/kernel.clapse",
+    "lib/compiler/kernel.clap",
     source,
     "kernel-native",
     entrypointExports,
@@ -240,7 +240,7 @@ async function compileProgram(
   label,
   source,
   entrypointExports = ["main"],
-  inputPath = `${label}.clapse`,
+  inputPath = `${label}.clap`,
 ) {
   let requestSource = source;
   let requestEntrypointExports = entrypointExports;
@@ -249,9 +249,9 @@ async function compileProgram(
   try {
     if (/^\s*import\s+"/mu.test(source)) {
       tempDir = await Deno.makeTempDir({
-        prefix: `clapse-native-program-codegen-${label}-`,
+        prefix: `clap-native-program-codegen-${label}-`,
       });
-      requestInputPath = `${tempDir}/${label}.clapse`;
+      requestInputPath = `${tempDir}/${label}.clap`;
       await Deno.writeTextFile(requestInputPath, source);
       const demandDriven = await buildDemandDrivenCompileInput(
         requestInputPath,
@@ -324,7 +324,7 @@ async function assertProgramMainResult(wasmPath, label, source, expected) {
   const program = await compileProgram(wasmPath, label, source);
   const oracleValue = phase1OracleExpectedMainForSource(
     source,
-    requestForOracle(`${label}.clapse`, source),
+    requestForOracle(`${label}.clap`, source),
   );
   const expectedValue = Number.parseInt(expected.replace("tagged-int:", ""), 10);
   assert(
@@ -348,7 +348,7 @@ async function assertProgramCompileExports(
   source,
   entrypointExports,
   expectedPublicExports,
-  inputPath = `${label}.clapse`,
+  inputPath = `${label}.clap`,
 ) {
   const program = await compileProgram(
     wasmPath,
@@ -371,7 +371,7 @@ async function assertProgramExportResult(
   entrypointExports,
   exportName,
   expected,
-  inputPath = `${label}.clapse`,
+  inputPath = `${label}.clap`,
 ) {
   const program = await compileProgram(
     wasmPath,
@@ -428,7 +428,7 @@ async function assertProgramCompileFails(
 ) {
   const response = await callCompilerWasmRaw(
     wasmPath,
-    buildCompileRequest(`${label}.clapse`, source, compileMode),
+    buildCompileRequest(`${label}.clap`, source, compileMode),
     {
       validateCompileContract: true,
       withContractMetadata: true,
@@ -597,7 +597,7 @@ async function run() {
     ].join("\n"),
     ["helper"],
     [{ name: "helper", arity: 1 }],
-    "lib/compiler/kernel.clapse",
+    "lib/compiler/kernel.clap",
   );
   await assertProgramMainResult(
     wasmPath,

@@ -2,28 +2,28 @@
   "fixtures": [
     {
       "name": "simple-preserve",
-      "input": "examples/formatter-golden-fixtures/simple-preserve.input.clapse",
-      "expected": "examples/formatter-golden-fixtures/simple-preserve.expected.clapse"
+      "input": "examples/formatter-golden-fixtures/simple-preserve.input.clap",
+      "expected": "examples/formatter-golden-fixtures/simple-preserve.expected.clap"
     },
     {
       "name": "escaped-literal",
-      "input": "examples/formatter-golden-fixtures/escaped-literal.input.clapse",
-      "expected": "examples/formatter-golden-fixtures/escaped-literal.expected.clapse"
+      "input": "examples/formatter-golden-fixtures/escaped-literal.input.clap",
+      "expected": "examples/formatter-golden-fixtures/escaped-literal.expected.clap"
     },
     {
       "name": "monadic-chain-style",
-      "input": "examples/formatter-golden-fixtures/monadic-chain.input.clapse",
-      "expected": "examples/formatter-golden-fixtures/monadic-chain.expected.clapse"
+      "input": "examples/formatter-golden-fixtures/monadic-chain.input.clap",
+      "expected": "examples/formatter-golden-fixtures/monadic-chain.expected.clap"
     },
     {
       "name": "collapse-inline-spacing",
-      "input": "examples/formatter-golden-fixtures/collapse-inline-spacing.input.clapse",
-      "expected": "examples/formatter-golden-fixtures/collapse-inline-spacing.expected.clapse"
+      "input": "examples/formatter-golden-fixtures/collapse-inline-spacing.input.clap",
+      "expected": "examples/formatter-golden-fixtures/collapse-inline-spacing.expected.clap"
     },
     {
       "name": "paren-application-spacing",
-      "input": "examples/formatter-golden-fixtures/paren-application-spacing.input.clapse",
-      "expected": "examples/formatter-golden-fixtures/paren-application-spacing.expected.clapse"
+      "input": "examples/formatter-golden-fixtures/paren-application-spacing.input.clap",
+      "expected": "examples/formatter-golden-fixtures/paren-application-spacing.expected.clap"
     }
   ]
 }

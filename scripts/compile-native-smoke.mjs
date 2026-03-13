@@ -15,7 +15,7 @@ function assert(condition, message) {
 }
 
 function contractMeta(response) {
-  const raw = response?.__clapse_contract;
+  const raw = response?.__clap_contract;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return {};
   }
@@ -50,19 +50,19 @@ function fileExists(path) {
 }
 
 function resolveWasmPath() {
-  const envPath = String(Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "")
+  const envPath = String(Deno.env.get("CLAP_COMPILER_WASM_PATH") ?? "")
     .trim();
   if (envPath.length > 0 && fileExists(envPath)) {
     return envPath;
   }
-  if (fileExists("artifacts/latest/clapse_compiler.wasm")) {
-    return "artifacts/latest/clapse_compiler.wasm";
+  if (fileExists("artifacts/latest/clap_compiler.wasm")) {
+    return "artifacts/latest/clap_compiler.wasm";
   }
-  if (fileExists("out/clapse_compiler.wasm")) {
-    return "out/clapse_compiler.wasm";
+  if (fileExists("out/clap_compiler.wasm")) {
+    return "out/clap_compiler.wasm";
   }
   throw new Error(
-    "compile-native-smoke: missing compiler wasm (set CLAPSE_COMPILER_WASM_PATH or provide artifacts/latest|out compiler wasm)",
+    "compile-native-smoke: missing compiler wasm (set CLAP_COMPILER_WASM_PATH or provide artifacts/latest|out compiler wasm)",
   );
 }
 
@@ -85,7 +85,7 @@ async function run() {
   ].join("\n");
   const defaultResponse = await callCompilerWasm(wasmPath, {
     command: "compile",
-    input_path: "examples/native_compile_default_smoke.clapse",
+    input_path: "examples/native_compile_default_smoke.clap",
     input_source: inputSource,
     plugin_wasm_paths: [],
   }, {
@@ -110,7 +110,7 @@ async function run() {
   const response = await callCompilerWasm(wasmPath, {
     command: "compile",
     compile_mode: "kernel-native",
-    input_path: "examples/native_compile_smoke.clapse",
+    input_path: "examples/native_compile_smoke.clap",
     input_source: inputSource,
     plugin_wasm_paths: [],
   }, {

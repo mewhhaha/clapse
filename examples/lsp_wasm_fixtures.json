@@ -47,14 +47,14 @@
         "character": 0
       },
       "expectedBackends": {
-        "hover": "clapse",
-        "definition": "clapse",
-        "completion": "clapse",
-        "signatureHelp": "clapse",
-        "semanticTokens": "clapse",
-        "workspaceSymbol": "clapse",
-        "references": "clapse",
-        "rename": "clapse"
+        "hover": "clap",
+        "definition": "clap",
+        "completion": "clap",
+        "signatureHelp": "clap",
+        "semanticTokens": "clap",
+        "workspaceSymbol": "clap",
+        "references": "clap",
+        "rename": "clap"
       },
       "prepareRename": {
         "line": 1,
@@ -380,7 +380,7 @@
     {
       "name": "definition_missing_symbol_has_diagnostics",
       "source": "import Missing\nmain x = x\n",
-      "sourceFile": "src/main.clapse",
+      "sourceFile": "src/main.clap",
       "hover": {
         "line": 0,
         "character": 7
@@ -399,7 +399,7 @@
     {
       "name": "scoped_import_allowed",
       "source": "import Allowed\nmain x = x\n",
-      "sourceFile": "src/main.clapse",
+      "sourceFile": "src/main.clap",
       "hover": {
         "line": 1,
         "character": 0
@@ -408,7 +408,7 @@
         "include": ["src"]
       },
       "projectFiles": {
-        "src/Allowed.clapse": "module Allowed\nmain x = x\n"
+        "src/Allowed.clap": "module Allowed\nmain x = x\n"
       },
       "expectedDiagnostics": 0,
       "hoverExpectation": {
@@ -418,7 +418,7 @@
     {
       "name": "scoped_import_blocked",
       "source": "import Private\nmain x = x\n",
-      "sourceFile": "src/main.clapse",
+      "sourceFile": "src/main.clap",
       "hover": {
         "line": 1,
         "character": 0
@@ -434,7 +434,7 @@
     {
       "name": "records_with_plugin_compile_path",
       "source": "type Options a = { allow: bool, include: Maybe a }\ndefault_options : Options i64\ndefault_options = { allow = true, include = Nothing }\nmain x = default_options.allow\n",
-      "sourceFile": "src/main.clapse",
+      "sourceFile": "src/main.clap",
       "hover": {
         "line": 3,
         "character": 27
@@ -444,7 +444,7 @@
         "plugins": ["plugins"]
       },
       "projectFiles": {
-        "plugins/record_plugin.clapse": "type PluginState = { enabled: bool }\nplugin_state = { enabled = true }\nplugin_use s = s.enabled\n"
+        "plugins/record_plugin.clap": "type PluginState = { enabled: bool }\nplugin_state = { enabled = true }\nplugin_use s = s.enabled\n"
       },
       "expectedDiagnostics": 0,
       "expectedBackends": {

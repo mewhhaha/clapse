@@ -21,7 +21,7 @@ const MIN_INITIAL_MEMORY_BYTES = 8 * 1024 * 1024;
 const INITIAL_MEMORY_HEADROOM_BYTES = 4 * 1024 * 1024;
 const INITIAL_MEMORY_SEED_MULTIPLIER = 3;
 const DEFAULT_DEPTH = Number.parseInt(
-  String(Deno.env.get("CLAPSE_NATIVE_PRODUCER_SEED_DEPTH") ?? "1"),
+  String(Deno.env.get("CLAP_NATIVE_PRODUCER_SEED_DEPTH") ?? "1"),
   10,
 );
 const TEMPLATE_PATH = "scripts/native-producer-seed-template.c";
@@ -187,8 +187,8 @@ function compilerAbiExports(bytes, context) {
     exportsList.includes("__memory");
   ensure(hasMemory, `${context}: missing memory export`);
   ensure(
-    exportsList.includes("clapse_run"),
-    `${context}: missing clapse_run export`,
+    exportsList.includes("clap_run"),
+    `${context}: missing clap_run export`,
   );
   return exportsList;
 }
@@ -222,7 +222,7 @@ async function buildStage({
       "-fno-stack-protector",
       "-nostdlib",
       "-Wl,--no-entry",
-      "-Wl,--export=clapse_run",
+      "-Wl,--export=clap_run",
       "-Wl,--export=main",
       "-Wl,--export-memory",
       `-Wl,--initial-memory=${initialMemoryBytes}`,
@@ -253,9 +253,9 @@ async function buildStage({
 
 async function validateRawProducer(wasmPath, sourceVersion, hops = 2) {
   const previousDisable = Deno.env.get(
-    "CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK",
+    "CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK",
   );
-  Deno.env.set("CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK", "1");
+  Deno.env.set("CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK", "1");
   try {
     const probeToken = `native_producer_seed_${
       crypto.randomUUID().replaceAll("-", "_")
@@ -273,7 +273,7 @@ async function validateRawProducer(wasmPath, sourceVersion, hops = 2) {
       const response = await callCompilerWasmRaw(compilerPath, {
         command: "compile",
         compile_mode: "kernel-native",
-        input_path: "examples/native_producer_seed_probe.clapse",
+        input_path: "examples/native_producer_seed_probe.clap",
         input_source: inputSource,
         plugin_wasm_paths: [],
       });
@@ -329,10 +329,10 @@ async function validateRawProducer(wasmPath, sourceVersion, hops = 2) {
         );
       }
 
-      const contract = response.__clapse_contract;
+      const contract = response.__clap_contract;
       ensure(
         contract && typeof contract === "object",
-        `hop ${hop}: missing __clapse_contract`,
+        `hop ${hop}: missing __clap_contract`,
       );
       ensure(
         contract.compile_contract_version === EXPECTED_COMPILE_CONTRACT_VERSION,
@@ -382,7 +382,7 @@ async function validateRawProducer(wasmPath, sourceVersion, hops = 2) {
     const emitResp = await callCompilerWasmRaw(wasmPath, {
       command: "emit-wat",
       emit_wat_mode: "source-data",
-      input_path: "examples/native_emit_wat.clapse",
+      input_path: "examples/native_emit_wat.clap",
       input_source: `${emitMarker} = 42\n`,
     });
     ensure(
@@ -396,7 +396,7 @@ async function validateRawProducer(wasmPath, sourceVersion, hops = 2) {
     const emitTemplateResp = await callCompilerWasmRaw(wasmPath, {
       command: "emit-wat",
       emit_wat_mode: "template",
-      input_path: "examples/native_emit_wat_template.clapse",
+      input_path: "examples/native_emit_wat_template.clap",
       input_source: `${emitMarker} = 42\n`,
     });
     ensure(
@@ -412,7 +412,7 @@ async function validateRawProducer(wasmPath, sourceVersion, hops = 2) {
     const parseMarker = `parse_seed_marker_${crypto.randomUUID()}`;
     const parseResp = await callCompilerWasmRaw(wasmPath, {
       command: "parse",
-      input_path: "examples/native_parse_seed_probe.clapse",
+      input_path: "examples/native_parse_seed_probe.clap",
       input_source: `${parseMarker} x = x\nmain = ${parseMarker} 7\n`,
     });
     ensure(
@@ -435,9 +435,9 @@ async function validateRawProducer(wasmPath, sourceVersion, hops = 2) {
     };
   } finally {
     if (previousDisable === undefined) {
-      Deno.env.delete("CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK");
+      Deno.env.delete("CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK");
     } else {
-      Deno.env.set("CLAPSE_DISABLE_WASM_BOOTSTRAP_FALLBACK", previousDisable);
+      Deno.env.set("CLAP_DISABLE_WASM_BOOTSTRAP_FALLBACK", previousDisable);
     }
   }
 }
@@ -487,7 +487,7 @@ async function main() {
     await Deno.writeTextFile(
       outDts,
       [
-        "export declare function clapse_run(request_handle: number): number;",
+        "export declare function clap_run(request_handle: number): number;",
         "export declare function main(arg0: number): number;",
         "",
       ].join("\n"),

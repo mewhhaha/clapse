@@ -6,8 +6,8 @@ import "compiler/native_compile"
 import "compiler/emitter"
 import "compiler/scan"
 import "compiler/lsp_kernel"
-import "host/clapse"
-export { clapse_run }
+import "host/clap"
+export { clap_run }
 
 data CommandTag = CommandCompile | CommandEmitWat | CommandFormat | CommandSelfhost
   | CommandLspSymbolIndex | CommandLspHover | CommandLspDefinition | CommandLspCompletion
@@ -1567,7 +1567,7 @@ command_tag request_handle =
       raw_tag = find_command_tag request_handle 0 scan_len
   in maybe_with_default CommandUnknown raw_tag
 
-clapse_run request_handle =
+clap_run request_handle =
   let tagged_request = collapse_pipeline_run request_handle
       ownership_mode = collapse_pipeline_slice_ownership_mode tagged_request
       tag = command_tag tagged_request

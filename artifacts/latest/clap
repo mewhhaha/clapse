@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export CLAP_COMPILER_WASM_PATH="${CLAP_COMPILER_WASM_PATH:-${SELF_DIR}/clap_compiler.wasm}"
+exec deno run -A "https://raw.githubusercontent.com/mewhhaha/clapse/main/scripts/clap.mjs" --wasm "$@"

@@ -8,8 +8,8 @@ function assert(cond, msg) {
 
 async function formatViaCliWasm(wasmPath, source) {
   const proc = new Deno.Command("deno", {
-    args: ["run", "-A", "scripts/run-clapse-compiler-wasm.mjs", "format", "--stdin"],
-    env: { ...Deno.env.toObject(), CLAPSE_COMPILER_WASM_PATH: wasmPath },
+    args: ["run", "-A", "scripts/run-clap-compiler-wasm.mjs", "format", "--stdin"],
+    env: { ...Deno.env.toObject(), CLAP_COMPILER_WASM_PATH: wasmPath },
     stdin: "piped",
     stdout: "piped",
     stderr: "piped",
@@ -29,11 +29,11 @@ async function formatViaCliWasm(wasmPath, source) {
 }
 
 async function main() {
-  const wasmPath = Deno.args[0] ?? "out/clapse_compiler.wasm";
+  const wasmPath = Deno.args[0] ?? "out/clap_compiler.wasm";
 
   const compileResp = await callCompilerWasm(wasmPath, {
     command: "compile",
-    input_path: "examples/wasm_main.clapse",
+    input_path: "examples/wasm_main.clap",
     input_source: "main x = x",
   });
   assert(compileResp && compileResp.ok === true, "inline compile response must succeed");
@@ -74,7 +74,7 @@ async function main() {
 
   const compileMissingSourceResp = await callCompilerWasm(wasmPath, {
     command: "compile",
-    input_path: "examples/wasm_main.clapse",
+    input_path: "examples/wasm_main.clap",
   });
   assert(
     compileMissingSourceResp && compileMissingSourceResp.ok === false,
@@ -88,7 +88,7 @@ async function main() {
 
   const compileSourceFallbackResp = await callCompilerWasm(wasmPath, {
     command: "compile",
-    input_path: "examples/wasm_main.clapse",
+    input_path: "examples/wasm_main.clap",
     source: "main x = x",
   });
   assert(
@@ -104,7 +104,7 @@ async function main() {
   const formatResp = await callCompilerWasm(wasmPath, {
     command: "format",
     mode: "stdout",
-    input_path: "examples/wasm_main.clapse",
+    input_path: "examples/wasm_main.clap",
     source: "main x = x\n",
   });
   assert(formatResp && formatResp.ok === true, "format response must succeed");
@@ -120,7 +120,7 @@ async function main() {
   // Regression guard: command routing must not depend on command key byte offset.
   const formatRespReordered = await callCompilerWasm(wasmPath, {
     mode: "stdout",
-    input_path: "examples/wasm_main.clapse",
+    input_path: "examples/wasm_main.clap",
     source: "main x = x\n",
     command: "format",
   });
@@ -137,7 +137,7 @@ async function main() {
   const formatRespEscaped = await callCompilerWasm(wasmPath, {
     command: "format",
     mode: "stdout",
-    input_path: "examples/wasm_main.clapse",
+    input_path: "examples/wasm_main.clap",
     source: escapedSource,
   });
   assert(
@@ -155,7 +155,7 @@ async function main() {
 
   const unknownSamePrefixResp = await callCompilerWasm(wasmPath, {
     command: "compress",
-    input_path: "examples/wasm_main.clapse",
+    input_path: "examples/wasm_main.clap",
     input_source: "main x = x",
   });
   assert(
@@ -169,7 +169,7 @@ async function main() {
   const selfhostResp = await callCompilerWasm(wasmPath, {
     command: "selfhost-artifacts",
     compile_mode: "kernel-native",
-    input_path: "examples/wasm_main.clapse",
+    input_path: "examples/wasm_main.clap",
     input_source: "main x = x",
     plugin_wasm_paths: [],
   });

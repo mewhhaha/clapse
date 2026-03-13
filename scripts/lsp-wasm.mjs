@@ -15,7 +15,7 @@ function toPath(url) {
   return decodeURIComponent(url.pathname);
 }
 
-const PROJECT_CONFIG_FILE = "clapse.json";
+const PROJECT_CONFIG_FILE = "clap.json";
 const projectConfigCache = new Map();
 const projectPluginWasmCache = new Map();
 
@@ -111,7 +111,7 @@ function resolveModuleDir(rawDir, configPathDir) {
 }
 
 function candidateModulePath(moduleName, dir) {
-  const relativePath = `${moduleName.replace(/[.$]/g, "/")}.clapse`;
+  const relativePath = `${moduleName.replace(/[.$]/g, "/")}.clap`;
   if (typeof dir !== "string" || dir.length === 0) {
     return relativePath;
   }
@@ -167,7 +167,7 @@ function parseProjectConfigText(raw, sourcePath) {
   };
 }
 
-async function collectClapseFilesRecursively(rootDir, out, seen = new Set()) {
+async function collectClapFilesRecursively(rootDir, out, seen = new Set()) {
   const normalized = normalizePath(rootDir);
   if (normalized.length === 0 || seen.has(normalized)) {
     return;
@@ -184,10 +184,10 @@ async function collectClapseFilesRecursively(rootDir, out, seen = new Set()) {
   for (const entry of entries) {
     const child = `${normalized}/${entry.name}`;
     if (entry.isDirectory) {
-      await collectClapseFilesRecursively(child, out, seen);
+      await collectClapFilesRecursively(child, out, seen);
       continue;
     }
-    if (entry.isFile && child.endsWith(".clapse")) {
+    if (entry.isFile && child.endsWith(".clap")) {
       out.push(child);
     }
   }
@@ -231,14 +231,14 @@ async function compileProjectPlugins(wasmPath, config) {
   const seenDirs = new Set();
   const sortedDirs = [...new Set(pluginDirs)].sort((a, b) => a.localeCompare(b, "en"));
   for (const pluginDir of sortedDirs) {
-    await collectClapseFilesRecursively(pluginDir, pluginSources, seenDirs);
+    await collectClapFilesRecursively(pluginDir, pluginSources, seenDirs);
   }
 
   const uniquePluginSources = [...new Set(pluginSources)].sort((a, b) => a.localeCompare(b, "en"));
   const pluginWasmPaths = [];
   for (const pluginSource of uniquePluginSources) {
-    const outputPath = pluginSource.endsWith(".clapse")
-      ? pluginSource.replace(/\.clapse$/u, ".wasm")
+    const outputPath = pluginSource.endsWith(".clap")
+      ? pluginSource.replace(/\.clap$/u, ".wasm")
       : `${pluginSource}.wasm`;
     const pluginSourceText = await Deno.readTextFile(pluginSource);
     await compilePluginWasm(wasmPath, pluginSource, outputPath, pluginSourceText);
@@ -390,8 +390,8 @@ async function scopeDiagnosticsForSource(source, config) {
           end: { line: i, character: lines[i].length },
         },
         severity: 1,
-        source: "clapse",
-        message: `module '${moduleName}' was not found in clapse.json include`,
+        source: "clap",
+        message: `module '${moduleName}' was not found in clap.json include`,
       });
     }
   }
@@ -410,9 +410,9 @@ function isSuppressedCompileDiagnosticMessage(message) {
 
 function getWasmPath() {
   const candidates = [
-    Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ?? "",
-    toPath(new URL("artifacts/latest/clapse_compiler.wasm", REPO_ROOT_URL)),
-    toPath(new URL("out/clapse_compiler.wasm", REPO_ROOT_URL)),
+    Deno.env.get("CLAP_COMPILER_WASM_PATH") ?? "",
+    toPath(new URL("artifacts/latest/clap_compiler.wasm", REPO_ROOT_URL)),
+    toPath(new URL("out/clap_compiler.wasm", REPO_ROOT_URL)),
   ];
   for (const wasmPath of candidates) {
     if (wasmPath.length === 0) continue;
@@ -424,7 +424,7 @@ function getWasmPath() {
     }
   }
   throw new Error(
-    "wasm LSP mode requires CLAPSE_COMPILER_WASM_PATH or artifacts/latest|out clapse_compiler.wasm",
+    "wasm LSP mode requires CLAP_COMPILER_WASM_PATH or artifacts/latest|out clap_compiler.wasm",
   );
 }
 
@@ -1748,7 +1748,7 @@ function buildLocalHover(index, line, character) {
         contents: {
           kind: "markdown",
           value:
-            `### ${hoveredLabel}\n\n\`\`\`clapse\n${hoveredLabel} : ${currentType}\n\`\`\``,
+            `### ${hoveredLabel}\n\n\`\`\`clap\n${hoveredLabel} : ${currentType}\n\`\`\``,
         },
         range: buildRange(line, hoveredStart, hoveredEnd),
         backend: "js",
@@ -1769,7 +1769,7 @@ function buildLocalHover(index, line, character) {
   return {
     contents: {
       kind: "markdown",
-      value: `### ${token.symbol}\n\n\`\`\`clapse\n${token.symbol} : ${inferredType}\n\`\`\``,
+      value: `### ${token.symbol}\n\n\`\`\`clap\n${token.symbol} : ${inferredType}\n\`\`\``,
     },
     range: buildRange(
       token.occurrence?.line ?? line,
@@ -1786,7 +1786,7 @@ function buildHoverMarkdown(symbol, signature, doc) {
   const safeDoc = typeof doc === "string" ? doc.trim() : "";
   const parts = [`### ${safeSymbol}`];
   if (safeSignature.length > 0) {
-    parts.push(`\`\`\`clapse\n${safeSignature}\n\`\`\``);
+    parts.push(`\`\`\`clap\n${safeSignature}\n\`\`\``);
   }
   if (safeDoc.length > 0) {
     parts.push(safeDoc);
@@ -1857,7 +1857,7 @@ async function resolveExplorerHoverForOccurrence(
       start: occurrence.start,
       end: occurrence.end,
       markdown: buildHoverMarkdown(symbol, kernelHover.signature, kernelHover.doc),
-      backend: "clapse",
+      backend: "clap",
       symbol,
     };
   }
@@ -1952,7 +1952,7 @@ function buildExplorerLetInlayHints(index) {
 export async function buildExplorerSourceAnnotations(
   wasmPath,
   source,
-  uri = "file:///explorer.clapse",
+  uri = "file:///explorer.clap",
 ) {
   const index = buildFunctionDocIndex(source);
   const hoverables = [];
@@ -2005,7 +2005,7 @@ async function requestKernelHover(wasmPath, uri, source, symbol) {
     input_source: source,
     symbol,
   });
-  if (response && response.ok === true && String(response.backend ?? "") === "clapse") {
+  if (response && response.ok === true && String(response.backend ?? "") === "clap") {
     return response;
   }
   return null;
@@ -2017,7 +2017,7 @@ async function requestKernelDefinition(wasmPath, uri, source, symbol) {
     input_source: source,
     symbol,
   });
-  if (response && response.ok === true && String(response.backend ?? "") === "clapse") {
+  if (response && response.ok === true && String(response.backend ?? "") === "clap") {
     return response;
   }
   return null;
@@ -2029,7 +2029,7 @@ async function requestKernelCompletion(wasmPath, source, query) {
     input_source: source,
     query,
   });
-  if (response && response.ok === true && response.backend === "clapse") {
+  if (response && response.ok === true && response.backend === "clap") {
     return response;
   }
   return null;
@@ -2041,7 +2041,7 @@ async function requestKernelSignatureHelp(wasmPath, source, query) {
     input_source: source,
     query,
   });
-  if (response && response.ok === true && response.backend === "clapse") {
+  if (response && response.ok === true && response.backend === "clap") {
     return response;
   }
   return null;
@@ -2052,7 +2052,7 @@ async function requestKernelSemanticTokens(wasmPath, source) {
     command: "lsp-semantic-tokens",
     input_source: source,
   });
-  if (response && response.ok === true && response.backend === "clapse") {
+  if (response && response.ok === true && response.backend === "clap") {
     return response;
   }
   return null;
@@ -2064,7 +2064,7 @@ async function requestKernelWorkspaceSymbol(wasmPath, source, query) {
     input_source: source,
     query,
   });
-  if (response && response.ok === true && response.backend === "clapse") {
+  if (response && response.ok === true && response.backend === "clap") {
     return response;
   }
   return null;
@@ -2076,7 +2076,7 @@ async function requestKernelReferences(wasmPath, source, symbol) {
     input_source: source,
     symbol,
   });
-  if (response && response.ok === true && response.backend === "clapse") {
+  if (response && response.ok === true && response.backend === "clap") {
     return response;
   }
   return null;
@@ -2089,7 +2089,7 @@ async function requestKernelRename(wasmPath, source, symbol, newName) {
     symbol,
     new_name: newName,
   });
-  if (response && response.ok === true && response.backend === "clapse") {
+  if (response && response.ok === true && response.backend === "clap") {
     return response;
   }
   return null;
@@ -2262,7 +2262,7 @@ async function compileDiagnostics(wasmPath, uri, source, config) {
         end: { line: parsed.line, character: 1 },
       },
       severity: 1,
-      source: "clapse",
+      source: "clap",
       message: parsed.msg,
     });
     return diagnostics;
@@ -2273,7 +2273,7 @@ async function compileDiagnostics(wasmPath, uri, source, config) {
       end: { line: 0, character: 1 },
     },
     severity: 1,
-    source: "clapse",
+    source: "clap",
     message,
   });
   return diagnostics;
@@ -2287,7 +2287,7 @@ function diagnosticsFromError(err) {
       end: { line: 0, character: 1 },
     },
     severity: 1,
-    source: "clapse",
+    source: "clap",
     message,
   }];
 }
@@ -3114,7 +3114,7 @@ export async function runLspServer() {
             codeActionProvider: { codeActionKinds: ["quickfix"] },
             inlayHintProvider: false,
           },
-          serverInfo: { name: "clapse-wasm-lsp", version: "0.1.0" },
+          serverInfo: { name: "clap-wasm-lsp", version: "0.1.0" },
         });
         return;
       }
@@ -3383,12 +3383,12 @@ export async function runLspServer() {
           const doc = typeof coreResp.doc === "string" ? coreResp.doc.trim() : "";
           const contents = doc.length > 0
             ? `### ${symbol}\n\n${doc}`
-            : `### ${symbol}\n\n\`\`\`clapse\n${signature}\n\`\`\``;
+            : `### ${symbol}\n\n\`\`\`clap\n${signature}\n\`\`\``;
           if (foundRange !== null && foundRange.range !== undefined) {
             await sendResponse(id, {
               contents: { kind: "markdown", value: contents },
               range: foundRange.range,
-              backend: "clapse",
+              backend: "clap",
             });
             return;
           }
@@ -3403,7 +3403,7 @@ export async function runLspServer() {
         const signature = signatureLine.trim().length > 0 ? signatureLine.trim() : `${symbol}`;
         const contents = entry.doc.length > 0
           ? `### ${symbol}\n\n${entry.doc}`
-          : `### ${symbol}\n\n\`\`\`clapse\n${signature}\n\`\`\``;
+          : `### ${symbol}\n\n\`\`\`clap\n${signature}\n\`\`\``;
         const range = buildRange(entry.line, entry.start, entry.end);
         await sendResponse(id, {
           contents: { kind: "markdown", value: contents },
@@ -3437,7 +3437,7 @@ export async function runLspServer() {
             await sendResponse(id, [{
               uri,
               range: foundRange.range,
-              backend: "clapse",
+              backend: "clap",
             }]);
             return;
           }

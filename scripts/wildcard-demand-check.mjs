@@ -3,7 +3,7 @@
 import { failWithError } from "./runtime-env.mjs";
 import { decodeInt, isTaggedInt } from "./wasm-runtime.mjs";
 
-const ENTRY = "examples/wildcard_demand_behavior_regressions.clapse";
+const ENTRY = "examples/wildcard_demand_behavior_regressions.clap";
 const FIXTURE_MAP = "scripts/wasm-behavior-fixture-map.json";
 const EXPECTED_SCENARIOS = [
   { exportName: "main_wildcard_not_force", expected: 11 },

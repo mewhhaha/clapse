@@ -1,4 +1,4 @@
-test/highlight-fixtures/where_and_wildcards.clapse
+test/highlight-fixtures/where_and_wildcards.clap
     pattern: 96, capture: 17 - keyword, start: (0, 0), end: (0, 9), text: `literal`
     pattern: 31, capture: 11 - type.definition, start: (0, 10), end: (0, 14), text: `bool`
     pattern: 95, capture: 18 - keyword.operator, start: (0, 15), end: (0, 16), text: `=`

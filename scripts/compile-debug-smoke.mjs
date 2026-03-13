@@ -3,7 +3,7 @@
 import {
   buildDemandDrivenCompileInput,
   runWithArgs,
-} from "./run-clapse-compiler-wasm.mjs";
+} from "./run-clap-compiler-wasm.mjs";
 import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
 import { callCompilerWasm } from "./wasm-compiler-abi.mjs";
 
@@ -58,7 +58,7 @@ async function runCase(tmpDir, inputPath, command) {
 }
 
 async function assertSupportedCompileDebugCase(tmpDir, name, sourceText) {
-  const inputPath = `${tmpDir}/${name}.clapse`;
+  const inputPath = `${tmpDir}/${name}.clap`;
   const outputPath = `${tmpDir}/${name}.wasm`;
   const artifactsDir = `${tmpDir}/${name}-artifacts`;
   await Deno.writeTextFile(inputPath, sourceText);
@@ -125,7 +125,7 @@ async function assertSupportedCompileDebugStringCase(
   sourceText,
   expectedString,
 ) {
-  const inputPath = `${tmpDir}/${name}.clapse`;
+  const inputPath = `${tmpDir}/${name}.clap`;
   const outputPath = `${tmpDir}/${name}.wasm`;
   const artifactsDir = `${tmpDir}/${name}-artifacts`;
   await Deno.writeTextFile(inputPath, sourceText);
@@ -150,7 +150,7 @@ async function assertSupportedCompileDebugTaggedIntCase(
   sourceText,
   expectedValue,
 ) {
-  const inputPath = `${tmpDir}/${name}.clapse`;
+  const inputPath = `${tmpDir}/${name}.clap`;
   const outputPath = `${tmpDir}/${name}.wasm`;
   const artifactsDir = `${tmpDir}/${name}-artifacts`;
   await Deno.writeTextFile(inputPath, sourceText);
@@ -175,7 +175,7 @@ async function assertUnsupportedCompileDebugCase(
   sourceText,
   expectedSubstring = "compile_phase1_unsupported",
 ) {
-  const inputPath = `${tmpDir}/${name}.clapse`;
+  const inputPath = `${tmpDir}/${name}.clap`;
   await Deno.writeTextFile(inputPath, sourceText);
   let message = "";
   try {
@@ -202,11 +202,11 @@ async function assertDirectBoundaryFailsClosedOnSourceEcho(
   name,
   sourceText,
 ) {
-  const inputPath = `${tmpDir}/${name}.clapse`;
+  const inputPath = `${tmpDir}/${name}.clap`;
   await Deno.writeTextFile(inputPath, sourceText);
   const shaped = await buildDemandDrivenCompileInput(inputPath, []);
   const compilerPath =
-    `${Deno.cwd()}/artifacts/latest/clapse_compiler.wasm`;
+    `${Deno.cwd()}/artifacts/latest/clap_compiler.wasm`;
   const response = await callCompilerWasm(compilerPath, {
     command: "compile",
     input_path: inputPath,
@@ -227,7 +227,7 @@ async function assertDirectBoundaryFailsClosedOnSourceEcho(
 async function run() {
   const tmpDir = await Deno.makeTempDir({
     dir: "/tmp",
-    prefix: "clapse-compile-debug-smoke-",
+    prefix: "clap-compile-debug-smoke-",
   });
   try {
     const probeToken = `compile-debug-smoke-${crypto.randomUUID()}`;
@@ -236,7 +236,7 @@ async function run() {
       `-- ${probeToken}`,
       "",
     ].join("\n");
-    const inputPath = `${tmpDir}/smoke.clapse`;
+    const inputPath = `${tmpDir}/smoke.clap`;
     await Deno.writeTextFile(inputPath, sourceText);
     const commands = [
       "compile-debug",
@@ -248,7 +248,7 @@ async function run() {
       await runCase(tmpDir, inputPath, command);
     }
     const dceMarker = `compile-debug-smoke-dead-${crypto.randomUUID()}`;
-    const dceInputPath = `${tmpDir}/entrypoint_dce.clapse`;
+    const dceInputPath = `${tmpDir}/entrypoint_dce.clap`;
     const dceOutputPath = `${tmpDir}/entrypoint_dce.wasm`;
     const dceArtifactsDir = `${tmpDir}/entrypoint-dce-artifacts`;
     const dceSource = [
@@ -278,7 +278,7 @@ async function run() {
     const moduleDir = `${srcDir}/smoke`;
     await Deno.mkdir(moduleDir, { recursive: true });
     await Deno.writeTextFile(
-      `${projectDir}/clapse.json`,
+      `${projectDir}/clap.json`,
       JSON.stringify({ include: ["src"] }, null, 2),
     );
     const importDeadMarker =
@@ -286,9 +286,9 @@ async function run() {
     const entryDeadMarker =
       `compile-debug-smoke-entry-dead-${crypto.randomUUID()}`;
     const unusedMarker = `compile-debug-smoke-unused-${crypto.randomUUID()}`;
-    const entryModulePath = `${moduleDir}/entry.clapse`;
-    const utilModulePath = `${moduleDir}/util.clapse`;
-    const unusedModulePath = `${moduleDir}/unused.clapse`;
+    const entryModulePath = `${moduleDir}/entry.clap`;
+    const utilModulePath = `${moduleDir}/util.clap`;
+    const unusedModulePath = `${moduleDir}/unused.clap`;
     await Deno.writeTextFile(
       entryModulePath,
       [
@@ -337,7 +337,7 @@ async function run() {
     });
     const internalOnlyMarker =
       `compile-debug-smoke-internal-dce-${crypto.randomUUID()}`;
-    const internalOnlyInputPath = `${tmpDir}/internal_only_dce.clapse`;
+    const internalOnlyInputPath = `${tmpDir}/internal_only_dce.clap`;
     const internalOnlyOutputPath = `${tmpDir}/internal_only_dce.wasm`;
     const internalOnlyArtifactsDir = `${tmpDir}/internal-only-dce-artifacts`;
     await Deno.writeTextFile(

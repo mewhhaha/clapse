@@ -34,8 +34,8 @@ cd "$grammar_dir"
 
 while IFS= read -r -d '' fixture; do
   fixture_rel="${fixture#"$grammar_dir"/}"
-  expected="${fixture%.clapse}.snap"
-  actual="$tmpdir/$(basename "${fixture%.clapse}").snap"
+  expected="${fixture%.clap}.snap"
+  actual="$tmpdir/$(basename "${fixture%.clap}").snap"
 
   if ! XDG_CACHE_HOME="${XDG_CACHE_HOME:-/tmp}" tree-sitter query --captures "$query_file" "$fixture_rel" >"$actual" 2>"$tmpdir/query.err"; then
     echo "highlight snapshots: query failed for $fixture_rel" >&2
@@ -60,7 +60,7 @@ while IFS= read -r -d '' fixture; do
     cat "$tmpdir/diff.out" >&2
     failed=1
   fi
-done < <(find "$fixture_dir" -maxdepth 1 -type f -name '*.clapse' -print0 | sort -z)
+done < <(find "$fixture_dir" -maxdepth 1 -type f -name '*.clap' -print0 | sort -z)
 
 if [[ "$failed" != "0" ]]; then
   exit 1

@@ -1,4 +1,4 @@
-test/highlight-fixtures/basic.clapse
+test/highlight-fixtures/basic.clap
     pattern: 96, capture: 17 - keyword, start: (0, 0), end: (0, 4), text: `data`
     pattern: 26, capture: 11 - type.definition, start: (0, 5), end: (0, 10), text: `Token`
     pattern: 27, capture: 12 - type.parameter, start: (0, 11), end: (0, 17), text: `method`

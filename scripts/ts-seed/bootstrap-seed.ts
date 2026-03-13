@@ -100,7 +100,8 @@ function assertCompileRequestShape(requestObject: CompileRequest) {
 function hasRequiredCompilerAbiExports(exportNames: string[]): boolean {
   const hasMemory = exportNames.includes("memory") ||
     exportNames.includes("__memory");
-  return hasMemory && exportNames.includes("clapse_run");
+  return hasMemory &&
+    (exportNames.includes("clap_run") || exportNames.includes("clapse_run"));
 }
 
 function assertCompilerAbiBytes(bytes: Uint8Array) {
@@ -111,17 +112,19 @@ function assertCompilerAbiBytes(bytes: Uint8Array) {
   }
   let module;
   try {
-    module = new WebAssembly.Module(bytes);
+    module = new WebAssembly.Module(bytes as BufferSource);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`ts-bootstrap-seed: seed wasm is invalid (${msg})`);
   }
-  const exportNames = WebAssembly.Module.exports(module).map((entry) =>
+  const exportNames = WebAssembly.Module.exports(
+    module as WebAssembly.Module,
+  ).map((entry) =>
     entry.name
   );
   if (!hasRequiredCompilerAbiExports(exportNames)) {
     throw new Error(
-      `ts-bootstrap-seed: seed wasm missing compiler ABI exports (required: memory/__memory + clapse_run; got ${exportNames.join(",")})`,
+      `ts-bootstrap-seed: seed wasm missing compiler ABI exports (required: memory/__memory + clap_run or legacy clapse_run; got ${exportNames.join(",")})`,
     );
   }
 }
@@ -144,13 +147,17 @@ async function resolveSeedWasmBytes(
   if (nonEmptyString(options.seedWasmPath)) {
     return await Deno.readFile(options.seedWasmPath);
   }
-  const fromEnv = String(Deno.env.get("CLAPSE_TS_BOOTSTRAP_SEED_WASM_PATH") ?? "")
+  const fromEnv = String(
+    Deno.env.get("CLAP_TS_BOOTSTRAP_SEED_WASM_PATH") ??
+      Deno.env.get("CLAPSE_TS_BOOTSTRAP_SEED_WASM_PATH") ??
+      "",
+  )
     .trim();
   if (fromEnv.length > 0) {
     return await Deno.readFile(fromEnv);
   }
   throw new Error(
-    "ts-bootstrap-seed: missing trusted seed wasm input (provide request.seed_wasm_base64, options.seedWasmPath, options.seedWasmBytes, or CLAPSE_TS_BOOTSTRAP_SEED_WASM_PATH)",
+    "ts-bootstrap-seed: missing trusted seed wasm input (provide request.seed_wasm_base64, options.seedWasmPath, options.seedWasmBytes, or CLAP_TS_BOOTSTRAP_SEED_WASM_PATH)",
   );
 }
 
@@ -159,7 +166,11 @@ function compileArtifactFromSource(sourceText: string, label: string): string {
 }
 
 export function isTsBootstrapSeedEnabled(): boolean {
-  return boolEnvFlag(Deno.env.get("CLAPSE_USE_TS_BOOTSTRAP_SEED"), false);
+  return boolEnvFlag(
+    Deno.env.get("CLAP_USE_TS_BOOTSTRAP_SEED") ??
+      Deno.env.get("CLAPSE_USE_TS_BOOTSTRAP_SEED"),
+    false,
+  );
 }
 
 export async function buildSeedCompileResponse(

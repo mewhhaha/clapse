@@ -32,7 +32,7 @@ async function removeIfExists(path) {
 async function runCompiler(envPath, args) {
   const proc = new Deno.Command("deno", {
     args,
-    env: { CLAPSE_COMPILER_WASM_PATH: envPath },
+    env: { CLAP_COMPILER_WASM_PATH: envPath },
     stdout: "piped",
     stderr: "piped",
   });
@@ -50,13 +50,13 @@ async function statMTimeMs(path) {
 }
 
 async function main() {
-  const [fixtureArg = "examples/fib_memo.clapse"] = cliArgs();
+  const [fixtureArg = "examples/fib_memo.clap"] = cliArgs();
   const fixturePath = fixtureArg;
   const outputWasm = "out/fib_memo_plugin_smoke.wasm";
   const pluginWasm = "examples/plugins/memo_fib_plugin.wasm";
   const pluginDts = "examples/plugins/memo_fib_plugin.d.ts";
-  const compilerPath = Deno.env.get("CLAPSE_COMPILER_WASM_PATH") ??
-    "artifacts/latest/clapse_compiler.wasm";
+  const compilerPath = Deno.env.get("CLAP_COMPILER_WASM_PATH") ??
+    "artifacts/latest/clap_compiler.wasm";
 
   await removeIfExists(pluginWasm);
   await removeIfExists(pluginDts);
@@ -67,7 +67,7 @@ async function main() {
   const compileOutput = await runCompiler(compilerPath, [
     "run",
     "-A",
-    "scripts/clapse.mjs",
+    "scripts/clap.mjs",
     "compile",
     fixturePath,
     outputWasm,
