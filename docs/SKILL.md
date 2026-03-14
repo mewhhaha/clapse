@@ -822,7 +822,11 @@ program-dependent native wasm output shape before release verification.
   `--hops <n>` (default `1`) for transitive closure probes;
   `--fail-on-boundary-fallback` /
   `CLAP_NATIVE_SELFHOST_FAIL_ON_BOUNDARY_FALLBACK=1` enforces that boundary
-  fallback markers remain absent during probe verification.
+  fallback markers remain absent during probe verification. It now also supports
+  `CLAP_NATIVE_SELFHOST_PROBE_TIMEOUT_MS` (per-hop compile timeout, default
+  `120000`) and `CLAP_NATIVE_SELFHOST_PROBE_MAX_OUTPUT_BYTES` (decoded wasm
+  payload size guard, default `67108864`) so strict seed/install gates fail
+  fast with explicit diagnostics instead of hanging on bad oversized outputs.
   `just native-selfhost-probe` forwards this. Release/bootstrap gates now use
   two-hop defaults (`CLAP_NATIVE_SELFHOST_PROBE_HOPS`,
   `CLAP_BOOTSTRAP_NATIVE_SELFHOST_PROBE_HOPS`,

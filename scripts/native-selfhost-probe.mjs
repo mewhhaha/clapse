@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 
-import { callCompilerWasm, decodeWasmBase64 } from "./wasm-compiler-abi.mjs";
+import { callCompilerWasmRaw, decodeWasmBase64 } from "./wasm-compiler-abi.mjs";
 import {
   compilerRunExportRequirementText,
   hasCompilerRunExport,
@@ -10,8 +10,12 @@ const DEFAULT_COMPILER_WASM_PATH = "artifacts/latest/clap_compiler.wasm";
 const DEFAULT_INPUT_PATH = "lib/compiler/kernel.clap";
 const MIN_OUTPUT_BYTES = 4096;
 const DEFAULT_HOPS = 1;
+const DEFAULT_COMPILE_TIMEOUT_MS = 120_000;
+const DEFAULT_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 const FAIL_ON_BOUNDARY_FALLBACK_ENV =
   "CLAP_NATIVE_SELFHOST_FAIL_ON_BOUNDARY_FALLBACK";
+const COMPILE_TIMEOUT_ENV = "CLAP_NATIVE_SELFHOST_PROBE_TIMEOUT_MS";
+const MAX_OUTPUT_BYTES_ENV = "CLAP_NATIVE_SELFHOST_PROBE_MAX_OUTPUT_BYTES";
 const PRODUCER_CONTRACT_KEYS = new Set([
   "source_version",
   "compile_contract_version",
@@ -21,6 +25,8 @@ function usage() {
   return [
     "Usage:",
     "  deno run -A scripts/native-selfhost-probe.mjs [--wasm <path>] [--input <path>] [--hops <n>] [--fail-on-boundary-fallback]",
+    `  env ${COMPILE_TIMEOUT_ENV}=<ms> limits each compile request (default ${DEFAULT_COMPILE_TIMEOUT_MS})`,
+    `  env ${MAX_OUTPUT_BYTES_ENV}=<bytes> limits decoded output size (default ${DEFAULT_MAX_OUTPUT_BYTES})`,
     "",
     "Checks:",
     "  - compiler wasm can compile kernel source in kernel-native mode",
@@ -67,6 +73,18 @@ function boolEnvFlag(name, defaultValue = false) {
     return defaultValue;
   }
   return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
+function parsePositiveIntEnv(name, defaultValue) {
+  const raw = String(Deno.env.get(name) ?? "").trim();
+  if (raw.length === 0) {
+    return defaultValue;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    fail(`invalid ${name} value: ${raw}`);
+  }
+  return parsed;
 }
 
 function responseContractMeta(response) {
@@ -233,10 +251,16 @@ async function compileKernel(
   inputSource,
   hopIndex,
   failOnBoundaryFallback,
+  compileTimeoutMs,
+  maxOutputBytes,
 ) {
+  const requestStart = Date.now();
+  console.log(
+    `native-selfhost-probe: hop ${hopIndex} compile request start (mode=kernel-native; input=${inputPath})`,
+  );
   let response;
   try {
-    response = await callCompilerWasm(wasmPath, {
+    const compilePromise = callCompilerWasmRaw(wasmPath, {
       command: "compile",
       compile_mode: "kernel-native",
       input_path: inputPath,
@@ -244,11 +268,26 @@ async function compileKernel(
       plugin_wasm_paths: [],
     }, {
       withContractMetadata: true,
+      validateCompileContract: false,
     });
+    const timeoutPromise = new Promise((_, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(
+          new Error(
+            `compile request exceeded ${compileTimeoutMs}ms timeout (${COMPILE_TIMEOUT_ENV})`,
+          ),
+        );
+      }, compileTimeoutMs);
+      compilePromise.finally(() => clearTimeout(timeoutId)).catch(() => {});
+    });
+    response = await Promise.race([compilePromise, timeoutPromise]);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     fail(`hop ${hopIndex}: compile request failed: ${msg}`);
   }
+  console.log(
+    `native-selfhost-probe: hop ${hopIndex} compile response received (${Date.now() - requestStart} ms)`,
+  );
 
   if (!response || typeof response !== "object" || Array.isArray(response)) {
     fail(`hop ${hopIndex}: compile response was not an object`);
@@ -304,11 +343,31 @@ async function compileKernel(
       ),
     );
   }
+  console.log(
+    `native-selfhost-probe: hop ${hopIndex} decoded wasm payload (${bytes.length} bytes)`,
+  );
+  if (bytes.length > maxOutputBytes) {
+    fail(
+      formatWithHints(
+        `hop ${hopIndex}: decoded wasm payload too large (${bytes.length} > ${maxOutputBytes}); set ${MAX_OUTPUT_BYTES_ENV} to override`,
+        stageHint,
+        fallbackHint,
+      ),
+    );
+  }
   assertCompilerLikeOutput(bytes, hopIndex, stageHint);
   return { bytes, stageHint, fallbackHint };
 }
 
 async function runProbe(wasmPath, inputPath, hops, failOnBoundaryFallback) {
+  const compileTimeoutMs = parsePositiveIntEnv(
+    COMPILE_TIMEOUT_ENV,
+    DEFAULT_COMPILE_TIMEOUT_MS,
+  );
+  const maxOutputBytes = parsePositiveIntEnv(
+    MAX_OUTPUT_BYTES_ENV,
+    DEFAULT_MAX_OUTPUT_BYTES,
+  );
   let inputSource = "";
   try {
     inputSource = await Deno.readTextFile(inputPath);
@@ -323,16 +382,28 @@ async function runProbe(wasmPath, inputPath, hops, failOnBoundaryFallback) {
   let finalStageHint = "";
   let finalFallbackHint = "";
   for (let hop = 1; hop <= hops; hop += 1) {
+    const hopStart = Date.now();
+    console.log(
+      `native-selfhost-probe: hop ${hop}/${hops} start (compiler=${compilerPath})`,
+    );
     const hopResult = await compileKernel(
       compilerPath,
       inputPath,
       inputSource,
       hop,
       failOnBoundaryFallback,
+      compileTimeoutMs,
+      maxOutputBytes,
     );
+    const hopMs = Date.now() - hopStart;
     finalBytes = hopResult.bytes;
     finalStageHint = hopResult.stageHint;
     finalFallbackHint = hopResult.fallbackHint;
+    console.log(
+      `native-selfhost-probe: hop ${hop}/${hops} done (${hopMs} ms; output_bytes=${finalBytes.length}; stage=${
+        finalStageHint || "n/a"
+      }; hints=${finalFallbackHint || "n/a"})`,
+    );
     if (hop < hops) {
       const nextPath = await Deno.makeTempFile({
         prefix: "clap-native-selfhost-hop-",
