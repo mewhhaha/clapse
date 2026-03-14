@@ -64,8 +64,13 @@ the current wasm compiler unless explicitly marked `skip`.
     optimization work. It compiles the same representative benchmark fixtures
     through `compile_mode: "native-debug"`, requires the compiler to return
     `codegen_ir.txt` plus `optimizer_stats.json`, checks checksum parity against
-    Rust plus both wasm hosts, and proves a structural source-owned win
-    (function/helper pruning) before benchmark numbers count as evidence. New
+    Rust plus both wasm hosts, verifies deterministic per-call output traces on
+    the JS-host path plus multi-window sampled checksum parity on `wasmi`
+    (not only one aggregate checksum), cross-checks `codegen_ir.txt` counts
+    against `optimizer_stats.json`, and proves a structural source-owned win
+    (function/helper pruning) before benchmark numbers count as evidence. When
+    `--baseline-wasm` is provided it also enforces a tolerance-based net perf
+    non-regression rule alongside wasm-size/function-count guards. New
     optimization work belongs in `lib/compiler`; producer/C optimizations are
     bootstrap-only evidence unless the same win is visible through this gate.
     Use `just native-source-owned-optimization-proof` when you need the full

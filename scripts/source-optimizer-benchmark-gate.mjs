@@ -7,9 +7,11 @@ import {
   benchWasmCaseWasmi,
   CASES,
   compileRustBaseline,
+  traceRustBinary,
 } from "./bench-rust-compare.mjs";
 import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
 import { makeClapTempDir } from "./runtime-env.mjs";
+import { decodeInt, encodeInt, instantiateWithRuntime } from "./wasm-runtime.mjs";
 import { callCompilerWasmRaw } from "./wasm-compiler-abi.mjs";
 
 const PRIMARY_CASE_IDS = new Set([
@@ -22,6 +24,9 @@ const PRIMARY_CASE_IDS = new Set([
 const DEFAULT_ITERATIONS = 20000;
 const DEFAULT_WARMUP = 2000;
 const DEFAULT_REPEATS = 1;
+const DEFAULT_TRACE_COUNT = 64;
+const PERF_REGRESSION_TOLERANCE = 1.15;
+const PERF_REGRESSION_ABS_SLACK_NS = 25;
 
 let wabtPromise = null;
 
@@ -151,6 +156,177 @@ function opcodeHistogram(wat) {
   return histogram;
 }
 
+function parseNonNegativeIntegerField(line, prefix, fixtureId) {
+  if (!line.startsWith(prefix)) {
+    fail(`${fixtureId}: malformed codegen_ir line, expected prefix ${JSON.stringify(prefix)} got ${JSON.stringify(line)}`);
+  }
+  const raw = line.slice(prefix.length).trim();
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    fail(`${fixtureId}: malformed codegen_ir integer for ${prefix}: ${JSON.stringify(raw)}`);
+  }
+  return value;
+}
+
+function parseBulletSection(lines, startIndex) {
+  const values = [];
+  let index = startIndex;
+  while (index < lines.length) {
+    const line = lines[index].trimEnd();
+    if (!line.startsWith("- ")) {
+      break;
+    }
+    const value = line.slice(2).trim();
+    if (value.length === 0) {
+      break;
+    }
+    values.push(value);
+    index += 1;
+  }
+  return { values, nextIndex: index };
+}
+
+function parseCodegenIr(codegenIr, fixtureId) {
+  const lines = codegenIr.replace(/\r/gu, "").split("\n");
+  let index = 0;
+  const expectedHeader = [
+    "(codegen_ir)",
+    "phase: kernel-native-phase1",
+    "kind: function-plan",
+  ];
+  for (const expected of expectedHeader) {
+    const line = String(lines[index] ?? "");
+    assert(line === expected, `${fixtureId}: codegen_ir header mismatch at line ${index + 1}: expected ${JSON.stringify(expected)} got ${JSON.stringify(line)}`);
+    index += 1;
+  }
+  const baselineFunctionCount = parseNonNegativeIntegerField(
+    String(lines[index] ?? ""),
+    "baseline_function_count:",
+    fixtureId,
+  );
+  index += 1;
+  const baselineHelperCount = parseNonNegativeIntegerField(
+    String(lines[index] ?? ""),
+    "baseline_helper_count:",
+    fixtureId,
+  );
+  index += 1;
+  const optimizedFunctionCount = parseNonNegativeIntegerField(
+    String(lines[index] ?? ""),
+    "optimized_function_count:",
+    fixtureId,
+  );
+  index += 1;
+  const optimizedHelperCount = parseNonNegativeIntegerField(
+    String(lines[index] ?? ""),
+    "optimized_helper_count:",
+    fixtureId,
+  );
+  index += 1;
+  assert(String(lines[index] ?? "") === "baseline_functions:",
+    `${fixtureId}: missing baseline_functions: section in codegen_ir`);
+  index += 1;
+  const baselineSection = parseBulletSection(lines, index);
+  index = baselineSection.nextIndex;
+  assert(String(lines[index] ?? "") === "emitted_functions:",
+    `${fixtureId}: missing emitted_functions: section in codegen_ir`);
+  index += 1;
+  const emittedSection = parseBulletSection(lines, index);
+  assert(
+    baselineSection.values.length === baselineFunctionCount,
+    `${fixtureId}: codegen_ir baseline function list length ${baselineSection.values.length} != baseline_function_count ${baselineFunctionCount}`,
+  );
+  assert(
+    emittedSection.values.length === optimizedFunctionCount,
+    `${fixtureId}: codegen_ir emitted function list length ${emittedSection.values.length} != optimized_function_count ${optimizedFunctionCount}`,
+  );
+  return {
+    baselineFunctionCount,
+    baselineHelperCount,
+    optimizedFunctionCount,
+    optimizedHelperCount,
+    baselineNames: baselineSection.values,
+    emittedNames: emittedSection.values,
+  };
+}
+
+function makeTaggedArgPools(arity) {
+  const poolSize = 1024;
+  const pools = [];
+  for (let argIx = 0; argIx < arity; argIx += 1) {
+    const pool = new Array(poolSize);
+    for (let i = 0; i < poolSize; i += 1) {
+      pool[i] = encodeInt((i + argIx * 31) & 1023);
+    }
+    pools.push(pool);
+  }
+  return pools;
+}
+
+function argsForIteration(pools, iteration) {
+  if (pools.length === 0) {
+    return [];
+  }
+  const idx = iteration & 1023;
+  const args = new Array(pools.length);
+  for (let argIx = 0; argIx < pools.length; argIx += 1) {
+    args[argIx] = pools[argIx][idx];
+  }
+  return args;
+}
+
+async function traceWasmJs(wasmPath, count, exportName = "main") {
+  const wasmBytes = await Deno.readFile(wasmPath);
+  const { instance } = await instantiateWithRuntime(wasmBytes);
+  const fn = instance.exports[exportName];
+  if (typeof fn !== "function") {
+    throw new Error(`export '${exportName}' not found in ${wasmPath}`);
+  }
+  const pools = makeTaggedArgPools(fn.length | 0);
+  const out = new Array(count);
+  for (let i = 0; i < count; i += 1) {
+    out[i] = decodeInt(fn(...argsForIteration(pools, i)) | 0) | 0;
+  }
+  return out;
+}
+
+async function sampledWasmiChecksums(wasmPath, exportName = "main") {
+  const sampleCounts = [DEFAULT_TRACE_COUNT, 257];
+  const checksums = [];
+  for (const count of sampleCounts) {
+    const result = await benchWasmCaseWasmi(wasmPath, count, 0, exportName);
+    checksums.push(result.checksum | 0);
+  }
+  return checksums;
+}
+
+function arrayEq(a, b) {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i += 1) {
+    if ((a[i] | 0) !== (b[i] | 0)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function checksumFromTrace(values) {
+  let acc = 0;
+  for (const value of values) {
+    acc = (acc + (value | 0)) | 0;
+  }
+  return acc | 0;
+}
+
+function maxAllowedRegression(baselineNetNs) {
+  return Math.max(
+    PERF_REGRESSION_ABS_SLACK_NS,
+    baselineNetNs * PERF_REGRESSION_TOLERANCE,
+  );
+}
+
 function medianNs(results) {
   const sorted = [...results].sort((left, right) => left.nsPerCall - right.nsPerCall);
   return sorted[(sorted.length / 2) | 0];
@@ -216,6 +392,7 @@ async function compileSourceOwnedCase(compilerWasmPath, fixture) {
     `${fixture.id}: optimizer_stats must mark source_owned=true`);
   assert(stats.status === "ready",
     `${fixture.id}: optimizer_stats status must be 'ready', got ${JSON.stringify(stats.status)}`);
+  const codegenSummary = parseCodegenIr(artifacts["codegen_ir.txt"], fixture.id);
   const wasmBase64 = String(response.wasm_base64 ?? "");
   assert(wasmBase64.length > 0,
     `${fixture.id}: missing wasm_base64`);
@@ -236,6 +413,7 @@ async function compileSourceOwnedCase(compilerWasmPath, fixture) {
     wat,
     functionCount,
     exportCount,
+    codegenSummary,
     histogram: opcodeHistogram(wat),
     cleanup: async () => {
       await Deno.remove(tmpDir, { recursive: true }).catch(() => {});
@@ -264,6 +442,18 @@ async function verifyChecksums(fixture, wasmPath, rustBinaryPath, iterations, wa
     `${fixture.id}: JS-host wasm checksum ${wasmResult.checksum} != Rust ${rustResult.checksum}`);
   assert(wasmiResult.checksum === rustResult.checksum,
     `${fixture.id}: wasmi checksum ${wasmiResult.checksum} != Rust ${rustResult.checksum}`);
+  const rustTrace = await traceRustBinary(rustBinaryPath, fixture.rustCase, DEFAULT_TRACE_COUNT);
+  const wasmTrace = await traceWasmJs(wasmPath, DEFAULT_TRACE_COUNT, "main");
+  assert(arrayEq(wasmTrace, rustTrace),
+    `${fixture.id}: JS-host wasm trace diverges from Rust trace`);
+  const rustTraceChecksumA = checksumFromTrace(rustTrace);
+  const rustTrace257 = await traceRustBinary(rustBinaryPath, fixture.rustCase, 257);
+  const rustTraceChecksumB = checksumFromTrace(rustTrace257);
+  const wasmiChecksums = await sampledWasmiChecksums(wasmPath, "main");
+  assert(wasmiChecksums[0] === rustTraceChecksumA,
+    `${fixture.id}: wasmi sampled checksum[${DEFAULT_TRACE_COUNT}] ${wasmiChecksums[0]} != Rust ${rustTraceChecksumA}`);
+  assert(wasmiChecksums[1] === rustTraceChecksumB,
+    `${fixture.id}: wasmi sampled checksum[257] ${wasmiChecksums[1]} != Rust ${rustTraceChecksumB}`);
   return { rustResult, wasmResult, wasmiResult };
 }
 
@@ -299,6 +489,14 @@ async function main() {
         `${fixture.id}: optimized_function_count grew (${candidate.stats.optimized_function_count} > ${candidate.stats.baseline_function_count})`);
       assert(candidate.stats.optimized_helper_count <= candidate.stats.baseline_helper_count,
         `${fixture.id}: optimized_helper_count grew (${candidate.stats.optimized_helper_count} > ${candidate.stats.baseline_helper_count})`);
+      assert(candidate.codegenSummary.baselineFunctionCount === candidate.stats.baseline_function_count,
+        `${fixture.id}: codegen_ir baseline_function_count ${candidate.codegenSummary.baselineFunctionCount} != optimizer_stats ${candidate.stats.baseline_function_count}`);
+      assert(candidate.codegenSummary.baselineHelperCount === candidate.stats.baseline_helper_count,
+        `${fixture.id}: codegen_ir baseline_helper_count ${candidate.codegenSummary.baselineHelperCount} != optimizer_stats ${candidate.stats.baseline_helper_count}`);
+      assert(candidate.codegenSummary.optimizedFunctionCount === candidate.stats.optimized_function_count,
+        `${fixture.id}: codegen_ir optimized_function_count ${candidate.codegenSummary.optimizedFunctionCount} != optimizer_stats ${candidate.stats.optimized_function_count}`);
+      assert(candidate.codegenSummary.optimizedHelperCount === candidate.stats.optimized_helper_count,
+        `${fixture.id}: codegen_ir optimized_helper_count ${candidate.codegenSummary.optimizedHelperCount} != optimizer_stats ${candidate.stats.optimized_helper_count}`);
       assert(candidate.functionCount === candidate.stats.optimized_function_count,
         `${fixture.id}: WAT function count ${candidate.functionCount} != optimizer_stats optimized_function_count ${candidate.stats.optimized_function_count}`);
       assert(candidate.exportCount === candidate.stats.export_count,
@@ -329,8 +527,29 @@ async function main() {
           `${fixture.id}: candidate wasm grew (${candidate.wasmBytes.length} > ${baseline.wasmBytes.length}) compared with baseline compiler`);
         assert(candidate.functionCount <= baseline.functionCount,
           `${fixture.id}: candidate function count grew (${candidate.functionCount} > ${baseline.functionCount}) compared with baseline compiler`);
+        const baselineChecksums = await verifyChecksums(
+          fixture,
+          baseline.wasmPath,
+          rustBinaryPath,
+          iterations,
+          warmup,
+          repeats,
+        );
+        const baselineJsNet = Math.max(0, baselineChecksums.wasmResult.nsPerCall - jsBoundary.nsPerCall);
+        const baselineNativeNet = Math.max(
+          0,
+          baselineChecksums.wasmiResult.nsPerCall - nativeBoundary.nsPerCall,
+        );
+        assert(
+          jsNet <= maxAllowedRegression(baselineJsNet),
+          `${fixture.id}: candidate JS net ns/call regressed (${jsNet.toFixed(2)} > ${maxAllowedRegression(baselineJsNet).toFixed(2)})`,
+        );
+        assert(
+          nativeNet <= maxAllowedRegression(baselineNativeNet),
+          `${fixture.id}: candidate wasmi net ns/call regressed (${nativeNet.toFixed(2)} > ${maxAllowedRegression(baselineNativeNet).toFixed(2)})`,
+        );
         console.log(
-          `${fixture.id}: baseline_compare wasm_bytes ${baseline.wasmBytes.length} -> ${candidate.wasmBytes.length}, functions ${baseline.functionCount} -> ${candidate.functionCount}`,
+          `${fixture.id}: baseline_compare wasm_bytes ${baseline.wasmBytes.length} -> ${candidate.wasmBytes.length}, functions ${baseline.functionCount} -> ${candidate.functionCount}, js-net ${baselineJsNet.toFixed(2)}ns -> ${jsNet.toFixed(2)}ns, native-net ${baselineNativeNet.toFixed(2)}ns -> ${nativeNet.toFixed(2)}ns`,
         );
       }
     }

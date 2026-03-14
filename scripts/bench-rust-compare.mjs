@@ -293,6 +293,8 @@ fn main() {
     let case_id = args.get(1).map(|s| s.as_str()).unwrap_or("numeric");
     let iterations: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(2_000_000);
     let warmup: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(20_000);
+    let mode = args.get(4).map(|s| s.as_str()).unwrap_or("bench");
+    let trace_count: usize = args.get(5).and_then(|s| s.parse().ok()).unwrap_or(64);
     let arity: usize = 1;
     let mut pools: Vec<Vec<i32>> = Vec::new();
     for arg_ix in 0..arity {
@@ -314,6 +316,24 @@ fn main() {
             "wrapper-uncurry" => wrapper_uncurry(x),
             _ => panic!("unknown rust benchmark case: {}", case_id),
         };
+    }
+    if mode == "trace" {
+        let mut values: Vec<String> = Vec::with_capacity(trace_count);
+        for i in 0..trace_count {
+            let idx = i & 1023;
+            let x = pools[0][idx];
+            let value = match case_id {
+                "numeric" => numeric(x),
+                "http-request-parser" => http_request_parser(x),
+                "closure-env" => closure_env(x),
+                "struct-field" => struct_field(x),
+                "wrapper-uncurry" => wrapper_uncurry(x),
+                _ => panic!("unknown rust benchmark case: {}", case_id),
+            };
+            values.push(value.to_string());
+        }
+        println!("trace: {}", values.join(","));
+        return;
     }
     let mut checksum: i32 = 0;
     let start = Instant::now();
@@ -392,6 +412,44 @@ export async function benchRustBinary(binaryPath, caseId, iterations, warmup) {
     opsPerSec: Number(result.ops_per_sec),
     checksum: Number(result.checksum),
   };
+}
+
+export async function traceRustBinary(binaryPath, caseId, traceCount = 64) {
+  const out = await new Deno.Command(binaryPath, {
+    args: [caseId, "1", "0", "trace", String(traceCount)],
+  }).output();
+  if (!out.success) {
+    throw new Error(
+      `rust trace failed: ${new TextDecoder().decode(out.stderr).trim() || "unknown error"}`,
+    );
+  }
+  const text = new TextDecoder().decode(out.stdout);
+  const result = {};
+  for (const line of text.split(/\r?\n/u)) {
+    const [key, rawValue] = line.split(":", 2);
+    if (!key || rawValue === undefined) {
+      continue;
+    }
+    result[key.trim()] = rawValue.trim();
+  }
+  const rawTrace = String(result.trace ?? "");
+  const parts = rawTrace
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  const trace = parts.map((part, index) => {
+    const value = Number(part);
+    if (!Number.isFinite(value) || !Number.isInteger(value)) {
+      throw new Error(
+        `rust trace parse error at index ${index}: expected integer, got ${JSON.stringify(part)}`,
+      );
+    }
+    return value;
+  });
+  if (trace.length !== traceCount) {
+    throw new Error(`rust trace length mismatch: expected ${traceCount}, got ${trace.length}`);
+  }
+  return trace;
 }
 
 function formatRatio(numerator, denominator) {
