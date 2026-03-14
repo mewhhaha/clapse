@@ -5,6 +5,7 @@ import {
 } from "./wasm-compiler-abi.mjs";
 import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
 import { runWithArgs } from "./run-clap-compiler-wasm.mjs";
+import { makeClapTempDir } from "./runtime-env.mjs";
 import {
   decodeInt,
   instantiateWithRuntime,
@@ -129,10 +130,7 @@ async function compileCaseViaCliDebug(testCase) {
 }
 
 async function compileFailureViaCliDebug(testCase, expectedErrorSubstring) {
-  const tmpDir = await Deno.makeTempDir({
-    dir: "/tmp",
-    prefix: "clap-full-compiler-verify-debug-fail-",
-  });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-verify-debug-fail-");
   try {
     const inputPath = `${tmpDir}/${testCase.inputPath.split("/").pop()}`;
     const wasmPath = `${tmpDir}/out.wasm`;
@@ -283,7 +281,7 @@ async function runCli(args, {
 }
 
 async function compileDebugCliCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-cli-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-cli-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -312,7 +310,7 @@ async function compileDebugCliCase(wasmPath) {
 }
 
 async function compileDebugCliExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-cli-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-cli-root-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -346,7 +344,7 @@ async function compileDebugCliExplicitRootCase(wasmPath) {
 }
 
 async function compileDebugCliWhereExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-where-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-where-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -383,7 +381,7 @@ async function compileDebugCliWhereExplicitRootCase(wasmPath) {
 }
 
 async function compileDebugCliBareRecordArgExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-record-arg-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-record-arg-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -421,7 +419,7 @@ async function compileDebugCliBareRecordArgExplicitRootCase(wasmPath) {
 }
 
 async function compileDebugCliFunctionReturnRecordUpdateExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-record-update-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-record-update-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -459,7 +457,7 @@ async function compileDebugCliFunctionReturnRecordUpdateExplicitRootCase(wasmPat
 }
 
 async function compileDebugCliPreludeAliasCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-prelude-alias-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-prelude-alias-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_main.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -494,7 +492,7 @@ async function compileDebugCliPreludeAliasCase(wasmPath) {
 }
 
 async function compileDebugCliUserInstanceExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-instance-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-instance-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -534,7 +532,7 @@ async function compileDebugCliUserInstanceExplicitRootCase(wasmPath) {
 }
 
 async function compileDebugCliUserClassDefaultExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-default-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-class-default-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -576,7 +574,7 @@ async function compileDebugCliUserClassDefaultExplicitRootCase(wasmPath) {
 }
 
 async function compileDebugCliUserClassCrossDefaultExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-cross-default-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-class-cross-default-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -624,7 +622,7 @@ async function compileDebugCliUserClassCrossDefaultExplicitRootCase(wasmPath) {
 }
 
 async function compileDebugCliUserClassLawExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-law-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-class-law-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -667,7 +665,7 @@ async function compileDebugCliUserClassLawExplicitRootCase(wasmPath) {
 }
 
 async function compileDebugCliUserInstanceCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-instance-main-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-instance-main-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_main.wasm`;
   const artifactsDir = `${tmpDir}/artifacts`;
@@ -706,7 +704,7 @@ async function compileDebugCliUserInstanceCase(wasmPath) {
 }
 
 async function compileDebugCliModuleGraphAliasUserInstanceExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-instance-alias-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-instance-alias-");
   const projectDir = `${tmpDir}/alias-instance-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -765,7 +763,7 @@ async function compileDebugCliModuleGraphAliasUserInstanceExplicitRootCase(wasmP
 async function compileDebugCliModuleGraphAliasUserClassDefaultExplicitRootCase(
   wasmPath,
 ) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-default-alias-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-class-default-alias-");
   const projectDir = `${tmpDir}/alias-class-default-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -826,7 +824,7 @@ async function compileDebugCliModuleGraphAliasUserClassDefaultExplicitRootCase(
 async function compileDebugCliModuleGraphAliasUserClassCrossDefaultExplicitRootCase(
   wasmPath,
 ) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-cross-default-alias-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-class-cross-default-alias-");
   const projectDir = `${tmpDir}/alias-class-cross-default-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -893,7 +891,7 @@ async function compileDebugCliModuleGraphAliasUserClassCrossDefaultExplicitRootC
 async function compileDebugCliModuleGraphAliasUserClassLawExplicitRootCase(
   wasmPath,
 ) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-law-alias-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-class-law-alias-");
   const projectDir = `${tmpDir}/alias-class-law-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -953,7 +951,7 @@ async function compileDebugCliModuleGraphAliasUserClassLawExplicitRootCase(
 }
 
 async function compileDebugCliModuleGraphAliasUserInstanceCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-instance-alias-main-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-instance-alias-main-");
   const projectDir = `${tmpDir}/alias-instance-main-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -1009,7 +1007,7 @@ async function compileDebugCliModuleGraphAliasUserInstanceCase(wasmPath) {
 }
 
 async function compileDebugCliModuleGraphImportListUserInstanceExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-instance-import-list-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-instance-import-list-");
   const projectDir = `${tmpDir}/import-list-instance-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -1068,7 +1066,7 @@ async function compileDebugCliModuleGraphImportListUserInstanceExplicitRootCase(
 async function compileDebugCliModuleGraphImportListUserClassDefaultExplicitRootCase(
   wasmPath,
 ) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-default-import-list-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-class-default-import-list-");
   const projectDir = `${tmpDir}/import-list-class-default-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -1129,7 +1127,7 @@ async function compileDebugCliModuleGraphImportListUserClassDefaultExplicitRootC
 async function compileDebugCliModuleGraphImportListUserClassCrossDefaultExplicitRootCase(
   wasmPath,
 ) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-cross-default-import-list-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-class-cross-default-import-list-");
   const projectDir = `${tmpDir}/import-list-class-cross-default-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -1194,7 +1192,7 @@ async function compileDebugCliModuleGraphImportListUserClassCrossDefaultExplicit
 }
 
 async function compileDebugCliModuleGraphImportListUserInstanceCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-instance-import-list-main-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-instance-import-list-main-");
   const projectDir = `${tmpDir}/import-list-instance-main-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -1250,7 +1248,7 @@ async function compileDebugCliModuleGraphImportListUserInstanceCase(wasmPath) {
 }
 
 async function compileDebugCliModuleGraphTypeOnlyImportUserInstanceExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-instance-type-only-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-instance-type-only-");
   const projectDir = `${tmpDir}/type-only-instance-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -1310,7 +1308,7 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserInstanceExplicitRootC
 }
 
 async function compileDebugCliModuleGraphTypeOnlyImportUserClassDefaultExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-default-type-only-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-class-default-type-only-");
   const projectDir = `${tmpDir}/type-only-class-default-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -1372,7 +1370,7 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserClassDefaultExplicitR
 }
 
 async function compileDebugCliModuleGraphTypeOnlyImportUserClassLawExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-law-type-only-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-class-law-type-only-");
   const projectDir = `${tmpDir}/type-only-class-law-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -1435,7 +1433,7 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserClassLawExplicitRootC
 }
 
 async function compileDebugCliModuleGraphTypeOnlyImportUserClassCrossDefaultExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-cross-type-only-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-class-cross-type-only-");
   const projectDir = `${tmpDir}/type-only-class-cross-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -1503,7 +1501,7 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserClassCrossDefaultExpl
 }
 
 async function compileDebugCliModuleGraphImportListUserClassLawExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-class-law-import-list-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-class-law-import-list-");
   const projectDir = `${tmpDir}/import-list-class-law-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -1566,7 +1564,7 @@ async function compileDebugCliModuleGraphImportListUserClassLawExplicitRootCase(
 }
 
 async function compileDebugCliModuleGraphTypeOnlyImportUserInstanceCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-instance-type-only-main-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-instance-type-only-main-");
   const projectDir = `${tmpDir}/type-only-instance-main-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -1633,7 +1631,7 @@ async function compileDebugCliModuleGraphTypeOnlyImportUserInstanceCase(wasmPath
 }
 
 async function compileNativeCliAliasCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_native.wasm`;
   const debugOutputPath = `${tmpDir}/case_native_debug.wasm`;
@@ -1670,7 +1668,7 @@ async function compileNativeCliAliasCase(wasmPath) {
 }
 
 async function compileNativeCliAliasExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-root-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
@@ -1718,7 +1716,7 @@ async function compileNativeCliAliasExplicitRootCase(wasmPath) {
 }
 
 async function compileNativeCliBareRecordArgExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-record-arg-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-record-arg-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
@@ -1770,7 +1768,7 @@ async function compileNativeCliBareRecordArgExplicitRootCase(wasmPath) {
 }
 
 async function compileNativeCliFunctionReturnRecordUpdateExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-record-update-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-record-update-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
@@ -1822,7 +1820,7 @@ async function compileNativeCliFunctionReturnRecordUpdateExplicitRootCase(wasmPa
 }
 
 async function compileNativeCliUserInstanceExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-instance-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-instance-root-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
@@ -1876,7 +1874,7 @@ async function compileNativeCliUserInstanceExplicitRootCase(wasmPath) {
 }
 
 async function compileNativeCliUserClassDefaultExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-class-default-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-class-default-root-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
@@ -1932,7 +1930,7 @@ async function compileNativeCliUserClassDefaultExplicitRootCase(wasmPath) {
 }
 
 async function compileNativeCliUserClassCrossDefaultExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-class-cross-default-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-class-cross-default-root-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
@@ -1994,7 +1992,7 @@ async function compileNativeCliUserClassCrossDefaultExplicitRootCase(wasmPath) {
 }
 
 async function compileNativeCliUserClassLawExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-class-law-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-class-law-root-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
@@ -2051,7 +2049,7 @@ async function compileNativeCliUserClassLawExplicitRootCase(wasmPath) {
 }
 
 async function compileNativeCliWhereExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-where-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-where-root-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_answer.wasm`;
   const debugOutputPath = `${tmpDir}/case_answer_debug.wasm`;
@@ -2102,7 +2100,7 @@ async function compileNativeCliWhereExplicitRootCase(wasmPath) {
 }
 
 async function compileNativeCliUserInstanceCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-instance-main-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-instance-main-");
   const inputPath = `${tmpDir}/case.clap`;
   const outputPath = `${tmpDir}/case_main.wasm`;
   const debugOutputPath = `${tmpDir}/case_main_debug.wasm`;
@@ -2153,7 +2151,7 @@ async function compileNativeCliUserInstanceCase(wasmPath) {
 }
 
 async function compileNativeCliModuleGraphAliasExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-module-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-module-root-");
   const projectDir = `${tmpDir}/alias-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -2220,7 +2218,7 @@ async function compileNativeCliModuleGraphAliasExplicitRootCase(wasmPath) {
 }
 
 async function compileNativeCliModuleGraphAliasUserInstanceExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-instance-module-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-instance-module-root-");
   const projectDir = `${tmpDir}/alias-instance-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -2294,7 +2292,7 @@ async function compileNativeCliModuleGraphAliasUserInstanceExplicitRootCase(wasm
 async function compileNativeCliModuleGraphAliasUserClassDefaultExplicitRootCase(
   wasmPath,
 ) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-class-default-module-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-class-default-module-root-");
   const projectDir = `${tmpDir}/alias-class-default-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -2370,7 +2368,7 @@ async function compileNativeCliModuleGraphAliasUserClassDefaultExplicitRootCase(
 async function compileNativeCliModuleGraphAliasUserClassCrossDefaultExplicitRootCase(
   wasmPath,
 ) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-class-cross-default-module-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-class-cross-default-module-root-");
   const projectDir = `${tmpDir}/alias-class-cross-default-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -2452,7 +2450,7 @@ async function compileNativeCliModuleGraphAliasUserClassCrossDefaultExplicitRoot
 async function compileNativeCliModuleGraphAliasUserClassLawExplicitRootCase(
   wasmPath,
 ) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-class-law-module-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-class-law-module-root-");
   const projectDir = `${tmpDir}/alias-class-law-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -2527,7 +2525,7 @@ async function compileNativeCliModuleGraphAliasUserClassLawExplicitRootCase(
 }
 
 async function compileNativeCliModuleGraphAliasUserInstanceCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-instance-module-main-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-instance-module-main-");
   const projectDir = `${tmpDir}/alias-instance-main-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -2596,7 +2594,7 @@ async function compileNativeCliModuleGraphAliasUserInstanceCase(wasmPath) {
 }
 
 async function compileNativeCliModuleGraphImportListExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-import-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-import-root-");
   const projectDir = `${tmpDir}/import-list-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -2665,7 +2663,7 @@ async function compileNativeCliModuleGraphImportListExplicitRootCase(wasmPath) {
 }
 
 async function compileNativeCliModuleGraphImportListUserInstanceExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-instance-import-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-instance-import-root-");
   const projectDir = `${tmpDir}/import-list-instance-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -2739,7 +2737,7 @@ async function compileNativeCliModuleGraphImportListUserInstanceExplicitRootCase
 async function compileNativeCliModuleGraphImportListUserClassDefaultExplicitRootCase(
   wasmPath,
 ) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-class-default-import-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-class-default-import-root-");
   const projectDir = `${tmpDir}/import-list-class-default-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -2815,7 +2813,7 @@ async function compileNativeCliModuleGraphImportListUserClassDefaultExplicitRoot
 async function compileNativeCliModuleGraphImportListUserClassCrossDefaultExplicitRootCase(
   wasmPath,
 ) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-class-cross-default-import-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-class-cross-default-import-root-");
   const projectDir = `${tmpDir}/import-list-class-cross-default-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -2895,7 +2893,7 @@ async function compileNativeCliModuleGraphImportListUserClassCrossDefaultExplici
 }
 
 async function compileNativeCliModuleGraphImportListUserInstanceCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-instance-import-main-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-instance-import-main-");
   const projectDir = `${tmpDir}/import-list-instance-main-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -2964,7 +2962,7 @@ async function compileNativeCliModuleGraphImportListUserInstanceCase(wasmPath) {
 }
 
 async function compileDebugCliModuleGraphAliasExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-debug-cli-module-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-debug-cli-module-root-");
   const projectDir = `${tmpDir}/alias-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -3016,7 +3014,7 @@ async function compileDebugCliModuleGraphAliasExplicitRootCase(wasmPath) {
 }
 
 async function compileDebugCliModuleGraphTypeOnlyImportExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-debug-type-only-" });
+  const tmpDir = await makeClapTempDir("clap-full-debug-type-only-");
   const projectDir = `${tmpDir}/type-only-debug-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -3072,7 +3070,7 @@ async function compileDebugCliModuleGraphTypeOnlyImportExplicitRootCase(wasmPath
 }
 
 async function compileDebugCliModuleGraphImportListExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-debug-import-list-" });
+  const tmpDir = await makeClapTempDir("clap-full-debug-import-list-");
   const projectDir = `${tmpDir}/import-list-debug-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -3128,7 +3126,7 @@ async function compileDebugCliModuleGraphImportListExplicitRootCase(wasmPath) {
 }
 
 async function compileModuleGraphImportListCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-verify-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-verify-");
   const projectDir = `${tmpDir}/import-list-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -3179,7 +3177,7 @@ async function compileModuleGraphImportListCase(wasmPath) {
 }
 
 async function compileModuleGraphImportListExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-verify-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-verify-root-");
   const projectDir = `${tmpDir}/import-list-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -3236,7 +3234,7 @@ async function compileModuleGraphImportListExplicitRootCase(wasmPath) {
 }
 
 async function compileModuleGraphImportListUserClassLawExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-import-list-class-law-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-import-list-class-law-root-");
   const projectDir = `${tmpDir}/import-list-class-law-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -3302,7 +3300,7 @@ async function compileModuleGraphImportListUserClassLawExplicitRootCase(wasmPath
 }
 
 async function compileModuleGraphTypeOnlyImportCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-type-only-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-type-only-");
   const projectDir = `${tmpDir}/type-only-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -3353,7 +3351,7 @@ async function compileModuleGraphTypeOnlyImportCase(wasmPath) {
 }
 
 async function compileModuleGraphTypeOnlyImportUserClassCrossDefaultExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-type-only-class-cross-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-type-only-class-cross-root-");
   const projectDir = `${tmpDir}/type-only-class-cross-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -3424,7 +3422,7 @@ async function compileModuleGraphTypeOnlyImportUserClassCrossDefaultExplicitRoot
 }
 
 async function compileNativeCliModuleGraphTypeOnlyImportCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-native-type-only-" });
+  const tmpDir = await makeClapTempDir("clap-full-native-type-only-");
   const projectDir = `${tmpDir}/type-only-native-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -3484,7 +3482,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportCase(wasmPath) {
 }
 
 async function compileNativeCliModuleGraphTypeOnlyImportUserInstanceExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-type-only-instance-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-type-only-instance-");
   const projectDir = `${tmpDir}/type-only-instance-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -3559,7 +3557,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserInstanceExplicitRoot
 }
 
 async function compileNativeCliModuleGraphTypeOnlyImportUserClassDefaultExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-type-only-class-default-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-type-only-class-default-");
   const projectDir = `${tmpDir}/type-only-class-default-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -3636,7 +3634,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserClassDefaultExplicit
 }
 
 async function compileNativeCliModuleGraphTypeOnlyImportUserClassLawExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-type-only-class-law-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-type-only-class-law-");
   const projectDir = `${tmpDir}/type-only-class-law-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -3714,7 +3712,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserClassLawExplicitRoot
 }
 
 async function compileNativeCliModuleGraphTypeOnlyImportUserClassCrossDefaultExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-type-only-class-cross-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-type-only-class-cross-");
   const projectDir = `${tmpDir}/type-only-class-cross-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -3797,7 +3795,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserClassCrossDefaultExp
 }
 
 async function compileNativeCliModuleGraphImportListUserClassLawExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-import-list-class-law-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-import-list-class-law-");
   const projectDir = `${tmpDir}/import-list-class-law-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -3875,7 +3873,7 @@ async function compileNativeCliModuleGraphImportListUserClassLawExplicitRootCase
 }
 
 async function compileNativeCliModuleGraphTypeOnlyImportUserInstanceCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-native-cli-type-only-instance-main-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-native-cli-type-only-instance-main-");
   const projectDir = `${tmpDir}/type-only-instance-main-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -3955,7 +3953,7 @@ async function compileNativeCliModuleGraphTypeOnlyImportUserInstanceCase(wasmPat
 }
 
 async function compileModuleGraphAliasCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-alias-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-alias-");
   const projectDir = `${tmpDir}/alias-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -4004,7 +4002,7 @@ async function compileModuleGraphAliasCase(wasmPath) {
 }
 
 async function compileModuleGraphAliasExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-alias-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-alias-root-");
   const projectDir = `${tmpDir}/alias-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -4059,7 +4057,7 @@ async function compileModuleGraphAliasExplicitRootCase(wasmPath) {
 }
 
 async function compileModuleGraphAliasUserClassDefaultExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-alias-class-default-root-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-alias-class-default-root-");
   const projectDir = `${tmpDir}/alias-class-default-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -4121,7 +4119,7 @@ async function compileModuleGraphAliasUserClassDefaultExplicitRootCase(wasmPath)
 }
 
 async function compileModuleGraphAliasCycleCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-cycle-alias-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-cycle-alias-");
   const projectDir = `${tmpDir}/cycle-alias-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -4182,7 +4180,7 @@ async function compileModuleGraphAliasCycleCase(wasmPath) {
 }
 
 async function compileDebugCliModuleGraphAliasCycleExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-debug-cycle-alias-" });
+  const tmpDir = await makeClapTempDir("clap-full-debug-cycle-alias-");
   const projectDir = `${tmpDir}/cycle-alias-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -4253,7 +4251,7 @@ async function compileDebugCliModuleGraphAliasCycleExplicitRootCase(wasmPath) {
 }
 
 async function compileNativeCliModuleGraphAliasCycleExplicitRootCase(wasmPath) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-native-cycle-alias-" });
+  const tmpDir = await makeClapTempDir("clap-full-native-cycle-alias-");
   const projectDir = `${tmpDir}/cycle-alias-root-project`;
   const srcDir = `${projectDir}/src`;
   const pkgDir = `${srcDir}/pkg`;
@@ -4341,7 +4339,7 @@ async function compileNativeCliModuleGraphAliasCycleExplicitRootCase(wasmPath) {
 }
 
 async function compileModuleGraphFailureCase(wasmPath, options) {
-  const tmpDir = await Deno.makeTempDir({ prefix: "clap-full-compiler-fail-" });
+  const tmpDir = await makeClapTempDir("clap-full-compiler-fail-");
   const projectDir = `${tmpDir}/project`;
   const srcDir = `${projectDir}/src`;
   await Deno.mkdir(srcDir, { recursive: true });

@@ -15,6 +15,26 @@ export async function readBinaryFile(path) {
   return await fs.readFile(path);
 }
 
+export async function makeClapTempDir(prefix = "clap-") {
+  if (isDeno) {
+    const requestedTempDir = String(Deno.env.get("TMPDIR") ?? "").trim();
+    if (requestedTempDir.length > 0) {
+      await Deno.mkdir(requestedTempDir, { recursive: true });
+    }
+    return await Deno.makeTempDir({
+      dir: requestedTempDir.length > 0 ? requestedTempDir : undefined,
+      prefix,
+    });
+  }
+  const fs = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const requestedTempDir = String(process.env.TMPDIR ?? "").trim();
+  const baseDir = requestedTempDir.length > 0 ? requestedTempDir : os.tmpdir();
+  await fs.mkdir(baseDir, { recursive: true });
+  return await fs.mkdtemp(path.join(baseDir, prefix));
+}
+
 export function nowNs() {
   if (typeof process !== "undefined" && process.hrtime?.bigint) {
     return process.hrtime.bigint();

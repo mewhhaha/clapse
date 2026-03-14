@@ -155,6 +155,18 @@ native-source-owned-optimization-benchmark-gate iterations='20000' warmup='2000'
   fi
   CLAP_COMPILER_WASM_PATH="${CLAP_COMPILER_WASM_PATH:-artifacts/latest/clap_compiler.wasm}" deno run -A scripts/source-optimizer-benchmark-gate.mjs "${args[@]}"
 
+native-source-owned-optimization-proof out='/tmp/clap-source-owned-optimizer-proof.wasm' iterations='20000' warmup='2000' repeats='1':
+  #!/usr/bin/env bash
+  set -euo pipefail
+  TMPDIR="${TMPDIR:-$PWD/.tmp}"
+  mkdir -p "$TMPDIR"
+  XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}" \
+  deno run -A scripts/run-clap-compiler-wasm.mjs compile-native lib/compiler/kernel.clap "{{out}}"
+  CLAP_COMPILER_WASM_PATH="{{out}}" \
+  XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}" \
+  TMPDIR="$TMPDIR" \
+  deno run -A scripts/source-optimizer-benchmark-gate.mjs --baseline-wasm artifacts/latest/clap_compiler.wasm --iterations "{{iterations}}" --warmup "{{warmup}}" --repeats "{{repeats}}"
+
 native-ir-liveness-size-gate:
   CLAP_COMPILER_WASM_PATH="${CLAP_COMPILER_WASM_PATH:-artifacts/latest/clap_compiler.wasm}" deno run -A scripts/native-ir-liveness-size-gate.mjs
 

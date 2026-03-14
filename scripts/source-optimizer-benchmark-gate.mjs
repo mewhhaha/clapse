@@ -9,6 +9,7 @@ import {
   compileRustBaseline,
 } from "./bench-rust-compare.mjs";
 import { assertStructuralArtifacts } from "./compile-artifact-contract.mjs";
+import { makeClapTempDir } from "./runtime-env.mjs";
 import { callCompilerWasmRaw } from "./wasm-compiler-abi.mjs";
 
 const PRIMARY_CASE_IDS = new Set([
@@ -174,7 +175,7 @@ async function compileSourceOwnedCase(compilerWasmPath, fixture) {
       input_source: source,
     },
     {
-      validateCompileContract: false,
+      validateCompileContract: true,
       withContractMetadata: true,
     },
   );
@@ -184,9 +185,13 @@ async function compileSourceOwnedCase(compilerWasmPath, fixture) {
     `${fixture.id}: compile failed (${String(response.error_code ?? response.error ?? "unknown")})`);
   assert(response.backend === "kernel-native",
     `${fixture.id}: expected kernel-native backend, got ${JSON.stringify(response.backend)}`);
-  if (response.compile_strategy !== "phase1_passthrough") {
-    fail(`${fixture.id}: not yet source-owned (compile_strategy=${String(response.compile_strategy)})`);
-  }
+  assert(response.compatibility_used !== true,
+    `${fixture.id}: used compatibility path (${String(response.compile_strategy)})`);
+  const compileStrategy = String(response.compile_strategy ?? "");
+  assert(
+    compileStrategy === "phase1_passthrough" || compileStrategy === "compiler_raw",
+    `${fixture.id}: not yet source-owned (compile_strategy=${compileStrategy})`,
+  );
   const artifacts = response.artifacts ?? {};
   assert(typeof artifacts["lowered_ir.txt"] === "string",
     `${fixture.id}: missing lowered_ir.txt`);
@@ -215,10 +220,7 @@ async function compileSourceOwnedCase(compilerWasmPath, fixture) {
   assert(wasmBase64.length > 0,
     `${fixture.id}: missing wasm_base64`);
   const wasmBytes = decodeBase64(wasmBase64);
-  const tmpDir = await Deno.makeTempDir({
-    dir: "/tmp",
-    prefix: `clap-source-optimizer-${fixture.id}-`,
-  });
+  const tmpDir = await makeClapTempDir(`clap-source-optimizer-${fixture.id}-`);
   const wasmPath = `${tmpDir}/${fixture.id}.wasm`;
   await Deno.writeFile(wasmPath, wasmBytes);
   const wat = await wasmToWat(wasmBytes);
@@ -269,10 +271,7 @@ async function main() {
   const { baselineWasmPath, iterations, warmup, repeats } = parseArgs(Deno.args);
   const compilerWasmPath = resolveCompilerWasmPath();
   const fixtures = CASES.filter((fixture) => PRIMARY_CASE_IDS.has(fixture.id));
-  const rustTmpDir = await Deno.makeTempDir({
-    dir: "/tmp",
-    prefix: "clap-source-optimizer-rust-",
-  });
+  const rustTmpDir = await makeClapTempDir("clap-source-optimizer-rust-");
   const rustBinaryPath = await compileRustBaseline(rustTmpDir);
   const jsBoundary = await medianResult(
     () => benchWasmBoundaryOnly(iterations, warmup),
@@ -351,10 +350,7 @@ let boundaryOnlyPathPromise = null;
 async function awaitBoundaryOnlyPath() {
   if (boundaryOnlyPathPromise === null) {
     boundaryOnlyPathPromise = (async () => {
-      const tmpDir = await Deno.makeTempDir({
-        dir: "/tmp",
-        prefix: "clap-source-optimizer-boundary-",
-      });
+      const tmpDir = await makeClapTempDir("clap-source-optimizer-boundary-");
       const wasmPath = `${tmpDir}/boundary.wasm`;
       const bytes = new Uint8Array([
         0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,

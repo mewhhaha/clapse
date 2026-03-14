@@ -68,6 +68,10 @@ the current wasm compiler unless explicitly marked `skip`.
     (function/helper pruning) before benchmark numbers count as evidence. New
     optimization work belongs in `lib/compiler`; producer/C optimizations are
     bootstrap-only evidence unless the same win is visible through this gate.
+    Use `just native-source-owned-optimization-proof` when you need the full
+    end-to-end proof path: rebuild a compiler from current source, then rerun
+    the gate against that rebuilt artifact with the committed compiler as the
+    baseline comparator.
 14. Treat `tree-sitter-clap/queries/highlights.scm` generated marker region as
     grammar-managed: update `docs/clapse-language/references/grammar.ebnf`
     first, regenerate with `just gen-ts-highlights`, and do not hand-edit lines
@@ -454,10 +458,11 @@ optimization proof harness. It uses the representative benchmark fixtures
 `bench_wasm_closure_env_abstraction`, and
 `bench_wasm_wrapper_uncurry_abstraction`) and requires the source-owned
 `kernel-native` compile path to return `codegen_ir.txt` plus
-`optimizer_stats.json`. The gate fails if the compile falls back away from the
-source-owned path, if Rust/wasm checksums diverge, or if the source-owned
-optimizer stats do not show a real helper/function reduction on at least one
-representative case.
+`optimizer_stats.json`. Under full contract validation, truthful source-owned
+responses may surface as either `phase1_passthrough` or `compiler_raw`; the
+gate fails only if the compile uses a compatibility path, if Rust/wasm
+checksums diverge, or if the source-owned optimizer stats do not show a real
+helper/function reduction on at least one representative case.
 `native-program-codegen-semantics-gate` now requires runtime execution of the
 produced wasm (`main`) and no longer falls back to structural code-shape checks.
 Current phase-1 coverage includes evaluator-supported `main` forms with pure

@@ -468,6 +468,7 @@ Current targets in `Justfile`:
 - `just explorer [port]`
 - `just bench-rust-compare [iterations=...] [warmup=...]`
 - `just native-source-owned-optimization-benchmark-gate [iterations=...] [warmup=...] [repeats=...] [baseline_wasm=...]`
+- `just native-source-owned-optimization-proof [out=...] [iterations=...] [warmup=...] [repeats=...]`
 - `just format <file>`
 - `just format-write <file>`
 - `just lsp`
@@ -530,11 +531,20 @@ path, requires compiler-returned `codegen_ir.txt` and
 checksum parity against Rust plus both wasm hosts. The gate is meant to prove
 source-owned optimization wins, not producer-only improvements. If a case is
 not yet measurable through the source-owned path, the gate must fail instead of
-silently treating producer-side lowering as proof. Use
+silently treating producer-side lowering as proof. Under full contract
+validation, truthful source-owned `native-debug` responses may normalize to
+either `phase1_passthrough` or `compiler_raw`, but `compatibility_used` must
+stay false. Use
 `baseline_wasm=/path/to/compiler.wasm` to compare two compiler artifacts
 directly; the gate will then require the candidate to stay semantically equal
 while not regressing wasm byte size or function count on the representative
 cases.
+
+`just native-source-owned-optimization-proof` runs the full proof sequence in
+one step: rebuild a compiler from current source with `compile-native
+lib/compiler/kernel.clap`, then rerun the source-owned benchmark gate against
+that rebuilt compiler with `artifacts/latest/clap_compiler.wasm` as the
+baseline comparator.
 - `examples/bench_wasm_closure_env_abstraction.clap`
 - `examples/bench_wasm_abstraction.clap`
 - `examples/bench_wasm_wrapper_uncurry_abstraction.clap`

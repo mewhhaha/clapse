@@ -617,9 +617,23 @@ This compiles the benchmark fixtures through the source-owned `compile_mode:
 `codegen_ir.txt` and `optimizer_stats.json`. The gate proves source-owned
 function/helper pruning, decompiles the emitted wasm to WAT for structural
 inspection, and verifies checksum parity against both the Rust baseline and the
-two wasm hosts (`clap-wasm` and `clap-wasmi`). Use
+two wasm hosts (`clap-wasm` and `clap-wasmi`). Under full contract validation,
+truthful source-owned `native-debug` responses may surface as either
+`phase1_passthrough` or `compiler_raw`, but they must remain compatibility-free.
+Use
 `baseline_wasm=/path/to/compiler.wasm` when you want a strict before/after
 comparison against another compiler artifact.
+
+For the full end-to-end proof path, use:
+
+```bash
+just native-source-owned-optimization-proof /tmp/clap-source-owned-optimizer-proof.wasm 20000 2000 1
+```
+
+This rebuilds a compiler from the current source with `compile-native
+lib/compiler/kernel.clap`, then reruns the source-owned optimizer gate against
+that rebuilt artifact with `artifacts/latest/clap_compiler.wasm` as the
+baseline comparator.
 
 ## WASM runtime support
 
