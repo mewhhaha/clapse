@@ -1,4 +1,5 @@
 /.cabal/
 /.tmp/
 /out/
+/artifacts/bin/
 /tree-sitter-clap/.ts-cache/
